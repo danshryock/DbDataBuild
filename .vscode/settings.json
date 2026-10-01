@@ -1,0 +1,6 @@
+{
+  "yaml.schemas": {
+    "schemas/model.schema.json": "models/**/*.yml",
+    "schemas/config.schema.json": "dbdatabuild.yml"
+  }
+}

@@ -49,9 +49,11 @@ public class CliTests
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT 1");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(0, exit);
         Assert.Contains("effect: Offline only", output);
+        Assert.Contains("Config: dbdatabuild.yml", output);
         Assert.Contains("OK: 1 model(s) valid.", output);
         Assert.Equal("", err);
     }
@@ -67,9 +69,10 @@ public class CliTests
         Assert.Contains("error DDB-214  models/marts/fct_orders.yml:3", err);
     }
 
-    private static string ProjectWith(string sql, string targets = "[sqlserver, fabric]")
+    private static string ProjectWith(string sql, string targets = "[sqlserver, fabric]", string? config = "default_targets: [sqlserver]\n")
     {
         var dir = NewProjectDir();
+        if (config != null) File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]", $"targets: {targets}"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), sql);
         return dir;
@@ -98,6 +101,73 @@ public class CliTests
         Assert.Contains("warning DDB-302", err);
         Assert.Contains("note DDB-303", err);
         Assert.Matches(@"OK: 1 model\(s\) valid\. 1 warning\(s\), 1 note\(s\)\.", output);
+    }
+
+    [Fact]
+    public void Validate_without_a_config_file_warns_and_prints_the_built_in_defaults()
+    {
+        var (exit, output, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", config: null));
+        Assert.Equal(CliApp.ExitOk, exit);
+        Assert.Contains("warning DDB-109", err);
+        Assert.Contains("Config: built-in defaults", output);
+        Assert.Contains("string semantics: case=insensitive, accent=sensitive, trailing_space=ignored", output);
+    }
+
+    [Fact]
+    public void Validate_uses_default_targets_from_the_config_for_models_without_targets()
+    {
+        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1", config: "default_targets: [postgres]\n");
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]\n", ""));
+        var (exit, output, err) = Run("validate", "--project", dir);
+        Assert.Equal(CliApp.ExitOk, exit);                     // GROUP BY 1 is native on postgres
+        Assert.Contains("default targets: postgres", output);
+        Assert.DoesNotContain("DDB-301", err);
+
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
+        Assert.Equal(CliApp.ExitFindings, Run("validate", "--project", dir).Exit);
+    }
+
+    [Fact]
+    public void Validate_reports_config_errors_with_file_and_position()
+    {
+        var (exit, _, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", config: "default_targets: [oracle]\n"));
+        Assert.Equal(CliApp.ExitFindings, exit);
+        Assert.Contains("error DDB-106  dbdatabuild.yml:1", err);
+    }
+
+    [Fact]
+    public void Configured_target_version_resolves_min_version_rows()
+    {
+        const string regexp = "SELECT s FROM t WHERE REGEXP_MATCHES(s, 'a')";
+        var warn = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "default_targets: [sqlserver]\n"));
+        Assert.Equal(CliApp.ExitOk, warn.Exit);
+        Assert.Contains("no version is configured", warn.Err);
+
+        var old = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "targets:\n  sqlserver: { version: 16 }\n"));
+        Assert.Equal(CliApp.ExitFindings, old.Exit);
+        Assert.Contains("needs sqlserver version 17 or later, but the project configures version 16", old.Err);
+
+        var current = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "targets:\n  sqlserver: { version: 17 }\n"));
+        Assert.Equal(CliApp.ExitOk, current.Exit);
+        Assert.DoesNotContain("DDB-308", current.Err);
+        Assert.DoesNotContain("DDB-301", current.Err);
+    }
+
+    [Fact]
+    public void Policy_severity_can_turn_a_warning_into_a_failure_but_not_hide_a_finding()
+    {
+        const string sql = "SELECT a / b AS x FROM t";
+        var plain = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "default_targets: [sqlserver]\n"));
+        Assert.Equal(CliApp.ExitOk, plain.Exit);
+        Assert.Contains("warning DDB-302", plain.Err);
+
+        var strict = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: error\n"));
+        Assert.Equal(CliApp.ExitFindings, strict.Exit);
+        Assert.Contains("error DDB-302", strict.Err);
+
+        var relaxed = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: note\n"));
+        Assert.Equal(CliApp.ExitOk, relaxed.Exit);
+        Assert.Contains("note DDB-302", relaxed.Err);                // still shown
     }
 
     [Fact]

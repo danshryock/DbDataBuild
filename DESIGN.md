@@ -52,7 +52,7 @@ These are invariants. Each one must have automated tests (section 15).
 | Database access | `Microsoft.Data.SqlClient` (MIT, verified) | Integrated and Entra auth; `SqlBulkCopy` for test loads. Server is given as `host,port` |
 | PostgreSQL access | `Npgsql` (PostgreSQL license, verified permissive) | Binary `COPY` for test loads **[VERIFY]** |
 | YAML | `YamlDotNet` | Plus published JSON Schemas for editor validation |
-| Tests | xUnit, a snapshot library (e.g., Verify) for golden files | |
+| Tests | xUnit, a snapshot library (e.g., Verify) for golden files | `JsonSchema.Net` **7.0.4** (MIT) for schema conformance tests only. Do not upgrade to 9.x without review: it ships under the Open Source Maintenance Fee EULA, not a plain open-source license |
 | Containers | Optional only | Must work with no container runtime (Windows dev has no nested virtualization) |
 
 ### Naming
@@ -167,7 +167,7 @@ YAML has well-known pitfalls (for example, unquoted `no`, `on`, or `2026-10-12` 
 - **All scalars are read as strings** and validated against the JSON Schemas in `schemas/`. Nothing is coerced by YAML type rules.
 - **Unknown keys and duplicate keys are errors.** Anchors, aliases, merge keys, and custom tags are not allowed.
 - Enumerated values are lowercase snake_case. SQL types are written as plain strings (`DECIMAL(14, 2)`).
-- The JSON Schemas are associated with the files by glob (`models/**/*.yml`) so editors, and Claude Code, validate definitions as they are written.
+- The JSON Schemas (`schemas/model.schema.json`, `schemas/config.schema.json`) are associated with the files by glob (`models/**/*.yml`, `dbdatabuild.yml`; see `.vscode/settings.json`) so editors, and Claude Code, validate definitions as they are written. The C# loaders are authoritative because they produce the diagnostics, and they also check what a schema cannot (name against path, grain against `unique_key`, column references). A conformance corpus runs through both, so the schemas and loaders cannot drift apart: structural errors must fail in both, semantic-only errors must pass the schema and fail the loader. Editors read unquoted `false` or `16` as typed values, so the schemas accept both forms where the loader reads strings. Schemas for answers and plans arrive with their milestones.
 - Every error carries file, line, and column, and uses the diagnostic format in section 14.
 
 **Bodies have no macros or templating.** Load strategies (section 6.6) wrap the body, for example `SELECT * FROM (<body>) AS b WHERE b.order_date >= @start`. **[VERIFY]** predicate pushdown for bodies containing aggregates or window functions on each target. If wrapping proves too costly for specific models, revisit with standard bind-parameter placeholders declared in the YAML, still without custom syntax.
@@ -485,6 +485,34 @@ Only code paths within mutating command handlers can obtain a write-capable conn
 - Verifies the statement's effect class is permitted for the current command.
 
 A test enumerates call paths to `ExecuteNonQuery` and fails on any path not routed through the gate.
+
+### 9.4 Project configuration (`dbdatabuild.yml`)
+
+Offline settings only. Credentials never live here (section 9.2). Every key is optional; an absent key takes the built-in default, and **every command prints the effective settings in its header**, so a default is never hidden. A missing file yields the defaults and a warning (DDB-109). The schema is `schemas/config.schema.json`.
+
+```yaml
+default_targets: [sqlserver]      # targets for models without `targets:`. Default: [sqlserver]
+targets:                          # per-target settings used by offline checks
+  sqlserver: { version: 16 }      # the engine's major version; resolves matrix `min_version` rows
+  postgres:  { version: 17 }
+tracking_schema: dbdatabuild      # default: dbdatabuild
+string_semantics:                 # section 7.4. Defaults shown
+  case: insensitive               # sensitive | insensitive
+  accent: sensitive               # sensitive | insensitive
+  trailing_space: ignored         # significant | ignored
+  collations:
+    default: { duckdb: NOCASE, sqlserver: Latin1_General_100_CI_AS }
+policy:
+  severity:                       # severity of matrix findings: error | warning | note
+    approximated: warning         # DDB-302
+    emulated: note                # DDB-303
+    unverified: warning           # DDB-304
+    not_covered: warning          # DDB-305
+```
+
+- **Target versions** settle `min_version` matrix rows: at or above the minimum there is no finding, below it the construct is an error (DDB-301), and with no version configured it stays a warning (DDB-308).
+- **Policy** can raise or lower a finding's severity but never hides it. `unsupported` findings are always errors and are not configurable.
+- Not yet checked: whether a target's configured collation satisfies the declared profile (section 7.4).
 
 ## 10. Planning and applying
 

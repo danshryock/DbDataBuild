@@ -24,10 +24,13 @@ public sealed record Diagnostic(
     SourceLocation Location,
     string Found,
     string? Supported = null,
-    string? Fix = null)
+    string? Fix = null,
+    Severity? SeverityOverride = null)
 {
     public string Code => Descriptor.Code;
-    public Severity Severity => Descriptor.DefaultSeverity;
+
+    /// <summary>The descriptor's default, unless project policy (dbdatabuild.yml) raised or lowered it.</summary>
+    public Severity Severity => SeverityOverride ?? Descriptor.DefaultSeverity;
 }
 
 public static class DiagnosticCatalog
@@ -72,6 +75,11 @@ public static class DiagnosticCatalog
         "Every .sql has a .yml with the same base name, and vice versa.",
         "Run `dbdatabuild define <path>` to create the missing definition, or remove the orphan.",
         "A model is a pair of files. One without the other cannot be built.");
+
+    public static readonly DiagnosticDescriptor ConfigNotFound = W("109", "Project configuration file not found",
+        $"A {ProductInfo.ConfigFile} at the project root.",
+        $"Create {ProductInfo.ConfigFile} (see schemas/config.schema.json), or accept the built-in defaults printed in the command header.",
+        "Without a configuration file the built-in defaults apply. They are printed in every command header so they are never hidden.");
 
     // 2xx: model semantics
     public static readonly DiagnosticDescriptor MissingUniqueKey = E("214", "Missing unique_key",
@@ -133,7 +141,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,

@@ -27,12 +27,9 @@ public static class ModelDefinitionLoader
         return diags.Count > errorsBefore ? null : def;
     }
 
-    private sealed class Validator(string file, List<Diagnostic> diags)
+    private sealed class Validator(string file, List<Diagnostic> diags) : YamlFieldReader(file, diags)
     {
         private readonly List<YamlScalar> renameTargets = [];
-
-        private void Add(DiagnosticDescriptor d, YamlNode at, string found, string? supported = null, string? fix = null) =>
-            diags.Add(new Diagnostic(d, new(file, at.Line, at.Column), found, supported, fix));
 
         public ModelDefinition? Validate(YamlNode root, string? expectedName)
         {
@@ -50,10 +47,13 @@ public static class ModelDefinitionLoader
 
             var (kindType, uniqueKey, timeColumn, lookback, kindNode) = ReadKind(top);
             var grain = StringList(top, "grain", required: false);
-            var targets = StringList(top, "targets", required: false);
+            var targets = StringList(top, "targets", required: false, allowEmpty: false, unique: true);
             if (targets != null)
                 foreach (var t in targets.Where(t => !TargetNames.All.Contains(t.Value)))
                     Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+
+            if (top.Get("loads") is { } loads and not YamlMapping)
+                Add(DiagnosticCatalog.InvalidValue, loads, "`loads` must be a mapping of operation names to definitions.");
 
             var columns = ReadColumns(top);
             var renames = ReadRenames(top);
@@ -72,7 +72,7 @@ public static class ModelDefinitionLoader
             if (timeColumn != null) Ref([timeColumn], "time_column");
 
             var incremental = kindType?.Value is ModelKinds.IncrementalByUniqueKey or ModelKinds.IncrementalByTimeRange;
-            if (incremental && grain == null && top.Get("grain") == null)
+            if (incremental && (top.Get("grain") == null || grain is { Count: 0 }))
                 Add(DiagnosticCatalog.GrainMismatch, kindNode ?? top, $"Kind {kindType!.Value} requires `grain`, but none is set.");
             if (kindType?.Value == ModelKinds.IncrementalByUniqueKey && grain != null && uniqueKey != null &&
                 !grain.Select(g => g.Value).ToHashSet().SetEquals(uniqueKey.Select(k => k.Value)))
@@ -104,7 +104,7 @@ public static class ModelDefinitionLoader
 
             var uniqueKey = StringList(kind, "unique_key", required: false);
             var timeColumn = kind.Get("time_column") as YamlScalar;
-            if (type?.Value == ModelKinds.IncrementalByUniqueKey && (uniqueKey == null || uniqueKey.Count == 0) && kind.Get("unique_key") == null)
+            if (type?.Value == ModelKinds.IncrementalByUniqueKey && (kind.Get("unique_key") == null || uniqueKey is { Count: 0 }))
                 Add(DiagnosticCatalog.MissingUniqueKey, kind, "Kind incremental_by_unique_key requires a unique_key, but none is set.",
                     fix: "add under `kind:`  unique_key: [order_id]");
             if (type?.Value == ModelKinds.IncrementalByTimeRange && timeColumn == null)
@@ -156,44 +156,6 @@ public static class ModelDefinitionLoader
                 renameTargets.Add(to);
             }
             return result;
-        }
-
-        private void CheckKeys(YamlMapping map, IEnumerable<string> allowed, string where)
-        {
-            var allowedList = allowed.ToList();
-            foreach (var e in map.Entries.Where(e => !allowedList.Contains(e.Key.Value)))
-                Add(DiagnosticCatalog.UnknownKey, e.Key, $"Unknown key `{e.Key.Value}` in {where}.", $"Keys: {string.Join(", ", allowedList)}.");
-        }
-
-        private YamlScalar? Scalar(YamlMapping map, string key, bool required, YamlNode at)
-        {
-            var node = map.Get(key);
-            if (node == null)
-            {
-                if (required) Add(DiagnosticCatalog.MissingKey, at, $"Required key `{key}` is missing.", fix: $"Add `{key}:`.");
-                return null;
-            }
-            if (node is YamlScalar s && s.Value.Length > 0) return s;
-            Add(DiagnosticCatalog.InvalidValue, node, $"`{key}` must be a non-empty string.");
-            return null;
-        }
-
-        private List<YamlScalar>? StringList(YamlMapping map, string key, bool required)
-        {
-            var node = map.Get(key);
-            if (node == null)
-            {
-                if (required) Add(DiagnosticCatalog.MissingKey, map, $"Required key `{key}` is missing.");
-                return null;
-            }
-            if (node is not YamlSequence seq) { Add(DiagnosticCatalog.InvalidValue, node, $"`{key}` must be a list, for example `{key}: [a, b]`."); return null; }
-            var list = new List<YamlScalar>();
-            foreach (var item in seq.Items)
-            {
-                if (item is YamlScalar s && s.Value.Length > 0) list.Add(s);
-                else Add(DiagnosticCatalog.InvalidValue, item, $"Entries of `{key}` must be non-empty strings.");
-            }
-            return list;
         }
     }
 }

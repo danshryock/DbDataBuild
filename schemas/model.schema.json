@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model.schema.json",
+  "title": "DbDataBuild model definition",
+  "description": "A model definition file (models/**/<name>.yml), the companion of the plain DuckDB-dialect <name>.sql body. This schema is for editors; `dbdatabuild validate` applies the same rules plus semantic checks (name against path, grain against unique_key, column references) with diagnostic codes. The tool reads every scalar as a string, so values here that YAML would type (nullable) accept the quoted and unquoted forms.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "kind", "columns"],
+  "properties": {
+    "name": {
+      "description": "Schema-qualified model name. Must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml is marts.fct_orders).",
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "kind": { "$ref": "#/$defs/kind" },
+    "grain": {
+      "description": "Columns that uniquely identify an output row. Required for incremental kinds; for incremental_by_unique_key it must equal unique_key.",
+      "$ref": "#/$defs/columnList"
+    },
+    "targets": {
+      "description": "Engines the model must be valid for. The project's default_targets apply if omitted.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["sqlserver", "fabric", "postgres"] }
+    },
+    "columns": {
+      "description": "The declared output schema. Required for every model: it drives the shape hash, the plan's DDL, and offline validation.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/column" }
+    },
+    "renames": {
+      "description": "Declared column renames. Renames are never inferred.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/rename" }
+    },
+    "loads": {
+      "description": "Named load operations (not validated yet; arrives with the load-operations milestone).",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "description": "Incremental kinds require a grain.",
+      "if": {
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "required": ["type"],
+            "properties": { "type": { "enum": ["incremental_by_unique_key", "incremental_by_time_range"] } }
+          }
+        }
+      },
+      "then": { "required": ["grain"] }
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "columnList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "kind": {
+      "description": "Table semantics, and the default load operation.",
+      "oneOf": [
+        {
+          "title": "view",
+          "description": "View over upstream. DDL only; apply issues no data statements.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "view" } }
+        },
+        {
+          "title": "full",
+          "description": "Table fully reloaded: transactional delete and insert.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "full" } }
+        },
+        {
+          "title": "incremental_by_unique_key",
+          "description": "Upsert by key. Requires unique_key.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "unique_key"],
+          "properties": {
+            "type": { "const": "incremental_by_unique_key" },
+            "unique_key": { "$ref": "#/$defs/columnList" }
+          }
+        },
+        {
+          "title": "incremental_by_time_range",
+          "description": "Time-sliced incremental. The range comes from MAX(time_column) in the target minus lookback. Requires time_column.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "time_column"],
+          "properties": {
+            "type": { "const": "incremental_by_time_range" },
+            "time_column": { "$ref": "#/$defs/nonEmptyString" },
+            "lookback": { "description": "For example `3 days`.", "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      ]
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "type": {
+          "description": "A SQL type written as a plain string, for example `BIGINT` or `DECIMAL(14, 2)`.",
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "nullable": {
+          "description": "Defaults to true.",
+          "oneOf": [{ "type": "boolean" }, { "enum": ["true", "false"] }]
+        },
+        "collation": {
+          "description": "Logical collation name from the project's string_semantics.collations. The project default applies if omitted.",
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "rename": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/nonEmptyString" },
+        "to": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    }
+  }
+}

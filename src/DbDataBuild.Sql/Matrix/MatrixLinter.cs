@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DbDataBuild.Core;
+using DbDataBuild.Models;
 using DbDataBuild.Sql.Ast;
 
 namespace DbDataBuild.Sql.Matrix;
@@ -21,8 +22,10 @@ public sealed class MatrixLinter(SupportMatrix matrix)
 
     private static readonly HashSet<string> CoveredJoinKinds = ["Inner", "Left", "Right", "Full", "Cross", "Natural"];
 
-    public IReadOnlyList<Diagnostic> Lint(string sql, string file, IReadOnlyList<string> targets)
+    /// <param name="config">Supplies target versions (to resolve min_version rows) and severity policy. Defaults apply if null.</param>
+    public IReadOnlyList<Diagnostic> Lint(string sql, string file, IReadOnlyList<string> targets, ProjectConfig? config = null)
     {
+        config ??= ProjectConfig.Default;
         var diags = new List<Diagnostic>();
         var parsed = Polyglot.Parse(sql, Dialects.Canonical);
         if (!parsed.Ok)
@@ -50,12 +53,12 @@ public sealed class MatrixLinter(SupportMatrix matrix)
             {
                 var rowLoc = LocateRow(row, node, file) ?? loc;
                 foreach (var target in targets)
-                    diags.AddRange(Report(row, target, rowLoc));
+                    diags.AddRange(Report(row, target, rowLoc, config));
             }
 
             if (!matched.Any(r => r.Detect.Any(d => d.Kind is DetectKind.Node or DetectKind.Function)))
-                CheckCovered(node, loc, reportedUncovered, diags);
-            CheckClauses(node, loc, reportedUncovered, diags);
+                CheckCovered(node, loc, reportedUncovered, diags, config);
+            CheckClauses(node, loc, reportedUncovered, diags, config);
         }
         return diags;
     }
@@ -76,11 +79,22 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         _ => false,
     };
 
-    private IEnumerable<Diagnostic> Report(ConstructRow row, string target, SourceLocation loc)
+    private IEnumerable<Diagnostic> Report(ConstructRow row, string target, SourceLocation loc, ProjectConfig config)
     {
         if (!row.Targets.TryGetValue(target, out var entry)) yield break;
         var note = string.IsNullOrEmpty(entry.Note) ? "" : " " + entry.Note;
         string Found(string verb) => $"`{row.Id}` is {verb} on {target}.{note}";
+        Severity? Policy(string key) => config.Policy.TryGetValue(key, out var sv) ? sv : null;
+
+        // A configured engine version settles min_version rows. Below the minimum the construct does not work there.
+        var versionKnown = config.TargetVersions.TryGetValue(target, out var version);
+        if (entry.MinVersion is { } min && versionKnown && version < min && entry.Status is not SupportStatus.Unsupported)
+        {
+            yield return new Diagnostic(DiagnosticCatalog.ConstructUnsupported, loc,
+                $"`{row.Id}` needs {target} version {min} or later, but the project configures version {version}.{note}",
+                Fix: $"Raise `targets.{target}.version` if the engine is newer, avoid `{row.Id}`, or remove `{target}` from `targets:`.");
+            yield break;
+        }
 
         switch (entry.Status)
         {
@@ -89,54 +103,56 @@ public sealed class MatrixLinter(SupportMatrix matrix)
                     Fix: $"Rewrite the model without `{row.Id}`, or remove `{target}` from `targets:`.");
                 break;
             case SupportStatus.Approximated:
-                yield return new Diagnostic(DiagnosticCatalog.ConstructApproximated, loc, Found("approximated"));
+                yield return new Diagnostic(DiagnosticCatalog.ConstructApproximated, loc, Found("approximated"), SeverityOverride: Policy(PolicyKeys.Approximated));
                 break;
             case SupportStatus.Emulated:
-                yield return new Diagnostic(DiagnosticCatalog.ConstructEmulated, loc, Found("emulated"));
+                yield return new Diagnostic(DiagnosticCatalog.ConstructEmulated, loc, Found("emulated"), SeverityOverride: Policy(PolicyKeys.Emulated));
                 break;
             case SupportStatus.Unverified:
-                yield return new Diagnostic(DiagnosticCatalog.ConstructUnverified, loc, Found("unverified"));
+                yield return new Diagnostic(DiagnosticCatalog.ConstructUnverified, loc, Found("unverified"), SeverityOverride: Policy(PolicyKeys.Unverified));
                 break;
         }
-        if (entry.MinVersion is { } v && entry.Status is not SupportStatus.Unsupported)
+        if (entry.MinVersion is { } v && !versionKnown && entry.Status is not SupportStatus.Unsupported)
             yield return new Diagnostic(DiagnosticCatalog.ConstructNeedsVersion, loc,
-                $"`{row.Id}` on {target} needs engine version {v} or later.", Fix: $"Confirm the {target} version is at least {v}, or avoid `{row.Id}`.");
+                $"`{row.Id}` on {target} needs engine version {v} or later, and no version is configured.",
+                Fix: $"Set `targets.{target}.version` in {ProductInfo.ConfigFile}, or avoid `{row.Id}`.");
     }
 
-    private void CheckCovered(AstNode node, SourceLocation loc, HashSet<string> seen, List<Diagnostic> diags)
+    private void CheckCovered(AstNode node, SourceLocation loc, HashSet<string> seen, List<Diagnostic> diags, ProjectConfig config)
     {
         if (node.Type == "function")
         {
             var name = node.GetString("name") ?? "<unnamed>";
             if (!matrix.IsCoveredFunction(name) && seen.Add($"fn:{name}:{loc.Line}:{loc.Column}"))
-                diags.Add(NotCovered(loc, $"function `{name.ToUpperInvariant()}`"));
+                diags.Add(NotCovered(config, loc, $"function `{name.ToUpperInvariant()}`"));
             return;
         }
         if (!matrix.IsCoveredNode(node.Type) && seen.Add($"node:{node.Type}:{loc.Line}:{loc.Column}"))
-            diags.Add(NotCovered(loc, $"expression `{node.Type}`"));
+            diags.Add(NotCovered(config, loc, $"expression `{node.Type}`"));
 
         if (node.Type is "cast" or "try_cast" && node.TryGet("to", out var to) && to.ValueKind == JsonValueKind.Object &&
             to.TryGetProperty("data_type", out var dt) && dt.GetString() is { } type &&
             !matrix.Covered.Any(c => c.Kind == DetectKind.DataType && c.Name == type) && seen.Add($"type:{type}:{loc.Line}:{loc.Column}"))
-            diags.Add(NotCovered(loc, $"data type `{type}` in a cast"));
+            diags.Add(NotCovered(config, loc, $"data type `{type}` in a cast"));
     }
 
-    private static void CheckClauses(AstNode node, SourceLocation loc, HashSet<string> seen, List<Diagnostic> diags)
+    private static void CheckClauses(AstNode node, SourceLocation loc, HashSet<string> seen, List<Diagnostic> diags, ProjectConfig config)
     {
         if (node.Type != "select") return;
         foreach (var p in node.Body.EnumerateObject())
             if (!CoveredSelectFields.Contains(p.Name) && Detectors.NonNull(node, p.Name) && seen.Add($"clause:{p.Name}:{loc.Line}:{loc.Column}"))
-                diags.Add(NotCovered(loc, $"clause `{p.Name}`"));
+                diags.Add(NotCovered(config, loc, $"clause `{p.Name}`"));
 
         foreach (var j in Detectors.Joins(node))
             if (j.TryGetProperty("kind", out var k) && k.GetString() is { } kind && !CoveredJoinKinds.Contains(kind) && seen.Add($"join:{kind}:{loc.Line}:{loc.Column}"))
-                diags.Add(NotCovered(loc, $"join kind `{kind}`"));
+                diags.Add(NotCovered(config, loc, $"join kind `{kind}`"));
 
         if (node.TryGet("with", out var with) && with.ValueKind == JsonValueKind.Object &&
             with.TryGetProperty("recursive", out var rec) && rec.ValueKind == JsonValueKind.True && seen.Add($"recursive:{loc.Line}:{loc.Column}"))
-            diags.Add(NotCovered(loc, "recursive CTE"));
+            diags.Add(NotCovered(config, loc, "recursive CTE"));
     }
 
-    private static Diagnostic NotCovered(SourceLocation loc, string what) =>
-        new(DiagnosticCatalog.ConstructNotCovered, loc, $"The {what} is not covered by the support matrix, so its behavior on the targets is unknown.");
+    private static Diagnostic NotCovered(ProjectConfig config, SourceLocation loc, string what) =>
+        new(DiagnosticCatalog.ConstructNotCovered, loc, $"The {what} is not covered by the support matrix, so its behavior on the targets is unknown.",
+            SeverityOverride: config.Policy.TryGetValue(PolicyKeys.NotCovered, out var sv) ? sv : null);
 }

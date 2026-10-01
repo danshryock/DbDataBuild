@@ -72,16 +72,20 @@ public static class CliApp
         WriteHeader(spec, output);
         var result = ProjectValidator.Validate(projectRoot);
         var diagnostics = new List<Diagnostic>(result.Diagnostics);
+        var config = ProjectConfigLoader.LoadFromProject(projectRoot, diagnostics);
 
         var matrixDiags = new List<Diagnostic>();
         var linter = new MatrixLinter(MatrixLoader.LoadEmbedded(matrixDiags));
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
 
-        output.WriteLine($"Targets: each model's `targets:`, else {string.Join(", ", DefaultTargets)} (project config is not implemented yet).");
+        // The effective settings are never hidden (DESIGN.md 7.4): printed even when they are the built-in defaults.
+        var configured = File.Exists(Path.Combine(projectRoot, ProductInfo.ConfigFile)) && !diagnostics.Any(d => d.Severity == Severity.Error && d.Location.File == ProductInfo.ConfigFile);
+        output.WriteLine($"Config: {(configured ? ProductInfo.ConfigFile : "built-in defaults")}");
+        output.WriteLine($"Effective: {config.Describe()}");
         foreach (var source in result.Sources)
         {
             var sql = File.ReadAllText(Path.Combine(projectRoot, source.QueryFile));
-            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, source.Definition.Targets ?? DefaultTargets));
+            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, source.Definition.Targets ?? config.DefaultTargets, config));
         }
 
         foreach (var d in diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
@@ -94,9 +98,6 @@ public static class CliApp
             : $"FAILED: {errors} error(s), {tail}");
         return errors == 0 ? ExitOk : ExitFindings;
     }
-
-    // Provisional until dbdatabuild.yml is loaded (DESIGN.md 6.2: "the project default applies if omitted").
-    private static readonly IReadOnlyList<string> DefaultTargets = [TargetNames.SqlServer];
 
     private static int PrintMatrix(CommandSpec spec, TextWriter output, TextWriter error)
     {
