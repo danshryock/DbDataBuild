@@ -14,10 +14,51 @@ public sealed class GateRefusedException(Diagnostic diagnostic) : Exception(diag
 internal interface IWriteExecutor : IAsyncDisposable
 {
     Task<long> ExecuteAsync(string text, IReadOnlyList<GateParameter> parameters, CancellationToken ct);
+
+    /// <summary>Tries to take a session-level application lock without waiting. The lock lives as long as this connection (or until <see cref="UnlockAsync"/>).</summary>
+    Task<bool> TryLockAsync(string resource, CancellationToken ct);
+    Task UnlockAsync(string resource, CancellationToken ct);
+
+    /// <summary>After a failed statement: leaves no transaction open (PostgreSQL refuses further statements in an aborted transaction).</summary>
+    Task RecoverAsync(CancellationToken ct);
 }
 
-internal sealed class AdoWriteExecutor(DbConnection connection) : IWriteExecutor
+internal sealed class AdoWriteExecutor(DbConnection connection, bool postgres) : IWriteExecutor
 {
+    public async Task<bool> TryLockAsync(string resource, CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = postgres
+            ? "SELECT pg_try_advisory_lock(hashtextextended(@res, 0))"
+            : "DECLARE @r int; EXEC @r = sp_getapplock @Resource = @res, @LockMode = N'Exclusive', @LockOwner = N'Session', @LockTimeout = 0; SELECT @r;";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@res";
+        p.DbType = DbType.String;
+        p.Value = resource;
+        cmd.Parameters.Add(p);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return postgres ? Convert.ToBoolean(result, CultureInfo.InvariantCulture) : Convert.ToInt32(result, CultureInfo.InvariantCulture) >= 0;
+    }
+
+    public async Task UnlockAsync(string resource, CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = postgres ? "SELECT pg_advisory_unlock(hashtextextended(@res, 0))" : "EXEC sp_releaseapplock @Resource = @res, @LockOwner = N'Session';";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@res";
+        p.DbType = DbType.String;
+        p.Value = resource;
+        cmd.Parameters.Add(p);
+        await cmd.ExecuteScalarAsync(ct);
+    }
+
+    public async Task RecoverAsync(CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = postgres ? "ROLLBACK;" : "IF @@TRANCOUNT > 0 ROLLBACK;";
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<long> ExecuteAsync(string text, IReadOnlyList<GateParameter> parameters, CancellationToken ct)
     {
         await using var cmd = connection.CreateCommand();
@@ -61,7 +102,7 @@ public sealed class MutationGate : IAsyncDisposable
     public static async Task<MutationGate> OpenAsync(LoginSettings write, string command, StatementKind permitted, IStatementLog log, Guid runId, CancellationToken ct = default)
     {
         if (write.Login != Login.Write) throw new ArgumentException("The mutation gate needs the write login.", nameof(write));
-        return new MutationGate(new AdoWriteExecutor(await write.OpenAsync(ct)), log, command, permitted, dryRun: false, runId);
+        return new MutationGate(new AdoWriteExecutor(await write.OpenAsync(ct), write.Target == "postgres"), log, command, permitted, dryRun: false, runId);
     }
 
     /// <summary>A gate that runs every check and writes every log entry but never touches a database.</summary>
@@ -92,8 +133,47 @@ public sealed class MutationGate : IAsyncDisposable
             // type and driver error number only: driver messages can quote data (DESIGN.md 14.2)
             var number = ex is DbException { ErrorCode: var code } && code != 0 ? $" code={code}" : "";
             TryRecord(n, "end", statement, $"failed {ex.GetType().Name}{number}");
+            await RecoverAsync(statement.StepId, ct);
             throw;
         }
+    }
+
+    /// <summary>Best-effort rollback of whatever the failed statement left open, so the tracking writes that follow a failure can run. Logged like any other statement.</summary>
+    private async Task RecoverAsync(string stepId, CancellationToken ct)
+    {
+        try
+        {
+            var n = Interlocked.Increment(ref ordinal);
+            var rollback = GateStatement.Tracking(stepId + ":rollback", "ROLLBACK (leave no transaction open)");
+            Record(n, "recover", rollback, includeText: true, outcome: null);
+            await executor!.RecoverAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* the connection is unusable; the next statement will fail and say so */ }
+    }
+
+    /// <summary>
+    /// Takes the application lock that makes `apply` mutually exclusive on one target (`sp_getapplock` on SQL Server, an advisory lock on PostgreSQL).
+    /// Returns false when another apply holds it. The attempt and the outcome are in the statement log.
+    /// </summary>
+    public async Task<bool> TryAcquireApplicationLockAsync(string resource, CancellationToken ct = default)
+    {
+        var n = Interlocked.Increment(ref ordinal);
+        var s = GateStatement.Tracking("lock", $"acquire application lock {resource}");
+        Record(n, DryRun ? "dry-run" : "begin", s, includeText: true, outcome: null);
+        if (DryRun) return true;
+        var granted = await executor!.TryLockAsync(resource, ct);
+        Record(n, "end", s, includeText: false, outcome: granted ? "granted" : "held by another process");
+        return granted;
+    }
+
+    public async Task ReleaseApplicationLockAsync(string resource, CancellationToken ct = default)
+    {
+        if (DryRun) return;
+        var n = Interlocked.Increment(ref ordinal);
+        var s = GateStatement.Tracking("unlock", $"release application lock {resource}");
+        Record(n, "begin", s, includeText: true, outcome: null);
+        await executor!.UnlockAsync(resource, ct);
+        Record(n, "end", s, includeText: false, outcome: "released");
     }
 
     private void Record(int n, string phase, GateStatement s, bool includeText, string? outcome)

@@ -79,6 +79,49 @@ public static class CliApp
                     cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply);
                     cmd.SetAction(pr => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), output, error, environment ?? Environment.GetEnvironmentVariable));
                     break;
+                case "plan":
+                    var planModels = new Argument<string[]>("models") { Description = "Model names, files or directories to plan (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var planProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var planTarget = new Option<string?>("--target") { Description = "Target to plan for (default: the project's only default target)" };
+                    var planAnswers = new Option<FileInfo?>("--answers") { Description = "Answers file for the questions (see schemas/answers.schema.json)" };
+                    var planAccept = new Option<bool>("--accept-inferred") { Description = "Accept inferred proposals marked high certainty" };
+                    var planOut = new Option<DirectoryInfo?>("--output") { Description = "Where to write the plan files (default: plans/<target>/)" };
+                    cmd.Arguments.Add(planModels);
+                    cmd.Options.Add(planProject); cmd.Options.Add(planTarget); cmd.Options.Add(planAnswers); cmd.Options.Add(planAccept); cmd.Options.Add(planOut);
+                    cmd.SetAction(pr => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut),
+                        output, error, input, interactive, environment ?? Environment.GetEnvironmentVariable));
+                    break;
+                case "check":
+                    var checkModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var checkProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var checkTarget = new Option<string?>("--target") { Description = "Target to check (default: the project's only default target)" };
+                    cmd.Arguments.Add(checkModels);
+                    cmd.Options.Add(checkProject); cmd.Options.Add(checkTarget);
+                    cmd.SetAction(pr => PlanCommand.Check(spec, pr.GetValue(checkProject)!.FullName, pr.GetValue(checkTarget), pr.GetValue(checkModels) ?? [], output, error, environment ?? Environment.GetEnvironmentVariable));
+                    break;
+                case "apply":
+                    var applyPlan = new Argument<FileInfo>("plan") { Description = "Plan file written by `plan` (plans/<target>/<id>.plan.yml)" };
+                    var applyProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var applyDry = new Option<bool>("--dry-run") { Description = "Run every check and print every statement; execute nothing" };
+                    var applyRisky = new Option<bool>("--allow-risky") { Description = "Allow the plan's risky steps" };
+                    var applyDestructive = new Option<string[]>("--allow-destructive") { Description = "Object (marts.fct) whose destructive steps are allowed; repeat for several objects", DefaultValueFactory = _ => [] };
+                    var applyResume = new Option<bool>("--resume") { Description = "Continue a plan that stopped part-way, if the live objects are exactly in the recorded intermediate state" };
+                    var applyDirty = new Option<bool>("--allow-dirty") { Description = "Apply from a working tree with uncommitted changes (recorded)" };
+                    cmd.Arguments.Add(applyPlan);
+                    cmd.Options.Add(applyProject); cmd.Options.Add(applyDry); cmd.Options.Add(applyRisky); cmd.Options.Add(applyDestructive); cmd.Options.Add(applyResume); cmd.Options.Add(applyDirty);
+                    cmd.SetAction(pr => ApplyCommand.Run(spec, pr.GetValue(applyPlan)!.FullName, pr.GetValue(applyProject)!.FullName, pr.GetValue(applyDry), pr.GetValue(applyRisky), pr.GetValue(applyDestructive) ?? [],
+                        pr.GetValue(applyResume), pr.GetValue(applyDirty), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    break;
+                case "ack":
+                    var ackKind = new Argument<string>("kind") { Description = "drift (an object changed outside the tool) or definition (an incremental model's query changed)" };
+                    var ackName = new Argument<string>("name") { Description = "The object (marts.fct) or model name" };
+                    var ackReason = new Option<string?>("--reason") { Description = "Why the change is accepted (required; recorded with your login)" };
+                    var ackTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var ackProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    cmd.Arguments.Add(ackKind); cmd.Arguments.Add(ackName);
+                    cmd.Options.Add(ackReason); cmd.Options.Add(ackTarget); cmd.Options.Add(ackProject);
+                    cmd.SetAction(pr => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    break;
                 case "matrix":
                     cmd.SetAction(_ => PrintMatrix(spec, output, error));
                     break;
@@ -111,25 +154,11 @@ public static class CliApp
         var diagnostics = new List<Diagnostic>(result.Diagnostics);
         var config = ProjectConfigLoader.LoadFromProject(projectRoot, diagnostics);
 
-        var matrixDiags = new List<Diagnostic>();
-        var matrix = MatrixLoader.LoadEmbedded(matrixDiags);
-        if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
-        var linter = new MatrixLinter(matrix);
-        var renderer = new LoadRenderer(matrix, linter, config);
-
         // The effective settings are never hidden (DESIGN.md 7.4): printed even when they are the built-in defaults.
         var configured = File.Exists(Path.Combine(projectRoot, ProductInfo.ConfigFile)) && !diagnostics.Any(d => d.Severity == Severity.Error && d.Location.File == ProductInfo.ConfigFile);
         output.WriteLine($"Config: {(configured ? ProductInfo.ConfigFile : "built-in defaults")}");
         output.WriteLine($"Effective: {config.Describe()}");
-        foreach (var source in result.Sources)
-        {
-            var sql = File.ReadAllText(Path.Combine(projectRoot, source.QueryFile));
-            var targets = source.Definition.Targets ?? config.DefaultTargets;
-            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, targets, config));
-            // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
-            diagnostics.AddRange(renderer.Render(source.Definition, sql, source.QueryFile, targets).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
-        }
-        diagnostics.AddRange(CollationChecker.Check(config, result.Sources));
+        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot));
 
         foreach (var d in diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);

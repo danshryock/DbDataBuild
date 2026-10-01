@@ -8,6 +8,8 @@
     <ProjectReference Include="..\DbDataBuild.Targets\DbDataBuild.Targets.csproj" />
     <ProjectReference Include="..\DbDataBuild.State\DbDataBuild.State.csproj" />
     <ProjectReference Include="..\DbDataBuild.Execution\DbDataBuild.Execution.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Planning\DbDataBuild.Planning.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Apply\DbDataBuild.Apply.csproj" />
   </ItemGroup>
 
   <ItemGroup>

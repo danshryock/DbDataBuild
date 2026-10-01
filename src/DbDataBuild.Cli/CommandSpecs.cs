@@ -40,12 +40,12 @@ public static class CommandSpecs
         new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),
-        new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, history inputs", false),
-        new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", false),
+        new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),
+        new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", true),
         new("report", EffectClass.TargetReadOnly, "History consistency, drift, run and DDL history", false),
-        new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", false),
+        new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", true),
         new("run", EffectClass.TargetDataWrites, "Plan + apply for routine loads only", false),
-        new("ack", EffectClass.TrackingTablesOnly, "Record a human decision (drift, history)", false),
+        new("ack", EffectClass.TrackingTablesOnly, "Record a human decision (drift, definition change)", true),
         new("init", EffectClass.TrackingTablesOnly, "Create tracking schema and tables (prints the script; --apply runs it)", true),
     ];
 }

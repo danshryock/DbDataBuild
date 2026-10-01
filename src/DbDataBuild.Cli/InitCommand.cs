@@ -20,17 +20,8 @@ internal static class InitCommand
         foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.WriteLine(DiagnosticFormatter.Format(d));
         if (diags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
-        var target = targetArg ?? (config.DefaultTargets.Count == 1 ? config.DefaultTargets[0] : null);
-        if (target == null)
-        {
-            error.WriteLine($"--target is required: the project has {config.DefaultTargets.Count} default targets ({string.Join(", ", config.DefaultTargets)}).");
-            return CliApp.ExitUsage;
-        }
-        if (!TargetNames.All.Contains(target))
-        {
-            error.WriteLine($"Unknown target `{target}`. One of: {string.Join(", ", TargetNames.All)}.");
-            return CliApp.ExitUsage;
-        }
+        var target = CommandTargets.Resolve(config, targetArg, error);
+        if (target == null) return CliApp.ExitUsage;
 
         LoginSettings? write = null;
         if (apply)

@@ -14,8 +14,14 @@ public sealed record RenderedFile(string Path, string Content);
 /// <param name="Status">supported, emulated, approximated, unverified or unsupported: the worst matrix status among the strategy and the constructs it uses.</param>
 public sealed record OperationReport(string Model, string Target, string Operation, string Strategy, bool IsDefault, string Status, IReadOnlyList<string> Findings);
 
-public sealed record RenderResult(IReadOnlyList<RenderedFile> Files, IReadOnlyList<OperationReport> Operations, IReadOnlyList<Diagnostic> Diagnostics)
+/// <summary>A rendered load operation with everything a plan needs: the script as committed, its resolver, parameters and watermark rule.</summary>
+public sealed record RenderedOperation(
+    string Model, string Target, string Operation, bool IsDefault, string Strategy, string ScriptPath, string Script, string? ResolverPath, string? Resolver,
+    IReadOnlyList<RenderedParameter> Parameters, WatermarkSpec? Watermark);
+
+public sealed record RenderResult(IReadOnlyList<RenderedFile> Files, IReadOnlyList<OperationReport> Operations, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<RenderedOperation>? RenderedOperations = null)
 {
+    public IReadOnlyList<RenderedOperation> Loads => RenderedOperations ?? [];
     public bool HasErrors => Diagnostics.Any(d => d.Severity == Severity.Error);
 }
 
@@ -34,6 +40,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         var files = new List<RenderedFile>();
         var reports = new List<OperationReport>();
         var diags = new List<Diagnostic>();
+        var operations = new List<RenderedOperation>();
 
         var (bodyHash, hashError) = AstHasher.Hash(bodySql);
         if (bodyHash == null)
@@ -79,6 +86,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
                     files.Add(new RenderedFile(resolverPath, rendered.Resolver));
                 }
                 var status = WorstStatus(lint, strategyStatus);
+                operations.Add(new RenderedOperation(def.Name, targetName, op.Name, op.IsDefault, op.Strategy, scriptPath, rendered.Script, resolverPath, rendered.Resolver, rendered.Parameters, op.Watermark));
                 manifestOps.Add(new ManifestOperation(op.Name, op.IsDefault, op.Strategy, status, findings, Path.GetFileName(scriptPath), Sha(rendered.Script),
                     resolverPath == null ? null : Path.GetFileName(resolverPath), rendered.Resolver == null ? null : Sha(rendered.Resolver), rendered.Parameters));
                 reports.Add(new OperationReport(def.Name, targetName, op.Name, op.Strategy, op.IsDefault, status, findings));
@@ -88,7 +96,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
                 files.Add(new RenderedFile($"{targetName}/{def.Name}/manifest.yml",
                     ManifestWriter.Write(def.Name, targetName, bodyHash, matrixVersion, DbDataBuild.Core.ProductInfo.Version, sources, manifestOps)));
         }
-        return new RenderResult(files.OrderBy(f => f.Path, StringComparer.Ordinal).ToList(), reports, diags);
+        return new RenderResult(files.OrderBy(f => f.Path, StringComparer.Ordinal).ToList(), reports, diags, operations);
     }
 
     private sealed record Rendered(string Script, string? Resolver, IReadOnlyList<RenderedParameter> Parameters);

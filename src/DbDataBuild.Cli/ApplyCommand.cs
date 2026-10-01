@@ -1,0 +1,85 @@
+using DbDataBuild.Apply;
+using DbDataBuild.Core;
+using DbDataBuild.Execution;
+using DbDataBuild.Models;
+using DbDataBuild.Planning;
+
+namespace DbDataBuild.Cli;
+
+/// <summary>
+/// `dbdatabuild apply &lt;plan&gt;` (DESIGN.md 10.3). Effect class: target writes, exactly what the plan states. It refuses a plan that was edited, a stale plan, a plan that needs
+/// an allowance it was not given, and a dirty working tree. `--dry-run` runs the same checks and the same code path and executes nothing.
+/// </summary>
+internal static class ApplyCommand
+{
+    public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool resume, bool allowDirty,
+        TextWriter output, TextWriter error, Func<string, string?> env)
+    {
+        if (!File.Exists(planPath)) { error.WriteLine($"Plan file `{planPath}` does not exist."); return CliApp.ExitUsage; }
+        var planText = File.ReadAllText(planPath);
+        var diags = new List<Diagnostic>();
+        var plan = PlanDocument.Parse(planText, Path.GetFileName(planPath), diags);
+        if (plan == null)
+        {
+            foreach (var d in diags) error.Write(DiagnosticFormatter.Format(d));
+            return CliApp.ExitFindings;
+        }
+
+        var configDiags = new List<Diagnostic>();
+        var config = ProjectConfigLoader.LoadFromProject(root, configDiags);
+        foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Write(DiagnosticFormatter.Format(d));
+        if (configDiags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
+
+        var (read, readMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Read, env);
+        var (write, writeMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Write, env);
+        var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  target: {plan.Target}  |  login: {logins}");
+        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
+
+        var (commit, dirty) = GitInfo.Read(root);
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName);
+
+        // refusals that need no connection come first
+        var offline = new List<Diagnostic>(ApplyEngine.CheckAllowances(plan, options));
+        if (dirty && !allowDirty)
+        {
+            var dirtyDiag = new Diagnostic(DiagnosticCatalog.DirtyWorkingTree, new("git", 0, 0), $"The working tree at `{root}` has uncommitted changes (commit {commit?[..Math.Min(12, commit.Length)]}).");
+            if (dryRun) error.Write(DiagnosticFormatter.Format(dirtyDiag with { SeverityOverride = Severity.Warning })); else offline.Add(dirtyDiag);
+        }
+        if (readMissing != null) offline.Add(readMissing);
+        if (!dryRun && writeMissing != null) offline.Add(writeMissing);
+        if (offline.Count > 0)
+        {
+            foreach (var d in offline) error.Write(DiagnosticFormatter.Format(d));
+            output.WriteLine("Nothing was executed.");
+            return CliApp.ExitFindings;
+        }
+
+        var runId = Guid.NewGuid();
+        ApplyResult result;
+        string? logPath = null;
+        {
+            using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
+            logPath = Path.GetRelativePath(root, log.Path);
+            output.WriteLine($"Statement log: {logPath}");
+            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, options, log, runId, line => output.WriteLine(line))).GetAwaiter().GetResult();
+        }
+
+        if (dryRun)
+            foreach (var step in plan.Steps)
+            {
+                output.WriteLine();
+                output.WriteLine($"-- step {step.Id} [{step.Type.ToString().ToLowerInvariant()}, {step.Risk.ToString().ToLowerInvariant()}] {step.Description}");
+                if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
+                foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
+            }
+        foreach (var d in result.Refusals) error.Write(DiagnosticFormatter.Format(d));
+        output.WriteLine();
+        foreach (var o in result.Outcomes) output.WriteLine($"  step {o.StepId}: {o.Status}{(o.Detail != null && o.Status != "ok" ? " (" + o.Detail + ")" : "")}  {o.Description}");
+        if (result.Success)
+            output.WriteLine(dryRun ? "Dry run complete: every check passed and nothing was executed." : $"Applied plan {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) executed.");
+        else
+            output.WriteLine($"Plan {plan.Id} did not complete. {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran before the stop; see the statement log {logPath}.");
+        return result.Success ? CliApp.ExitOk : CliApp.ExitFindings;
+    }
+}

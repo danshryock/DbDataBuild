@@ -87,3 +87,103 @@ public static class TrackingStore
         ]), ct);
     }
 }
+
+/// <summary>What the tracking tables say about one plan, for refusing a double apply and for `apply --resume`.</summary>
+/// <param name="MigrationStatuses">Statuses of its `migration_log` rows, oldest first (started, completed, failed).</param>
+/// <param name="CompletedDdlHashes">Statement hashes of its DDL that finished `ok`.</param>
+/// <param name="CompletedRunSteps">Step ids of its loads that finished `ok`.</param>
+/// <param name="RecordedShapes">`schema_version` rows written by this plan: object and shape hash.</param>
+public sealed record PlanProgress(IReadOnlyList<string> MigrationStatuses, IReadOnlySet<string> CompletedDdlHashes, IReadOnlySet<string> CompletedRunSteps, IReadOnlyList<(string Object, string ShapeHash)> RecordedShapes);
+
+/// <summary>Writers and readers for the audit tables (DESIGN.md 12): migration, DDL and run logs. Writes go through the gate as tracking statements.</summary>
+public static class AuditLog
+{
+    private static string C(string target, string n) => TrackingDdl.For(target).Quote(n);
+    private static string T(string target, string schema, string table) => $"{C(target, schema)}.{C(target, table)}";
+
+    private static GateParameter S(string name, string? v, int length = 0) => new(name, v == null ? DbType.String : DbType.String, v);
+    private static GateParameter A(string name, string? v) => new(name, DbType.AnsiString, v);
+    private static GateParameter Fixed(string name, string? v) => new(name, DbType.AnsiStringFixedLength, v);
+
+    public static Task MigrationAsync(MutationGate gate, string target, string schema, string stepId, string planId, string planHash, string planText, string? gitCommit, string appliedBy,
+        string status, string? hashBefore, string? hashAfter, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"INSERT INTO {T(target, schema, "migration_log")} ({c("plan_id")}, {c("plan_hash")}, {c("plan_text")}, {c("git_commit")}, {c("applied_by")}, {c("applied_utc")}, {c("hash_before")}, {c("hash_after")}, {c("status")}) " +
+                   "VALUES (@plan_id, @plan_hash, @plan_text, @git_commit, @applied_by, @applied_utc, @hash_before, @hash_after, @status)";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+        [
+            A("plan_id", planId), Fixed("plan_hash", planHash), S("plan_text", planText), A("git_commit", gitCommit), S("applied_by", appliedBy),
+            new("applied_utc", DbType.DateTime2, TrackingClock.NextUtc()), Fixed("hash_before", hashBefore), Fixed("hash_after", hashAfter), A("status", status),
+        ]), ct);
+    }
+
+    public static Task BeginDdlAsync(MutationGate gate, string target, string schema, string stepId, Guid ddlId, string objectName, string statementText, string statementHash,
+        string? hashBefore, string invoker, string planId, string? gitCommit, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"INSERT INTO {T(target, schema, "ddl_log")} ({c("ddl_id")}, {c("object_name")}, {c("statement_hash")}, {c("statement_text")}, {c("hash_before")}, {c("hash_after")}, {c("invoker")}, {c("plan_id")}, {c("git_commit")}, {c("executed_utc")}, {c("status")}) " +
+                   "VALUES (@ddl_id, @object_name, @statement_hash, @statement_text, @hash_before, NULL, @invoker, @plan_id, @git_commit, @executed_utc, 'started')";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+        [
+            new("ddl_id", DbType.Guid, ddlId), S("object_name", objectName), Fixed("statement_hash", statementHash), S("statement_text", statementText), Fixed("hash_before", hashBefore),
+            S("invoker", invoker), A("plan_id", planId), A("git_commit", gitCommit), new("executed_utc", DbType.DateTime2, TrackingClock.NextUtc()),
+        ]), ct);
+    }
+
+    public static Task FinishDdlAsync(MutationGate gate, string target, string schema, string stepId, Guid ddlId, string status, string? hashAfter, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"UPDATE {T(target, schema, "ddl_log")} SET {c("status")} = @status, {c("hash_after")} = @hash_after WHERE {c("ddl_id")} = @ddl_id";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text, [A("status", status), Fixed("hash_after", hashAfter), new("ddl_id", DbType.Guid, ddlId)]), ct);
+    }
+
+    public static Task BeginRunAsync(MutationGate gate, string target, string schema, string stepId, Guid runId, string model, string operation, string planId, string? gitCommit,
+        string? definitionHash, string? shapeStart, string? loadName, string? loadFileHash, string? resolverFileHash, string? parameters, string? watermarkUsed, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"INSERT INTO {T(target, schema, "run_log")} ({c("run_id")}, {c("step_id")}, {c("model")}, {c("operation")}, {c("rows_affected")}, {c("status")}, {c("plan_id")}, {c("git_commit")}, " +
+                   $"{c("definition_hash")}, {c("shape_hash_start")}, {c("shape_hash_end")}, {c("load_name")}, {c("load_file_hash")}, {c("resolver_file_hash")}, {c("parameters")}, {c("watermark_used")}, {c("started_utc")}, {c("ended_utc")}) " +
+                   "VALUES (@run_id, @step_id, @model, @operation, NULL, 'started', @plan_id, @git_commit, @definition_hash, @shape_start, NULL, @load_name, @load_file_hash, @resolver_file_hash, @parameters, @watermark_used, @started_utc, NULL)";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+        [
+            new("run_id", DbType.Guid, runId), A("step_id", stepId), S("model", model), A("operation", operation), A("plan_id", planId), A("git_commit", gitCommit), Fixed("definition_hash", definitionHash),
+            Fixed("shape_start", shapeStart), A("load_name", loadName), Fixed("load_file_hash", loadFileHash), Fixed("resolver_file_hash", resolverFileHash), S("parameters", parameters),
+            A("watermark_used", watermarkUsed), new("started_utc", DbType.DateTime2, TrackingClock.NextUtc()),
+        ]), ct);
+    }
+
+    public static Task FinishRunAsync(MutationGate gate, string target, string schema, string stepId, Guid runId, string status, long? rows, string? shapeEnd, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"UPDATE {T(target, schema, "run_log")} SET {c("status")} = @status, {c("rows_affected")} = @rows, {c("shape_hash_end")} = @shape_end, {c("ended_utc")} = @ended_utc WHERE {c("run_id")} = @run_id AND {c("step_id")} = @step_id";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+            [A("status", status), new("rows", DbType.Int64, rows), Fixed("shape_end", shapeEnd), new("ended_utc", DbType.DateTime2, TrackingClock.NextUtc()), new("run_id", DbType.Guid, runId), A("step_id", stepId)]), ct);
+    }
+
+    /// <summary>A person's acknowledgement of a block, recorded so planning accepts exactly that block (code, object, hash) from now on.</summary>
+    public static Task AcknowledgeAsync(MutationGate gate, string target, string schema, string stepId, string model, string code, string detail, string by, string reason, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var now = TrackingClock.NextUtc();
+        var text = $"INSERT INTO {T(target, schema, "block_log")} ({c("block_id")}, {c("model")}, {c("code")}, {c("detail")}, {c("created_utc")}, {c("ack_by")}, {c("ack_reason")}, {c("ack_utc")}) " +
+                   "VALUES (@block_id, @model, @code, @detail, @created_utc, @ack_by, @ack_reason, @ack_utc)";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+        [
+            new("block_id", DbType.Guid, Guid.NewGuid()), S("model", model), A("code", code), S("detail", detail), new("created_utc", DbType.DateTime2, now), S("ack_by", by), S("ack_reason", reason),
+            new("ack_utc", DbType.DateTime2, now),
+        ]), ct);
+    }
+
+    public static async Task<PlanProgress> ProgressAsync(ReadSession read, string target, string schema, string planId, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var p = new[] { new GateParameter("plan_id", DbType.AnsiString, planId) };
+        var migrations = await read.QueryAsync($"SELECT m.{c("status")} FROM {T(target, schema, "migration_log")} m WHERE m.{c("plan_id")} = @plan_id ORDER BY m.{c("applied_utc")}", p, ct);
+        var ddl = await read.QueryAsync($"SELECT d.{c("statement_hash")} FROM {T(target, schema, "ddl_log")} d WHERE d.{c("plan_id")} = @plan_id AND d.{c("status")} = 'ok'", p, ct);
+        var runs = await read.QueryAsync($"SELECT r.{c("step_id")} FROM {T(target, schema, "run_log")} r WHERE r.{c("plan_id")} = @plan_id AND r.{c("status")} = 'ok'", p, ct);
+        var shapes = await read.QueryAsync($"SELECT s.{c("object_name")}, s.{c("shape_hash")} FROM {T(target, schema, "schema_version")} s WHERE s.{c("plan_id")} = @plan_id ORDER BY s.{c("first_seen_utc")}", p, ct);
+        return new PlanProgress(migrations.Select(r => ((string)r[0]!).Trim()).ToList(), ddl.Select(r => ((string)r[0]!).Trim()).ToHashSet(), runs.Select(r => ((string)r[0]!).Trim()).ToHashSet(),
+            shapes.Select(r => ((string)r[0]!, ((string)r[1]!).Trim())).ToList());
+    }
+}

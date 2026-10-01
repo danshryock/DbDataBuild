@@ -16,7 +16,7 @@ public class PlanDocumentTests
                 ["col.added", "answer Q-history-marts.fct.discount_code = not_backfilled"], new string('b', 64), []),
             new PlanStep("2", StepType.Load, "marts.fct", "load marts.fct (default)", "-- script\nSELECT 'é', N'☃', '\\' AS \"q\"\r\nGO\n\tdone", RiskClass.Safe, ["load.routine"], null,
                 [new PlanParameter("watermark", "TIMESTAMP", "resolver", "2024-03-01 00:00:00"), new PlanParameter("nothing", "BIGINT", "runtime", null)],
-                "SELECT MAX(at) FROM t", "2024-03-01 00:00:00", true, new string('c', 64), "default"),
+                "SELECT MAX(at) FROM t", "2024-03-01 00:00:00", true, new string('c', 64), "default", DefinitionHash: new string('e', 64)),
             new PlanStep("3", StepType.Track, "marts.old", "adopt marts.old", "record shape x", RiskClass.Safe, ["obj.untracked"], new string('d', 64), [], ShapeSource: "adopted"),
         ],
         ["Rows loaded before this plan will have NULL in `discount_code`.", "line with \"quotes\" and 'apostrophes'"]);
@@ -33,7 +33,7 @@ public class PlanDocumentTests
         Assert.Empty(diags);
         Assert.NotNull(parsed);
         Assert.Equal(plan.Steps.Select(s => s.Text), parsed!.Steps.Select(s => s.Text));          // scripts byte for byte, including \r\n, quotes and non-ASCII
-        static string Show(PlanStep s) => string.Join("|", s.Id, s.Type, s.Object, s.Description, s.Text, s.Risk, string.Join(",", s.Reasons), s.HashAfter, s.ResolverText, s.ResolverResult, s.HasResolver, s.FileHash, s.Operation, s.ShapeSource,
+        static string Show(PlanStep s) => string.Join("|", s.Id, s.Type, s.Object, s.Description, s.Text, s.Risk, string.Join(",", s.Reasons), s.HashAfter, s.ResolverText, s.ResolverResult, s.HasResolver, s.FileHash, s.Operation, s.ShapeSource, s.DefinitionHash,
             string.Join(",", s.Parameters.Select(p => $"{p.Name}:{p.Type}:{p.Source}:{p.Value ?? "<null>"}")));
         Assert.Equal(plan.Steps.Select(Show), parsed.Steps.Select(Show));
         Assert.Equal(plan.Bases, parsed.Bases);

@@ -436,7 +436,7 @@ public static class Planner
         if (!SpanFits(c, load, parameters, blocks)) return false;
 
         loadSteps.Add(new PlanStep("", StepType.Load, def.Name, $"load {def.Name} ({load.Operation})", load.Script, RiskClass.Safe, ["load.routine"], null, parameters,
-            load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation));
+            load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash));
         return true;
     }
 

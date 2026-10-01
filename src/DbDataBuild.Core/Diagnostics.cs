@@ -255,6 +255,35 @@ public static class DiagnosticCatalog
         $"Generate a new plan with `{ProductInfo.Cli} plan`. A plan is never edited by hand.",
         "A plan records the exact statements `apply` will run, and a content hash over all of it (DESIGN.md 10.3). A hand-edited or damaged plan is refused rather than applied.");
 
+    public static readonly DiagnosticDescriptor StepNeedsAllowance = E("436", "Plan step needs an explicit allowance",
+        "Risky steps with `--allow-risky`; destructive steps with `--allow-destructive <object>` naming each object they change.",
+        $"Review the plan report, then repeat the command with the allowance the message names. Nothing was executed.",
+        "Risk classes are decided at plan time and enforced at apply time (DESIGN.md 10.4). No flag is implied by another, and destructive allowances name objects, never `all`.");
+    public static readonly DiagnosticDescriptor PlanIsStale = E("437", "Plan is stale",
+        $"A live target whose hashes and resolver results equal the ones the plan recorded.",
+        $"Generate a new plan with `{ProductInfo.Cli} plan`. A stale plan is never applied or adjusted.",
+        "The plan was made against a different state of the target than the one that exists now (DESIGN.md 10.3). Applying it could do something its reviewer never saw, so it is refused.");
+    public static readonly DiagnosticDescriptor PlanAlreadyStarted = E("438", "Plan was already applied or partly applied",
+        $"A plan that was never applied, or a partly applied one resumed with `--resume`.",
+        $"Use `{ProductInfo.Cli} apply --resume <plan>` for a plan that stopped part-way, or generate a new plan.",
+        "Plans are single-use. A plan that completed is never run again. One that stopped part-way continues only when the live objects are exactly in the recorded intermediate state (DESIGN.md 10.3).");
+    public static readonly DiagnosticDescriptor ApplyLockHeld = E("439", "Another apply holds the application lock",
+        "No other apply running against this target.",
+        "Wait for the other apply to finish, then run this one again.",
+        "Applies are mutually exclusive per target (`sp_getapplock` on SQL Server, an advisory lock on PostgreSQL). The tool does not wait or queue.");
+    public static readonly DiagnosticDescriptor StepFailed = E("440", "A plan step failed",
+        "Every step completing.",
+        $"Read the statement log named in the output, fix the cause, then `{ProductInfo.Cli} apply --resume <plan>` or generate a new plan.",
+        "Steps stopped at the failure; later steps did not run. The step's status and the objects' hashes are recorded.");
+    public static readonly DiagnosticDescriptor StepResultDiffers = E("441", "A step's result differs from the plan",
+        "A shape hash after each DDL step equal to the one the plan promised.",
+        $"Inspect the object, then generate a new plan.",
+        "After each DDL step the tool recomputes the object's shape hash and compares it with the plan's expected result (DESIGN.md 10.3). A mismatch stops the apply and blocks dependents.");
+    public static readonly DiagnosticDescriptor DirtyWorkingTree = E("442", "Working tree has uncommitted changes",
+        "A clean working tree, so the commit recorded with the apply identifies what ran.",
+        "Commit or stash the changes, or pass `--allow-dirty` to apply anyway (the dirty flag is recorded).",
+        "Applies record the git commit; from a dirty tree that commit would not describe the code and plan that were used (DESIGN.md 10.3).");
+
     // 5xx: state and safety (logins, the mutation gate, tracking tables)
     public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
         "A connection string in the environment variable named in the message, for the login this command needs.",
@@ -291,7 +320,7 @@ public static class DiagnosticCatalog
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, DefinitionFileChanged, DefinitionNotEditable,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];

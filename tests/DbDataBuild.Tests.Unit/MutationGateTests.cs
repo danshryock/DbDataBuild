@@ -23,6 +23,10 @@ public class MutationGateTests
             if (LogFails) throw new IOException("disk full");
             Events.Add($"log:{entry.Phase}:{entry.StepId}");
         }
+        public bool LockGranted { get; set; } = true;
+        public Task<bool> TryLockAsync(string resource, CancellationToken ct) { Events.Add("lock:" + resource); return Task.FromResult(LockGranted); }
+        public Task UnlockAsync(string resource, CancellationToken ct) { Events.Add("unlock:" + resource); return Task.CompletedTask; }
+        public Task RecoverAsync(CancellationToken ct) { Events.Add("recover"); return Task.CompletedTask; }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -66,6 +70,37 @@ public class MutationGateTests
         var end = log.Entries.Single(e => e.Phase == "end");
         Assert.Equal("failed InvalidOperationException", end.Outcome);
         Assert.DoesNotContain("secret", string.Join(" ", log.Entries.Select(e => e.Outcome + e.Text)));
+    }
+
+    [Fact]
+    public async Task A_failed_statement_is_followed_by_a_recovery_so_later_tracking_writes_can_run()
+    {
+        var p = new Probe { Throw = new InvalidOperationException("boom") };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Gate(p).ExecuteAsync(GateStatement.FromPlanStep("s1", StatementKind.Data, "INSERT 1")));
+        Assert.Equal(["log:begin:s1", "exec:INSERT 1", "log:end:s1", "log:recover:s1:rollback", "recover"], p.Events);
+    }
+
+    [Fact]
+    public async Task The_application_lock_is_logged_and_a_lock_held_elsewhere_is_reported_not_waited_for()
+    {
+        var p = new Probe();
+        var gate = Gate(p);
+        Assert.True(await gate.TryAcquireApplicationLockAsync("dbdatabuild:x"));
+        await gate.ReleaseApplicationLockAsync("dbdatabuild:x");
+        Assert.Equal(["log:begin:lock", "lock:dbdatabuild:x", "log:end:lock", "log:begin:unlock", "unlock:dbdatabuild:x", "log:end:unlock"], p.Events);
+
+        var busy = new Probe { LockGranted = false };
+        Assert.False(await Gate(busy).TryAcquireApplicationLockAsync("dbdatabuild:x"));
+    }
+
+    [Fact]
+    public async Task Dry_run_takes_no_lock_and_runs_no_recovery()
+    {
+        var p = new Probe();
+        var gate = Gate(p, dry: true);
+        Assert.True(await gate.TryAcquireApplicationLockAsync("r"));
+        await gate.ReleaseApplicationLockAsync("r");
+        Assert.DoesNotContain(p.Events, e => e.StartsWith("lock:") || e.StartsWith("unlock:"));
     }
 
     [Fact]
