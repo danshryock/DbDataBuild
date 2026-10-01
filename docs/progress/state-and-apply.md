@@ -84,3 +84,14 @@ Decisions for review:
 1. **Views** record the hash of the applied `CREATE OR ALTER VIEW` text (from `ddl_log`) and are altered when it differs. A view's column types are derived by the engine and cannot be predicted offline, so a view step has no expected shape hash; apply will check column names and record the live shape.
 2. A plan with blocks is still generated for the models that are not blocked; blocks and skips are printed prominently and the command exits non-zero. The alternative (refuse any plan while a block exists) is one line to change.
 3. Unique-key constraints and indexes are not created from the model; the plan says so under "noticed but not done" once the command builds that list.
+
+## 6. The plan document
+
+`PlanDocument.Serialize/Parse` and `PlanReport.Markdown` (Planning project). A plan is two renderings of one object (DESIGN.md 10.2): a machine-readable YAML that `apply` consumes and a Markdown report for people.
+
+- Every string is a JSON-quoted scalar (valid YAML), so scripts with quotes, backslashes, `\r\n`, tabs and non-ASCII text round-trip byte for byte (tested). Files use `\n` always, so the hash does not depend on the platform.
+- The file carries a SHA-256 over everything except the hash line. `Parse` recomputes it and also requires the file to be **exactly** what `Serialize` would write, so even a cosmetic edit (a comment, re-indentation) is refused, as is any unknown key, bad enum value, missing hash or changed statement. All of these are DDB-435.
+- Plan id: the date plus the first 8 hex of a hash over the plan's content excluding id, commit and hash, so the same plan gets the same id and a different plan does not.
+- The Markdown report shows each step's script, risk, reason chain, the answers that decided it (with notes and how they were given), parameters, resolver results, what needs `--allow-risky` / `--allow-destructive`, blocked and skipped models, and "noticed but NOT done".
+
+Tests: `PlanDocumentTests` (round trip with awkward text, fixed point, tamper cases, unknown keys, id, report content).

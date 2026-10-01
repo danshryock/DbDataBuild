@@ -250,6 +250,11 @@ public static class DiagnosticCatalog
         "Fix the problem the message names.",
         "Planning for this model stopped; the message says why.");
 
+    public static readonly DiagnosticDescriptor PlanFileInvalid = E("435", "Plan file is invalid or was edited",
+        "A plan file exactly as `plan` wrote it: every key known, its content hash matching.",
+        $"Generate a new plan with `{ProductInfo.Cli} plan`. A plan is never edited by hand.",
+        "A plan records the exact statements `apply` will run, and a content hash over all of it (DESIGN.md 10.3). A hand-edited or damaged plan is refused rather than applied.");
+
     // 5xx: state and safety (logins, the mutation gate, tracking tables)
     public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
         "A connection string in the environment variable named in the message, for the login this command needs.",
@@ -286,7 +291,7 @@ public static class DiagnosticCatalog
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, DefinitionFileChanged, DefinitionNotEditable,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];
