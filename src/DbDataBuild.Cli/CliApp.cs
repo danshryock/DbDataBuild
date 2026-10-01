@@ -87,6 +87,7 @@ public static class CliApp
             var sql = File.ReadAllText(Path.Combine(projectRoot, source.QueryFile));
             diagnostics.AddRange(linter.Lint(sql, source.QueryFile, source.Definition.Targets ?? config.DefaultTargets, config));
         }
+        diagnostics.AddRange(CollationChecker.Check(config, result.Sources));
 
         foreach (var d in diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);

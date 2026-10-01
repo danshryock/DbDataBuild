@@ -47,7 +47,7 @@ public class CliTests
     public void Validate_prints_header_and_reports_ok()
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel);
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]", "targets: [sqlserver]"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT 1");
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
         var (exit, output, err) = Run("validate", "--project", dir);
@@ -116,7 +116,8 @@ public class CliTests
     [Fact]
     public void Validate_uses_default_targets_from_the_config_for_models_without_targets()
     {
-        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1", config: "default_targets: [postgres]\n");
+        const string postgresConfig = "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: en_US.utf8 }\n";
+        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1", config: postgresConfig);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]\n", ""));
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitOk, exit);                     // GROUP BY 1 is native on postgres
@@ -168,6 +169,17 @@ public class CliTests
         var relaxed = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: note\n"));
         Assert.Equal(CliApp.ExitOk, relaxed.Exit);
         Assert.Contains("note DDB-302", relaxed.Err);                // still shown
+    }
+
+    [Fact]
+    public void Validate_fails_when_a_configured_collation_contradicts_the_string_profile()
+    {
+        var cfg = "string_semantics:\n  collations:\n    default:\n      duckdb: NOCASE\n      sqlserver: Latin1_General_100_CS_AS\n";
+        var (exit, output, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", "[sqlserver]", cfg));
+        Assert.Equal(CliApp.ExitFindings, exit);
+        Assert.Contains("error DDB-310  dbdatabuild.yml:5", err);
+        Assert.Contains("case is sensitive but the profile requires insensitive", err);
+        Assert.Contains("FAILED: 1 error(s)", output);
     }
 
     [Fact]

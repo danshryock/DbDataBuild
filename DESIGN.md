@@ -512,7 +512,7 @@ policy:
 
 - **Target versions** settle `min_version` matrix rows: at or above the minimum there is no finding, below it the construct is an error (DDB-301), and with no version configured it stays a warning (DDB-308).
 - **Policy** can raise or lower a finding's severity but never hides it. `unsupported` findings are always errors and are not configurable.
-- Not yet checked: whether a target's configured collation satisfies the declared profile (section 7.4).
+- **Collation check (offline, `validate`).** For every engine in use (each model's `targets`, the default targets when a model relies on them or there are no models, and always DuckDB) `string_semantics.collations.default` must have an entry, and its name is read for case, accent and trailing-space behavior and compared with the profile. A collation known to contradict the profile is an error (DDB-310); one whose behavior the name cannot settle is a warning (DDB-311) and is never assumed to match; a missing entry, a `collation:` on a column that is not defined, or a defined collation missing an engine the model targets is an error (DDB-312). Only `default` must satisfy the profile: other logical names are declared exceptions. Name rules: SQL Server and Fabric read `_CI_`/`_CS_`/`_AI_`/`_AS_`/`_BIN2` tokens (SQL Server always ignores trailing spaces in `=`; Fabric's is unverified, so it is reported as DDB-311); DuckDB reads `NOCASE`, `NOACCENT`, `NFC`, locale names and `.` chains, and meets an `ignored` trailing-space profile through the offline `rtrim()` rewrite; PostgreSQL reads libc/C locales and ICU `-u-ks-level1/2` names, and cannot ignore trailing spaces natively. The same check runs against the live catalog in `check` (not yet built).
 
 ## 10. Planning and applying
 
@@ -771,7 +771,7 @@ Each milestone ends with its tests green and this document updated.
 - Fabric Warehouse: MERGE/ALTER/TRUNCATE/rename support, trigger support, extended properties, query history retention.
 - `sp_describe_first_result_set`: limits (temp tables, dynamic SQL) and Fabric availability.
 - Tracking-table constructs on Fabric (identity columns, constraints, `nvarchar(max)`).
-- Collation behavior (section 7.4): DuckDB `NOCASE` under `GROUP BY`, `DISTINCT`, joins, and window operations; behavior of chained collations; Fabric Warehouse default and available collations, and its trailing-space and `LEN` semantics.
+- Collation behavior (section 7.4): DuckDB `NOCASE` under `GROUP BY`, `DISTINCT`, joins, and window operations; behavior of chained collations under `GROUP BY`, `DISTINCT`, joins and windows (equality chaining `NOCASE.NOACCENT` is verified on DuckDB 1.5.4 in either order); Fabric Warehouse default and available collations, and its trailing-space and `LEN` semantics.
 - PostgreSQL target: polyglot DuckDB-to-Postgres fidelity; offline syntax validation options (a libpg_query binding for .NET, or polyglot validation); schema-only compile via prepare/describe; advisory-lock and tracking-table DDL equivalents; `MERGE` availability by version; identifier case-folding and quoting.
 - Load operations: named-parameter syntax per engine in rendered files (`@name` for SqlClient and Npgsql); ScriptDOM handling of parameterized scripts; Fabric support for the delete+insert and merge templates inside transactions.
 - YAML handling: `YamlDotNet` duplicate-key detection and parser source marks for comment-preserving splice edits; editor association of the JSON Schemas by file glob.

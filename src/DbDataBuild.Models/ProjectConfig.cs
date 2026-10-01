@@ -33,8 +33,12 @@ public sealed record ProjectConfig(
     IReadOnlyDictionary<string, int> TargetVersions,
     string TrackingSchema,
     StringSemantics StringSemantics,
-    IReadOnlyDictionary<string, Severity> Policy)
+    IReadOnlyDictionary<string, Severity> Policy,
+    IReadOnlyDictionary<string, int>? SourceLines = null)
 {
+    /// <summary>1-based lines in dbdatabuild.yml of settings that were present, keyed by dotted path (for diagnostics). Empty for defaults.</summary>
+    public IReadOnlyDictionary<string, int> Lines { get; } = SourceLines ?? new Dictionary<string, int>();
+
     /// <summary>Built-in defaults, used when no file exists. Printed in every command header so they are never hidden.</summary>
     public static readonly ProjectConfig Default = new(
         [TargetNames.SqlServer],

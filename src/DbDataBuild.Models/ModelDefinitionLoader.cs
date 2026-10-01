@@ -134,7 +134,7 @@ public static class ModelDefinitionLoader
                 }
                 if (n != null && !names.Add(n.Value))
                     Add(DiagnosticCatalog.DuplicateKey, n, $"Column `{n.Value}` is declared more than once.");
-                if (n != null && t != null) result.Add(new ColumnDefinition(n.Value, t.Value, nullable, (col.Get("collation") as YamlScalar)?.Value));
+                if (n != null && t != null) result.Add(new ColumnDefinition(n.Value, t.Value, nullable, (col.Get("collation") as YamlScalar)?.Value, n.Line, (col.Get("collation") as YamlScalar)?.Line ?? 0));
             }
             return result;
         }

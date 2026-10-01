@@ -35,6 +35,8 @@ public static class ProjectConfigLoader
 
     private sealed class Reader(string file, List<Diagnostic> diags) : YamlFieldReader(file, diags)
     {
+        private readonly Dictionary<string, int> lines = [];
+
         public ProjectConfig? Read(YamlNode root)
         {
             if (root is not YamlMapping top)
@@ -50,7 +52,7 @@ public static class ProjectConfigLoader
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, versions, schema, semantics, policy);
+            return new ProjectConfig(targets, versions, schema, semantics, policy, lines);
         }
 
         private List<string>? ReadDefaultTargets(YamlMapping top)
@@ -99,6 +101,7 @@ public static class ProjectConfigLoader
             if (node is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, node, "`string_semantics` must be a mapping."); return defaults; }
             CheckKeys(m, SemanticsKeys, "`string_semantics`");
 
+            lines["string_semantics"] = m.Line;
             var @case = Enum(m, "case", defaults.Case);
             var accent = Enum(m, "accent", defaults.Accent);
             var trailing = Enum(m, "trailing_space", defaults.TrailingSpace);
@@ -114,6 +117,7 @@ public static class ProjectConfigLoader
         private T Enum<T>(YamlMapping m, string key, T fallback) where T : struct, System.Enum
         {
             if (m.Get(key) is not { } node) return fallback;
+            lines["string_semantics." + key] = node.Line;
             var names = System.Enum.GetNames<T>().Select(n => n.ToLowerInvariant()).ToList();
             if (node is YamlScalar s && names.Contains(s.Value) && System.Enum.TryParse<T>(s.Value, ignoreCase: true, out var v)) return v;
             Add(DiagnosticCatalog.InvalidValue, node, $"`{key}` is {(node is YamlScalar sc ? $"`{sc.Value}`" : "not a string")}.", $"One of: {string.Join(", ", names)}.");
@@ -124,14 +128,16 @@ public static class ProjectConfigLoader
         {
             if (node is not YamlMapping logical) { Add(DiagnosticCatalog.InvalidValue, node, "`collations` must map logical names to per-engine collation names."); return null; }
             var result = new Dictionary<string, IReadOnlyDictionary<string, string>>();
+            lines["string_semantics.collations"] = logical.Line;
             foreach (var e in logical.Entries)
             {
+                lines[$"string_semantics.collations.{e.Key.Value}"] = e.Key.Line;
                 if (e.Value is not YamlMapping engines) { Add(DiagnosticCatalog.InvalidValue, e.Value, $"`collations.{e.Key.Value}` must map engines to collation names."); continue; }
                 CheckKeys(engines, CollationEngines, $"`collations.{e.Key.Value}`");
                 var perEngine = new Dictionary<string, string>();
                 foreach (var ee in engines.Entries.Where(x => CollationEngines.Contains(x.Key.Value)))
                 {
-                    if (ee.Value is YamlScalar s && s.Value.Length > 0) perEngine[ee.Key.Value] = s.Value;
+                    if (ee.Value is YamlScalar s && s.Value.Length > 0) { perEngine[ee.Key.Value] = s.Value; lines[$"string_semantics.collations.{e.Key.Value}.{ee.Key.Value}"] = ee.Key.Line; }
                     else Add(DiagnosticCatalog.InvalidValue, ee.Value, $"`collations.{e.Key.Value}.{ee.Key.Value}` must be a non-empty collation name.");
                 }
                 result[e.Key.Value] = perEngine;

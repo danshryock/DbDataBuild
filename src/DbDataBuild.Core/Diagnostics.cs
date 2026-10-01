@@ -133,6 +133,19 @@ public static class DiagnosticCatalog
         "Confirm the target version, or avoid the construct.",
         "The construct is supported only from a certain engine version. Target versions are not configured yet, so this cannot be checked offline.");
 
+    public static readonly DiagnosticDescriptor CollationCannotSatisfyProfile = E("310", "Collation cannot satisfy the string comparison profile",
+        "For each engine in use, a collation whose case, accent and trailing-space behavior match string_semantics.",
+        "Choose a collation with the required behavior, or change string_semantics.",
+        "The configured collation is known not to behave as the project's profile requires, so string comparisons would silently differ from the canonical DuckDB run.");
+    public static readonly DiagnosticDescriptor CollationNotVerifiable = W("311", "Collation behavior cannot be verified offline",
+        "A collation name the checker understands, or behavior confirmed against the live catalog.",
+        "Verify the collation's behavior manually or against the target, or use a collation the checker recognizes.",
+        "The checker could not tell from the name whether the collation matches the profile. It is not assumed to.");
+    public static readonly DiagnosticDescriptor CollationNotConfigured = E("312", "Collation not configured",
+        "string_semantics.collations.default with an entry for every engine in use, and every `collation:` on a column defined there.",
+        "Add the missing entry under string_semantics.collations.",
+        "Generated DDL always states collations explicitly, so each engine in use needs a collation name for every logical collation a model uses.");
+
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",
         Severity.Error, "Internal error (tool bug)",
@@ -145,6 +158,7 @@ public static class DiagnosticCatalog
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
+        CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         InternalError,
     ];
 
