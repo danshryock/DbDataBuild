@@ -52,7 +52,7 @@ To try it by hand: set `DBDATABUILD_SQLSERVER_READ` and `DBDATABUILD_SQLSERVER_W
 
 ## Known gaps and risks (not hidden)
 
-- **Not built**: hook steps, the downstream warn-or-block policy for history inconsistencies (the report itself exists), creating unique constraints and indexes from the model (`unique_key` does not create a constraint), the live-catalog collation check in `check`, JSON Schemas for plan files (they are verified by their own parser and hash).
+- **Not built**: hook steps, the downstream warn-or-block policy for history inconsistencies (the report itself exists), creating unique constraints and indexes from the model (`unique_key` does not create a constraint), the live-catalog collation check in `check`, a JSON Schema for plan files exists (`schemas/plan.schema.json`) but cannot verify the content hash.
 - **Fabric is unverified throughout**: no Fabric engine has been available. Its init script, type table and plan statements are generated and parse, but have never run.
 - **Never tested on Windows or against a managed instance**; integrated security is wired but untested. SQL Server 2022 only (not 2019 or 2025); PostgreSQL 17 only.
 - **The invariant test is a source scan, not a call-graph analysis**; a determined reflection call would not be seen.

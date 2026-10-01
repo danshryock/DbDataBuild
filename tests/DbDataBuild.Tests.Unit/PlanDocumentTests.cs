@@ -141,4 +141,41 @@ public class PlanDocumentTests
         Assert.Contains("```sql\nALTER TABLE [marts].[fct]", md);
         Assert.Contains("nothing to do", PlanReport.Markdown(new Plan("p", "sqlserver", null, false, "0.1.0", [], [], [], [])));
     }
+
+    // ----- the published JSON Schema agrees with the writer and the parser -----
+
+    private static bool SchemaOk(string yaml) => SchemaConformanceTests.SchemaAccepts(SchemaConformanceTests.LoadSchema("plan"), yaml);
+
+    [Fact]
+    public void What_the_writer_produces_satisfies_the_published_schema()
+    {
+        Assert.True(SchemaOk(PlanDocument.Serialize(Sample())));
+        Assert.True(SchemaOk(PlanDocument.Serialize(new Plan("2026-10-12-00000000", "postgres", null, false, "0.1.0", [], [], [], []))));
+    }
+
+    [Theory]
+    [InlineData("unknown key", "    risk: safe\n", "    risk: safe\n    shell: rm\n")]
+    [InlineData("bad step type", "type: ddl", "type: banana")]
+    [InlineData("bad risk", "risk: safe", "risk: reckless")]
+    [InlineData("bad target", "target: \"sqlserver\"", "target: \"oracle\"")]
+    [InlineData("bad state", "state: in_sync", "state: fine")]
+    [InlineData("short hash", "hash_after: \"" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"", "hash_after: \"abc\"")]
+    public void Structural_damage_fails_the_schema_and_the_parser(string name, string from, string to)
+    {
+        var text = PlanDocument.Serialize(Sample());
+        var edited = text.Replace(from.Replace("\\n", "\n"), to.Replace("\\n", "\n"));
+        Assert.NotEqual(text, edited);
+        Assert.False(SchemaOk(edited), name);
+        Assert.Null(PlanDocument.Parse(edited, "plan.yml", new List<Diagnostic>()));
+    }
+
+    [Fact]
+    public void The_schema_cannot_see_edited_content_but_the_parser_can()
+    {
+        // a well-formed edit passes the schema (it cannot verify the hash) and is refused by the parser: the schema is for editors, the hash is the guard
+        var text = PlanDocument.Serialize(Sample());
+        var edited = text.Replace("add column discount_code", "add column something_else");
+        Assert.True(SchemaOk(edited));
+        Assert.Null(PlanDocument.Parse(edited, "plan.yml", new List<Diagnostic>()));
+    }
 }

@@ -117,7 +117,7 @@ Tests: `PlanDocumentTests` (round trip with awkward text, fixed point, tamper ca
 
 **Verified on SQL Server 2022 and PostgreSQL 17** by one scenario per engine (`ApplyConformanceTests`): init, render, check, plan, dry run (nothing created), apply (data, views, and all four audit tables), a refused re-apply, a routine load, stale rendered files (DDB-424), an incremental definition block (DDB-431) with the downstream view skipped (DDB-433), `ack`, an unanswered history question (DDB-414) then the answered plan with the note carried into the report, an out-of-band column (DDB-430) then `ack drift`, a destructive step refused without its allowance (and with the wrong object), a stale plan (DDB-437), an edited plan (DDB-435), a load that fails because its source vanished (DDB-440, failure recorded) then `--resume` completing without repeating finished steps, and a competing application lock (DDB-439). Statement logs were checked for secrets.
 
-Known gaps, listed for review: unique-key constraints and indexes are not created; resolver and operation choice is the default operation only (no `--operation`); no `backfill` or `hook` steps yet (milestone 7); views are verified by existence, not column names; `report` is not built; `run` (plan plus apply for routine loads) is not built; the live-catalog collation check in `check` is not built; there is no JSON Schema for plan files (they are verified by their own parser and hash).
+Known gaps, listed for review: unique-key constraints and indexes are not created; resolver and operation choice is the default operation only (no `--operation`); no `backfill` or `hook` steps yet (milestone 7); views are verified by existence, not column names; `report` is not built; `run` (plan plus apply for routine loads) is not built; the live-catalog collation check in `check` is not built; the plan JSON Schema cannot verify the content hash.
 
 ## 9. `run` and `report`
 
@@ -143,3 +143,7 @@ Limits: the "ranges before the change hold NULL" count is about recorded ranges 
 ## 12. Live collation check in `check`
 
 `CollationChecker.CheckLive` applies the profile check to what the catalog reports for each managed table (DESIGN.md 9.4). Text columns left on the default collation must satisfy the profile (DDB-310); a column on the database default (the catalog reports no name, as PostgreSQL does) is DDB-311 because it cannot be verified; declared exceptions and columns the model does not declare are skipped. A DDB-310 makes `check` exit 1. Unit tests cover each case; the end-to-end scenario's `check` runs stay clean on both engines. Not covered by a real-engine test of a *violating* live column: it would also be drift, which the scenario already exercises.
+
+## 13. JSON Schema for plan files
+
+`schemas/plan.schema.json` describes the plan file for editors and reviewers (every key, enum, hash shape, and the rule that a step's reason chain is non-empty). Tests check three things: what the writer produces satisfies it; structural damage (unknown key, bad step type, risk, target, state, short hash) fails both the schema and the parser; and a well-formed *content* edit passes the schema but is refused by the parser, which is the point: the schema cannot verify the content hash, so it is for editors and the hash is the guard.
