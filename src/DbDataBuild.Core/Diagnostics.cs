@@ -117,6 +117,11 @@ public static class DiagnosticCatalog
         "Break the cycle: one of the models must not query another in the cycle.",
         "Models are defined and built in dependency order, which needs an acyclic graph.");
 
+    public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
+        "A resolver that returns exactly one row and one column, of the parameter's type.",
+        "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
+        "A resolver supplies a load parameter from the target (DESIGN.md 6.6). Any other shape of result stops that load: the tool never guesses a value.");
+
     // 3xx: matrix / portability
     public static readonly DiagnosticDescriptor ConstructUnsupported = E("301", "Construct unsupported on a declared target",
         "Constructs whose matrix status for every declared target is native, translated, emulated, approximated or unverified.",
@@ -224,6 +229,27 @@ public static class DiagnosticCatalog
         "Rewrite the part named in the message in block style, or edit the definition by hand.",
         "`define` edits definitions by minimal text splices located with the YAML parser's positions, which needs block style for the lists it changes.");
 
+    public static readonly DiagnosticDescriptor ObjectChangedOutsideTool = E("430", "Object changed outside the tool",
+        "A live shape equal to the last shape the tool recorded for the object.",
+        $"Review the change, then run `{ProductInfo.Cli} ack drift <object>` to accept the live shape as the new baseline, or restore the object.",
+        "The target's catalog hash for this object differs from the last recorded one (DESIGN.md 12.2). Planning for the model and everything downstream of it is blocked until a person decides.");
+    public static readonly DiagnosticDescriptor LoadDefinitionChanged = E("431", "Incremental model changed since its last load",
+        "An incremental model whose query is unchanged since the last load, or a change that a person has acknowledged.",
+        $"Review the difference, then run `{ProductInfo.Cli} ack definition <model>`, or request a backfill.",
+        "Rows already loaded were produced by the old query. Loading more rows with a changed query would mix two definitions in one table, so planning is blocked until a person decides (DESIGN.md 11).");
+    public static readonly DiagnosticDescriptor AdoptionDeclined = E("432", "Existing object was not adopted",
+        "An answer of `adopt` for objects that exist on the target but have no tool record.",
+        "Answer the adoption question with `adopt`, or rename the model, or remove the existing object.",
+        "The tool does not take over an object it did not create without an explicit answer. Choosing `stop` stops planning for the model.");
+    public static readonly DiagnosticDescriptor UpstreamBlocked = W("433", "Model skipped because an upstream model is blocked",
+        "Every upstream model planned or unchanged.",
+        "Resolve the block on the upstream model named in the message.",
+        "A model is not planned while something it reads from is blocked or skipped (DESIGN.md 11).");
+    public static readonly DiagnosticDescriptor ModelUnplannable = E("434", "Model cannot be planned",
+        "A model whose declared columns map to native types and whose query renders for the target.",
+        "Fix the problem the message names.",
+        "Planning for this model stopped; the message says why.");
+
     // 5xx: state and safety (logins, the mutation gate, tracking tables)
     public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
         "A connection string in the environment variable named in the message, for the login this command needs.",
@@ -255,12 +281,12 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, RenderedFileOutOfDate, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, DefinitionFileChanged, DefinitionNotEditable,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];
