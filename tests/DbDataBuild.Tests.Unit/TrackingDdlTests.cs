@@ -1,0 +1,76 @@
+using DbDataBuild.State;
+using DbDataBuild.Targets;
+
+namespace DbDataBuild.Tests.Unit;
+
+public class TrackingDdlTests
+{
+    public static TheoryData<string> AllTargets => new() { "sqlserver", "fabric", "postgres" };
+
+    [Theory, MemberData(nameof(AllTargets))]
+    public void Script_creates_the_schema_every_table_and_the_version_row(string target)
+    {
+        var script = TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0");
+        Assert.Equal(TrackingSchema.Tables.Count + 2, script.Count);
+        Assert.Equal(script.Count, script.Select(s => s.Id).Distinct().Count());
+        var text = TrackingDdl.Render(script);
+        foreach (var t in TrackingSchema.Tables) Assert.Contains(t.Name, text);
+        Assert.Contains("0.1.0", text);
+    }
+
+    [Theory, MemberData(nameof(AllTargets))]
+    public void Every_statement_is_idempotent_and_never_drops_or_alters(string target)
+    {
+        foreach (var s in TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0"))
+        {
+            Assert.DoesNotContain("DROP ", s.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("ALTER ", s.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("TRUNCATE", s.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.Matches("(IF |CREATE SCHEMA IF NOT EXISTS|NOT EXISTS)", s.Text);
+        }
+    }
+
+    [Theory, InlineData("sqlserver"), InlineData("fabric")]
+    public void T_sql_statements_parse_with_the_offline_validator(string target)
+    {
+        var t = TargetRegistry.Get(target);
+        foreach (var s in TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0"))
+            Assert.Empty(t.Validate(s.Text, s.Id));
+    }
+
+    [Fact]
+    public void Postgres_statements_parse_with_the_offline_validator()
+    {
+        var t = TargetRegistry.Get("postgres");
+        foreach (var s in TrackingDdl.For("postgres").InitScript("dbdatabuild", "0.1.0"))
+            Assert.Empty(t.Validate(s.Text, s.Id));
+    }
+
+    [Fact]
+    public void A_schema_name_with_quote_characters_is_quoted_not_interpolated()
+    {
+        var tsql = TrackingDdl.Render(TrackingDdl.For("sqlserver").InitScript("a]b'c", "0.1.0"));
+        Assert.Contains("[a]]b'c]", tsql);
+        Assert.Contains("SCHEMA_ID('a]b''c')", tsql); // the literal doubles the quote
+        var pg = TrackingDdl.Render(TrackingDdl.For("postgres").InitScript("a\"b", "0.1.0"));
+        Assert.Contains("\"a\"\"b\"", pg);
+    }
+
+    [Fact]
+    public void Only_fabric_is_marked_unverified()
+    {
+        Assert.False(TrackingDdl.For("sqlserver").Unverified);
+        Assert.False(TrackingDdl.For("postgres").Unverified);
+        Assert.True(TrackingDdl.For("fabric").Unverified);
+    }
+
+    [Fact]
+    public void Every_table_has_a_key_made_of_its_own_non_null_columns()
+    {
+        foreach (var t in TrackingSchema.Tables)
+        {
+            Assert.NotEmpty(t.PrimaryKey);
+            foreach (var k in t.PrimaryKey) Assert.False(t.Columns.Single(c => c.Name == k).Nullable, $"{t.Name}.{k}");
+        }
+    }
+}
