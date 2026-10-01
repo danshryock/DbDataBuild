@@ -75,9 +75,10 @@ public class MatrixLinterTests
     public void Severity_follows_status_per_target()
     {
         const string qualify = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1";
-        Assert.Contains(Lint(qualify, "fabric"), d => d.Code == "DDB-301" && d.Severity == Severity.Error);
+        Assert.Contains(Lint(qualify, "fabric"), d => d.Code == "DDB-304" && d.Severity == Severity.Warning);
         Assert.Contains(Lint(qualify, "sqlserver"), d => d.Code == "DDB-303" && d.Severity == Severity.Note);
         Assert.DoesNotContain(Lint(qualify, "sqlserver"), d => d.Severity == Severity.Error);
+        Assert.Contains(Lint("SELECT a, COUNT(*) FROM t GROUP BY 1", "sqlserver"), d => d.Code == "DDB-301" && d.Severity == Severity.Error);
         Assert.Contains(Lint("SELECT a / b FROM t", "sqlserver"), d => d.Code == "DDB-302" && d.Severity == Severity.Warning);
         Assert.Contains(Lint("SELECT [1] AS l", "postgres"), d => d.Code == "DDB-304");
     }
@@ -135,7 +136,7 @@ public class MatrixLinterTests
     public void Clause_level_findings_point_at_their_clause()
     {
         const string sql = "SELECT a, b\nFROM t\nGROUP BY 1\nQUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1\nORDER BY a";
-        var diags = Lint(sql, "fabric");
+        var diags = Lint(sql, "sqlserver");
         Assert.Equal(4, Assert.Single(diags, d => d.Found.Contains("`syntax.qualify`")).Location.Line);
         // polyglot attaches no span to literals, so a clause made only of literals (GROUP BY 1) falls back to the select's first span.
         Assert.True(Assert.Single(diags, d => d.Found.Contains("`syntax.group_by_ordinal`")).Location.Line >= 1);

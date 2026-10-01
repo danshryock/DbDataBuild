@@ -6,6 +6,9 @@
 - Fabric: **no engine available**. The Fabric-transpiled text was executed on SQL Server 2022 as a proxy, so Fabric rows prove only what the transpiler emits, not what Fabric accepts.
 - 93 cases (`constructs.yml`; the first 47 were the initial spike, the rest were added to verify basic operators, clauses and cast types for the matrix coverage list), 8-row synthetic edge-case dataset (`seed.duckdb.sql`). Raw tables: `results.sqlserver2022.generated.md` (all 93 cases, plus Postgres 17) and `results.sqlserver2025.generated.md` (the first 47 cases only; it shows `REGEXP_LIKE` working on version 17). Regenerate with `dotnet run --project spike/DbDataBuild.Spike -- diff . <mssql host:port> <pg host:port>`.
 
+## Correction (2026-09-30)
+An earlier version of this file and of the matrix said Fabric rejects `QUALIFY` and `GROUP BY ALL`, and that polyglot's `fabric` dialect had two bugs. That was wrong. The "Fabric" runs executed Fabric-transpiled text on **SQL Server 2022**, which lacks both features, and I attributed the failures to Fabric. Microsoft's T-SQL surface area page (checked 2026-09-30) documents `QUALIFY`, `GROUP BY ALL` and `ORDER BY ALL` as supported in Fabric Data Warehouse. Consequently every Fabric matrix entry derived from a SQL Server run is now `unverified`, with notes. Only the division difference remains a candidate polyglot issue, and it is also unverified on Fabric.
+
 ## Verdict
 
 **DuckDB-canonical is viable for the FFI mechanics and for the common constructs, but polyglot cannot be trusted to report its own gaps.** Many rewrites are silent and wrong, some unsupported constructs pass straight through as text, and the unsupported-level check is incomplete. The design's own layers (AST matrix linter, declared-columns compile check, differential tests) are required, not optional. Nothing here contradicts the design.
@@ -39,7 +42,7 @@ Status names are from DESIGN.md 7.1.
 ### Silent wrong results (highest risk)
 | Construct | Finding | Proposed |
 |---|---|---|
-| `/` (division) | Fabric text is `7 / 2`, which is integer division on T-SQL (3, not 3.5). The `tsql` dialect adds a `CAST AS FLOAT`, `fabric` does not. | Polyglot bug for `fabric`. Matrix: `fabric` division `unverified` until fixed or a post-rewrite is added; conformance test required. |
+| `/` (division) | Fabric text is `7 / 2`, which is integer division on T-SQL (3, not 3.5). The `tsql` dialect adds a `CAST AS FLOAT`, `fabric` does not. | Probable polyglot gap for `fabric` (its safe-division rewrite lists `TSQL` but not `Fabric`); draft write-up in `spike/upstream/`. Seen on SQL Server only: Fabric itself was not tested, so the matrix says `unverified`. |
 | `/` by zero | DuckDB 1.5 returns `inf` for `5/0`. Polyglot emits `/ NULLIF(b, 0)`, so SQL Server and Postgres return NULL. | `approximated`, documented. Needs an explicit decision on target semantics (the project must pick NULL, error or inf). |
 | `TRY_CAST(s AS INT)` | `''` becomes 0 on SQL Server but NULL in DuckDB. On Postgres polyglot drops `TRY_` and emits a plain `CAST`, which **errors** on bad data. | `approximated` on SQL Server; `unsupported` or `emulated` on Postgres (no native try-cast). |
 | `LENGTH(s)` to `LEN(s)` | `LEN` ignores trailing spaces. | `approximated` (`str.len`), as the design predicted. |
@@ -55,11 +58,11 @@ Status names are from DESIGN.md 7.1.
 | `GROUP BY ALL` | SYNTAX_ERR | Emitted verbatim for every target, Postgres 17 rejects it too. |
 | `[1,2,3]` list literal | EXEC_ERR (parsed as a bracketed identifier) | ScriptDOM accepts it. |
 | `{'a': 1}` struct literal | SYNTAX_ERR | verbatim |
-| `UNNEST` | EXEC_ERR | `unsupportedLevel: raise` does catch this one |
-| `QUALIFY` on Fabric | SYNTAX_ERR | `tsql` rewrites to a subquery, `fabric` leaves `QUALIFY` in place. Polyglot bug for `fabric`. |
+| `UNNEST` | EXEC_ERR | `unsupportedLevel: raise` does catch this one (also `JOIN USING`, `NATURAL JOIN`) |
+| `QUALIFY` on Fabric | SYNTAX_ERR **on the SQL Server proxy only** | `tsql` rewrites to a subquery, `fabric` leaves `QUALIFY` in place. **Not a bug:** Microsoft documents `QUALIFY` (and `GROUP BY ALL`) as supported in Fabric Data Warehouse. |
 | `REGEXP_MATCHES` | SQL Server 2022 SYNTAX_ERR, **2025 MATCH** | Version-dependent: `min_version: 17`. Fabric unverified. |
 
-`unsupportedLevel: "raise"` rejects only regex predicates and `UNNEST`. List and struct literals, `GROUP BY ALL`, and ordinal group-by are not reported. **Do not rely on polyglot to flag unsupported constructs; the matrix linter must walk the AST.**
+`unsupportedLevel: "raise"` (what polyglot calls `strict()`) rejects regex predicates, `UNNEST`, `JOIN ... USING` and `NATURAL JOIN` for T-SQL (checked on all 93 cases), but not list and struct literals, `GROUP BY ALL`, ordinal group-by, or `USING SAMPLE`. In default mode it rejects none of them. **Do not rely on polyglot to flag unsupported constructs; the matrix linter must walk the AST.**
 
 ### Worked as expected
 `COALESCE`, `IFNULL`→`ISNULL`, `SUBSTR`→`SUBSTRING`, `DATE_DIFF`/`DATE_ADD`/`EXTRACT` to `DATEDIFF`/`DATEADD`/`DATEPART`, `LIMIT`→`TOP`/`OFFSET FETCH`, `NULLS LAST` emulation with `CASE WHEN x IS NULL`, windows, CTEs, joins, `UNION`, boolean-to-`BIT`, `DECIMAL`, quoted identifiers (`[x]` / `"x"`), `ILIKE` → `LOWER() LIKE LOWER()`. `COUNT(*)` becomes `COUNT_BIG(*)` on T-SQL (BIGINT, matches DuckDB). Integer overflow errors on all engines (consistent).
@@ -80,7 +83,7 @@ Closest to DuckDB, as predicted: most rewrites are identity. Its only divergence
 `AVG` over integers truncates on T-SQL (`avg_int`); `REPLACE` follows the collation (`replace_fn`); string `=` and `IN` against literals follow the collation and trailing-space rules (`str_eq_profile`, `str_in_profile`); `JOIN ... USING`, `NATURAL JOIN` and `USING SAMPLE` are emitted unchanged and fail on T-SQL; `DISTINCT ON` is rewritten but cannot be differentially tested (no deterministic row choice); `LATERAL` becomes `CROSS APPLY` and matches; `ROUND(double, n)` fails on Postgres after the division rewrite. Plain operators, aggregates, set operations, common joins, subqueries, CTEs and casts to int/bigint/smallint/double/decimal/date/timestamp/boolean/varchar all matched.
 
 ## Follow-ups
-1. Report the two `fabric` dialect gaps (division cast, `QUALIFY`) upstream, with the repro SQL from this file. **Open.**
+1. Upstream report for the `fabric` division gap: drafted in `spike/upstream/`, **not submitted** (awaiting review). The `QUALIFY` item was withdrawn, see the correction below.
 2. ~~Add `GROUP BY` ordinal/`ALL`, list/struct literals, and `TRY_CAST` rows to `matrix/`.~~ **Done:** `matrix/constructs.yml`, enforced by the AST linter (`DDB-301..308`).
 3. Result types: recorded in the notes of the `date_trunc` and interval rows for now; a structured result-type column is still **open**.
 4. Decide division-by-zero and `TRY_CAST('')` target semantics per project profile. **Open.**

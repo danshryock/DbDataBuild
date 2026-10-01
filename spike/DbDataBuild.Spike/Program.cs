@@ -51,6 +51,16 @@ if (mode == "covered")
     }
     return 0;
 }
+if (mode == "fabric-vs-tsql")
+{
+    foreach (var c in constructs)
+    {
+        var (_, ts) = Polyglot.TranspileOne(c.Sql, Dialects.Canonical, "tsql");
+        var (_, fb) = Polyglot.TranspileOne(c.Sql, Dialects.Canonical, "fabric");
+        if (ts != fb) Console.WriteLine($"## {c.Id}\nduckdb : {c.Sql}\ntsql   : {ts}\nfabric : {fb}\n");
+    }
+    return 0;
+}
 if (mode == "matrix-check")
 {
     var md = new List<Diagnostic>();

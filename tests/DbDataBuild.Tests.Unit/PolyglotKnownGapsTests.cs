@@ -24,7 +24,7 @@ public class PolyglotKnownGapsTests
     {
         Assert.Equal("SELECT CAST(a AS FLOAT) / NULLIF(b, 0) AS x FROM t", To("sqlserver", "SELECT a / b AS x FROM t"));
         Assert.Equal("SELECT CAST(a AS DOUBLE PRECISION) / NULLIF(b, 0) AS x FROM t", To("postgres", "SELECT a / b AS x FROM t"));
-        Assert.Equal("SELECT a / b AS x FROM t", To("fabric", "SELECT a / b AS x FROM t")); // wrong: integer division on T-SQL
+        Assert.Equal("SELECT a / b AS x FROM t", To("fabric", "SELECT a / b AS x FROM t")); // differs from tsql; integer division if Fabric follows T-SQL (not tested on Fabric)
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class PolyglotKnownGapsTests
     {
         const string sql = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1";
         Assert.DoesNotContain("QUALIFY", To("sqlserver", sql));
-        Assert.Contains("QUALIFY", To("fabric", sql)); // Fabric rejects this
+        Assert.Contains("QUALIFY", To("fabric", sql)); // left in place; Fabric documents QUALIFY as supported
     }
 
     [Fact]
@@ -64,9 +64,12 @@ public class PolyglotKnownGapsTests
     [Theory]
     [InlineData("SELECT UNNEST([1, 2, 3]) AS u")]
     [InlineData("SELECT * FROM t WHERE REGEXP_MATCHES(s, 'a')")]
-    public void Unsupported_level_raise_catches_only_unnest_and_regex(string sql)
+    [InlineData("SELECT * FROM t LEFT JOIN u USING (a)")]
+    [InlineData("SELECT * FROM t NATURAL JOIN u")]
+    public void Unsupported_level_raise_catches_unnest_regex_and_join_using_natural(string sql)
     {
         const string raise = """{"unsupportedLevel":"raise"}""";
         Assert.False(Polyglot.Transpile(sql, Dialects.Canonical, "tsql", raise).Ok);
+        Assert.True(Polyglot.Transpile(sql, Dialects.Canonical, "tsql").Ok); // default mode passes them through
     }
 }
