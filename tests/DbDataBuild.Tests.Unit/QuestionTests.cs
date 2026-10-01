@@ -69,14 +69,25 @@ public class QuestionTests
     [InlineData("", false)]
     public void Id_grammar(string id, bool valid) => Assert.Equal(valid, QuestionIds.IsValid(id));
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("has space")]
-    [InlineData("semi;colon")]
-    public void Id_builders_reject_unusable_parts(string part)
+    [Fact]
+    public void Id_builders_reject_empty_parts()
     {
-        Assert.Throws<ArgumentException>(() => QuestionIds.History(part, "c"));
-        Assert.Throws<ArgumentException>(() => QuestionIds.Adopt(part));
+        Assert.Throws<ArgumentException>(() => QuestionIds.History("", "c"));
+        Assert.Throws<ArgumentException>(() => QuestionIds.Adopt(""));
+    }
+
+    [Theory]
+    [InlineData("Order Id", "Order_u20_Id")]
+    [InlineData("semi;colon", "semi_u3b_colon")]
+    [InlineData("naïve", "na_uef_ve")]
+    [InlineData("plain_name.v2-x", "plain_name.v2-x")]
+    public void Unusual_names_are_sanitized_deterministically_into_valid_ids(string name, string part)
+    {
+        Assert.Equal(part, QuestionIds.Sanitize(name));
+        var id = QuestionIds.History("marts.fct_orders", name);
+        Assert.Equal($"Q-history-marts.fct_orders.{part}", id);
+        Assert.True(QuestionIds.IsValid(id));
+        Assert.Equal(id, QuestionIds.History("marts.fct_orders", name));
     }
 
     private static Question Make(string id = "Q-history-a.b", string prompt = "p", QuestionOption[]? options = null, Proposal? proposal = null) =>

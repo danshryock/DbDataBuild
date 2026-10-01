@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\src\DbDataBuild.Cli\DbDataBuild.Cli.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Targets.DuckDb\DbDataBuild.Targets.DuckDb.csproj" />
+    <ProjectReference Include="..\..\src\DbDataBuild.Define\DbDataBuild.Define.csproj" />
   </ItemGroup>
 
 </Project>

@@ -99,6 +99,19 @@ public static class DiagnosticCatalog
         "Declare the column, or correct the reference.",
         "Declared columns are the model's output schema. Everything else must refer to it.");
 
+    public static readonly DiagnosticDescriptor UpstreamNotFound = E("218", "Upstream table not found",
+        "Every table a model queries is another model or a source descriptor, named schema.table.",
+        "Add sources/<schema>/<table>.yml for it, or define the model that produces it.",
+        "A model's declared schema is checked against an empty DuckDB schema built from its upstream tables' declared columns, so each one must be declared somewhere.");
+    public static readonly DiagnosticDescriptor QueryNotDescribable = E("219", "DuckDB cannot describe the model query",
+        "A query DuckDB can bind against the declared upstream columns.",
+        "Fix the query, or the declared columns of the upstream tables it uses.",
+        "`define` asks DuckDB to describe the query (it is never run) to learn its output columns and types.");
+    public static readonly DiagnosticDescriptor OutputColumnUnusable = E("220", "Output column cannot be declared",
+        "Every output column has a name (an alias for expressions) that no other column shares.",
+        "Add an alias to the expression, or rename the duplicate.",
+        "Declared columns are matched to the query's output by name, so each name must be present and unique.");
+
     // 3xx: matrix / portability
     public static readonly DiagnosticDescriptor ConstructUnsupported = E("301", "Construct unsupported on a declared target",
         "Constructs whose matrix status for every declared target is native, translated, emulated, approximated or unverified.",
@@ -168,6 +181,19 @@ public static class DiagnosticCatalog
         "Add one of the listed answers to the answers file, or run interactively.",
         "In non-interactive mode every open question is listed at once with the YAML to add. No question is answered by default.");
 
+    public static readonly DiagnosticDescriptor DefinitionOutOfSync = E("420", "Definition is out of sync with its query",
+        "Declared columns that match the columns the query returns (name, type, nullability).",
+        $"Run `{ProductInfo.Cli} define <model>` to update the definition.",
+        "A model's declared columns are the output schema that drives DDL and hashing. Planning never proceeds from a stale declared schema.");
+    public static readonly DiagnosticDescriptor DefinitionFileChanged = E("421", "Definition file changed while define was running",
+        "The definition file unchanged between being read and being written.",
+        $"Run `{ProductInfo.Cli} define` again.",
+        "`define` checks the file's hash before writing and refuses if anything else touched it, so concurrent edits are never overwritten.");
+    public static readonly DiagnosticDescriptor DefinitionNotEditable = E("422", "Definition cannot be edited automatically",
+        "A `columns:` list written in block style.",
+        "Rewrite the part named in the message in block style, or edit the definition by hand.",
+        "`define` edits definitions by minimal text splices located with the YAML parser's positions, which needs block style for the lists it changes.");
+
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",
         Severity.Error, "Internal error (tool bug)",
@@ -177,11 +203,12 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
+        DefinitionOutOfSync, DefinitionFileChanged, DefinitionNotEditable,
         InternalError,
     ];
 

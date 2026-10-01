@@ -1,0 +1,83 @@
+using System.Text.Json;
+using DbDataBuild.Sql.Ast;
+
+namespace DbDataBuild.Sql.Analysis;
+
+public sealed record SchemaColumnSpec(string Name, string Type, bool Nullable);
+
+/// <summary>A table the analyzer may resolve columns against (an upstream model or source), with its declared columns.</summary>
+public sealed record SchemaTableSpec(string? Schema, string Name, IReadOnlyList<SchemaColumnSpec> Columns);
+
+public sealed record ColumnRef(string? Table, string Column);
+
+/// <param name="Nullability">non_null, nullable or unknown (conservative, from lineage and declared nullability).</param>
+public sealed record ProjectionFact(int Index, string? Name, string TransformKind, string? CastType, string? TypeHint, string Nullability, IReadOnlyList<ColumnRef> Upstream);
+
+public sealed record BaseTable(string? Schema, string Table)
+{
+    public string QualifiedName => Schema == null ? Table : $"{Schema}.{Table}";
+}
+
+/// <param name="GroupedColumns">Columns named in GROUP BY, in order (resolved by lineage), when the query groups.</param>
+public sealed record QueryFacts(
+    IReadOnlyList<ProjectionFact> Projections,
+    IReadOnlyList<BaseTable> BaseTables,
+    IReadOnlyList<ColumnRef> GroupedColumns,
+    bool IsDistinct,
+    int JoinCount,
+    bool IsSetOperation);
+
+/// <summary>Typed view of polyglot's <c>analyze_query</c> (lineage, nullability, base tables) plus a few AST facts. Offline.</summary>
+public static class QueryAnalyzer
+{
+    public static (QueryFacts? Facts, string? Error) Analyze(string sql, IReadOnlyList<SchemaTableSpec>? schema = null)
+    {
+        var options = new Dictionary<string, object?> { ["dialect"] = "duckdb" };
+        if (schema is { Count: > 0 })
+            options["schema"] = new
+            {
+                tables = schema.Select(t => new
+                {
+                    name = t.Name,
+                    schema = t.Schema,
+                    columns = t.Columns.Select(c => new { name = c.Name, type = c.Type, nullable = c.Nullable }),
+                }),
+            };
+
+        var analysis = Polyglot.AnalyzeQuery(sql, JsonSerializer.Serialize(options));
+        if (!analysis.Ok) return (null, analysis.Error);
+        var parsed = Polyglot.Parse(sql, Dialects.Canonical);
+        if (!parsed.Ok) return (null, parsed.Error);
+
+        using var doc = JsonDocument.Parse(analysis.Data!);
+        var root = doc.RootElement;
+        var projections = root.GetProperty("projections").EnumerateArray().Select(p => new ProjectionFact(
+            p.GetProperty("index").GetInt32(),
+            Str(p, "name"),
+            Str(p, "transformKind") ?? "",
+            Str(p, "castType"),
+            Str(p, "typeHint"),
+            Str(p, "nullability") ?? "unknown",
+            p.GetProperty("upstream").EnumerateArray().Select(Ref).ToList())).ToList();
+        var baseTables = root.GetProperty("baseTables").EnumerateArray().Select(t => new BaseTable(Str(t, "schema"), Str(t, "table") ?? Str(t, "name") ?? "")).ToList();
+        var grouped = root.TryGetProperty("columnUses", out var uses)
+            ? uses.EnumerateArray().Where(u => Str(u, "context") == "group").SelectMany(u => u.GetProperty("references").EnumerateArray()).Select(Ref).ToList()
+            : [];
+        var shape = Str(root, "shape");
+
+        var ast = AstNode.Parse(parsed.Data!);
+        var select = ast.Children.FirstOrDefault(n => n.Type == "select");
+        var distinct = select != null && Detectors_IsTrue(select, "distinct") && !HasValue(select, "distinct_on");
+        var joins = select != null && select.TryGet("joins", out var j) && j.ValueKind == JsonValueKind.Array ? j.GetArrayLength() : 0;
+        return (new QueryFacts(projections, baseTables, grouped, distinct, joins, shape == "set_operation"), null);
+    }
+
+    private static ColumnRef Ref(JsonElement r) => new(Str(r, "table"), Str(r, "column") ?? "");
+
+    private static string? Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static bool Detectors_IsTrue(AstNode n, string field) => n.TryGet(field, out var v) && v.ValueKind == JsonValueKind.True;
+
+    private static bool HasValue(AstNode n, string field) => n.TryGet(field, out var v) && v.ValueKind is not (JsonValueKind.Null or JsonValueKind.False);
+}

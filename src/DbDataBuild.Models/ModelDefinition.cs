@@ -17,7 +17,7 @@ public static class TargetNames
     public static readonly IReadOnlyList<string> All = [SqlServer, Fabric, Postgres];
 }
 
-public sealed record ColumnDefinition(string Name, string Type, bool Nullable, string? Collation, int Line = 0, int CollationLine = 0);
+public sealed record ColumnDefinition(string Name, string Type, bool Nullable = true, string? Collation = null, int Line = 0, int CollationLine = 0);
 
 public sealed record RenameDefinition(string From, string To);
 

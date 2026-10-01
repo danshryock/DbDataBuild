@@ -4,16 +4,10 @@
     <ProjectReference Include="..\DbDataBuild.Core\DbDataBuild.Core.csproj" />
     <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
     <ProjectReference Include="..\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />
-    <ProjectReference Include="..\DbDataBuild.Define\DbDataBuild.Define.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    <ProjectReference Include="..\DbDataBuild.Targets.DuckDb\DbDataBuild.Targets.DuckDb.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>dbdatabuild</AssemblyName>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

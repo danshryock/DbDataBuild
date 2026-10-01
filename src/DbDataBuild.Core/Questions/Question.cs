@@ -44,12 +44,24 @@ public static partial class QuestionIds
 
     private static string Build(string area, string subject) => $"Q-{area}-{subject}";
 
-    private static string Part(string value)
+    /// <summary>
+    /// Makes any name usable in an id: characters outside letters, digits, '_', '.' and '-' become <c>_u&lt;hex&gt;_</c> (a space is <c>_u20_</c>).
+    /// Deterministic, so ids stay stable. An empty name is a bug in the caller.
+    /// </summary>
+    public static string Sanitize(string value)
     {
-        if (string.IsNullOrEmpty(value) || !PartPattern().IsMatch(value))
-            throw new ArgumentException($"`{value}` cannot be part of a question id: use letters, digits, '_', '.' and '-' only.", nameof(value));
-        return value;
+        if (string.IsNullOrEmpty(value)) throw new ArgumentException("A question id part cannot be empty.", nameof(value));
+        if (PartPattern().IsMatch(value)) return value;
+        var sb = new System.Text.StringBuilder();
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (rune.IsAscii && (char.IsAsciiLetterOrDigit((char)rune.Value) || rune.Value is '_' or '.' or '-')) sb.Append((char)rune.Value);
+            else sb.Append("_u").Append(rune.Value.ToString("x")).Append('_');
+        }
+        return sb.ToString();
     }
+
+    private static string Part(string value) => Sanitize(value);
 }
 
 /// <summary>One explicit way to answer. <see cref="Key"/> is lowercase snake_case and is what an answers file writes in <c>choice:</c>.</summary>
