@@ -129,6 +129,27 @@ public static class CollationChecker
         return diags;
     }
 
+    /// <summary>
+    /// The same profile check against what the live catalog reports (DESIGN.md 9.4, `check`). Text columns the model leaves on the default collation must have a live
+    /// collation that satisfies the profile; a declared exception is not held to it. A text column on the database default (reported with no name) cannot be verified.
+    /// </summary>
+    /// <param name="liveColumns">Live text columns of one object: name and the collation the catalog reports (null for the database default).</param>
+    public static IReadOnlyList<Diagnostic> CheckLive(ProjectConfig config, string engine, ModelDefinition model, IEnumerable<(string Column, string? Collation)> liveColumns)
+    {
+        var diags = new List<Diagnostic>();
+        var declared = model.Columns.ToDictionary(c => c.Name, StringComparer.Ordinal);
+        foreach (var (column, collation) in liveColumns.OrderBy(c => c.Column, StringComparer.Ordinal))
+        {
+            if (!declared.TryGetValue(column, out var def) || (def.Collation != null && def.Collation != DefaultLogicalName)) continue; // not ours, or a declared exception
+            var loc = new SourceLocation($"{engine}:{model.Name}.{column}", 0, 0);
+            if (collation == null)
+                diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotVerifiable, loc, $"Column `{column}` of {model.Name} uses the database default collation on {engine}, so how it compares strings cannot be verified."));
+            else
+                diags.AddRange(CheckProfile(config, engine, collation, loc));
+        }
+        return diags;
+    }
+
     private static IEnumerable<Diagnostic> CheckProfile(ProjectConfig config, string engine, string name, SourceLocation loc)
     {
         var profile = config.StringSemantics;

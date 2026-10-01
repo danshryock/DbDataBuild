@@ -123,6 +123,14 @@ internal static class PlanCommand
         var result = Planner.Plan(session.Input, []);
         foreach (var d in result.Blocks.Concat(result.Skipped)) error.Write(DiagnosticFormatter.Format(d));
 
+        // the string profile, against what the catalog says (DESIGN.md 9.4)
+        var liveCollation = new List<Diagnostic>();
+        foreach (var m in session.Input.Models)
+            if (session.Input.Live.TryGetValue(m.Definition.Name, out var shape))
+                liveCollation.AddRange(CollationChecker.CheckLive(session.Context.Config, session.Target, m.Definition,
+                    shape.Columns.Where(c => c.Type is "nvarchar" or "varchar" or "character varying" or "char").Select(c => (c.Name, c.Collation))));
+        foreach (var d in liveCollation) error.Write(DiagnosticFormatter.Format(d));
+
         var width = Math.Max(6, result.Bases.Count == 0 ? 0 : result.Bases.Max(b => b.Object.Length));
         output.WriteLine($"{"object".PadRight(width)}  state");
         foreach (var b in result.Bases.OrderBy(b => b.Object, StringComparer.Ordinal))
@@ -130,7 +138,7 @@ internal static class PlanCommand
         output.WriteLine();
         var steps = result.Steps;
         output.WriteLine($"A plan now would have {steps.Count} step(s) ({steps.Count(s => s.Risk == RiskClass.Risky)} risky, {steps.Count(s => s.Risk == RiskClass.Destructive)} destructive) and ask {result.Questions.Count} question(s) first; {result.Blocks.Count} blocked, {result.Skipped.Count} skipped.");
-        return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) ? CliApp.ExitFindings : CliApp.ExitOk;
+        return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
     internal static void WriteAtomic(string path, string content)
