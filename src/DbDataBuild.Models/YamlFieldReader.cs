@@ -6,6 +6,8 @@ namespace DbDataBuild.Models;
 /// <summary>Shared field-reading helpers for definition and configuration loaders. Problems become diagnostics at the node's position.</summary>
 internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
 {
+    private static readonly string[] ColumnKeys = ["name", "type", "nullable", "collation"];
+
     protected string File => file;
     protected List<Diagnostic> Diagnostics => diags;
 
@@ -54,4 +56,32 @@ internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
                 Add(DiagnosticCatalog.InvalidValue, dup, $"`{dup.Value}` is listed more than once in `{key}`.");
         return list;
     }
+
+    /// <summary>Reads a required, non-empty `columns:` list (name, type, nullable, collation), reporting every problem.</summary>
+        protected List<ColumnDefinition> ReadColumns(YamlMapping top)
+        {
+            var result = new List<ColumnDefinition>();
+            var node = top.Get("columns");
+            if (node == null) { Add(DiagnosticCatalog.MissingKey, top, "Required key `columns` is missing. Declared columns are required for all models.", fix: "Add `columns:` listing each output column with `name:` and `type:`."); return result; }
+            if (node is not YamlSequence seq || seq.Items.Count == 0) { Add(DiagnosticCatalog.InvalidValue, node, "`columns` must be a non-empty list."); return result; }
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in seq.Items)
+            {
+                if (item is not YamlMapping col) { Add(DiagnosticCatalog.InvalidValue, item, "Each column must be a mapping with `name` and `type`."); continue; }
+                CheckKeys(col, ColumnKeys, "a column");
+                var n = Scalar(col, "name", required: true, at: col);
+                var t = Scalar(col, "type", required: true, at: col);
+                var nullable = true;
+                if (Scalar(col, "nullable", required: false, at: col) is { } nb)
+                {
+                    if (nb.Value is "true" or "false") nullable = nb.Value == "true";
+                    else Add(DiagnosticCatalog.InvalidValue, nb, $"nullable is `{nb.Value}`.", "true or false (lowercase).");
+                }
+                if (n != null && !names.Add(n.Value))
+                    Add(DiagnosticCatalog.DuplicateKey, n, $"Column `{n.Value}` is declared more than once.");
+                if (n != null && t != null) result.Add(new ColumnDefinition(n.Value, t.Value, nullable, (col.Get("collation") as YamlScalar)?.Value, n.Line, (col.Get("collation") as YamlScalar)?.Line ?? 0));
+            }
+            return result;
+        }
 }

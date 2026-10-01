@@ -149,7 +149,7 @@ public class SchemaConformanceTests
     [Fact]
     public void Schemas_are_valid_json_schema_documents_with_descriptions()
     {
-        foreach (var name in new[] { "model", "config", "answers" })
+        foreach (var name in new[] { "model", "config", "answers", "source" })
         {
             var schema = LoadSchema(name);
             Assert.NotNull(schema);
@@ -171,6 +171,7 @@ public class EditorAssociationTests
         var map = doc.RootElement.GetProperty("yaml.schemas").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString()! : "");
         Assert.Equal("models/**/*.yml", map["schemas/model.schema.json"]);
         Assert.Equal(DbDataBuild.Core.ProductInfo.ConfigFile, map["schemas/config.schema.json"]);
+        Assert.Equal("sources/**/*.yml", map["schemas/source.schema.json"]);
         Assert.Contains("answers.yml", doc.RootElement.GetProperty("yaml.schemas").GetProperty("schemas/answers.schema.json").EnumerateArray().Select(e => e.GetString()));
         foreach (var schema in map.Keys) Assert.True(File.Exists(Path.Combine(root, schema)), schema);
     }

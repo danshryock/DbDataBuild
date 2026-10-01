@@ -5,8 +5,10 @@ namespace DbDataBuild.Models;
 /// <summary>A valid model definition with the project-relative paths of its two files.</summary>
 public sealed record ModelSource(ModelDefinition Definition, string DefinitionFile, string QueryFile);
 
-public sealed record ProjectValidationResult(IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics)
+public sealed record ProjectValidationResult(
+    IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<SourceDescriptor>? SourceDescriptors = null)
 {
+    public IReadOnlyList<SourceDescriptor> Descriptors => SourceDescriptors ?? [];
     public IReadOnlyList<ModelDefinition> Models => Sources.Select(s => s.Definition).ToList();
     public bool HasErrors => Diagnostics.Any(d => d.Severity == Severity.Error);
 }
@@ -15,6 +17,7 @@ public sealed record ProjectValidationResult(IReadOnlyList<ModelSource> Sources,
 public static class ProjectValidator
 {
     public const string ModelsDir = "models";
+    public const string SourcesDir = "sources";
 
     public static ProjectValidationResult Validate(string projectRoot)
     {
@@ -51,6 +54,25 @@ public static class ProjectValidator
             var def = ModelDefinitionLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags);
             if (def != null) models.Add(new ModelSource(def, file, stem + ".sql"));
         }
-        return new(models, diags);
+
+        var descriptors = LoadSources(projectRoot, diags);
+        foreach (var clash in descriptors.Select(d => d.Name).Intersect(models.Select(m => m.Definition.Name), StringComparer.OrdinalIgnoreCase))
+            diags.Add(new Diagnostic(DiagnosticCatalog.DuplicateKey, new(SourcesDir, 0, 0), $"`{clash}` is defined as both a source and a model."));
+        return new(models, diags, descriptors);
+    }
+
+    private static List<SourceDescriptor> LoadSources(string projectRoot, List<Diagnostic> diags)
+    {
+        var result = new List<SourceDescriptor>();
+        var dir = Path.Combine(projectRoot, SourcesDir);
+        if (!Directory.Exists(dir)) return result;     // sources are optional: a project may build only from models
+        var files = Directory.EnumerateFiles(dir, "*.yml", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(projectRoot, f).Replace('\\', '/')).OrderBy(f => f, StringComparer.Ordinal);
+        foreach (var file in files)
+        {
+            var expected = file[(SourcesDir.Length + 1)..^".yml".Length].Replace('/', '.');
+            if (SourceDescriptorLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags) is { } d) result.Add(d);
+        }
+        return result;
     }
 }

@@ -15,7 +15,7 @@ using Npgsql;
 //   diff <root> <mssql host:port> <pg host:port>   execute on DuckDB (oracle) and the targets, compare results
 // Synthetic data only. Connects only to the endpoints given on the command line (local ephemeral containers).
 var mode = args.Length > 0 ? args[0] : "transpile";
-var root = args.Length > 1 && mode != "ast" ? args[1] : ".";
+var root = args.Length > 1 && mode is not ("ast" or "analyze") ? args[1] : ".";
 var diags = new List<Diagnostic>();
 var doc = StrictYamlReader.Read(File.ReadAllText(Path.Combine(root, "spike", "constructs.yml")), "constructs.yml", diags);
 if (doc is not YamlSequence seq) { Console.Error.WriteLine("bad constructs.yml"); return 1; }
@@ -59,6 +59,13 @@ if (mode == "fabric-vs-tsql")
         var (_, fb) = Polyglot.TranspileOne(c.Sql, Dialects.Canonical, "fabric");
         if (ts != fb) Console.WriteLine($"## {c.Id}\nduckdb : {c.Sql}\ntsql   : {ts}\nfabric : {fb}\n");
     }
+    return 0;
+}
+if (mode == "analyze")
+{
+    // analyze <sql> <schemaJson>: polyglot_analyze_query with a schema
+    var opts2 = "{\"dialect\":\"duckdb\",\"schema\":" + args[2] + "}";
+    Console.WriteLine(Polyglot.AnalyzeQuery(args[1], opts2) is { Ok: true } ok ? ok.Data : "ERR");
     return 0;
 }
 if (mode == "matrix-check")

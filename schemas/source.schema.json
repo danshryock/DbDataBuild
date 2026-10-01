@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source.schema.json",
+  "title": "DbDataBuild source descriptor",
+  "description": "A committed schema export of an upstream table that is not a model (sources/<schema>/<table>.yml). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. This schema is for editors; `dbdatabuild validate` applies the same rules with diagnostic codes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "columns"],
+  "properties": {
+    "name": {
+      "description": "Schema-qualified table name. Must equal the path under sources/ with '/' replaced by '.' (sources/staging/orders.yml is staging.orders).",
+      "type": "string",
+      "minLength": 1
+    },
+    "grain": {
+      "description": "Columns that uniquely identify a row. Optional; used to propose grain candidates for models built on this table.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "columns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "type": { "description": "A SQL type written as a plain string, for example `BIGINT` or `DECIMAL(14, 2)`.", "type": "string", "minLength": 1 },
+          "nullable": { "description": "Defaults to true.", "oneOf": [{ "type": "boolean" }, { "enum": ["true", "false"] }] },
+          "collation": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -51,7 +51,7 @@ public static class StrictYamlReader
             case Scalar s:
                 p.MoveNext();
                 CheckProperties(s.Anchor, s.Tag, s.Start, file, diags);
-                return new YamlScalar(s.Value, L(s.Start), C(s.Start));
+                return new YamlScalar(s.Value, L(s.Start), C(s.Start)) { Start = (int)s.Start.Index, End = (int)s.End.Index };
 
             case AnchorAlias a:
                 p.MoveNext();
@@ -62,19 +62,26 @@ public static class StrictYamlReader
                 p.MoveNext();
                 CheckProperties(seq.Anchor, seq.Tag, seq.Start, file, diags);
                 var items = new List<YamlNode>();
-                while (!p.TryConsume<SequenceEnd>(out _))
+                while (!p.Accept<SequenceEnd>(out var seqEnd))
                 {
                     var item = ReadNode(p, file, diags);
                     if (item != null) items.Add(item);
                 }
-                return new YamlSequence(items, L(seq.Start), C(seq.Start));
+                var seqClose = (SequenceEnd)p.Current!;
+                p.MoveNext();
+                var seqFlow = seq.Style == SequenceStyle.Flow;
+                return new YamlSequence(items, L(seq.Start), C(seq.Start))
+                {
+                    Start = (int)seq.Start.Index, Flow = seqFlow,
+                    End = seqFlow ? (int)seqClose.Start.Index + 1 : items.Count > 0 ? items.Max(i => i.End) : (int)seq.Start.Index,
+                };
 
             case MappingStart map:
                 p.MoveNext();
                 CheckProperties(map.Anchor, map.Tag, map.Start, file, diags);
                 var entries = new List<YamlEntry>();
                 var seen = new HashSet<string>();
-                while (!p.TryConsume<MappingEnd>(out _))
+                while (!p.Accept<MappingEnd>(out _))
                 {
                     var keyNode = ReadNode(p, file, diags);
                     var value = ReadNode(p, file, diags);
@@ -98,7 +105,14 @@ public static class StrictYamlReader
                     }
                     if (value != null) entries.Add(new YamlEntry(key, value));
                 }
-                return new YamlMapping(entries, L(map.Start), C(map.Start));
+                var mapClose = (MappingEnd)p.Current!;
+                p.MoveNext();
+                var mapFlow = map.Style == MappingStyle.Flow;
+                return new YamlMapping(entries, L(map.Start), C(map.Start))
+                {
+                    Start = (int)map.Start.Index, Flow = mapFlow,
+                    End = mapFlow ? (int)mapClose.Start.Index + 1 : entries.Count > 0 ? entries.Max(e => e.Value.End) : (int)map.Start.Index,
+                };
 
             default:
                 var m = p.Current!.Start;
