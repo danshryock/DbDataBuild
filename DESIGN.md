@@ -650,7 +650,8 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 - `apply` takes `--allow-risky`, `--allow-destructive <object>` (repeatable, naming each object), `--resume`, `--dry-run` and `--allow-dirty`. A plan is applied once (DDB-438); a plan that stopped part-way is resumed only from the exact intermediate state it recorded.
 - `ack drift` and `ack definition` record a person's acknowledgement of one specific hash in `block_log`; they never change user data.
 - Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text (in `ddl_log`); their column types are derived by the engine, so a view step has no predicted shape hash.
-- Not built yet: backfill and hook steps, `report`, `run`, `--operation` selection, constraint and index creation from the model.
+- `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
+- Not built yet: backfill and hook steps, the per-column history consistency report (12.3), `--operation` selection, constraint and index creation from the model.
 
 ### 10.5 Plans live in the repo
 

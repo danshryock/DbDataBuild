@@ -273,4 +273,61 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Run_only_runs_routine_loads_and_report_shows_what_happened(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+
+            // nothing exists yet: run would have to create structure, so it refuses and points to plan; nothing is executed or written
+            var refused = run.Cli("run");
+            Refused(refused, "only runs routine loads", "run on a project that needs DDL");
+            Assert.Contains("`dbdatabuild plan`", refused.Out);
+            Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
+            Assert.False(Directory.Exists(Path.Combine(run.Dir, "plans")));
+
+            var plan = run.Cli("plan");
+            Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+
+            // from here on a routine load is a one-liner
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00)");
+            var routine = run.Cli("run");
+            Ok(routine, "run");
+            Assert.Contains("1 routine load(s)", routine.Out);
+            Assert.Equal(4, await CountAsync(run, "marts.fct_orders"));
+            Assert.Equal(2, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
+
+            // the report shows the history and is clean
+            var report = run.Cli("report");
+            Ok(report, "report");
+            Assert.Contains("Applied plans", report.Out);
+            Assert.Contains("completed", report.Out);
+            Assert.Contains("marts.fct_orders", report.Out);
+            Assert.Contains("in sync", report.Out);
+            Assert.Contains("nothing", report.Out.Split("Needs attention")[1]);
+
+            // a change that needs DDL is refused by run, even though loads are also due
+            run.Write("models/marts/fct_orders.yml", FctYaml2);
+            run.Write("models/marts/fct_orders.sql", FctSql2);
+            Ok(run.Cli("render", "--write"), "render after the change");
+            Refused(run.Cli("run"), "DDB-431", "run after an incremental model changed");           // blocked, so not routine
+
+            // the report notices an out-of-band change and says what to do
+            run.Write("models/marts/fct_orders.yml", FctYaml);
+            run.Write("models/marts/fct_orders.sql", FctSql);
+            Ok(run.Cli("render", "--write"), "render back");
+            await engine.ExecAsync($"ALTER TABLE marts.fct_orders ADD {run.Q("sneaky")} {engine.ColumnType("VARCHAR(5)")} NULL");
+            var drift = run.Cli("report");
+            Refused(drift, "CHANGED OUTSIDE THE TOOL", "report after drift");
+            Assert.Contains("ack drift marts.fct_orders", drift.Out);
+            Refused(run.Cli("run"), "DDB-430", "run on a drifted object");
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

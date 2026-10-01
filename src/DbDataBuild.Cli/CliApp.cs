@@ -122,6 +122,22 @@ public static class CliApp
                     cmd.Options.Add(ackReason); cmd.Options.Add(ackTarget); cmd.Options.Add(ackProject);
                     cmd.SetAction(pr => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), output, error, environment ?? Environment.GetEnvironmentVariable));
                     break;
+                case "run":
+                    var runModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var runProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var runTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
+                    cmd.Arguments.Add(runModels);
+                    cmd.Options.Add(runProject); cmd.Options.Add(runTarget); cmd.Options.Add(runDirty);
+                    cmd.SetAction(pr => RunCommand.Run(spec, pr.GetValue(runProject)!.FullName, pr.GetValue(runTarget), pr.GetValue(runModels) ?? [], pr.GetValue(runDirty), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    break;
+                case "report":
+                    var reportProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var reportTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var reportLast = new Option<int>("--last") { Description = "How many recent rows of each history to show", DefaultValueFactory = _ => 10 };
+                    cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
+                    cmd.SetAction(pr => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    break;
                 case "matrix":
                     cmd.SetAction(_ => PrintMatrix(spec, output, error));
                     break;
