@@ -1,0 +1,52 @@
+# Spike construct list (DESIGN.md 15.4). Each entry: a DuckDB-dialect statement transpiled to every target.
+# `expect` is the *hypothesis* the spike confirms or refutes; results land in spike/RESULTS.md.
+#   translate  - transpiles and is semantically equivalent
+#   differs    - transpiles but with a known semantic gap (matrix: approximated/emulated)
+#   unsupported - expected to fail or be rejected
+- { id: int_division,        sql: "SELECT 7 / 2 AS x",                                         expect: differs }
+- { id: int_division_cols,   sql: "SELECT a / b AS x FROM t",                                  expect: differs }
+- { id: cast_varchar_nolen,  sql: "SELECT CAST(s AS VARCHAR) AS x FROM t",                     expect: differs }
+- { id: cast_varchar_len,    sql: "SELECT CAST(s AS VARCHAR(20)) AS x FROM t",                 expect: translate }
+- { id: unicode_literal,     sql: "SELECT 'héllo' AS x",                                       expect: differs }
+- { id: concat_pipes,        sql: "SELECT s || s AS x FROM t",                                 expect: differs }
+- { id: concat_null,         sql: "SELECT s || NULL AS x FROM t",                              expect: differs }
+- { id: length_fn,           sql: "SELECT LENGTH(s) AS x FROM t",                              expect: differs }
+- { id: substr_fn,           sql: "SELECT SUBSTR(s, 2, 3) AS x FROM t",                        expect: translate }
+- { id: lower_upper,         sql: "SELECT LOWER(s), UPPER(s) FROM t",                          expect: translate }
+- { id: coalesce,            sql: "SELECT COALESCE(a, b, 0) AS x FROM t",                      expect: translate }
+- { id: ifnull,              sql: "SELECT IFNULL(a, 0) AS x FROM t",                           expect: translate }
+- { id: like_case,           sql: "SELECT * FROM t WHERE s LIKE 'abc%'",                       expect: differs }
+- { id: ilike,               sql: "SELECT * FROM t WHERE s ILIKE 'abc%'",                      expect: differs }
+- { id: regexp,              sql: "SELECT * FROM t WHERE REGEXP_MATCHES(s, '^a.*z$')",         expect: unsupported }
+- { id: limit,               sql: "SELECT * FROM t ORDER BY a LIMIT 10",                       expect: translate }
+- { id: limit_offset,        sql: "SELECT * FROM t ORDER BY a LIMIT 10 OFFSET 5",              expect: translate }
+- { id: limit_no_order,      sql: "SELECT * FROM t LIMIT 10",                                  expect: translate }
+- { id: qualify,             sql: "SELECT a, b FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1", expect: differs }
+- { id: date_trunc_month,    sql: "SELECT DATE_TRUNC('month', d) AS x FROM t",                 expect: translate }
+- { id: date_trunc_day,      sql: "SELECT DATE_TRUNC('day', ts) AS x FROM t",                  expect: translate }
+- { id: date_add_interval,   sql: "SELECT d + INTERVAL 3 DAY AS x FROM t",                     expect: translate }
+- { id: date_diff,           sql: "SELECT DATE_DIFF('day', d1, d2) AS x FROM t",               expect: translate }
+- { id: extract_year,        sql: "SELECT EXTRACT(year FROM d) AS x FROM t",                   expect: translate }
+- { id: current_ts,          sql: "SELECT CURRENT_TIMESTAMP AS x",                             expect: differs }
+- { id: group_by_ordinal,    sql: "SELECT a, COUNT(*) FROM t GROUP BY 1",                      expect: translate }
+- { id: group_by_all,        sql: "SELECT a, COUNT(*) FROM t GROUP BY ALL",                    expect: unsupported }
+- { id: distinct,            sql: "SELECT DISTINCT a, b FROM t",                               expect: translate }
+- { id: union_dedupe,        sql: "SELECT a FROM t UNION SELECT a FROM u",                     expect: translate }
+- { id: union_all,           sql: "SELECT a FROM t UNION ALL SELECT a FROM u",                 expect: translate }
+- { id: row_number,          sql: "SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) AS rn FROM t", expect: translate }
+- { id: window_sum,          sql: "SELECT SUM(x) OVER (PARTITION BY a ORDER BY b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM t", expect: translate }
+- { id: lag_lead,            sql: "SELECT LAG(x, 1) OVER (ORDER BY b) AS p FROM t",            expect: translate }
+- { id: nulls_last,          sql: "SELECT * FROM t ORDER BY a NULLS LAST",                     expect: differs }
+- { id: bool_predicate,      sql: "SELECT (a > 1) AS flag FROM t",                             expect: differs }
+- { id: bool_literal,        sql: "SELECT TRUE AS x",                                          expect: differs }
+- { id: decimal_mult,        sql: "SELECT CAST(a AS DECIMAL(18, 4)) * CAST(b AS DECIMAL(18, 4)) AS x FROM t", expect: differs }
+- { id: cte,                 sql: "WITH c AS (SELECT a FROM t) SELECT * FROM c",               expect: translate }
+- { id: left_join,           sql: "SELECT t.a, u.b FROM t LEFT JOIN u ON t.a = u.a",           expect: translate }
+- { id: case_when,           sql: "SELECT CASE WHEN a > 1 THEN 'x' ELSE 'y' END AS c FROM t",  expect: translate }
+- { id: in_list,             sql: "SELECT * FROM t WHERE a IN (1, 2, 3)",                      expect: translate }
+- { id: list_literal,        sql: "SELECT [1, 2, 3] AS l",                                     expect: unsupported }
+- { id: struct_literal,      sql: "SELECT {'a': 1} AS s",                                      expect: unsupported }
+- { id: unnest,              sql: "SELECT UNNEST([1, 2, 3]) AS u",                             expect: unsupported }
+- { id: int_overflow,        sql: "SELECT CAST(2147483647 AS INTEGER) + 1 AS x",               expect: differs }
+- { id: try_cast,            sql: "SELECT TRY_CAST(s AS INTEGER) AS x FROM t",                 expect: translate }
+- { id: quoted_ident,        sql: "SELECT \"a\" AS \"Order Id\", \"s\" FROM t",                 expect: translate }
