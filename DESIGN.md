@@ -167,7 +167,7 @@ YAML has well-known pitfalls (for example, unquoted `no`, `on`, or `2026-10-12` 
 - **All scalars are read as strings** and validated against the JSON Schemas in `schemas/`. Nothing is coerced by YAML type rules.
 - **Unknown keys and duplicate keys are errors.** Anchors, aliases, merge keys, and custom tags are not allowed.
 - Enumerated values are lowercase snake_case. SQL types are written as plain strings (`DECIMAL(14, 2)`).
-- The JSON Schemas (`schemas/model.schema.json`, `schemas/config.schema.json`) are associated with the files by glob (`models/**/*.yml`, `dbdatabuild.yml`; see `.vscode/settings.json`) so editors, and Claude Code, validate definitions as they are written. The C# loaders are authoritative because they produce the diagnostics, and they also check what a schema cannot (name against path, grain against `unique_key`, column references). A conformance corpus runs through both, so the schemas and loaders cannot drift apart: structural errors must fail in both, semantic-only errors must pass the schema and fail the loader. Editors read unquoted `false` or `16` as typed values, so the schemas accept both forms where the loader reads strings. Schemas for answers and plans arrive with their milestones.
+- The JSON Schemas (`schemas/model.schema.json`, `schemas/config.schema.json`) are associated with the files by glob (`models/**/*.yml`, `dbdatabuild.yml`; see `.vscode/settings.json`) so editors, and Claude Code, validate definitions as they are written. The C# loaders are authoritative because they produce the diagnostics, and they also check what a schema cannot (name against path, grain against `unique_key`, column references). A conformance corpus runs through both, so the schemas and loaders cannot drift apart: structural errors must fail in both, semantic-only errors must pass the schema and fail the loader. Editors read unquoted `false` or `16` as typed values, so the schemas accept both forms where the loader reads strings. `schemas/answers.schema.json` covers answers files (section 10.1); the plan schema arrives with the plan milestone.
 - Every error carries file, line, and column, and uses the diagnostic format in section 14.
 
 **Bodies have no macros or templating.** Load strategies (section 6.6) wrap the body, for example `SELECT * FROM (<body>) AS b WHERE b.order_date >= @start`. **[VERIFY]** predicate pushdown for bodies containing aggregates or window functions on each target. If wrapping proves too costly for specific models, revisit with standard bind-parameter placeholders declared in the YAML, still without custom syntax.
@@ -533,8 +533,17 @@ answers:
     choice: not_backfilled
     note: "No history exists in source."
   - id: Q-rename-marts.dim_customer.cust_nm
-    choice: rename_to: customer_name
+    choice: rename_to
+    value: customer_name
+  - id: Q-define-marts.fct_orders-type-amount
+    accept: inferred
 ```
+
+**Questions** (`DbDataBuild.Core.Questions`). A question has a stable id `Q-<area>-<subject>`, a prompt, context lines, and at least two explicit options, each with a lowercase snake_case key, a description, an optional consequence, and optionally a value it takes (`rename_to` takes the new column name). No option is a default. Areas and their id shapes: `define` (`Q-define-<model>-<field>`), `history` (`Q-history-<model>.<column>`), `rename` (`Q-rename-<model>.<column>`), `param` (`Q-param-<model>-<operation>-<parameter>`), `adopt` (`Q-adopt-<object>`). Ids are built only by `QuestionIds`, so a scenario always yields the same id.
+
+**Answers.** Each answer is explicit: `choice` (one of the question's option keys, plus `value:` when that option takes one, and an optional `note:` that is kept with the answer in the plan), or `accept: inferred` to accept the question's inferred proposal. The schema is `schemas/answers.schema.json`. A question may carry a **proposal** (an inferred option and value, with evidence and a certainty). Accepting one is always an explicit answer: `accept: inferred`, the accept key at a prompt, or `--accept-inferred`, which accepts only proposals marked high certainty and is recorded as such (`AcceptedProposalByFlag`).
+
+**Resolution** (`QuestionResolver`). Questions are processed in id order, so the outcome does not depend on input order. A file answer is validated against the question: an unknown choice is DDB-411, a value that does not fit the option is DDB-412, `accept: inferred` without a proposal is DDB-413, and an invalid file answer is an error that is never silently replaced by a prompt. An answer for a question that was not asked is only a warning (DDB-410), because answer files are reused across runs. Without a prompter, every unanswered question is reported at once as DDB-414 with the question's text and paste-ready YAML for each option. With a prompter, only questions the file does not answer are asked. Resolved answers record how each was answered (`File`, `Interactive`, `AcceptedProposal`, `AcceptedProposalByFlag`) and serialize back to the same file format (`AnswerSerializer`), which is how a plan embeds them.
 
 ### 10.2 The plan document
 

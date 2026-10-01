@@ -149,7 +149,7 @@ public class SchemaConformanceTests
     [Fact]
     public void Schemas_are_valid_json_schema_documents_with_descriptions()
     {
-        foreach (var name in new[] { "model", "config" })
+        foreach (var name in new[] { "model", "config", "answers" })
         {
             var schema = LoadSchema(name);
             Assert.NotNull(schema);
@@ -168,9 +168,10 @@ public class EditorAssociationTests
     {
         var root = PolyglotBindingTests.RepoRoot();
         using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(root, ".vscode", "settings.json")));
-        var map = doc.RootElement.GetProperty("yaml.schemas").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
+        var map = doc.RootElement.GetProperty("yaml.schemas").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString()! : "");
         Assert.Equal("models/**/*.yml", map["schemas/model.schema.json"]);
         Assert.Equal(DbDataBuild.Core.ProductInfo.ConfigFile, map["schemas/config.schema.json"]);
+        Assert.Contains("answers.yml", doc.RootElement.GetProperty("yaml.schemas").GetProperty("schemas/answers.schema.json").EnumerateArray().Select(e => e.GetString()));
         foreach (var schema in map.Keys) Assert.True(File.Exists(Path.Combine(root, schema)), schema);
     }
 }
@@ -195,6 +196,19 @@ public class DesignDocExampleTests
         var (def, diags) = TestSupport.Load(yaml);
         Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
         Assert.NotNull(def);
+    }
+
+    [Fact]
+    public void Answers_example_in_section_10_1_is_valid_for_the_schema_and_the_loader()
+    {
+        var yaml = YamlBlockAfter("### 10.1");
+        Assert.True(SchemaConformanceTests.SchemaAccepts(SchemaConformanceTests.LoadSchema("answers"), yaml));
+        var diags = new List<DbDataBuild.Core.Diagnostic>();
+        var file = DbDataBuild.Models.AnswerFileLoader.Load(yaml, "answers.yml", diags);
+        Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
+        Assert.Equal(3, file!.Answers.Count);
+        Assert.Equal("customer_name", file.Answers.Single(a => a.Choice == "rename_to").Value);
+        Assert.Single(file.Answers, a => a.AcceptInferred);
     }
 
     [Fact]

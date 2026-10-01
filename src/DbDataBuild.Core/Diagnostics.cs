@@ -146,6 +146,28 @@ public static class DiagnosticCatalog
         "Add the missing entry under string_semantics.collations.",
         "Generated DDL always states collations explicitly, so each engine in use needs a collation name for every logical collation a model uses.");
 
+    // 4xx: planning / questions
+    public static readonly DiagnosticDescriptor AnswerForUnknownQuestion = W("410", "Answer for a question that was not asked",
+        "Answers whose id matches a question asked in this run.",
+        "Remove the answer, or ignore this warning: answer files are reusable across runs and may carry extra answers.",
+        "Question ids are deterministic, so an answers file can be reused. An answer with no matching question in this run is ignored.");
+    public static readonly DiagnosticDescriptor AnswerChoiceInvalid = E("411", "Answer is not one of the question's options",
+        "`choice:` equal to one of the options listed for the question.",
+        "Use one of the listed option keys.",
+        "An answer must pick an explicit option. Nothing is guessed or defaulted.");
+    public static readonly DiagnosticDescriptor AnswerValueMismatch = E("412", "Answer value does not fit the chosen option",
+        "`value:` present for options that take one, and absent for options that do not.",
+        "Add or remove `value:` to match the option.",
+        "Some options carry a value (for example the new column name for a rename). Others must not have one.");
+    public static readonly DiagnosticDescriptor NoProposalToAccept = E("413", "Nothing to accept for this question",
+        "`accept: inferred` only for questions that carry an inferred proposal.",
+        "Answer with an explicit `choice:` instead.",
+        "Only questions with an inferred proposal can be answered by accepting it.");
+    public static readonly DiagnosticDescriptor QuestionUnanswered = E("414", "Question is unanswered",
+        "An answer for every question, interactively or in the answers file.",
+        "Add one of the listed answers to the answers file, or run interactively.",
+        "In non-interactive mode every open question is listed at once with the YAML to add. No question is answered by default.");
+
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",
         Severity.Error, "Internal error (tool bug)",
@@ -159,6 +181,7 @@ public static class DiagnosticCatalog
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
+        AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         InternalError,
     ];
 
@@ -172,12 +195,15 @@ public static class DiagnosticFormatter
     {
         var sb = new StringBuilder();
         sb.Append(d.Severity switch { Severity.Error => "error", Severity.Warning => "warning", _ => "note" }).Append(' ').Append(d.Code).Append("  ").AppendLine(d.Location.ToString());
-        sb.Append("  ").AppendLine(d.Found);
-        sb.Append("  Supported: ").AppendLine(d.Supported ?? d.Descriptor.Supported);
-        sb.Append("  Fix: ").AppendLine(d.Fix ?? d.Descriptor.Fix);
+        sb.Append("  ").AppendLine(Indent(d.Found));
+        sb.Append("  Supported: ").AppendLine(Indent(d.Supported ?? d.Descriptor.Supported));
+        sb.Append("  Fix: ").AppendLine(Indent(d.Fix ?? d.Descriptor.Fix));
         sb.Append("  Docs: ").Append(ProductInfo.Cli).Append(" explain ").AppendLine(d.Code);
         return sb.ToString();
     }
+
+    /// <summary>Continuation lines of multi-line fields are indented under the field (single-line text is unchanged).</summary>
+    private static string Indent(string text) => text.Replace("\r\n", "\n").Replace("\n", "\n    ");
 
     public static string Explain(DiagnosticDescriptor d) =>
         $"{d.Code}  {d.Title}\n\n{d.Explanation}\n\nSupported: {d.Supported}\nFix: {d.Fix}\n";
