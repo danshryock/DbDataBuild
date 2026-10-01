@@ -425,6 +425,45 @@ public class PlannerTests
         Assert.Empty(exact.Blocks);
     }
 
+    [Fact]
+    public void A_requested_backfill_is_a_risky_backfill_step_of_the_named_operation()
+    {
+        var m = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var routine = Load("daily");
+        var reload = Load("r", [Start, End]) with { IsDefault = false };
+        var input = Existing(m) with { Loads = new Dictionary<string, IReadOnlyList<RenderedLoad>> { ["marts.fct"] = [routine, reload] } };
+
+        // the default operation stays a routine load
+        Assert.Equal(StepType.Load, Assert.Single(Planner.Plan(input, []).Steps).Type);
+
+        var requested = input with { OperationChoice = new Dictionary<string, string> { ["marts.fct"] = "r" }, Backfills = new HashSet<string> { "marts.fct" } };
+        var asked = Planner.Plan(requested, []);
+        Assert.Equal(["Q-param-marts.fct-r-end", "Q-param-marts.fct-r-start"], asked.Questions.Select(q => q.Id));
+        var r = Planner.Plan(requested, [Ans("Q-param-marts.fct-r-start", "provide", "2024-01-01 00:00:00"), Ans("Q-param-marts.fct-r-end", "provide", "2024-01-05 00:00:00")]);
+        var step = Assert.Single(r.Steps);
+        Assert.Equal((StepType.Backfill, RiskClass.Risky, "r"), (step.Type, step.Risk, step.Operation));
+        Assert.Equal("load.backfill", step.Reasons[0]);
+        Assert.Equal("backfill marts.fct (r)", step.Description);
+
+        // choosing a non-default operation without asking for a backfill is a routine load of that operation
+        var chosen = input with { OperationChoice = new Dictionary<string, string> { ["marts.fct"] = "r" } };
+        var asked2 = Planner.Plan(chosen, [Ans("Q-param-marts.fct-r-start", "provide", "2024-01-01 00:00:00"), Ans("Q-param-marts.fct-r-end", "provide", "2024-01-02 00:00:00")]);
+        Assert.Equal((StepType.Load, RiskClass.Safe), (Assert.Single(asked2.Steps).Type, asked2.Steps[0].Risk));
+    }
+
+    [Fact]
+    public void A_missing_operation_blocks_the_load()
+    {
+        var m = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var input = WithLoad(Existing(m), "marts.fct", Load("daily")) with { OperationChoice = new Dictionary<string, string> { ["marts.fct"] = "nope" } };
+        var r = Planner.Plan(input, []);
+        var block = Assert.Single(r.Blocks);
+        Assert.Equal("DDB-434", block.Code);
+        Assert.Contains("load.operation.missing", block.Found);
+        Assert.Contains("`nope`", block.Found);
+        Assert.Empty(r.Steps);
+    }
+
     private static readonly RenderedParameter Mark = new("watermark", "TIMESTAMP", "resolver", null);
 
     [Fact]

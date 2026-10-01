@@ -161,6 +161,15 @@ public static class AuditLog
             [A("status", status), new("rows", DbType.Int64, rows), Fixed("shape_end", shapeEnd), new("ended_utc", DbType.DateTime2, TrackingClock.NextUtc()), new("run_id", DbType.Guid, runId), A("step_id", stepId)]), ct);
     }
 
+    public static Task IntervalAsync(MutationGate gate, string target, string schema, string stepId, string model, Guid runId, string? rangeStart, string? rangeEnd, string shapeHash, string operation, CancellationToken ct = default)
+    {
+        string c(string n) => C(target, n);
+        var text = $"INSERT INTO {T(target, schema, "operation_interval")} ({c("interval_id")}, {c("model")}, {c("run_id")}, {c("range_start")}, {c("range_end")}, {c("shape_hash")}, {c("operation")}) " +
+                   "VALUES (@interval_id, @model, @run_id, @range_start, @range_end, @shape_hash, @operation)";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+            [new("interval_id", DbType.Guid, Guid.NewGuid()), S("model", model), new("run_id", DbType.Guid, runId), A("range_start", rangeStart), A("range_end", rangeEnd), Fixed("shape_hash", shapeHash), A("operation", operation)]), ct);
+    }
+
     /// <summary>A person's acknowledgement of a block, recorded so planning accepts exactly that block (code, object, hash) from now on.</summary>
     public static Task AcknowledgeAsync(MutationGate gate, string target, string schema, string stepId, string model, string code, string detail, string by, string reason, CancellationToken ct = default)
     {

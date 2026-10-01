@@ -330,4 +330,71 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    private const string EventsSource = "name: staging.events\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
+    private const string EventsYaml = "name: marts.fct_events\nkind: {type: incremental_by_time_range, time_column: event_ts}\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n" +
+        "loads:\n  daily:\n    default: true\n    strategy: watermark_append\n    watermark: {column: event_ts, resolver: target_max, on_null: initial, initial: \"2000-01-01 00:00:00\"}\n" +
+        "  reload:\n    strategy: delete_insert_by_range\n    params: {start: TIMESTAMP, end: TIMESTAMP}\n    max_span: 10 days\n";
+    private const string EventsSql = "SELECT e.event_id, e.event_ts, e.amount FROM staging.events e\n";
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Operations_can_be_chosen_and_a_backfill_is_a_risky_recorded_step(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // a different project: one time-range model with a routine operation and a reload operation
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("sources/staging/events.yml", EventsSource);
+            run.Write("models/marts/fct_events.yml", EventsYaml);
+            run.Write("models/marts/fct_events.sql", EventsSql);
+            await engine.ExecAsync($"CREATE TABLE staging.events ({run.Q("event_id")} BIGINT NOT NULL, {run.Q("event_ts")} {engine.ColumnType("TIMESTAMP")} NOT NULL, {run.Q("amount")} {engine.ColumnType("DECIMAL(14,2)")})");
+            await engine.ExecAsync("INSERT INTO staging.events VALUES (1, '2024-01-01 10:00:00', 1.00), (2, '2024-01-02 10:00:00', 2.00), (3, '2024-01-05 10:00:00', 3.00)");
+            var T = (string t) => $"{run.Q("dbdatabuild")}.{run.Q(t)}";
+
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var first = run.Cli("plan");
+            Ok(first, "first plan");                                                  // the watermark is NULL on a new table: the declared initial literal is used
+            var firstPlan = PlanDocument.Parse(File.ReadAllText(run.PlanFile(first.Out)), "p", new List<Diagnostic>())!;
+            Assert.Equal("2000-01-01 00:00:00", firstPlan.Steps.Single(s => s.Type == StepType.Load).Parameters.Single().Value);
+            Ok(run.Cli("apply", run.PlanFile(first.Out)), "first apply");
+            Assert.Equal(3, await CountAsync(run, "marts.fct_events"));
+            Assert.Equal(1, await CountAsync(run, T("operation_interval"), "operation = 'load'"));   // the watermark it started from is recorded
+
+            // usage errors before anything else
+            Assert.Equal(CliApp.ExitUsage, run.Cli("plan", "--backfill", "marts.fct_events").Exit);
+            Assert.Equal(CliApp.ExitUsage, run.Cli("plan", "--backfill", "marts.nope=reload").Exit);
+            Refused(run.Cli("plan", "--op", "marts.fct_events=missing"), "DDB-434", "an operation that is not rendered");
+
+            // a backfill of the reload operation: parameters are questions; the span is bounded by max_span
+            var startId = "Q-param-marts.fct_events-reload-start";
+            var endId = "Q-param-marts.fct_events-reload-end";
+            run.Write("tooLong.yml", $"answers:\n  - {{id: {startId}, choice: provide, value: \"2024-01-01 00:00:00\"}}\n  - {{id: {endId}, choice: provide, value: \"2024-03-01 00:00:00\"}}\n");
+            var tooLong = run.Cli("plan", "--backfill", "marts.fct_events=reload", "--answers", Path.Combine(run.Dir, "tooLong.yml"));
+            Refused(tooLong, "DDB-412", "a range longer than max_span");
+            Assert.Contains("max_span of 10 days", tooLong.Err);
+
+            run.Write("ok.yml", $"answers:\n  - {{id: {startId}, choice: provide, value: \"2024-01-01 00:00:00\"}}\n  - {{id: {endId}, choice: provide, value: \"2024-01-04 00:00:00\"}}\n");
+            var plan = run.Cli("plan", "--backfill", "marts.fct_events=reload", "--answers", Path.Combine(run.Dir, "ok.yml"));
+            Ok(plan, "backfill plan");
+            Assert.Contains("1 backfill", plan.Out);
+            var planFile = run.PlanFile(plan.Out);
+            Assert.Equal(["backfill marts.fct_events (reload)"], PlanDocument.Parse(File.ReadAllText(planFile), "p", new List<Diagnostic>())!.Steps.Select(s => s.Description));
+
+            await engine.ExecAsync("UPDATE marts.fct_events SET amount = 999 WHERE event_id IN (1, 2)");   // the backfill must replace these rows from the source
+            Refused(run.Cli("apply", planFile), "DDB-436", "a backfill without --allow-risky");
+            Assert.Equal(0, await CountAsync(run, T("run_log"), "operation = 'reload'"));
+            Ok(run.Cli("apply", planFile, "--allow-risky"), "backfill apply");
+            Assert.Equal(["1", "2"], await run.Engine.RowsAsync("SELECT amount FROM marts.fct_events WHERE event_id IN (1, 2)"));
+            Assert.Equal(1, await CountAsync(run, T("operation_interval"), "operation = 'backfill' AND range_start = '2024-01-01 00:00:00' AND range_end = '2024-01-04 00:00:00'"));
+            Assert.Equal(1, await CountAsync(run, T("run_log"), "operation = 'reload' AND status = 'ok'"));
+
+            // the report mentions the backfill's load
+            Assert.Contains("reload", run.Cli("report").Out);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

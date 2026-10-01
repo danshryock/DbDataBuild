@@ -61,7 +61,8 @@ internal sealed class PlanningSession
     public required IReadOnlyList<Diagnostic> Warnings { get; init; }
 
     /// <summary>Returns the session, or null and the exit code after printing why not.</summary>
-    public static (PlanningSession? Session, int Exit) Prepare(CommandSpec spec, string root, string? targetArg, string[] models, TextWriter output, TextWriter error, Func<string, string?> env)
+    public static (PlanningSession? Session, int Exit) Prepare(CommandSpec spec, string root, string? targetArg, string[] models, TextWriter output, TextWriter error, Func<string, string?> env,
+        IReadOnlyDictionary<string, string>? operations = null, IReadOnlySet<string>? backfills = null)
     {
         var ctx = ProjectContext.Load(root);
         var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
@@ -74,6 +75,8 @@ internal sealed class PlanningSession
 
         var selected = ctx.Select(models, error);
         if (selected == null) return (null, CliApp.ExitUsage);
+        foreach (var named in (operations ?? new Dictionary<string, string>()).Keys.Concat(backfills ?? new HashSet<string>()))
+            if (!ctx.Project.Sources.Any(m => m.Definition.Name == named)) { error.WriteLine($"`{named}` is not a model of this project."); return (null, CliApp.ExitUsage); }
         var mine = selected.Where(m => ctx.TargetsOf(m.Source.Definition).Contains(target)).ToList();
         foreach (var skipped in selected.Except(mine)) output.WriteLine($"note: {skipped.Source.Definition.Name} does not declare target `{target}` and is not planned.");
 
@@ -128,7 +131,7 @@ internal sealed class PlanningSession
                 if (status.AsDiagnostic(ctx.Config.TrackingSchema) is { } notReady) throw new GateRefusedException(notReady);
                 var snap = await TargetSnapshotReader.ReadAsync(read, target, ctx.Config.TrackingSchema, planned.Select(p => DdlSchema(p.Definition.Name)));
                 var results = new Dictionary<string, ResolverOutcome>();
-                foreach (var op in renderedOps.Where(o => o.IsDefault && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
+                foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
                 {
                     var type = op.Parameters.First(p => p.Source == "resolver").Type;
                     var r = await TargetSnapshotReader.RunResolverAsync(read, op.Resolver!, type);
@@ -146,7 +149,7 @@ internal sealed class PlanningSession
         var loads = renderedOps.GroupBy(o => o.Model).ToDictionary(g => g.Key, g => (IReadOnlyList<RenderedLoad>)g
             .Select(o => new RenderedLoad(o.Operation, o.IsDefault, o.Script, DbDataBuild.State.Hashing.ScriptHash(o.Script), o.Resolver, o.Parameters, o.Watermark)).ToList());
         var input = new PlanInput(target, ctx.Config, planned, snapshot.Live, snapshot.Schemas, snapshot.RecordedShapeHashes, snapshot.LastViewStatementHashes,
-            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved);
+            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills);
         return (new PlanningSession { Root = root, Target = target, Context = ctx, Input = input, Warnings = distinct.Where(d => d.Severity != Severity.Error).ToList() }, CliApp.ExitOk);
     }
 

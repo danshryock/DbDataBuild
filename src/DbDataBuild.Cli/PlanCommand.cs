@@ -17,7 +17,7 @@ internal static class PlanCommand
     public const string PlansDir = "plans";
     private const int MaxRounds = 12;
 
-    public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir,
+    public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir, string[] ops, string[] backfillArgs,
         TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?> env)
     {
         // ---- answers file first: a bad file is a usage problem and must not need a database ----
@@ -36,7 +36,11 @@ internal static class PlanCommand
         if (answersFile == null && !interactive && !acceptInferred)
             output.WriteLine("note: not interactive and no --answers file: any open question will be listed and nothing will be planned.");
 
-        var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env);
+        if (!ParseOps(ops, "--op", error, out var operations) || !ParseOps(backfillArgs, "--backfill", error, out var backfillOps)) return CliApp.ExitUsage;
+        foreach (var (model, op) in backfillOps)
+            if (!operations.TryAdd(model, op) && operations[model] != op) { error.WriteLine($"`{model}` is given two different operations (--op {operations[model]}, --backfill {op})."); return CliApp.ExitUsage; }
+
+        var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env, operations, backfillOps.Keys.ToHashSet(StringComparer.Ordinal));
         if (session == null) return exit;
 
         // ---- ask, plan again, until nothing is open ----
@@ -89,13 +93,26 @@ internal static class PlanCommand
 
         var risky = plan.Steps.Count(s => s.Risk == RiskClass.Risky);
         var destructive = plan.Steps.Count(s => s.Risk == RiskClass.Destructive);
-        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Track)} track); {risky} risky, {destructive} destructive.");
+        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Backfill)} backfill, {plan.Steps.Count(s => s.Type == StepType.Track)} track); {risky} risky, {destructive} destructive.");
         output.WriteLine($"  report: {Path.GetRelativePath(root, mdPath)}");
         output.WriteLine($"  plan:   {Path.GetRelativePath(root, yamlPath)}");
         if (result.Blocks.Count + result.Skipped.Count > 0)
             output.WriteLine($"  NOT planned: {result.Blocks.Count} blocked, {result.Skipped.Count} skipped (see above and the report).");
         output.WriteLine($"Review the report, then `{ProductInfo.Cli} apply {Path.GetRelativePath(root, yamlPath)}`.");
         return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
+    }
+
+    /// <summary>`model=operation` pairs. A model may be named once.</summary>
+    private static bool ParseOps(string[] args, string flag, TextWriter error, out Dictionary<string, string> result)
+    {
+        result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var a in args)
+        {
+            var i = a.IndexOf('=');
+            if (i <= 0 || i == a.Length - 1) { error.WriteLine($"{flag} takes model=operation (for example marts.fct_orders=reload_period), not `{a}`."); return false; }
+            if (!result.TryAdd(a[..i], a[(i + 1)..])) { error.WriteLine($"{flag} names `{a[..i]}` more than once."); return false; }
+        }
+        return true;
     }
 
     /// <summary>`check`: the findings a plan would act on, without asking anything or writing anything.</summary>

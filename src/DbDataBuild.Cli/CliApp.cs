@@ -86,9 +86,12 @@ public static class CliApp
                     var planAnswers = new Option<FileInfo?>("--answers") { Description = "Answers file for the questions (see schemas/answers.schema.json)" };
                     var planAccept = new Option<bool>("--accept-inferred") { Description = "Accept inferred proposals marked high certainty" };
                     var planOut = new Option<DirectoryInfo?>("--output") { Description = "Where to write the plan files (default: plans/<target>/)" };
+                    var planOp = new Option<string[]>("--op") { Description = "model=operation: load this model with a non-default operation (repeatable)", DefaultValueFactory = _ => [] };
+                    var planBackfill = new Option<string[]>("--backfill") { Description = "model=operation: plan that operation as a backfill (risky; needs --allow-risky at apply); the model has no routine load in this plan (repeatable)", DefaultValueFactory = _ => [] };
+                    cmd.Options.Add(planOp); cmd.Options.Add(planBackfill);
                     cmd.Arguments.Add(planModels);
                     cmd.Options.Add(planProject); cmd.Options.Add(planTarget); cmd.Options.Add(planAnswers); cmd.Options.Add(planAccept); cmd.Options.Add(planOut);
-                    cmd.SetAction(pr => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut),
+                    cmd.SetAction(pr => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut), pr.GetValue(planOp) ?? [], pr.GetValue(planBackfill) ?? [],
                         output, error, input, interactive, environment ?? Environment.GetEnvironmentVariable));
                     break;
                 case "check":

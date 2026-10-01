@@ -651,7 +651,8 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 - `ack drift` and `ack definition` record a person's acknowledgement of one specific hash in `block_log`; they never change user data.
 - Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text (in `ddl_log`); their column types are derived by the engine, so a view step has no predicted shape hash.
 - `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
-- Not built yet: backfill and hook steps, the per-column history consistency report (12.3), `--operation` selection, constraint and index creation from the model.
+- `plan --op model=operation` and `plan --backfill model=operation` choose operations; a backfill is a risky step recorded in `operation_interval`.
+- Not built yet: hook steps, the per-column history consistency report (12.3), constraint and index creation from the model.
 
 ### 10.5 Plans live in the repo
 

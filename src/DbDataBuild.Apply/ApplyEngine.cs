@@ -230,6 +230,7 @@ public static class ApplyEngine
             }
 
             case StepType.Load:
+            case StepType.Backfill:
             {
                 var parameters = step.Parameters.Select(ToGate).ToList();
                 var shapeStart = gate.DryRun ? null : (await LiveAsync(reader, target, step.Object, ct))?.ShapeHash;
@@ -248,6 +249,11 @@ public static class ApplyEngine
                 if (gate.DryRun) return null;
                 var shapeEnd = (await LiveAsync(reader, target, step.Object, ct))?.ShapeHash;
                 await AuditLog.FinishRunAsync(gate, target, schema, step.Id, runId, "ok", rows, shapeEnd, ct);
+                // the range of data this operation produced, under the shape it produced it in (DESIGN.md 12.3 reads these)
+                var start = step.Parameters.FirstOrDefault(p => p.Name is "start" or "watermark")?.Value;
+                var end = step.Parameters.FirstOrDefault(p => p.Name == "end")?.Value;
+                if (start != null || end != null)
+                    await AuditLog.IntervalAsync(gate, target, schema, step.Id + ":interval", step.Object, runId, start, end, shapeEnd ?? "", step.Type == StepType.Backfill ? "backfill" : "load", ct);
                 return null;
             }
 

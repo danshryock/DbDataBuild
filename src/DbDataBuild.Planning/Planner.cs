@@ -35,7 +35,8 @@ public sealed record PlanInput(
     IReadOnlySet<string> Acknowledged,
     IReadOnlyDictionary<string, IReadOnlyList<RenderedLoad>> Loads,
     IReadOnlyDictionary<string, ResolverOutcome> Resolved,
-    IReadOnlyDictionary<string, string>? OperationChoice = null)
+    IReadOnlyDictionary<string, string>? OperationChoice = null,
+    IReadOnlySet<string>? Backfills = null)
 {
     public static string ResolverKey(string model, string operation) => $"{model}|{operation}";
 }
@@ -376,11 +377,12 @@ public static class Planner
         var def = c.Def;
         if (!c.Input.Loads.TryGetValue(def.Name, out var loads) || loads.Count == 0) return true;
         var wanted = c.Input.OperationChoice?.GetValueOrDefault(def.Name);
+        var backfill = c.Input.Backfills?.Contains(def.Name) == true;
         var load = wanted != null ? loads.FirstOrDefault(l => l.Operation == wanted) : loads.FirstOrDefault(l => l.IsDefault) ?? (loads.Count == 1 ? loads[0] : null);
         if (load == null)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(def.Name, 0, 0), wanted != null
-                ? $"{def.Name} has no rendered load operation named `{wanted}` for {c.Input.Target}."
+                ? $"load.operation.missing: {def.Name} has no rendered load operation named `{wanted}` for {c.Input.Target}."
                 : $"{def.Name} declares several load operations and none is the default for {c.Input.Target}; name one with --operation."));
             return false;
         }
@@ -435,7 +437,8 @@ public static class Planner
         if (open) return true;
         if (!SpanFits(c, load, parameters, blocks)) return false;
 
-        loadSteps.Add(new PlanStep("", StepType.Load, def.Name, $"load {def.Name} ({load.Operation})", load.Script, RiskClass.Safe, ["load.routine"], null, parameters,
+        loadSteps.Add(new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
+            backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
             load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash));
         return true;
     }

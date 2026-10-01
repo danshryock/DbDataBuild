@@ -24,6 +24,8 @@
 - { id: col.collation, owner: planner, kinds: "full, incremental_*", when: "the declared collation differs from the live one", result: ddl, risk: risky, test: Nullability_and_collation_changes_are_graded }
 - { id: view.changed, owner: planner, kinds: view, when: "the rendered view statement differs from the last one applied", result: ddl, risk: safe, test: A_changed_view_statement_alters_the_view }
 - { id: load.routine, owner: planner, kinds: "full, incremental_*", when: "the model has a rendered default load operation", result: load, risk: safe, test: A_load_step_carries_the_committed_script_and_its_parameters }
+- { id: load.backfill, owner: planner, kinds: "full, incremental_*", when: "a backfill of a named operation was requested for the model", result: load, risk: risky, test: A_requested_backfill_is_a_risky_backfill_step_of_the_named_operation }
+- { id: load.operation.missing, owner: planner, kinds: any, when: "the requested operation is not rendered for the target, or several are declared and none is the default", result: block, code: DDB-434, test: A_missing_operation_blocks_the_load }
 - { id: load.definition_changed, owner: planner, kinds: "incremental_*", when: "the query changed since the last recorded load and nobody acknowledged it", result: block, code: DDB-431, test: A_changed_incremental_query_blocks_until_acknowledged }
 - { id: load.param.missing, owner: planner, kinds: any, when: "a runtime parameter has no value", result: question, code: "Q-param", test: A_runtime_parameter_without_a_value_is_a_question }
 - { id: load.watermark.null, owner: planner, kinds: any, when: "the watermark resolver returned NULL", result: question, code: "Q-param", test: A_null_watermark_follows_the_declared_on_null }
