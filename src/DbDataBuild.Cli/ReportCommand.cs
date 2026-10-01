@@ -72,7 +72,29 @@ internal static class ReportCommand
                 return new[] { name, Cell(r[1]), Cell(r[2]), state switch { ObjectState.InSync => "in sync", ObjectState.Missing => "MISSING on the target", ObjectState.OutOfBand => "CHANGED OUTSIDE THE TOOL", _ => "not tracked" } };
             }));
 
+            // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----
+            var planRows = await read.QueryAsync($"SELECT m.{C("plan_id")}, m.{C("applied_by")}, m.{C("applied_utc")}, m.{C("plan_text")} FROM {T("migration_log")} m WHERE m.{C("status")} = 'completed' ORDER BY m.{C("applied_utc")}");
+            var applied = new List<DbDataBuild.Planning.AppliedPlan>();
+            var unreadable = new List<string>();
+            foreach (var r in planRows)
+            {
+                var planDiags = new List<Diagnostic>();
+                if (Planning.PlanDocument.Parse((string)r[3]!, "migration_log", planDiags) is { } p) applied.Add(new(Cell(r[0]), Cell(r[1]), (DateTime)r[2]!, p));
+                else unreadable.Add(Cell(r[0]));
+            }
+            var shapeRows = await read.QueryAsync($"SELECT s.{C("object_name")}, s.{C("shape_hash")}, s.{C("first_seen_utc")}, s.{C("source")}, s.{C("plan_id")} FROM {T("schema_version")} s");
+            var intervalRows = await read.QueryAsync($"SELECT DISTINCT i.{C("model")}, i.{C("range_start")}, i.{C("range_end")}, i.{C("operation")}, r.{C("started_utc")} FROM {T("operation_interval")} i JOIN {T("run_log")} r ON r.{C("run_id")} = i.{C("run_id")} AND r.{C("model")} = i.{C("model")}");
+            var history = Planning.ColumnHistory.Build(applied,
+                shapeRows.Select(r => new Planning.RecordedShape(Cell(r[0]), Cell(r[1]), (DateTime)r[2]!, Cell(r[3]), r[4] == null ? null : Cell(r[4]))).ToList(),
+                intervalRows.Select(r => new Planning.RecordedInterval(Cell(r[0]), r[1] == null ? null : Cell(r[1]), r[2] == null ? null : Cell(r[2]), Cell(r[3]), (DateTime)r[4]!)).ToList());
+            output.WriteLine();
+            output.WriteLine($"Column history ({history.Count})");
+            if (history.Count == 0) output.WriteLine("  none: no applied plan added a column");
+            foreach (var h in history) output.WriteLine($"  - {h.Text}");
+
             var open = new List<string>();
+            foreach (var h in history.Where(h => h.NeedsAttention)) open.Add($"{h.Model}.{h.Column}: a backfill was requested and none is recorded (`{ProductInfo.Cli} plan --backfill {h.Model}=<operation>`)");
+            foreach (var id in unreadable) open.Add($"the plan text recorded for {id} cannot be read back (edited or damaged); its decisions are not in this report");
             foreach (var r in await read.QueryAsync($"SELECT {C("plan_id")}, MAX({C("applied_utc")}) FROM {T("migration_log")} GROUP BY {C("plan_id")} HAVING SUM(CASE WHEN {C("status")} = 'completed' THEN 1 ELSE 0 END) = 0"))
                 open.Add($"plan {Cell(r[0])} never completed (last record {Cell(r[1])} UTC): resume it with `{ProductInfo.Cli} apply --resume`, or plan again");
             foreach (var r in await read.QueryAsync($"SELECT {C("object_name")}, {C("plan_id")} FROM {T("ddl_log")} WHERE {C("status")} <> 'ok'"))

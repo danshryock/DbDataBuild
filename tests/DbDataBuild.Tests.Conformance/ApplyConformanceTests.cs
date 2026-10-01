@@ -178,6 +178,13 @@ public partial class ApplyConformanceTests
                 Assert.Contains(shape.Columns, c => c.Name == "discount_code");
             }
 
+            // the report keeps the decision, the note and who applied it
+            var history = run.Cli("report");
+            Ok(history, "report after the column change");
+            Assert.Contains("Column history (1)", history.Out);
+            Assert.Contains("`discount_code` was added to marts.fct_orders by plan", history.Out);
+            Assert.Contains("not_backfilled (file, \"No history exists in source.\")", history.Out);
+
             // ---- drift: an out-of-band column blocks, an acknowledgement unblocks, a destructive step needs its allowance ----
             await engine.ExecAsync($"ALTER TABLE marts.fct_orders ADD {run.Q("sneaky")} {engine.ColumnType("VARCHAR(5)")} NULL");
             var driftCheck = run.Cli("check");

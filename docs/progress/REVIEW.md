@@ -52,7 +52,7 @@ To try it by hand: set `DBDATABUILD_SQLSERVER_READ` and `DBDATABUILD_SQLSERVER_W
 
 ## Known gaps and risks (not hidden)
 
-- **Not built**: backfill and hook steps (milestone 7), the per-column history consistency report (DESIGN.md 12.3), `--operation` selection, creating unique constraints and indexes from the model (`unique_key` does not create a constraint), the live-catalog collation check in `check`, JSON Schemas for plan files (they are verified by their own parser and hash).
+- **Not built**: hook steps, the downstream warn-or-block policy for history inconsistencies (the report itself exists), creating unique constraints and indexes from the model (`unique_key` does not create a constraint), the live-catalog collation check in `check`, JSON Schemas for plan files (they are verified by their own parser and hash).
 - **Fabric is unverified throughout**: no Fabric engine has been available. Its init script, type table and plan statements are generated and parse, but have never run.
 - **Never tested on Windows or against a managed instance**; integrated security is wired but untested. SQL Server 2022 only (not 2019 or 2025); PostgreSQL 17 only.
 - **The invariant test is a source scan, not a call-graph analysis**; a determined reflection call would not be seen.
@@ -64,7 +64,7 @@ To try it by hand: set `DBDATABUILD_SQLSERVER_READ` and `DBDATABUILD_SQLSERVER_W
 ## Suggested next steps
 
 1. Review decisions 1 to 10 above and tell me which to change.
-2. Milestone 7: backfill planning with `operation_interval`, `--operation`, and constraint/index creation.
+2. Constraint and index creation from the model (needs a design decision: should `unique_key` create a unique constraint?). Backfill, `--op` and the column-history report were added after this summary was first written (log entries 10 and 11).
 3. A JSON Schema for plan files and a machine-readable output mode for `check` and `report`.
 4. If you want the DuckDB plan-lowering idea pursued, start with enum-seeded PIVOT and macros as the research recommends.
 5. A Windows build of the FFI library and single-file publish (still open from the spike).

@@ -652,7 +652,8 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 - Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text (in `ddl_log`); their column types are derived by the engine, so a view step has no predicted shape hash.
 - `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
 - `plan --op model=operation` and `plan --backfill model=operation` choose operations; a backfill is a risky step recorded in `operation_interval`.
-- Not built yet: hook steps, the per-column history consistency report (12.3), constraint and index creation from the model.
+- `report` includes the per-column history report (12.3) built from the answers in applied plans; its configurable warning-or-block policy for downstream models is not built.
+- Not built yet: hook steps, constraint and index creation from the model.
 
 ### 10.5 Plans live in the repo
 
