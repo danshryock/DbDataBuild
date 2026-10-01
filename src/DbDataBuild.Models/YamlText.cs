@@ -2,7 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace DbDataBuild.Define;
+namespace DbDataBuild.Models;
 
 /// <summary>Writing YAML scalars for definitions: plain when that is unambiguous for people and editors, double-quoted otherwise.</summary>
 public static partial class YamlText

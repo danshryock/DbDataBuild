@@ -2,6 +2,7 @@ using System.CommandLine;
 using DbDataBuild.Core;
 using DbDataBuild.Models;
 using DbDataBuild.Sql.Matrix;
+using DbDataBuild.Targets.Rendering;
 
 namespace DbDataBuild.Cli;
 
@@ -55,6 +56,21 @@ public static class CliApp
                     cmd.Options.Add(defineProject); cmd.Options.Add(answers); cmd.Options.Add(write); cmd.Options.Add(check); cmd.Options.Add(accept);
                     cmd.SetAction(pr => DefineCommand.Run(spec, pr.GetValue(defineProject)!.FullName, pr.GetValue(paths) ?? [], pr.GetValue(answers), pr.GetValue(write), pr.GetValue(check), pr.GetValue(accept), output, error, input, interactive));
                     break;
+                case "render":
+                    var renderModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var renderProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var renderTarget = new Option<string[]>("--target") { Description = "Only these targets (sqlserver, fabric, postgres)", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
+                    var renderWrite = new Option<bool>("--write") { Description = "Write the committed rendered/ files (and remove stale generated ones)" };
+                    var renderCheck = new Option<bool>("--check") { Description = "CI: fail if the committed rendered/ files differ from a fresh render; writes nothing" };
+                    cmd.Arguments.Add(renderModels);
+                    cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
+                    cmd.SetAction(pr => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), output, error));
+                    break;
+                case "loads":
+                    var loadsProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    cmd.Options.Add(loadsProject);
+                    cmd.SetAction(pr => RenderCommand.Loads(spec, pr.GetValue(loadsProject)!.FullName, output, error));
+                    break;
                 case "matrix":
                     cmd.SetAction(_ => PrintMatrix(spec, output, error));
                     break;
@@ -88,8 +104,10 @@ public static class CliApp
         var config = ProjectConfigLoader.LoadFromProject(projectRoot, diagnostics);
 
         var matrixDiags = new List<Diagnostic>();
-        var linter = new MatrixLinter(MatrixLoader.LoadEmbedded(matrixDiags));
+        var matrix = MatrixLoader.LoadEmbedded(matrixDiags);
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
+        var linter = new MatrixLinter(matrix);
+        var renderer = new LoadRenderer(matrix, linter, config);
 
         // The effective settings are never hidden (DESIGN.md 7.4): printed even when they are the built-in defaults.
         var configured = File.Exists(Path.Combine(projectRoot, ProductInfo.ConfigFile)) && !diagnostics.Any(d => d.Severity == Severity.Error && d.Location.File == ProductInfo.ConfigFile);
@@ -98,7 +116,10 @@ public static class CliApp
         foreach (var source in result.Sources)
         {
             var sql = File.ReadAllText(Path.Combine(projectRoot, source.QueryFile));
-            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, source.Definition.Targets ?? config.DefaultTargets, config));
+            var targets = source.Definition.Targets ?? config.DefaultTargets;
+            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, targets, config));
+            // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
+            diagnostics.AddRange(renderer.Render(source.Definition, sql, source.QueryFile, targets).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
         }
         diagnostics.AddRange(CollationChecker.Check(config, result.Sources));
 

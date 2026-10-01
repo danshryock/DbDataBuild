@@ -10,12 +10,20 @@ public static class MatrixLoader
 {
     public const string ConstructsFile = "constructs.yml";
     public const string CoveredFile = "covered.yml";
+    public const string StrategiesFile = "strategies.yml";
 
     private static readonly string[] RowKeys = ["id", "detect", "duckdb", "tsql", "sqlserver", "fabric", "postgres"];
     private static readonly string[] EntryKeys = ["status", "min_version", "note", "test"];
 
     public static SupportMatrix LoadEmbedded(List<Diagnostic> diags) =>
         Load(n => ReadEmbedded(n), diags);
+
+    /// <summary>A short, stable identifier of the embedded matrix data (a hash of its files), written into rendered files so a matrix change shows up in them.</summary>
+    public static string EmbeddedVersion()
+    {
+        var text = string.Join("\n---\n", new[] { ConstructsFile, CoveredFile, StrategiesFile }.Select(ReadEmbedded)).Replace("\r\n", "\n");
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)))[..12].ToLowerInvariant();
+    }
 
     public static SupportMatrix LoadFromDirectory(string dir, List<Diagnostic> diags) =>
         Load(n => File.ReadAllText(Path.Combine(dir, n)), diags);
@@ -45,7 +53,15 @@ public static class MatrixLoader
         if (cseq != null)
             foreach (var item in cseq.Items)
                 if (ReadCovered(item, "matrix/" + CoveredFile, diags) is { } c) covered.Add(c);
-        return new SupportMatrix(rows, covered);
+
+        var strategies = new List<ConstructRow>();
+        var sseq = ReadSequence(read(StrategiesFile), "matrix/" + StrategiesFile, diags);
+        if (sseq != null)
+            foreach (var item in sseq.Items)
+                if (ReadRow(item, "matrix/" + StrategiesFile, diags, requireDetect: false) is { } row) strategies.Add(row);
+        foreach (var r in strategies.GroupBy(r => r.Id).Where(g => g.Count() > 1).SelectMany(g => g.Skip(1)))
+            diags.Add(new Diagnostic(DiagnosticCatalog.DuplicateKey, new(r.File, r.Line, 1), $"Strategy row id `{r.Id}` appears more than once."));
+        return new SupportMatrix(rows, covered, strategies);
     }
 
     private static YamlSequence? ReadSequence(string text, string file, List<Diagnostic> diags)
@@ -57,12 +73,13 @@ public static class MatrixLoader
         return null;
     }
 
-    private static ConstructRow? ReadRow(YamlNode node, string file, List<Diagnostic> diags)
+    private static ConstructRow? ReadRow(YamlNode node, string file, List<Diagnostic> diags, bool requireDetect = true)
     {
         void Err(DiagnosticDescriptor d, YamlNode at, string found) => diags.Add(new Diagnostic(d, new(file, at.Line, at.Column), found));
         if (node is not YamlMapping m) { Err(DiagnosticCatalog.InvalidValue, node, "A matrix row must be a mapping."); return null; }
-        foreach (var e in m.Entries.Where(e => !RowKeys.Contains(e.Key.Value)))
-            Err(DiagnosticCatalog.UnknownKey, e.Key, $"Unknown key `{e.Key.Value}` in a matrix row. Keys: {string.Join(", ", RowKeys)}.");
+        var allowedKeys = requireDetect ? RowKeys : RowKeys.Where(k => k != "detect").ToArray();
+        foreach (var e in m.Entries.Where(e => !allowedKeys.Contains(e.Key.Value)))
+            Err(DiagnosticCatalog.UnknownKey, e.Key, $"Unknown key `{e.Key.Value}` in a matrix row. Keys: {string.Join(", ", allowedKeys)}.");
 
         var id = (m.Get("id") as YamlScalar)?.Value;
         if (string.IsNullOrEmpty(id)) { Err(DiagnosticCatalog.MissingKey, m, "A matrix row needs an `id`."); return null; }
@@ -70,7 +87,7 @@ public static class MatrixLoader
         var detect = new List<DetectRule>();
         var dnode = m.Get("detect");
         var dscalars = dnode switch { YamlScalar s => [s], YamlSequence q => q.Items.OfType<YamlScalar>().ToList(), _ => [] };
-        if (dscalars.Count == 0) Err(DiagnosticCatalog.MissingKey, m, $"Row `{id}` needs `detect:` (a string or list).");
+        if (dscalars.Count == 0 && requireDetect) Err(DiagnosticCatalog.MissingKey, m, $"Row `{id}` needs `detect:` (a string or list).");
         foreach (var d in dscalars)
             if (ParseDetect(d.Value, out var rule, out var problem)) detect.Add(rule!);
             else Err(DiagnosticCatalog.InvalidValue, d, $"Row `{id}`: {problem}");

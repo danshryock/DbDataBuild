@@ -103,6 +103,7 @@ public class MatrixTests
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "constructs.yml"), constructs);
         File.WriteAllText(Path.Combine(dir, "covered.yml"), covered);
+        File.WriteAllText(Path.Combine(dir, "strategies.yml"), "[]\n");
         var diags = new List<Diagnostic>();
         MatrixLoader.LoadFromDirectory(dir, diags);
         return diags;
@@ -149,6 +150,7 @@ public class MatrixTests
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "constructs.yml"), GoodRow.Replace("duckdb: native", "duckdb: native\n  fabric: { status: unverified }"));
         File.WriteAllText(Path.Combine(dir, "covered.yml"), "- { node: column, evidence: [x] }\n");
+        File.WriteAllText(Path.Combine(dir, "strategies.yml"), "[]\n");
         var m = MatrixLoader.LoadFromDirectory(dir, diags);
         Assert.Empty(diags);
         Assert.Equal(SupportStatus.Native, m.Rows[0].Targets["sqlserver"].Status);
@@ -161,5 +163,46 @@ public class MatrixTests
         Assert.Contains(LoadBad(GoodRow, "- { node: column }\n"), d => d.Code == "DDB-105");
         Assert.Contains(LoadBad(GoodRow, "- { node: not_a_tag, evidence: [x] }\n"), d => d.Code == "DDB-106");
         Assert.Contains(LoadBad(GoodRow, "- { whatever: 1 }\n"), d => d.Code is "DDB-104" or "DDB-105");
+    }
+
+    // ---- strategy rows ----
+
+    [Fact]
+    public void Strategy_rows_cover_exactly_the_closed_library_with_every_target()
+    {
+        Assert.Equal(DbDataBuild.Models.LoadStrategies.All.Select(x => "strategy." + x).Order(), Matrix.Strategies.Select(r => r.Id).Order());
+        foreach (var row in Matrix.Strategies)
+        {
+            Assert.Equal(SupportMatrix.Targets.Order(), row.Targets.Keys.Order());
+            Assert.Empty(row.Detect);
+        }
+    }
+
+    [Fact]
+    public void Strategy_test_references_name_conformance_cases_that_exist()
+    {
+        var dir = Path.Combine(RepoRoot(), "tests", "DbDataBuild.Tests.Conformance");
+        Assert.True(Directory.Exists(dir), "tests/DbDataBuild.Tests.Conformance is missing");
+        var source = string.Join("\n", Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+        foreach (var row in Matrix.Strategies)
+            foreach (var (target, e) in row.Targets.Where(t => t.Value.Test != null))
+            {
+                Assert.StartsWith("conformance/", e.Test);
+                var id = e.Test!["conformance/".Length..];
+                Assert.Contains($"\"{id}\"", source);
+                Assert.Equal("strategy." + id, row.Id);
+            }
+    }
+
+    [Fact]
+    public void Fabric_strategy_entries_are_unverified_until_a_fabric_engine_runs_them()
+    {
+        Assert.All(Matrix.Strategies, r => Assert.Equal(SupportStatus.Unverified, r.Targets["fabric"].Status));
+    }
+
+    [Fact]
+    public void Postgres_merge_needs_version_15()
+    {
+        Assert.Equal(15, Matrix.Strategies.Single(r => r.Id == "strategy.merge_by_key").Targets["postgres"].MinVersion);
     }
 }

@@ -5,13 +5,19 @@
   "description": "A model definition file (models/**/<name>.yml), the companion of the plain DuckDB-dialect <name>.sql body. This schema is for editors; `dbdatabuild validate` applies the same rules plus semantic checks (name against path, grain against unique_key, column references) with diagnostic codes. The tool reads every scalar as a string, so values here that YAML would type (nullable) accept the quoted and unquoted forms.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "kind", "columns"],
+  "required": [
+    "name",
+    "kind",
+    "columns"
+  ],
   "properties": {
     "name": {
       "description": "Schema-qualified model name. Must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml is marts.fct_orders).",
       "$ref": "#/$defs/nonEmptyString"
     },
-    "kind": { "$ref": "#/$defs/kind" },
+    "kind": {
+      "$ref": "#/$defs/kind"
+    },
     "grain": {
       "description": "Columns that uniquely identify an output row. Required for incremental kinds; for incremental_by_unique_key it must equal unique_key.",
       "$ref": "#/$defs/columnList"
@@ -21,45 +27,108 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["sqlserver", "fabric", "postgres"] }
+      "items": {
+        "enum": [
+          "sqlserver",
+          "fabric",
+          "postgres"
+        ]
+      }
     },
     "columns": {
       "description": "The declared output schema. Required for every model: it drives the shape hash, the plan's DDL, and offline validation.",
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/column" }
+      "items": {
+        "$ref": "#/$defs/column"
+      }
     },
     "renames": {
       "description": "Declared column renames. Renames are never inferred.",
       "type": "array",
-      "items": { "$ref": "#/$defs/rename" }
+      "items": {
+        "$ref": "#/$defs/rename"
+      }
     },
     "loads": {
-      "description": "Named load operations (not validated yet; arrives with the load-operations milestone).",
-      "type": "object"
+      "description": "Named load operations (DESIGN.md 6.6). Without `loads`, the kind supplies a single operation named `default`: full_replace for full, delete_insert_by_key for incremental_by_unique_key, and a watermark load over the time column for incremental_by_time_range. A view has no loads. Declared operations replace the implicit one. At most one operation per target may be the default.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/loadOperation"
+      }
     }
   },
   "allOf": [
     {
       "description": "Incremental kinds require a grain.",
       "if": {
-        "required": ["kind"],
+        "required": [
+          "kind"
+        ],
         "properties": {
           "kind": {
-            "required": ["type"],
-            "properties": { "type": { "enum": ["incremental_by_unique_key", "incremental_by_time_range"] } }
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "incremental_by_unique_key",
+                  "incremental_by_time_range"
+                ]
+              }
+            }
           }
         }
       },
-      "then": { "required": ["grain"] }
+      "then": {
+        "required": [
+          "grain"
+        ]
+      }
+    },
+    {
+      "description": "A view has no data load.",
+      "if": {
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "view"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "loads"
+          ]
+        }
+      }
     }
   ],
   "$defs": {
-    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
     "columnList": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
     },
     "kind": {
       "description": "Table semantics, and the default load operation.",
@@ -69,26 +138,45 @@
           "description": "View over upstream. DDL only; apply issues no data statements.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["type"],
-          "properties": { "type": { "const": "view" } }
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "view"
+            }
+          }
         },
         {
           "title": "full",
           "description": "Table fully reloaded: transactional delete and insert.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["type"],
-          "properties": { "type": { "const": "full" } }
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "full"
+            }
+          }
         },
         {
           "title": "incremental_by_unique_key",
           "description": "Upsert by key. Requires unique_key.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "unique_key"],
+          "required": [
+            "type",
+            "unique_key"
+          ],
           "properties": {
-            "type": { "const": "incremental_by_unique_key" },
-            "unique_key": { "$ref": "#/$defs/columnList" }
+            "type": {
+              "const": "incremental_by_unique_key"
+            },
+            "unique_key": {
+              "$ref": "#/$defs/columnList"
+            }
           }
         },
         {
@@ -96,11 +184,21 @@
           "description": "Time-sliced incremental. The range comes from MAX(time_column) in the target minus lookback. Requires time_column.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "time_column"],
+          "required": [
+            "type",
+            "time_column"
+          ],
           "properties": {
-            "type": { "const": "incremental_by_time_range" },
-            "time_column": { "$ref": "#/$defs/nonEmptyString" },
-            "lookback": { "description": "For example `3 days`.", "$ref": "#/$defs/nonEmptyString" }
+            "type": {
+              "const": "incremental_by_time_range"
+            },
+            "time_column": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "lookback": {
+              "description": "For example `3 days` (minutes, hours, days, weeks or months; a DATE column takes days, weeks or months).",
+              "$ref": "#/$defs/duration"
+            }
           }
         }
       ]
@@ -108,16 +206,31 @@
     "column": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "type"],
+      "required": [
+        "name",
+        "type"
+      ],
       "properties": {
-        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
         "type": {
           "description": "A SQL type written as a plain string, for example `BIGINT` or `DECIMAL(14, 2)`.",
           "$ref": "#/$defs/nonEmptyString"
         },
         "nullable": {
           "description": "Defaults to true.",
-          "oneOf": [{ "type": "boolean" }, { "enum": ["true", "false"] }]
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
         },
         "collation": {
           "description": "Logical collation name from the project's string_semantics.collations. The project default applies if omitted.",
@@ -128,11 +241,296 @@
     "rename": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "to"],
+      "required": [
+        "from",
+        "to"
+      ],
       "properties": {
-        "from": { "$ref": "#/$defs/nonEmptyString" },
-        "to": { "$ref": "#/$defs/nonEmptyString" }
+        "from": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "to": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
       }
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+ (minute|hour|day|week|month)s?$"
+    },
+    "boolish": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "enum": [
+            "true",
+            "false"
+          ]
+        }
+      ]
+    },
+    "loadOperation": {
+      "oneOf": [
+        {
+          "title": "full_replace",
+          "description": "Delete and insert the whole contents in one transaction.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "full_replace"
+            },
+            "default": {
+              "description": "The operation `run` uses when `--op` is not given. At most one per target.",
+              "$ref": "#/$defs/boolish"
+            },
+            "targets": {
+              "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "title": "delete_insert_by_key",
+          "description": "Stage the query result, delete target rows whose key is in it, insert it. One transaction.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "delete_insert_by_key"
+            },
+            "default": {
+              "description": "The operation `run` uses when `--op` is not given. At most one per target.",
+              "$ref": "#/$defs/boolish"
+            },
+            "targets": {
+              "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              }
+            },
+            "key": {
+              "description": "Key columns. Defaults to the kind's unique_key.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            }
+          }
+        },
+        {
+          "title": "merge_by_key",
+          "description": "Stage the query result and MERGE it by key (update matches, insert the rest). One transaction.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "merge_by_key"
+            },
+            "default": {
+              "description": "The operation `run` uses when `--op` is not given. At most one per target.",
+              "$ref": "#/$defs/boolish"
+            },
+            "targets": {
+              "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              }
+            },
+            "key": {
+              "description": "Key columns. Defaults to the kind's unique_key.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            }
+          }
+        },
+        {
+          "title": "delete_insert_by_range",
+          "description": "Reload a range [start, end) of the range column: delete it in the target and insert the query's rows for it. `start` and `end` are runtime parameters.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "delete_insert_by_range"
+            },
+            "default": {
+              "description": "The operation `run` uses when `--op` is not given. At most one per target.",
+              "$ref": "#/$defs/boolish"
+            },
+            "targets": {
+              "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              }
+            },
+            "column": {
+              "description": "The range column. Defaults to the kind's time_column.",
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "params": {
+              "description": "Types of the `start` and `end` parameters; they must match the range column. Defaults to the column's type.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "end": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              }
+            },
+            "max_span": {
+              "description": "The longest range one run may reload, for example `400 days`. Enforced at plan time.",
+              "$ref": "#/$defs/duration"
+            }
+          }
+        },
+        {
+          "title": "watermark_append",
+          "description": "Load rows newer than a watermark read from the target (never from a state table). With a lookback, rows in the lookback window are replaced, never duplicated.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy",
+            "watermark"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "watermark_append"
+            },
+            "default": {
+              "description": "The operation `run` uses when `--op` is not given. At most one per target.",
+              "$ref": "#/$defs/boolish"
+            },
+            "targets": {
+              "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              }
+            },
+            "watermark": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "column",
+                "resolver"
+              ],
+              "properties": {
+                "column": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "resolver": {
+                  "description": "How the watermark is determined. Rendered and committed.",
+                  "const": "target_max"
+                },
+                "lookback": {
+                  "description": "Re-read this far before the watermark, for example `3 days`.",
+                  "$ref": "#/$defs/duration"
+                },
+                "on_null": {
+                  "description": "What an empty target means. `require_param` asks for a value; `initial` uses the committed literal. Default: require_param.",
+                  "enum": [
+                    "require_param",
+                    "initial"
+                  ]
+                },
+                "initial": {
+                  "description": "The committed literal used when `on_null: initial` and the target is empty.",
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "overridable": {
+                  "description": "Allow an explicit `--param watermark=...`, recorded in the plan as an override. Default: false.",
+                  "$ref": "#/$defs/boolish"
+                }
+              },
+              "if": {
+                "required": [
+                  "on_null"
+                ],
+                "properties": {
+                  "on_null": {
+                    "const": "initial"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "initial"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "initial"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

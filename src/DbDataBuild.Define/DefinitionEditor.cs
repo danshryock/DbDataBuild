@@ -1,5 +1,6 @@
 using System.Text;
 using DbDataBuild.Core;
+using DbDataBuild.Models;
 using DbDataBuild.Models.Yaml;
 
 namespace DbDataBuild.Define;

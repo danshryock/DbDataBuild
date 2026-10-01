@@ -88,7 +88,8 @@ public class CliTests
         Assert.Contains("error DDB-301  models/marts/fct_orders.sql", err);
         Assert.Contains("on sqlserver", err);
         Assert.Contains("warning DDB-304", err);                 // fabric: unverified, not an error
-        Assert.Contains("FAILED: 1 error(s)", output);
+        Assert.Contains("DDB-317", err);                              // the model x target x operation pair is named
+        Assert.Contains("FAILED: 2 error(s)", output);
         Assert.Equal(before, Snapshot(dir)); // read-only
     }
 

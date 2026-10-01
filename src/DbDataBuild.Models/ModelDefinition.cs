@@ -30,4 +30,9 @@ public sealed record ModelDefinition(
     IReadOnlyList<string> Grain,
     IReadOnlyList<string>? Targets,   // null: project default applies
     IReadOnlyList<ColumnDefinition> Columns,
-    IReadOnlyList<RenameDefinition> Renames);
+    IReadOnlyList<RenameDefinition> Renames,
+    IReadOnlyList<LoadOperation>? DeclaredLoads = null)
+{
+    /// <summary>Declared load operations (the `loads:` block). Empty when the kind supplies its single default (see <see cref="LoadPlan"/>).</summary>
+    public IReadOnlyList<LoadOperation> Loads => DeclaredLoads ?? [];
+}

@@ -23,3 +23,4 @@ None of these is specific to Fabric. They are listed so you can decide whether a
 | `AVG(int_col)` is emitted unchanged for `tsql`; T-SQL returns an integer, DuckDB a double | | Not found |
 | With default options, `JOIN ... USING` and `NATURAL JOIN` pass through to `tsql`; with `raise` they are rejected | | #328 (closed) covers `strict()` |
 | DuckDB `//` is not parsed; `ORDER BY ALL` | | #482, #483 (open) |
+| The PostgreSQL parser rejects `CREATE TEMP TABLE t ON COMMIT DROP AS SELECT ...` (valid on PostgreSQL 17; `polyglot_validate` reports "Expected LParen, got On") | `src/DbDataBuild.Targets/Loaders/PostgresLoader.cs` works around it | Not searched |

@@ -18,8 +18,11 @@ public sealed record ConstructRow(string Id, IReadOnlyList<DetectRule> Detect, I
 /// <summary>A node or function verified as plain SQL, with the spike/conformance cases that show it.</summary>
 public sealed record CoverageEntry(DetectKind Kind, string Name, IReadOnlyList<string> Evidence, string File, int Line);
 
-public sealed record SupportMatrix(IReadOnlyList<ConstructRow> Rows, IReadOnlyList<CoverageEntry> Covered)
+public sealed record SupportMatrix(IReadOnlyList<ConstructRow> Rows, IReadOnlyList<CoverageEntry> Covered, IReadOnlyList<ConstructRow>? StrategyRows = null)
 {
+    /// <summary>Load strategy rows (matrix/strategies.yml). Ids are `strategy.<name>`.</summary>
+    public IReadOnlyList<ConstructRow> Strategies => StrategyRows ?? [];
+
     public static readonly IReadOnlyList<string> Targets = ["sqlserver", "fabric", "postgres"];
 
     public bool IsCoveredNode(string tag) => Covered.Any(c => c.Kind == DetectKind.Node && c.Name == tag);

@@ -1,0 +1,4 @@
+# Rendered load operations are hashed (manifest.yml) and executed exactly as committed, so their line endings must never change.
+rendered/** text eol=lf
+# Golden files compare as text
+tests/**/Golden/** text eol=lf

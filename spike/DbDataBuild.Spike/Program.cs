@@ -15,7 +15,7 @@ using Npgsql;
 //   diff <root> <mssql host:port> <pg host:port>   execute on DuckDB (oracle) and the targets, compare results
 // Synthetic data only. Connects only to the endpoints given on the command line (local ephemeral containers).
 var mode = args.Length > 0 ? args[0] : "transpile";
-var root = args.Length > 1 && mode is not ("ast" or "analyze") ? args[1] : ".";
+var root = args.Length > 1 && mode is not ("ast" or "analyze" or "t" or "pgvalidate") ? args[1] : ".";
 var diags = new List<Diagnostic>();
 var doc = StrictYamlReader.Read(File.ReadAllText(Path.Combine(root, "spike", "constructs.yml")), "constructs.yml", diags);
 if (doc is not YamlSequence seq) { Console.Error.WriteLine("bad constructs.yml"); return 1; }
@@ -58,6 +58,24 @@ if (mode == "fabric-vs-tsql")
         var (_, ts) = Polyglot.TranspileOne(c.Sql, Dialects.Canonical, "tsql");
         var (_, fb) = Polyglot.TranspileOne(c.Sql, Dialects.Canonical, "fabric");
         if (ts != fb) Console.WriteLine($"## {c.Id}\nduckdb : {c.Sql}\ntsql   : {ts}\nfabric : {fb}\n");
+    }
+    return 0;
+}
+if (mode == "t")
+{
+    foreach (var t in new[] { "sqlserver", "fabric", "postgres" })
+    {
+        var (o, sql) = Polyglot.TranspileOne(args[1], Dialects.Canonical, Dialects.ForTarget(t), "{\"unsupportedLevel\":\"raise\"}");
+        Console.WriteLine($"-- {t}\n{(o.Ok ? sql : "ERROR: " + o.Error)}\n");
+    }
+    return 0;
+}
+if (mode == "pgvalidate")
+{
+    foreach (var stmt in args.Skip(1))
+    {
+        var v = Polyglot.Validate(stmt, "postgresql");
+        Console.WriteLine($"{(v.Valid ? "OK  " : "FAIL")} {stmt.Replace("\n", " ")[..Math.Min(70, stmt.Replace("\n", " ").Length)]}  {(v.Valid ? "" : v.ErrorsJson + v.Error)}");
     }
     return 0;
 }

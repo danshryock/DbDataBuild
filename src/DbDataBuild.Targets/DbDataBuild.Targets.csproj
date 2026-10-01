@@ -5,16 +5,13 @@
     <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
     <ProjectReference Include="..\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />
     <ProjectReference Include="..\DbDataBuild.Define\DbDataBuild.Define.csproj" />
-    <ProjectReference Include="..\DbDataBuild.Targets\DbDataBuild.Targets.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>dbdatabuild</AssemblyName>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

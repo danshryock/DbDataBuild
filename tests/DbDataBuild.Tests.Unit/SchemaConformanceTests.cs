@@ -71,7 +71,7 @@ public class SchemaConformanceTests
         Ok("composite key", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a, b]}\ngrain: [b, a]\ncolumns:\n  - {name: a, type: INT}\n  - {name: b, type: INT}\n"),
         Ok("all three targets", "name: marts.fct_orders\nkind: {type: full}\ntargets: [sqlserver, fabric, postgres]\n" + Cols),
         Ok("renames", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "renames:\n  - from: old\n    to: a\n"),
-        Ok("loads mapping", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  daily:\n    default: true\n"),
+        Ok("loads mapping", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  daily:\n    default: true\n    strategy: full_replace\n"),
 
         Bad("unknown top key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "surprise: 1\n", "DDB-104"),
         Bad("missing name", "kind: {type: full}\n" + Cols, "DDB-105"),
@@ -99,11 +99,47 @@ public class SchemaConformanceTests
         Bad("rename unknown key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "renames:\n  - {from: old, to: a, why: x}\n", "DDB-104"),
         Bad("loads as a scalar", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads: 5\n", "DDB-106"),
 
+        // load operations (DESIGN.md 6.6)
+        Ok("loads: every strategy", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: 3 days}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n  - {name: id, type: BIGINT}\n" +
+            "loads:\n  daily:\n    default: true\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: 3 days, on_null: initial, initial: \"2020-01-01\", overridable: true}\n" +
+            "  reload_period:\n    strategy: delete_insert_by_range\n    params: {start: DATE, end: DATE}\n    max_span: 400 days\n" +
+            "  by_key:\n    strategy: merge_by_key\n    key: [id]\n    targets: [sqlserver]\n  everything:\n    strategy: full_replace\n  replace_keys:\n    strategy: delete_insert_by_key\n    key: [id, d]\n"),
+        Ok("loads: key defaults from the kind", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a]}\ngrain: [a]\n" + Cols + "loads:\n  m:\n    strategy: merge_by_key\n"),
+        Ok("loads: range column defaults from the kind", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  r:\n    strategy: delete_insert_by_range\n"),
+        Bad("loads: unknown strategy", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: upsert_magic\n", "DDB-106"),
+        Bad("loads: strategy missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    default: true\n", "DDB-105"),
+        Bad("loads: operation name not snake_case", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  Daily-Load:\n    strategy: full_replace\n", "DDB-106"),
+        Bad("loads: unknown key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n    speed: fast\n", "DDB-104"),
+        Bad("loads: key on full_replace", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n    key: [a]\n", "DDB-106"),
+        Bad("loads: watermark missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: watermark_append\n", "DDB-105"),
+        Bad("loads: watermark without resolver", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d}\n", "DDB-105"),
+        Bad("loads: unknown resolver", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d, resolver: magic}\n", "DDB-106"),
+        Bad("loads: on_null initial needs initial", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, on_null: initial}\n", "DDB-105"),
+        Bad("loads: initial without on_null initial", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, initial: \"2020-01-01\"}\n", "DDB-106"),
+        Bad("loads: lookback not a duration", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: three days}\n", "DDB-106"),
+        Bad("loads: params without end", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: delete_insert_by_range\n    column: d\n    params: {start: DATE}\n", "DDB-105"),
+        Bad("loads: max_span not a duration", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: delete_insert_by_range\n    column: d\n    max_span: forever\n", "DDB-106"),
+        Bad("loads: targets unknown", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n    targets: [oracle]\n", "DDB-106"),
+        Bad("loads: on a view", "name: marts.fct_orders\nkind: {type: view}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n", "DDB-106"),
+        Bad("kind lookback not a duration", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: soon}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n", "DDB-106"),
+
         // Semantic rules: the schema cannot express them, so it accepts and the loader rejects.
         Semantic("name does not match path", "name: marts.other\nkind: {type: full}\n" + Cols, "DDB-107"),
         Semantic("grain differs from unique_key", TestSupport.ValidModel.Replace("grain: [order_id]", "grain: [customer_id]"), "DDB-216"),
         Semantic("grain names an undeclared column", TestSupport.ValidModel.Replace("grain: [order_id]", "grain: [order_id, ghost]"), "DDB-217"),
         Semantic("duplicate column names", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: INT}\n  - {name: A, type: INT}\n", "DDB-102"),
+        Semantic("loads: key strategy without any key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  m:\n    strategy: merge_by_key\n", "DDB-105"),
+        Semantic("loads: key column undeclared", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  m:\n    strategy: merge_by_key\n    key: [ghost]\n", "DDB-217"),
+        Semantic("loads: range strategy without a column", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  r:\n    strategy: delete_insert_by_range\n", "DDB-105"),
+        Semantic("loads: range column of the wrong type", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: s, type: VARCHAR(5)}\nloads:\n  r:\n    strategy: delete_insert_by_range\n    column: s\n", "DDB-106"),
+        Semantic("loads: param type differs from the range column", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  r:\n    strategy: delete_insert_by_range\n    column: d\n    params: {start: TIMESTAMP, end: TIMESTAMP}\n", "DDB-106"),
+        Semantic("loads: watermark column undeclared", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  w:\n    strategy: watermark_append\n    watermark: {column: ghost, resolver: target_max}\n", "DDB-217"),
+        Semantic("loads: watermark column of the wrong type", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: s, type: VARCHAR(5)}\nloads:\n  w:\n    strategy: watermark_append\n    watermark: {column: s, resolver: target_max}\n", "DDB-106"),
+        Semantic("loads: lookback unit does not fit a DATE", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  w:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: 3 hours}\n", "DDB-106"),
+        Semantic("loads: initial is not a valid literal for the column", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  w:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, on_null: initial, initial: yesterday}\n", "DDB-106"),
+        Semantic("loads: two defaults for one target", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  a:\n    default: true\n    strategy: full_replace\n  b:\n    default: true\n    strategy: delete_insert_by_key\n    key: [a]\n", "DDB-106"),
+        Semantic("loads: defaults on different targets are fine only when targets differ", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  a:\n    default: true\n    strategy: full_replace\n    targets: [sqlserver]\n  b:\n    default: true\n    strategy: full_replace\n    targets: [sqlserver, postgres]\n", "DDB-106"),
+        Semantic("kind lookback unit does not fit the time column", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: 2 hours}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n", "DDB-106"),
         Semantic("rename to an undeclared column", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "renames:\n  - {from: old, to: ghost}\n", "DDB-217"),
     ];
 
@@ -208,6 +244,21 @@ public class DesignDocExampleTests
         var d = DbDataBuild.Models.SourceDescriptorLoader.Load(yaml, "sources/staging/orders.yml", "staging.orders", diags);
         Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
         Assert.Equal(["order_id", "amount"], d!.Columns.Select(c => c.Name));
+    }
+
+    [Fact]
+    public void Loads_example_in_section_6_6_is_valid_when_completed_with_the_columns_the_text_names()
+    {
+        var excerpt = YamlBlockAfter("**Declaration**");
+        var yaml = "name: marts.fct_orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n" +
+                   "  - {name: order_date, type: DATE, nullable: false}\n  - {name: modified_at, type: TIMESTAMP, nullable: false}\n" + excerpt;
+        Assert.True(SchemaConformanceTests.SchemaAccepts(SchemaConformanceTests.LoadSchema("model"), yaml));
+        var (def, diags) = TestSupport.Load(yaml);
+        Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
+        Assert.Equal(["daily", "reload_period", "by_key"], def!.Loads.Select(o => o.Name));
+        Assert.Equal(["order_id"], def.Loads[2].Key);
+        Assert.Equal("order_date", def.Loads[1].Column);                           // defaults from the kind's time_column
+        Assert.Equal(3, def.Loads[0].Watermark!.Lookback!.Amount);
     }
 
     [Fact]

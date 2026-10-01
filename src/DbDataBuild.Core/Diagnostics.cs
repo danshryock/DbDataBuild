@@ -146,6 +146,22 @@ public static class DiagnosticCatalog
         "Exactly one SELECT (or set operation) statement.",
         "Keep one query in the .sql file, with no other statements.",
         "A model body is a single query that load strategies can wrap.");
+    public static readonly DiagnosticDescriptor PairUnsupported = E("317", "Load operation has no supported rendering",
+        "Every declared model x target x operation pair renders: its strategy and every construct in the query are supported on the target.",
+        "Change the strategy or the query, or remove the target from the model or from the operation's `targets:`.",
+        "There are no silent gaps: a pair that cannot be rendered is reported by name, never skipped.");
+    public static readonly DiagnosticDescriptor RenderedScriptInvalid = E("318", "Rendered script failed offline validation",
+        "A rendered script that the target's parser accepts (ScriptDOM for T-SQL, the polyglot parser for PostgreSQL).",
+        "Report this: the renderer produced SQL the target's parser rejects, which is a bug in the tool or in a construct the matrix should mark unsupported.",
+        "Every rendered file is parsed offline as part of validation.");
+    public static readonly DiagnosticDescriptor PlaceholderUndeclared = E("319", "Rendered script has an undeclared placeholder",
+        "Only the operation's declared value parameters (@name) appear as placeholders.",
+        "Remove the placeholder from the query. Identifiers can never be parameters.",
+        "Parameters are bound through the driver and never interpolated, so the executed text is exactly the committed text. Any other placeholder is rejected.");
+    public static readonly DiagnosticDescriptor KeyColumnNullable = W("320", "Key column is nullable",
+        "Key columns declared `nullable: false`.",
+        "Declare the key columns NOT NULL.",
+        "A row whose key is NULL never matches in a key comparison, so it would be inserted again on every load.");
     public static readonly DiagnosticDescriptor ConstructNeedsVersion = W("308", "Construct needs a minimum target version",
         "Target versions at or above the matrix min_version.",
         "Confirm the target version, or avoid the construct.",
@@ -190,6 +206,10 @@ public static class DiagnosticCatalog
         "Declared columns that match the columns the query returns (name, type, nullability).",
         $"Run `{ProductInfo.Cli} define <model>` to update the definition.",
         "A model's declared columns are the output schema that drives DDL and hashing. Planning never proceeds from a stale declared schema.");
+    public static readonly DiagnosticDescriptor RenderedFileOutOfDate = E("424", "Committed rendered file is out of date",
+        "Files under rendered/ identical to a fresh render of the current models.",
+        $"Run `{ProductInfo.Cli} render --write` and commit the result.",
+        "The rendered load operations are committed and executed exactly as written, so they must match what the current models render to. Planning is blocked for a model whose files differ.");
     public static readonly DiagnosticDescriptor DefinitionFileChanged = E("421", "Definition file changed while define was running",
         "The definition file unchanged between being read and being written.",
         $"Run `{ProductInfo.Cli} define` again.",
@@ -210,10 +230,10 @@ public static class DiagnosticCatalog
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
-        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, DefinitionFileChanged, DefinitionNotEditable,
         InternalError,
     ];
 

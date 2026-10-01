@@ -52,7 +52,7 @@ These are invariants. Each one must have automated tests (section 15).
 | Database access | `Microsoft.Data.SqlClient` (MIT, verified) | Integrated and Entra auth; `SqlBulkCopy` for test loads. Server is given as `host,port` |
 | PostgreSQL access | `Npgsql` (PostgreSQL license, verified permissive) | Binary `COPY` for test loads **[VERIFY]** |
 | YAML | `YamlDotNet` | Plus published JSON Schemas for editor validation |
-| Tests | xUnit, a snapshot library (e.g., Verify) for golden files | `JsonSchema.Net` **7.0.4** (MIT) for schema conformance tests only. Do not upgrade to 9.x without review: it ships under the Open Source Maintenance Fee EULA, not a plain open-source license |
+| Tests | xUnit, a snapshot library (e.g., Verify) for golden files (plain golden files with `UPDATE_GOLDEN=1` are used so far) | `JsonSchema.Net` **7.0.4** (MIT) for schema conformance tests only. The conformance project (`tests/DbDataBuild.Tests.Conformance`) also uses `Microsoft.Data.SqlClient` (MIT), `Npgsql` (PostgreSQL license), `DuckDB.NET.Data.Full` (MIT) and `Xunit.SkippableFact` (MS-PL), and only there: product code must not reference a database driver until the mutation gate exists (a test checks it). Do not upgrade to 9.x without review: it ships under the Open Source Maintenance Fee EULA, not a plain open-source license |
 | Containers | Optional only | Must work with no container runtime (Windows dev has no nested virtualization) |
 
 ### Naming
@@ -78,7 +78,7 @@ src/
   DbDataBuild.Models/                         # model definition (YAML) loader and validation, model graph
   DbDataBuild.Define/                         # `define`: inference from a query, questions, definition writer and splice editor, diff
   DbDataBuild.Sql/                            # polyglot FFI binding, AST helpers, hashing, matrix linter
-  DbDataBuild.Targets/                        # ITarget + SqlServer + Fabric implementations
+  DbDataBuild.Targets/                        # ITarget + SqlServer, Fabric and PostgreSQL implementations: strategy loaders, offline validators, renderer
   DbDataBuild.Targets.DuckDb/                 # canonical dialect engine, synthetic data runner
   DbDataBuild.State/                          # tracking tables access, schema/physical/definition hashes
   DbDataBuild.Testing/                        # ephemeral database manager, differential runner
@@ -268,7 +268,7 @@ A **load operation** is a named way to load one model on one target. A model can
 kind:
   type: incremental_by_time_range
   time_column: order_date
-# ... name, columns, grain, targets as before
+# ... name, grain, targets as before; columns include order_id, order_date (DATE) and modified_at (TIMESTAMP)
 loads:
   daily:
     default: true
@@ -286,6 +286,7 @@ loads:
     max_span: 400 days
   by_key:
     strategy: merge_by_key
+    key: [order_id]              # defaults to kind.unique_key, which this kind does not have
     targets: [sqlserver]
 ```
 
@@ -338,6 +339,24 @@ Each operation declares its parameters: name, logical type, source (`runtime` fo
 - Plans containing load steps (and therefore resolved values) are routine artifacts and are **not committed to the repo**. Only DDL plans for shared targets are committed (section 10.5). This also keeps resolved values away from the schema-only development environment.
 
 **What a plan shows for a load step:** the operation name, the committed file path and hash, the resolver file and hash, the parameter values (on screen), and the full resolved script. `apply` verifies the committed file's hash against the plan before executing.
+
+### 6.6.1 How render and loads work (as built)
+
+**Declaring operations.** The `loads:` block is validated by the loader and by `schemas/model.schema.json`. Keys: `default`, `strategy`, `targets`, and per strategy `key` (the key strategies; defaults to the kind's `unique_key`), `column` and `params` and `max_span` (`delete_insert_by_range`; the column defaults to the kind's `time_column`, `params` to the column's own type), and `watermark` (`watermark_append`: `column`, `resolver: target_max`, `lookback`, `on_null: require_param | initial`, `initial`, `overridable`). Durations are `<n> minute|hour|day|week|month` and must fit the column (a DATE takes days, weeks and months). The watermark column and range column must be DATE, TIMESTAMP or an integer type, and an `initial` literal must be valid for it. A view takes no loads. At most one operation is the default for a target.
+
+**What a kind supplies when `loads:` is absent.** `view`: nothing (DDL only). `full`: `full_replace`. `incremental_by_unique_key`: `delete_insert_by_key` on the unique key (a `merge_by_key` operation can be declared; `delete_insert_by_key` is the default because `MERGE` has concurrency pitfalls on SQL Server and is new in PostgreSQL 15). `incremental_by_time_range`: `watermark_append` on the time column with the kind's `lookback` and `on_null: require_param`. Declared operations replace the implicit one.
+
+**Decision: lookback on `watermark_append`.** The example in 6.6 pairs `watermark_append` with a `lookback`, but appending the rows of a lookback window would duplicate them. So with a `lookback` the window from the watermark is *replaced* (rows at or after the watermark are deleted from the target, and the query's rows at or after it are inserted); without one, only rows strictly newer than the watermark are appended. The `watermark` parameter is the resolver's value: `MAX(column)` in the target, less the lookback, `COALESCE`d with the typed initial literal when `on_null: initial`. With `on_null: require_param` an empty target returns NULL and planning asks.
+
+**Script shape.** Every script stages the query result once into a temporary table (so the body runs once, and its result cannot change between the delete and the insert), then applies it inside one transaction that the script opens and closes itself, so it is atomic wherever it is run. T-SQL: `SET XACT_ABORT ON`, `SELECT ... INTO #ddb_stage`, delete, insert (or `MERGE`), drop, commit. PostgreSQL: `BEGIN`, `CREATE TEMP TABLE ddb_stage AS`, delete, insert (or `MERGE`, version 15 or later), drop, commit. The model body is wrapped as a CTE named `ddb_body`, transpiled by polyglot, and the loader's own statements are assembled around it as text, so nothing depends on guessing polyglot's output; a body's own CTEs are hoisted for T-SQL and an unbounded `ORDER BY` gets `OFFSET 0 ROWS`. Polyglot's `unsupportedLevel: raise` is not used: it misses constructs and also rejects supported ones (`REGEXP_LIKE` on SQL Server 2025), so the support matrix decides what may render. Parameters appear only as `@name`; the placeholder lint rejects anything else (DDB-319). Key columns that are nullable are warned about (DDB-320).
+
+**Validation.** Every rendered script and resolver is parsed offline: ScriptDOM for T-SQL (the grammar follows `targets.sqlserver.version`: 14, 15, 16, or 17 and later, and the newest when no version is configured; Fabric uses the newest), polyglot for PostgreSQL. ScriptDOM accepts parameterized scripts (verified). `validate` renders in memory, so an unrenderable model x target x operation pair is reported by name (DDB-317), and so is a script a parser rejects (DDB-318).
+
+**Files.** `render --write` writes `rendered/<target>/<model>/load.<op>.sql`, `load.<op>.resolve.sql` (when the operation has a resolver) and `manifest.yml`, deterministically and without timestamps. Each file starts with a comment holding the model, operation, target, strategy, definition hash (the hash of the normalized body AST, section 12.1), matrix version (a hash of the matrix data) and tool version. The manifest lists the operations with their parameters, sources, matrix status (the worst status among the strategy and the constructs used) and the SHA-256 of each committed file, so `apply` can verify the text it executes. `rendered/` is pinned to LF by `.gitattributes`: the hashes are of the committed text. `--write` is all or nothing: it writes nothing if any pair fails, writes only files whose text changed (atomically), and removes stale generated files (`load.*.sql`, `manifest.yml`) in the directories it owns, including those of models that no longer exist, leaving anything else alone. `--check` writes nothing and reports each missing, differing or no-longer-rendered file as DDB-424. `loads` prints the model x target x operation table with the matrix status.
+
+**Conformance.** `matrix/strategies.yml` has one row per strategy and target. The `translated` entries cite `conformance/<strategy>`, cases in `tests/DbDataBuild.Tests.Conformance`. That suite runs the rendered scripts, exactly as committed with only the parameters bound, on real SQL Server and PostgreSQL (`scripts/test-engines.sh up` starts throwaway containers; the suite refuses non-loopback hosts and is reported as skipped when no engine is configured), and compares the result with a DuckDB reference implementation of each strategy's semantics on synthetic data: a first run, a rerun, late-arriving rows, a failure part-way (the target must be unchanged and no temp table left), bound range parameters, and the resolvers' values for timestamp, date and integer watermarks. Fabric entries are `unverified`: no Fabric engine was available.
+
+**Not built yet.** Executing resolvers at plan time, binding and running scripts at apply, and the executor's handling of a failed PostgreSQL transaction block (it stays open until the caller ends it with `ROLLBACK`; T-SQL rolls back by itself under `XACT_ABORT`). `define` does not yet ask about declaring additional operations. Predicate pushdown into bodies with aggregates or window functions is not checked (the wrapping filters the staged query's result).
 
 ## 7. Support matrix
 
@@ -814,6 +833,6 @@ Each milestone ends with its tests green and this document updated.
 - Tracking-table constructs on Fabric (identity columns, constraints, `nvarchar(max)`).
 - Collation behavior (section 7.4): DuckDB `NOCASE` under `GROUP BY`, `DISTINCT`, joins, and window operations; behavior of chained collations under `GROUP BY`, `DISTINCT`, joins and windows (equality chaining `NOCASE.NOACCENT` is verified on DuckDB 1.5.4 in either order); Fabric Warehouse default and available collations, and its trailing-space and `LEN` semantics.
 - PostgreSQL target: polyglot DuckDB-to-Postgres fidelity; offline syntax validation options (a libpg_query binding for .NET, or polyglot validation); schema-only compile via prepare/describe; advisory-lock and tracking-table DDL equivalents; `MERGE` availability by version; identifier case-folding and quoting.
-- Load operations: named-parameter syntax per engine in rendered files (`@name` for SqlClient and Npgsql); ScriptDOM handling of parameterized scripts; Fabric support for the delete+insert and merge templates inside transactions.
+- Load operations: `@name` placeholders are bound by SqlClient and Npgsql, and ScriptDOM parses parameterized scripts (both verified by the conformance suite and unit tests). Still open: Fabric support for the staging, delete+insert and merge templates inside transactions; predicate pushdown for bodies with aggregates or window functions.
 - YAML handling: `YamlDotNet` duplicate-key detection and parser source marks for comment-preserving splice edits; editor association of the JSON Schemas by file glob.
 - Licenses of all native and managed dependencies.
