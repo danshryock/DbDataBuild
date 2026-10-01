@@ -10,7 +10,11 @@ public interface IPrompter
 }
 
 /// <param name="AcceptHighCertaintyProposals">`--accept-inferred`: accept proposals marked high certainty, and only those.</param>
-public sealed record ResolveOptions(bool AcceptHighCertaintyProposals = false);
+/// <param name="WarnOnUnknownAnswers">
+/// Report answers whose question was not asked (DDB-410). A caller that asks in several rounds turns this off and accounts for
+/// unused answers once, at the end, so an answer for a later round is not reported early.
+/// </param>
+public sealed record ResolveOptions(bool AcceptHighCertaintyProposals = false, bool WarnOnUnknownAnswers = true);
 
 public sealed record Resolution(IReadOnlyList<ResolvedAnswer> Answers, IReadOnlyList<Question> Unanswered, IReadOnlyList<Diagnostic> Diagnostics)
 {
@@ -41,7 +45,7 @@ public static class QuestionResolver
         {
             if (!fileAnswers.TryAdd(a.QuestionId, a))
                 diags.Add(new Diagnostic(DiagnosticCatalog.DuplicateKey, a.Location, $"The answers file answers `{a.QuestionId}` more than once."));
-            else if (!byId.ContainsKey(a.QuestionId))
+            else if (!byId.ContainsKey(a.QuestionId) && options.WarnOnUnknownAnswers)
                 diags.Add(new Diagnostic(DiagnosticCatalog.AnswerForUnknownQuestion, a.Location, $"The answers file has an answer for `{a.QuestionId}`, which was not asked in this run."));
         }
 

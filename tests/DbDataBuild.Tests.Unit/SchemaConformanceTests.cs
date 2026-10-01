@@ -200,6 +200,17 @@ public class DesignDocExampleTests
     }
 
     [Fact]
+    public void Source_descriptor_example_in_section_6_5_1_is_valid_for_the_schema_and_the_loader()
+    {
+        var yaml = YamlBlockAfter("**Source descriptors**");
+        Assert.True(SchemaConformanceTests.SchemaAccepts(SchemaConformanceTests.LoadSchema("source"), yaml));
+        var diags = new List<DbDataBuild.Core.Diagnostic>();
+        var d = DbDataBuild.Models.SourceDescriptorLoader.Load(yaml, "sources/staging/orders.yml", "staging.orders", diags);
+        Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
+        Assert.Equal(["order_id", "amount"], d!.Columns.Select(c => c.Name));
+    }
+
+    [Fact]
     public void Answers_example_in_section_10_1_is_valid_for_the_schema_and_the_loader()
     {
         var yaml = YamlBlockAfter("### 10.1");

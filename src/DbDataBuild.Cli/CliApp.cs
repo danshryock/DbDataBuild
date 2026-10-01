@@ -9,8 +9,10 @@ public static class CliApp
 {
     public const int ExitOk = 0, ExitFindings = 1, ExitUsage = 2, ExitNotImplemented = 3, ExitInternal = 70;
 
-    public static int Run(string[] args, TextWriter output, TextWriter error) =>
-        Guarded(args, error, () => Build(output, error).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }));
+    /// <param name="input">Where interactive answers are read from. Only used when <paramref name="interactive"/> is true.</param>
+    /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
+    public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false) =>
+        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }));
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body)
@@ -28,7 +30,7 @@ public static class CliApp
         }
     }
 
-    public static RootCommand Build(TextWriter output, TextWriter error)
+    public static RootCommand Build(TextWriter output, TextWriter error, TextReader input, bool interactive)
     {
         var root = new RootCommand($"{ProductInfo.Name}: explicit SQL transformation tool. Every command declares an effect class.");
 
@@ -41,6 +43,17 @@ public static class CliApp
                     var project = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Options.Add(project);
                     cmd.SetAction(pr => Validate(spec, pr.GetValue(project)!.FullName, output, error));
+                    break;
+                case "define":
+                    var paths = new Argument<string[]>("paths") { Description = "Model .sql or .yml files, or directories under models/ (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var defineProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var answers = new Option<FileInfo?>("--answers") { Description = "Answers file for the questions (see schemas/answers.schema.json)" };
+                    var write = new Option<bool>("--write") { Description = "Non-interactive: write the definitions without asking (needs --answers for any open questions)" };
+                    var check = new Option<bool>("--check") { Description = "CI: fail if any definition is out of sync with its query; asks nothing, writes nothing" };
+                    var accept = new Option<bool>("--accept-inferred") { Description = "Accept inferred proposals marked high certainty (names from paths, types from DuckDB, nullability from lineage)" };
+                    cmd.Arguments.Add(paths);
+                    cmd.Options.Add(defineProject); cmd.Options.Add(answers); cmd.Options.Add(write); cmd.Options.Add(check); cmd.Options.Add(accept);
+                    cmd.SetAction(pr => DefineCommand.Run(spec, pr.GetValue(defineProject)!.FullName, pr.GetValue(paths) ?? [], pr.GetValue(answers), pr.GetValue(write), pr.GetValue(check), pr.GetValue(accept), output, error, input, interactive));
                     break;
                 case "matrix":
                     cmd.SetAction(_ => PrintMatrix(spec, output, error));

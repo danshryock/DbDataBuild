@@ -76,6 +76,7 @@ src/
   DbDataBuild.Cli/                            # command definitions, effect-class headers, prompts
   DbDataBuild.Core/                           # project model, plan model, questions, diagnostics
   DbDataBuild.Models/                         # model definition (YAML) loader and validation, model graph
+  DbDataBuild.Define/                         # `define`: inference from a query, questions, definition writer and splice editor, diff
   DbDataBuild.Sql/                            # polyglot FFI binding, AST helpers, hashing, matrix linter
   DbDataBuild.Targets/                        # ITarget + SqlServer + Fabric implementations
   DbDataBuild.Targets.DuckDb/                 # canonical dialect engine, synthetic data runner
@@ -86,7 +87,8 @@ tests/
   DbDataBuild.Tests.Conformance/              # DuckDB vs target differential tests (needs a SQL Server test instance)
   DbDataBuild.Tests.Golden/                   # plan documents, dry-run output, diagnostics
 matrix/                 # support matrix data (YAML)
-schemas/                # JSON Schemas for config, models, answers, plans
+sources/                # committed schema exports of upstream tables that are not models (section 6.5)
+schemas/                # JSON Schemas for config, models, sources, answers, plans
 docs/diagnostics/       # generated diagnostic catalog
 rendered/               # committed, rendered load operations per target (section 6.6)
 ```
@@ -224,6 +226,36 @@ dbdatabuild define --check                                # CI: exit non-zero if
 **Relationship to planning:** `dbdatabuild plan` detects a definition that no longer matches its body (declared `columns` versus resolved query output) and refuses to plan that model, pointing to `dbdatabuild define`. Planning never proceeds from a stale declared schema. History dispositions (whether a new column's history was backfilled) are **not** definition questions, since they depend on target state. They remain planning questions.
 
 **Effect class:** repo files only. Tests assert zero database connections, `.sql` byte-equality, and idempotency (section 15.5).
+
+### 6.5.1 How `define` works (as built)
+
+The text above is the design. This records what the implementation does, including the decisions the design left open.
+
+**Source descriptors.** "Committed schema exports" are `sources/<schema>/<table>.yml`, one per upstream table that is not a model, in the same column shape as a model definition. `name` must equal the path under `sources/` with `/` replaced by `.` (as for models), a name cannot be both a source and a model, and an optional `grain` feeds grain candidates. The schema is `schemas/source.schema.json`; `validate` checks them. A later command will export them from a target; until then they are written by hand.
+
+**Source descriptors**
+
+```yaml
+# sources/staging/orders.yml
+name: staging.orders
+grain: [order_id]
+columns:
+  - name: order_id
+    type: BIGINT
+    nullable: false
+  - name: amount
+    type: DECIMAL(14, 2)
+```
+
+**Inference** (offline). For each model the query's tables are resolved against models and sources (DDB-218 if one is missing), an empty in-memory DuckDB schema is built from their declared columns, and DuckDB *describes* the query (it is never run; external access is disabled first, so a query cannot read files or the network while it is bound). Lineage and nullability come from polyglot's `analyze_query` with the same schema. Type proposals: a column passed straight through keeps its upstream declared type, including a `VARCHAR` length, which DuckDB alone cannot report; a written `CAST(x AS VARCHAR(n))` states its length; otherwise DuckDB's type is mapped through an enumerated table (`LogicalTypes`). Clean, target-neutral types (`BIGINT`, `INTEGER`, `SMALLINT`, `DOUBLE`, `BOOLEAN`, `DATE`, `TIMESTAMP`, `TIME`, `DECIMAL(p, s)`) are high certainty; types lossy for some target (`TINYINT`, `FLOAT`, unsigned integers, `TIMESTAMP WITH TIME ZONE`, `BLOB`, `UUID`) are normal certainty; a bare `VARCHAR`, `HUGEINT`, `INTERVAL`, `JSON` and nested types get no proposal and are asked. Nullability is proposed from lineage (`non_null`, `nullable`) and asked when lineage cannot tell. An expression without an alias, or a duplicate column name, is an error (DDB-220).
+
+**Questions** (ids are `Q-define-<model>-<field>`, with `columns.<column>.type|nullable|remove` for columns and `Q-rename-<model>.<column>` for renames; unusual characters in names become `_u<hex>_`). They come in rounds because later questions depend on earlier answers: for a new definition, round 1 is `name`, `kind`, `targets` and every column's `type` and `nullable`, and round 2 (once the kind is answered) is `grain` and `unique_key`, or `time_column` and `lookback`. In non-interactive mode the open questions of the round reached are listed at once, with a note that more follow. Each question's escape hatch is `skip_model`. Grain candidates come from GROUP BY columns that appear in the output, SELECT DISTINCT, and an upstream key that passes through a one-to-one query; time column candidates are the DATE and TIMESTAMP outputs.
+
+**Existing definitions.** Only `columns` (and `renames`) are touched, by minimal text splices located with the YAML parser's offsets (block and flow item styles, CRLF, and files without a final newline are handled; a `columns` list written as a flow list is reported, DDB-422, not rewritten). Columns match by name, case-insensitively, and declared order is not compared. A difference is a declared column the query no longer returns, a returned column that is not declared, or a type that is not equivalent (synonyms match, a bare DuckDB `VARCHAR` matches any `VARCHAR(n)`). A removed declared column and an added one of the same type at the same ordinal position are asked first as a possible rename; a rename updates the column, records `renames:`, and carries its references in `grain`, `unique_key` and `time_column` (the question shows the old and new values). **Decision:** declared nullability on an existing column is human knowledge: a declared NOT NULL over a column that lineage cannot prove non-null (a LEFT JOIN that always matches, for example) is a note, never a difference, or `--check` would fail forever. Lineage proposes nullability only for new columns. A person may answer `keep_declared`; that is recorded in the output and `--check` keeps reporting it.
+
+**Writing.** Nothing is written before the diff is shown, and (interactively) confirmed. Writes are **all or nothing across models**: if any selected model still needs attention, nothing is written. Each file is written through `DefinitionFile`, which accepts only `.yml` paths, checks the file's hash against what was read (twice, the second time immediately before a rename), writes a temp file and renames it; a changed file is refused (DDB-421). After writing, every query file is re-hashed against what was read. After editing, the new text is loaded and compared with the inferred columns: anything still different must be exactly what the person chose to keep, otherwise `define` stops with an internal error and writes nothing.
+
+**Modes.** `--check` asks nothing and writes nothing, and fails (DDB-420 per difference, with the definition line) if a definition is missing or out of sync; it cannot be combined with `--write`, `--answers` or `--accept-inferred`. `--write` is non-interactive and needs `--answers` for any open question. Without either, `define` is interactive and refuses to run without a terminal. `--accept-inferred` accepts only high-certainty proposals and each acceptance is printed with the diff. Models are processed in dependency order, so a model sees the columns an upstream model has just been given; a model whose upstream is not defined is skipped with a note, and a dependency cycle is DDB-221.
 
 ### 6.6 Load operations: paired with targets, committed, parameterized
 

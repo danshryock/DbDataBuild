@@ -112,6 +112,11 @@ public static class DiagnosticCatalog
         "Add an alias to the expression, or rename the duplicate.",
         "Declared columns are matched to the query's output by name, so each name must be present and unique.");
 
+    public static readonly DiagnosticDescriptor ModelCycle = E("221", "Models depend on each other in a cycle",
+        "A model graph without cycles.",
+        "Break the cycle: one of the models must not query another in the cycle.",
+        "Models are defined and built in dependency order, which needs an acyclic graph.");
+
     // 3xx: matrix / portability
     public static readonly DiagnosticDescriptor ConstructUnsupported = E("301", "Construct unsupported on a declared target",
         "Constructs whose matrix status for every declared target is native, translated, emulated, approximated or unverified.",
@@ -203,7 +208,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
