@@ -219,6 +219,28 @@ public static class DiagnosticCatalog
         "Rewrite the part named in the message in block style, or edit the definition by hand.",
         "`define` edits definitions by minimal text splices located with the YAML parser's positions, which needs block style for the lists it changes.");
 
+    // 5xx: state and safety (logins, the mutation gate, tracking tables)
+    public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
+        "A connection string in the environment variable named in the message, for the login this command needs.",
+        "Set the variable in the runtime environment (never in the repo). Read-only commands use the read login, mutating commands the write login.",
+        "Credentials come from the runtime environment only (DESIGN.md 9.2). There is no fallback from one login to the other: a read-only command never silently uses the write login.");
+    public static readonly DiagnosticDescriptor GateRefused = E("502", "Statement refused by the mutation gate",
+        "Only statements from a plan step or a tracking-table writer, of an effect class the running command permits.",
+        "This is a bug in the tool if it was not caused by an edited plan. Report it with the command line used.",
+        "Every write goes through one gate that checks the statement's origin and effect class against the command that is running (DESIGN.md 9.3). Nothing was executed.");
+    public static readonly DiagnosticDescriptor StatementLogUnavailable = E("503", "Statement log could not be written",
+        "A writable statement log directory.",
+        "Make the log directory writable, or set it elsewhere in the project configuration.",
+        "A statement is recorded before it runs. If the record cannot be written the statement is not executed.");
+    public static readonly DiagnosticDescriptor ReadStatementRefused = E("504", "Read statement refused",
+        "A single SELECT (or WITH ... SELECT) statement with no data-changing keywords.",
+        "This is a bug in the tool. Report it with the command line used.",
+        "Read-only commands run catalog and tracking-table queries through a guard that refuses anything that could change data. The read login's permissions are the real enforcement; the guard is a second layer. Nothing was executed.");
+    public static readonly DiagnosticDescriptor TrackingNotInitialized = E("505", "Tracking tables are missing or have an unknown layout",
+        $"The tracking schema created by `{ProductInfo.Cli} init`, at a layout version this tool knows.",
+        $"Run `{ProductInfo.Cli} init` (review its script first), or use a newer tool if the layout is newer.",
+        "Planning and applying need the tracking tables to compare hashes and to record what was done.");
+
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",
         Severity.Error, "Internal error (tool bug)",
@@ -234,6 +256,7 @@ public static class DiagnosticCatalog
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, DefinitionFileChanged, DefinitionNotEditable,
+        LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];
 
