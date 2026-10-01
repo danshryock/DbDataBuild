@@ -67,6 +67,60 @@ public class CliTests
         Assert.Contains("error DDB-214  models/marts/fct_orders.yml:3", err);
     }
 
+    private static string ProjectWith(string sql, string targets = "[sqlserver, fabric]")
+    {
+        var dir = NewProjectDir();
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]", $"targets: {targets}"));
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), sql);
+        return dir;
+    }
+
+    [Fact]
+    public void Validate_runs_the_matrix_linter_per_declared_target_and_fails_on_unsupported_constructs()
+    {
+        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1");
+        var before = Snapshot(dir);
+        var (exit, output, err) = Run("validate", "--project", dir);
+        Assert.Equal(CliApp.ExitFindings, exit);
+        Assert.Contains("error DDB-301  models/marts/fct_orders.sql", err);
+        Assert.Contains("on sqlserver", err);
+        Assert.Contains("on fabric", err);
+        Assert.Contains("FAILED: 2 error(s)", output);
+        Assert.Equal(before, Snapshot(dir)); // read-only
+    }
+
+    [Fact]
+    public void Validate_passes_with_warnings_and_notes_when_nothing_is_unsupported()
+    {
+        var dir = ProjectWith("SELECT a / b AS x FROM t ORDER BY a", "[sqlserver]");
+        var (exit, output, err) = Run("validate", "--project", dir);
+        Assert.Equal(CliApp.ExitOk, exit);
+        Assert.Contains("warning DDB-302", err);
+        Assert.Contains("note DDB-303", err);
+        Assert.Matches(@"OK: 1 model\(s\) valid\. 1 warning\(s\), 1 note\(s\)\.", output);
+    }
+
+    [Fact]
+    public void Validate_reports_unparseable_sql()
+    {
+        var (exit, _, err) = Run("validate", "--project", ProjectWith("SELEC FROM FROM ("));
+        Assert.Equal(CliApp.ExitFindings, exit);
+        Assert.Contains("DDB-306", err);
+    }
+
+    [Fact]
+    public void Matrix_command_prints_every_row_with_notes_and_the_coverage_rule()
+    {
+        var (exit, output, _) = Run("matrix");
+        Assert.Equal(CliApp.ExitOk, exit);
+        Assert.Contains("effect: Offline only", output);
+        Assert.Contains("syntax.group_by_ordinal", output);
+        Assert.Contains("approximated", output);
+        Assert.Contains("regexp", output);
+        Assert.Contains("(>= 17)", output);
+        Assert.Contains("DDB-305", output);
+    }
+
     [Fact]
     public void Explain_prints_long_form_and_rejects_unknown_codes()
     {

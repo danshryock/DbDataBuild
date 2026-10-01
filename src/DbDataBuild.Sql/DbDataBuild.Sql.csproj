@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DbDataBuild.Core\DbDataBuild.Core.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -10,6 +11,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Ast\expression-types.txt" LogicalName="expression-types.txt" />
+    <EmbeddedResource Include="..\..\matrix\*.yml" LogicalName="matrix/%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <!-- Native polyglot library: produced by scripts/build-polyglot.sh into native/<rid>/, copied beside the output. -->
   <ItemGroup>

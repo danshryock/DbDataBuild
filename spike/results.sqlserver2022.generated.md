@@ -52,6 +52,52 @@ fabric* = Fabric-transpiled text executed on SQL Server as a proxy (no Fabric en
 | int_overflow | differs | BOTH_ERR | BOTH_ERR | BOTH_ERR |
 | try_cast | translate | MISMATCH | MISMATCH | EXEC_ERR |
 | quoted_ident | translate | MATCH | MATCH | MATCH |
+| bool_and_or_not | translate | MATCH | MATCH | MATCH |
+| str_eq_profile | differs | MISMATCH | MISMATCH | MATCH |
+| str_in_profile | differs | MISMATCH | MISMATCH | MATCH |
+| compare_ops | translate | MATCH | MATCH | MATCH |
+| arithmetic_ops | translate | MATCH | MATCH | MATCH |
+| unary_minus | translate | MATCH | MATCH | MATCH |
+| aggregates | translate | MATCH | MATCH | MATCH |
+| avg_int | differs | MISMATCH | MISMATCH | MATCH |
+| avg_decimal | translate | MISMATCH | MISMATCH | MATCH |
+| left_join_using | differs | SYNTAX_ERR | SYNTAX_ERR | MISMATCH |
+| natural_join | unsupported | SYNTAX_ERR | SYNTAX_ERR | MATCH |
+| cte_multi | translate | MATCH | MATCH | MATCH |
+| select_distinct_on | unsupported | MATCH | MATCH | MISMATCH |
+| sample_clause | unsupported | SYNTAX_ERR | SYNTAX_ERR | EXEC_ERR |
+| lateral_join | unsupported | MATCH | MATCH | MATCH |
+| group_having | translate | MATCH | MATCH | MATCH |
+| between | translate | MATCH | MATCH | MATCH |
+| is_null | translate | MATCH | MATCH | MATCH |
+| not_in | translate | MATCH | MATCH | MATCH |
+| inner_join | translate | MATCH | MATCH | MATCH |
+| subquery_from | translate | MATCH | MATCH | MATCH |
+| exists_subquery | translate | MATCH | MATCH | MATCH |
+| in_subquery | translate | MATCH | MATCH | MATCH |
+| intersect_except | translate | MATCH | MATCH | MATCH |
+| except | translate | MATCH | MATCH | MATCH |
+| nullif_fn | translate | MATCH | MATCH | MATCH |
+| abs_round | differs | MATCH | MATCH | EXEC_ERR |
+| trim_fns | translate | MATCH | MATCH | MATCH |
+| replace_fn | translate | MISMATCH | MISMATCH | MATCH |
+| case_simple | translate | MATCH | MATCH | MATCH |
+| full_outer_join | translate | MATCH | MATCH | MATCH |
+| cross_join | translate | MATCH | MATCH | MATCH |
+| date_literal_cast | translate | MATCH | MATCH | MATCH |
+| max_by_cast_int | differs | BOTH_ERR | BOTH_ERR | BOTH_ERR |
+| count_over_window | translate | MATCH | MATCH | MATCH |
+| cast_int | translate | MATCH | MATCH | MATCH |
+| cast_bigint | translate | MATCH | MATCH | MATCH |
+| cast_smallint | translate | MATCH | MATCH | MATCH |
+| cast_double | translate | MATCH | MATCH | MATCH |
+| cast_timestamp | translate | MATCH | MATCH | MATCH |
+| cast_boolean | differs | MATCH | MATCH | MATCH |
+| cast_ts_to_date | translate | MATCH | MATCH | MATCH |
+| abs_fn | translate | MATCH | MATCH | MATCH |
+| round_decimal | translate | MATCH | MATCH | MATCH |
+| floor_ceil | translate | MATCH | MATCH | MATCH |
+| right_join | translate | MATCH | MATCH | MATCH |
 
 ## Non-matching details
 
@@ -121,3 +167,49 @@ fabric* = Fabric-transpiled text executed on SQL Server as a proxy (no Fabric en
   - sql: `SELECT TRY_CAST(s AS INT) AS x FROM t`
 - **try_cast** / postgres: EXEC_ERR: 22P02: invalid input syntax for type integer: "abc"
   - sql: `SELECT CAST(s AS INT) AS x FROM t`
+- **str_eq_profile** / sqlserver: MISMATCH: row count duckdb=1 target=4
+  - sql: `SELECT * FROM t WHERE s = 'abc'`
+- **str_eq_profile** / fabric: MISMATCH: row count duckdb=1 target=4
+  - sql: `SELECT * FROM t WHERE s = 'abc'`
+- **str_in_profile** / sqlserver: MISMATCH: row count duckdb=1 target=4
+  - sql: `SELECT * FROM t WHERE s IN ('abc', 'x')`
+- **str_in_profile** / fabric: MISMATCH: row count duckdb=1 target=4
+  - sql: `SELECT * FROM t WHERE s IN ('abc', 'x')`
+- **avg_int** / sqlserver: MISMATCH: duckdb=[4.571428571] target=[4] (sorted row 0)
+  - sql: `SELECT AVG(a) AS x FROM t`
+- **avg_int** / fabric: MISMATCH: duckdb=[4.571428571] target=[4] (sorted row 0)
+  - sql: `SELECT AVG(a) AS x FROM t`
+- **avg_decimal** / sqlserver: MISMATCH: duckdb=[4.571428571] target=[4.571428] (sorted row 0)
+  - sql: `SELECT AVG(CAST(a AS NUMERIC(10, 2))) AS x FROM t`
+- **avg_decimal** / fabric: MISMATCH: duckdb=[4.571428571] target=[4.571428] (sorted row 0)
+  - sql: `SELECT AVG(CAST(a AS DECIMAL(10, 2))) AS x FROM t`
+- **left_join_using** / sqlserver: SYNTAX_ERR: "a" is not a recognized table hints option.
+  - sql: `SELECT * FROM t LEFT JOIN u USING (a)`
+- **left_join_using** / fabric: SYNTAX_ERR: "a" is not a recognized table hints option.
+  - sql: `SELECT * FROM t LEFT JOIN u USING (a)`
+- **left_join_using** / postgres: MISMATCH: duckdb=[1|7|2|abc|2024-01-15|2024-01-15 10:30:45|2024-01-31|2024-02-01|1|100] target=[1|4|∅| abc|2023-12-31|2023-12-31 12:00:00|2024-01-01|2024-01-01|4|∅] (sorted row 0)
+  - sql: `SELECT * FROM t LEFT JOIN u USING (a)`
+- **natural_join** / sqlserver: SYNTAX_ERR: Incorrect syntax near 'u'.
+  - sql: `SELECT * FROM t NATURAL JOIN u`
+- **natural_join** / fabric: SYNTAX_ERR: Incorrect syntax near 'u'.
+  - sql: `SELECT * FROM t NATURAL JOIN u`
+- **select_distinct_on** / postgres: MISMATCH: duckdb=[7|2] target=[7|9] (sorted row 4)
+  - sql: `SELECT DISTINCT ON (a) a, b FROM t`
+- **sample_clause** / sqlserver: SYNTAX_ERR: Incorrect syntax near 'SAMPLE'.
+  - sql: `SELECT * FROM t USING SAMPLE SYSTEM (50 PERCENT)`
+- **sample_clause** / fabric: SYNTAX_ERR: Incorrect syntax near 'SAMPLE'.
+  - sql: `SELECT * FROM t USING SAMPLE SYSTEM (50 PERCENT)`
+- **sample_clause** / postgres: EXEC_ERR: 42601: syntax error at or near "USING"  POSITION: 17
+  - sql: `SELECT * FROM t USING SAMPLE SYSTEM (50 PERCENT)`
+- **abs_round** / postgres: EXEC_ERR: 42883: function round(double precision, integer) does not exist  POSITION: 25
+  - sql: `SELECT ABS(a - 5) AS x, ROUND(CAST(CAST(a AS DECIMAL(10, 2)) AS DOUBLE PRECISION) / NULLIF(3, 0), 1) AS r FROM t`
+- **replace_fn** / sqlserver: MISMATCH: duckdb=[ABC] target=[héllo] (sorted row 2)
+  - sql: `SELECT REPLACE(s, 'a', 'z') AS x FROM t`
+- **replace_fn** / fabric: MISMATCH: duckdb=[ABC] target=[héllo] (sorted row 2)
+  - sql: `SELECT REPLACE(s, 'a', 'z') AS x FROM t`
+- **max_by_cast_int** / sqlserver: BOTH_ERR: target: Conversion failed when converting the nvarchar value 'abc' to data type int. | duckdb: Conversion Error: Could not convert string 'abc' to INT32 when casting from source column s  LINE 1: SELECT CAST(s AS INTEGER) AS x FROM t WHERE s = 'abc'                ^
+  - sql: `SELECT CAST(s AS INTEGER) AS x FROM t WHERE s = 'abc'`
+- **max_by_cast_int** / fabric: BOTH_ERR: target: Conversion failed when converting the nvarchar value 'abc' to data type int. | duckdb: Conversion Error: Could not convert string 'abc' to INT32 when casting from source column s  LINE 1: SELECT CAST(s AS INTEGER) AS x FROM t WHERE s = 'abc'                ^
+  - sql: `SELECT CAST(s AS INT) AS x FROM t WHERE s = 'abc'`
+- **max_by_cast_int** / postgres: BOTH_ERR: target: 22P02: invalid input syntax for type integer: "abc" | duckdb: Conversion Error: Could not convert string 'abc' to INT32 when casting from source column s  LINE 1: SELECT CAST(s AS INTEGER) AS x FROM t WHERE s = 'abc'                ^
+  - sql: `SELECT CAST(s AS INT) AS x FROM t WHERE s = 'abc'`

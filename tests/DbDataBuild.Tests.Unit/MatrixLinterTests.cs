@@ -1,0 +1,151 @@
+using DbDataBuild.Core;
+using DbDataBuild.Sql.Matrix;
+
+namespace DbDataBuild.Tests.Unit;
+
+public class MatrixLinterTests
+{
+    private static readonly SupportMatrix Matrix = MatrixLoader.LoadEmbedded([]);
+    private static readonly MatrixLinter Linter = new(Matrix);
+    private static readonly string[] All = ["sqlserver", "fabric", "postgres"];
+
+    private static IReadOnlyList<Diagnostic> Lint(string sql, params string[] targets) =>
+        Linter.Lint(sql, "models/m.sql", targets.Length == 0 ? All : targets);
+
+    // One fixture per matrix row: the enumerated-data test (DESIGN.md principle 7).
+    public static readonly IReadOnlyDictionary<string, string> RowFixtures = new Dictionary<string, string>
+    {
+        ["op.div"] = "SELECT a / b AS x FROM t",
+        ["fn.avg"] = "SELECT AVG(a) AS x FROM t",
+        ["fn.length"] = "SELECT LENGTH(s) AS x FROM t",
+        ["fn.try_cast"] = "SELECT TRY_CAST(s AS INTEGER) AS x FROM t",
+        ["type.cast_varchar_length"] = "SELECT CAST(s AS VARCHAR(20)) AS x FROM t",
+        ["str.unicode_literal"] = "SELECT 'héllo' AS x",
+        ["str.eq"] = "SELECT * FROM t WHERE s = 'abc'",
+        ["str.like.case"] = "SELECT * FROM t WHERE s LIKE 'a%'",
+        ["str.ilike"] = "SELECT * FROM t WHERE s ILIKE 'a%'",
+        ["str.concat"] = "SELECT s || s AS x FROM t",
+        ["fn.replace"] = "SELECT REPLACE(s, 'a', 'b') AS x FROM t",
+        ["fn.regexp"] = "SELECT * FROM t WHERE REGEXP_MATCHES(s, 'a')",
+        ["syntax.qualify"] = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1",
+        ["syntax.group_by_ordinal"] = "SELECT a, COUNT(*) FROM t GROUP BY 1",
+        ["syntax.group_by_all"] = "SELECT a, COUNT(*) FROM t GROUP BY ALL",
+        ["type.list"] = "SELECT [1, 2] AS l",
+        ["type.struct"] = "SELECT {'a': 1} AS s",
+        ["fn.unnest"] = "SELECT UNNEST([1, 2]) AS u",
+        ["fn.date_trunc"] = "SELECT DATE_TRUNC('month', d) AS x FROM t",
+        ["op.interval_add"] = "SELECT d + INTERVAL 3 DAY AS x FROM t",
+        ["fn.date_diff"] = "SELECT DATE_DIFF('day', d1, d2) AS x FROM t",
+        ["syntax.order_nulls"] = "SELECT a FROM t ORDER BY a",
+        ["syntax.join.using"] = "SELECT * FROM t LEFT JOIN u USING (a)",
+        ["syntax.join.natural"] = "SELECT * FROM t NATURAL JOIN u",
+        ["syntax.distinct_on"] = "SELECT DISTINCT ON (a) a, b FROM t",
+        ["syntax.sample"] = "SELECT * FROM t USING SAMPLE 50%",
+        ["syntax.lateral"] = "SELECT * FROM t, LATERAL (SELECT u.b FROM u WHERE u.a = t.a) AS l",
+    };
+
+    [Fact]
+    public void Every_matrix_row_has_a_fixture_and_every_fixture_a_row()
+    {
+        Assert.Equal(Matrix.Rows.Select(r => r.Id).Order(), RowFixtures.Keys.Order());
+    }
+
+    [Fact]
+    public void Each_fixture_triggers_its_row_on_every_target_that_makes_a_claim()
+    {
+        foreach (var row in Matrix.Rows)
+        {
+            var diags = Lint(RowFixtures[row.Id]);
+            foreach (var (target, entry) in row.Targets)
+            {
+                var quiet = entry.Status is SupportStatus.Native or SupportStatus.Translated && entry.MinVersion == null;
+                var hit = diags.Any(d => d.Found.Contains($"`{row.Id}`") && d.Found.Contains(" on " + target));
+                Assert.True(quiet ? !hit : hit, $"{row.Id} on {target} ({entry.Status}): hit={hit}");
+            }
+        }
+    }
+
+    [Fact]
+    public void Design_document_model_is_clean()
+    {
+        Assert.Empty(Lint("SELECT\n  o.order_id,\n  o.customer_id,\n  o.order_date,\n  o.amount,\n  o.discount_code\nFROM staging.orders AS o").Select(DiagnosticFormatter.Format));
+    }
+
+    [Fact]
+    public void Severity_follows_status_per_target()
+    {
+        const string qualify = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY a) = 1";
+        Assert.Contains(Lint(qualify, "fabric"), d => d.Code == "DDB-301" && d.Severity == Severity.Error);
+        Assert.Contains(Lint(qualify, "sqlserver"), d => d.Code == "DDB-303" && d.Severity == Severity.Note);
+        Assert.DoesNotContain(Lint(qualify, "sqlserver"), d => d.Severity == Severity.Error);
+        Assert.Contains(Lint("SELECT a / b FROM t", "sqlserver"), d => d.Code == "DDB-302" && d.Severity == Severity.Warning);
+        Assert.Contains(Lint("SELECT [1] AS l", "postgres"), d => d.Code == "DDB-304");
+    }
+
+    [Fact]
+    public void Only_declared_targets_are_evaluated()
+    {
+        const string ordinal = "SELECT a, COUNT(*) FROM t GROUP BY 1";
+        Assert.Empty(Lint(ordinal, "postgres"));
+        Assert.Contains(Lint(ordinal, "sqlserver"), d => d.Code == "DDB-301" && d.Found.Contains("on sqlserver"));
+        Assert.DoesNotContain(Lint(ordinal, "sqlserver"), d => d.Found.Contains("on postgres"));
+    }
+
+    [Fact]
+    public void Min_version_is_reported_as_a_warning_with_the_version()
+    {
+        var d = Assert.Single(Lint("SELECT * FROM t WHERE REGEXP_MATCHES(s, 'a')", "sqlserver"), x => x.Code == "DDB-308");
+        Assert.Contains("17", d.Found);
+        Assert.Equal(Severity.Warning, d.Severity);
+    }
+
+    [Theory]
+    [InlineData("SELECT GREATEST(a, b) AS x FROM t", "function `GREATEST`")]
+    [InlineData("SELECT CAST(a AS UUID) AS x FROM t", "data type `uuid`")]
+    [InlineData("WITH RECURSIVE c AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT n FROM c", "recursive CTE")]
+    [InlineData("SELECT * FROM t SEMI JOIN u ON t.a = u.a", "join kind `Semi`")]
+    public void Constructs_the_matrix_does_not_cover_are_reported_not_assumed_safe(string sql, string what)
+    {
+        Assert.Contains(Lint(sql), d => d.Code == "DDB-305" && d.Found.Contains(what));
+    }
+
+    [Fact]
+    public void Verified_constructs_are_not_reported_as_uncovered()
+    {
+        Assert.Empty(Lint("SELECT CAST(a AS INTEGER) AS i, ABS(a) AS b, ROUND(CAST(a AS DECIMAL(10, 2)), 1) AS r FROM t WHERE a IN (1, 2) AND b BETWEEN 1 AND 3").Where(d => d.Code == "DDB-305"));
+    }
+
+    [Fact]
+    public void Unparseable_sql_and_non_single_selects_are_errors_without_fallback()
+    {
+        Assert.Equal("DDB-306", Assert.Single(Lint("SELEC FROM FROM (")).Code);
+        Assert.Equal("DDB-307", Assert.Single(Lint("SELECT 1; SELECT 2")).Code);
+        Assert.Equal("DDB-307", Assert.Single(Lint("CREATE TABLE x (a INT)")).Code);
+    }
+
+    [Fact]
+    public void Findings_carry_the_line_of_the_construct()
+    {
+        var d = Assert.Single(Lint("SELECT 1 AS one,\n  a / b AS x\nFROM t", "sqlserver"), x => x.Code == "DDB-302");
+        Assert.Equal("models/m.sql", d.Location.File);
+        Assert.Equal(2, d.Location.Line);
+    }
+
+    [Fact]
+    public void Clause_level_findings_point_at_their_clause()
+    {
+        const string sql = "SELECT a, b\nFROM t\nGROUP BY 1\nQUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1\nORDER BY a";
+        var diags = Lint(sql, "fabric");
+        Assert.Equal(4, Assert.Single(diags, d => d.Found.Contains("`syntax.qualify`")).Location.Line);
+        // polyglot attaches no span to literals, so a clause made only of literals (GROUP BY 1) falls back to the select's first span.
+        Assert.True(Assert.Single(diags, d => d.Found.Contains("`syntax.group_by_ordinal`")).Location.Line >= 1);
+        Assert.Equal(5, Assert.Single(diags, d => d.Found.Contains("`syntax.order_nulls`") && d.Location.Line == 5).Location.Line);
+    }
+
+    [Fact]
+    public void Lint_is_deterministic()
+    {
+        const string sql = "SELECT a / b, LENGTH(s), s || s FROM t WHERE s = 'x' ORDER BY a";
+        Assert.Equal(Lint(sql).Select(DiagnosticFormatter.Format), Lint(sql).Select(DiagnosticFormatter.Format));
+    }
+}

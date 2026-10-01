@@ -1,6 +1,7 @@
 using System.CommandLine;
 using DbDataBuild.Core;
 using DbDataBuild.Models;
+using DbDataBuild.Sql.Matrix;
 
 namespace DbDataBuild.Cli;
 
@@ -41,6 +42,9 @@ public static class CliApp
                     cmd.Options.Add(project);
                     cmd.SetAction(pr => Validate(spec, pr.GetValue(project)!.FullName, output, error));
                     break;
+                case "matrix":
+                    cmd.SetAction(_ => PrintMatrix(spec, output, error));
+                    break;
                 case "explain":
                     var code = new Argument<string>("code") { Description = "Diagnostic code, e.g. DDB-214" };
                     cmd.Arguments.Add(code);
@@ -67,12 +71,53 @@ public static class CliApp
     {
         WriteHeader(spec, output);
         var result = ProjectValidator.Validate(projectRoot);
-        foreach (var d in result.Diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
-        var errors = result.Diagnostics.Count(d => d.Severity == Severity.Error);
+        var diagnostics = new List<Diagnostic>(result.Diagnostics);
+
+        var matrixDiags = new List<Diagnostic>();
+        var linter = new MatrixLinter(MatrixLoader.LoadEmbedded(matrixDiags));
+        if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
+
+        output.WriteLine($"Targets: each model's `targets:`, else {string.Join(", ", DefaultTargets)} (project config is not implemented yet).");
+        foreach (var source in result.Sources)
+        {
+            var sql = File.ReadAllText(Path.Combine(projectRoot, source.QueryFile));
+            diagnostics.AddRange(linter.Lint(sql, source.QueryFile, source.Definition.Targets ?? DefaultTargets));
+        }
+
+        foreach (var d in diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
+        var errors = diagnostics.Count(d => d.Severity == Severity.Error);
+        var warnings = diagnostics.Count(d => d.Severity == Severity.Warning);
+        var notes = diagnostics.Count(d => d.Severity == Severity.Note);
+        var tail = $"{warnings} warning(s), {notes} note(s).";
         output.WriteLine(errors == 0
-            ? $"OK: {result.Models.Count} model(s) valid."
-            : $"FAILED: {errors} error(s).");
+            ? $"OK: {result.Sources.Count} model(s) valid. {tail}"
+            : $"FAILED: {errors} error(s), {tail}");
         return errors == 0 ? ExitOk : ExitFindings;
+    }
+
+    // Provisional until dbdatabuild.yml is loaded (DESIGN.md 6.2: "the project default applies if omitted").
+    private static readonly IReadOnlyList<string> DefaultTargets = [TargetNames.SqlServer];
+
+    private static int PrintMatrix(CommandSpec spec, TextWriter output, TextWriter error)
+    {
+        WriteHeader(spec, output);
+        var diags = new List<Diagnostic>();
+        var matrix = MatrixLoader.LoadEmbedded(diags);
+        if (diags.Count > 0)
+        {
+            foreach (var d in diags) error.WriteLine(DiagnosticFormatter.Format(d));
+            return ExitFindings;
+        }
+        output.WriteLine($"{"construct",-26} {"sqlserver",-13} {"fabric",-13} {"postgres",-13}");
+        foreach (var row in matrix.Rows)
+        {
+            string Cell(string t) => row.Targets[t].Status.ToString().ToLowerInvariant() + (row.Targets[t].MinVersion is { } v ? $" (>= {v})" : "");
+            output.WriteLine($"{row.Id,-26} {Cell("sqlserver"),-13} {Cell("fabric"),-13} {Cell("postgres"),-13}");
+            foreach (var t in SupportMatrix.Targets.Where(t => row.Targets[t].Note is { Length: > 0 }))
+                output.WriteLine($"    {t}: {row.Targets[t].Note}");
+        }
+        output.WriteLine($"\n{matrix.Rows.Count} construct row(s); {matrix.Covered.Count} verified node/function/type entries (anything else is reported as DDB-305).");
+        return ExitOk;
     }
 
     private static int Explain(CommandSpec spec, string code, TextWriter output, TextWriter error)

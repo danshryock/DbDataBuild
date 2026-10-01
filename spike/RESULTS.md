@@ -4,11 +4,13 @@
 - DuckDB 1.5.x (DuckDB.NET.Data.Full 1.5.6) as the oracle
 - SQL Server 2022 (16.0.4265) and 2025 (17.0.1000), collation `SQL_Latin1_General_CP1_CI_AS`; PostgreSQL 17.11, `en_US.utf8`
 - Fabric: **no engine available**. The Fabric-transpiled text was executed on SQL Server 2022 as a proxy, so Fabric rows prove only what the transpiler emits, not what Fabric accepts.
-- 47 constructs (`constructs.yml`), 8-row synthetic edge-case dataset (`seed.duckdb.sql`). Raw tables: `results.sqlserver2022.generated.md`, `results.sqlserver2025.generated.md`. Regenerate with `dotnet run --project spike/DbDataBuild.Spike -- diff . <mssql host:port> <pg host:port>`.
+- 93 cases (`constructs.yml`; the first 47 were the initial spike, the rest were added to verify basic operators, clauses and cast types for the matrix coverage list), 8-row synthetic edge-case dataset (`seed.duckdb.sql`). Raw tables: `results.sqlserver2022.generated.md` (all 93 cases, plus Postgres 17) and `results.sqlserver2025.generated.md` (the first 47 cases only; it shows `REGEXP_LIKE` working on version 17). Regenerate with `dotnet run --project spike/DbDataBuild.Spike -- diff . <mssql host:port> <pg host:port>`.
 
 ## Verdict
 
 **DuckDB-canonical is viable for the FFI mechanics and for the common constructs, but polyglot cannot be trusted to report its own gaps.** Many rewrites are silent and wrong, some unsupported constructs pass straight through as text, and the unsupported-level check is incomplete. The design's own layers (AST matrix linter, declared-columns compile check, differential tests) are required, not optional. Nothing here contradicts the design.
+
+Initial 47 cases:
 
 | SQL Server 2022 | count |
 |---|---|
@@ -18,7 +20,9 @@
 | SYNTAX_ERR (ScriptDOM or server rejects the text) | 3 |
 | BOTH_ERR (DuckDB and target both error: consistent) | 1 |
 
-PostgreSQL 17: 42 MATCH, 1 MISMATCH, 3 EXEC_ERR, 1 BOTH_ERR. MATCH means equal as sorted multisets on 8 rows; **row order, and therefore `ORDER BY`/`LIMIT` determinism, is not verified yet**.
+PostgreSQL 17: 42 MATCH, 1 MISMATCH, 3 EXEC_ERR, 1 BOTH_ERR.
+
+All 93 cases on SQL Server 2022: 71 MATCH, 11 MISMATCH, 3 EXEC_ERR, 6 SYNTAX_ERR, 2 BOTH_ERR; PostgreSQL 17: 83 MATCH, 3 MISMATCH, 5 EXEC_ERR, 2 BOTH_ERR. MATCH means equal as sorted multisets on 8 rows; **row order, and therefore `ORDER BY`/`LIMIT` determinism, is not verified yet**.
 
 ## FFI binding
 
@@ -72,9 +76,14 @@ Closest to DuckDB, as predicted: most rewrites are identity. Its only divergence
 - Large or boundary data; `DECIMAL` precision of results (`decimal_mult` matched only on small values).
 - `sp_describe_first_result_set` and the schema-only compile.
 
-## Follow-ups before relying on this in Foundations
-1. Report the two `fabric` dialect gaps (division cast, `QUALIFY`) upstream, with the repro SQL from this file.
-2. Add `GROUP BY` ordinal/`ALL`, list/struct literals, and `TRY_CAST` rows to `matrix/`.
-3. Add a result-type column to matrix rows (date_trunc, interval arithmetic).
-4. Decide division-by-zero and `TRY_CAST('')` target semantics per project profile.
-5. Windows build of the FFI library; confirm single-file publish.
+## Cases added for the matrix
+`AVG` over integers truncates on T-SQL (`avg_int`); `REPLACE` follows the collation (`replace_fn`); string `=` and `IN` against literals follow the collation and trailing-space rules (`str_eq_profile`, `str_in_profile`); `JOIN ... USING`, `NATURAL JOIN` and `USING SAMPLE` are emitted unchanged and fail on T-SQL; `DISTINCT ON` is rewritten but cannot be differentially tested (no deterministic row choice); `LATERAL` becomes `CROSS APPLY` and matches; `ROUND(double, n)` fails on Postgres after the division rewrite. Plain operators, aggregates, set operations, common joins, subqueries, CTEs and casts to int/bigint/smallint/double/decimal/date/timestamp/boolean/varchar all matched.
+
+## Follow-ups
+1. Report the two `fabric` dialect gaps (division cast, `QUALIFY`) upstream, with the repro SQL from this file. **Open.**
+2. ~~Add `GROUP BY` ordinal/`ALL`, list/struct literals, and `TRY_CAST` rows to `matrix/`.~~ **Done:** `matrix/constructs.yml`, enforced by the AST linter (`DDB-301..308`).
+3. Result types: recorded in the notes of the `date_trunc` and interval rows for now; a structured result-type column is still **open**.
+4. Decide division-by-zero and `TRY_CAST('')` target semantics per project profile. **Open.**
+5. Windows build of the FFI library; confirm single-file publish. **Open.**
+6. Column-to-column string comparisons are not detected (the AST has no types); needs declared columns and polyglot's type annotation. **Open.**
+7. Literals carry no source span in polyglot's AST, so a clause made only of literals (`GROUP BY 1`) is located at the select's first span. **Known limitation.**

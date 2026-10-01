@@ -1,0 +1,195 @@
+# Support matrix (DESIGN.md section 7): one row per construct with a known portability consequence.
+# detect:  node:<polyglot Expression tag> | fn:<FUNCTION NAME> | detector:<name, see Detectors.cs>
+# Per target: status (native|translated|approximated|emulated|unsupported|unverified), optional min_version, note, test.
+# `tsql:` is shorthand for sqlserver + fabric; a specific key overrides it.
+# test: spike/<id> points at a case in spike/constructs.yml until the conformance suite replaces it (milestone 3).
+# Every status except native and unverified must name a test. Rows reflect polyglot-sql at the pinned commit (spike/RESULTS.md).
+
+- id: op.div
+  detect: node:div
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/int_division_cols, note: "DuckDB 1.5 returns inf for x/0; the rewrite (CAST AS FLOAT / NULLIF) returns NULL." }
+  fabric:    { status: approximated, test: spike/int_division, note: "polyglot's fabric dialect emits plain `/`, which is integer division on T-SQL (7/2 = 3, DuckDB gives 3.5)." }
+  postgres:  { status: approximated, test: spike/abs_round, note: "Rewritten to DOUBLE PRECISION / NULLIF: x/0 gives NULL (not inf) and ROUND(<result>, n) fails (no round(double precision, int))." }
+
+- id: fn.avg
+  detect: node:avg
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/avg_int, note: "AVG over integers truncates (4, DuckDB gives 4.5714...); DECIMAL results have a different scale (spike/avg_decimal)." }
+  postgres: { status: native }
+
+- id: fn.length
+  detect: node:length
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/length_fn, note: "LEN() ignores trailing spaces; DuckDB length() counts them (str.len)." }
+  postgres: { status: native }
+
+- id: fn.try_cast
+  detect: node:try_cast
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/try_cast, note: "TRY_CAST('' AS INT) is 0 on T-SQL, NULL in DuckDB." }
+  postgres: { status: unsupported, test: spike/try_cast, note: "No native try-cast: polyglot emits CAST, which raises an error on bad data." }
+
+- id: type.cast_varchar_length
+  detect: detector:cast_varchar_length
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/cast_varchar_len, note: "CAST(x AS VARCHAR(n)) is emitted as VARCHAR(MAX): the length is lost. Declared `columns` stay the source of truth for lengths." }
+  postgres: { status: approximated, test: spike/cast_varchar_len, note: "Emitted as TEXT: the length is lost." }
+
+- id: str.unicode_literal
+  detect: detector:unicode_literal
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/unicode_literal, note: "No N'...' prefix is emitted, so characters outside the database code page are corrupted. Matches only when the code page covers them." }
+  postgres: { status: native }
+
+- id: str.eq
+  detect: detector:string_equality
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/str_eq_profile, note: "Equality, inequality and IN against string literals follow the target collation and trailing-space rules, not DuckDB's (str.eq.case, str.eq.trailing_space; DESIGN.md 7.4). Column-to-column comparisons are not yet detected (needs declared types)." }
+  postgres: { status: native }
+
+- id: str.like.case
+  detect: node:like
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/like_case, note: "LIKE follows the column collation: case-insensitive under *_CI_* collations, case-sensitive in DuckDB." }
+  postgres: { status: native }
+
+- id: str.ilike
+  detect: node:i_like
+  duckdb: native
+  tsql:
+    any: { status: translated, test: spike/ilike, note: "Rewritten to LOWER(x) LIKE LOWER(y)." }
+  postgres: { status: native }
+
+- id: str.concat
+  detect: node:concat
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/concat_pipes, note: "|| becomes +, which adds numbers when both operands are numeric. Only safe for string operands." }
+  postgres: { status: approximated, test: spike/concat_pipes, note: "|| on non-string operands is an error on Postgres; DuckDB concatenates them." }
+
+- id: fn.replace
+  detect: fn:REPLACE
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/replace_fn, note: "REPLACE matches using the collation: case-insensitive under *_CI_* collations, case-sensitive in DuckDB." }
+  postgres: { status: native }
+
+- id: fn.regexp
+  detect: [fn:REGEXP_MATCHES, fn:REGEXP_LIKE, node:regexp_like, node:regexp_i_like]
+  duckdb: native
+  sqlserver: { status: translated, min_version: 17, test: spike/regexp, note: "REGEXP_LIKE exists from SQL Server 2025 (version 17). Not recognized on 2022." }
+  fabric:    { status: unverified, note: "Fabric support for REGEXP_LIKE not checked." }
+  postgres:  { status: translated, test: spike/regexp, note: "Rewritten to the ~ operator." }
+
+- id: syntax.qualify
+  detect: detector:qualify
+  duckdb: native
+  sqlserver: { status: emulated, test: spike/qualify, note: "Rewritten to a subquery with a window column filtered in an outer WHERE." }
+  fabric:    { status: unsupported, test: spike/qualify, note: "polyglot's fabric dialect leaves QUALIFY in place, which Fabric rejects." }
+  postgres:  { status: emulated, test: spike/qualify, note: "Rewritten to a subquery." }
+
+- id: syntax.group_by_ordinal
+  detect: detector:group_by_ordinal
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/group_by_ordinal, note: "GROUP BY 1 is emitted unchanged; SQL Server rejects it at run time, and ScriptDOM accepts it. Name the columns." }
+  postgres: { status: native }
+
+- id: syntax.group_by_all
+  detect: detector:group_by_all
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/group_by_all, note: "GROUP BY ALL is emitted unchanged and is a syntax error. List the grouping columns." }
+  postgres: { status: unsupported, test: spike/group_by_all, note: "Emitted unchanged; PostgreSQL 17 rejects it." }
+
+- id: type.list
+  detect: node:array_func
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/list_literal, note: "List literals are emitted as [..], which T-SQL reads as a bracketed identifier." }
+  postgres: { status: unverified, note: "Rewritten to ARRAY[..]; semantics (indexing, NULL handling) not verified." }
+
+- id: type.struct
+  detect: node:map_func
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/struct_literal, note: "Struct/map literals are emitted unchanged and are a syntax error." }
+  postgres: { status: unsupported, test: spike/struct_literal, note: "Emitted unchanged; PostgreSQL rejects it." }
+
+- id: fn.unnest
+  detect: [fn:UNNEST, node:unnest]
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/unnest, note: "UNNEST is not a T-SQL function." }
+  postgres: { status: unverified, note: "Matched on one case; array semantics not verified." }
+
+- id: fn.date_trunc
+  detect: fn:DATE_TRUNC
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/date_trunc_month, note: "Rewritten to DATETRUNC, which returns DATE for DATE input; DuckDB returns TIMESTAMP. The result type differs, so cast explicitly to the declared column type." }
+  postgres: { status: native }
+
+- id: op.interval_add
+  detect: node:interval
+  duckdb: native
+  tsql:
+    any: { status: approximated, test: spike/date_add_interval, note: "DATE + INTERVAL becomes DATEADD and stays DATE; DuckDB returns TIMESTAMP. Cast explicitly to the declared column type." }
+  postgres: { status: native }
+
+- id: fn.date_diff
+  detect: fn:DATE_DIFF
+  duckdb: native
+  sqlserver: { status: translated, test: spike/date_diff, note: "DATEDIFF counts boundaries, as DuckDB does." }
+  fabric:    { status: unverified, note: "Same text as SQL Server; Fabric not checked." }
+  postgres:  { status: approximated, test: spike/date_diff, note: "Rewritten through epoch / 86400, which truncates and differs from boundary counting at day edges." }
+
+- id: syntax.order_nulls
+  detect: detector:order_nulls
+  duckdb: native
+  tsql:
+    any: { status: emulated, test: spike/nulls_last, note: "Every ORDER BY is rewritten with a CASE WHEN x IS NULL expression to put NULLs last, as DuckDB does. This can defeat index use." }
+  postgres: { status: native }
+
+- id: syntax.join.using
+  detect: detector:join_using
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/left_join_using, note: "JOIN ... USING is emitted unchanged and is a syntax error. Use ON." }
+  postgres: { status: native }
+
+- id: syntax.join.natural
+  detect: detector:join_natural
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/natural_join, note: "NATURAL JOIN is emitted unchanged and is a syntax error. Use ON." }
+  postgres: { status: native }
+
+- id: syntax.distinct_on
+  detect: detector:distinct_on
+  duckdb: native
+  tsql:
+    any: { status: unverified, note: "Rewritten to ROW_NUMBER() filtering. DuckDB picks an arbitrary row per key without ORDER BY, so a deterministic differential test is not possible. Add ORDER BY to the model." }
+  postgres: { status: native }
+
+- id: syntax.sample
+  detect: detector:sample
+  duckdb: native
+  tsql:
+    any: { status: unsupported, test: spike/sample_clause, note: "USING SAMPLE is emitted unchanged and is a syntax error." }
+  postgres: { status: unsupported, test: spike/sample_clause, note: "Emitted unchanged; PostgreSQL rejects it." }
+
+- id: syntax.lateral
+  detect: detector:lateral_subquery
+  duckdb: native
+  sqlserver: { status: translated, test: spike/lateral_join, note: "Rewritten to CROSS APPLY." }
+  fabric:    { status: unverified, note: "Same text as SQL Server; Fabric support for APPLY not checked." }
+  postgres:  { status: native }

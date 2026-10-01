@@ -1,0 +1,64 @@
+using System.Text.Json;
+using DbDataBuild.Sql.Ast;
+
+namespace DbDataBuild.Sql.Matrix;
+
+/// <summary>
+/// Named AST predicates for constructs that are clause-level or conditional rather than a single node tag.
+/// A matrix row refers to one with <c>detect: detector:&lt;name&gt;</c>. Each is evaluated against every node.
+/// </summary>
+public static class Detectors
+{
+    public static readonly IReadOnlyDictionary<string, Func<AstNode, bool>> All = new Dictionary<string, Func<AstNode, bool>>
+    {
+        ["cast_varchar_length"] = n => n.Type is "cast" or "try_cast" && n.TryGet("to", out var to) &&
+            to.ValueKind == JsonValueKind.Object && to.TryGetProperty("data_type", out var dt) && dt.GetString() is "var_char" or "char" &&
+            to.TryGetProperty("length", out var len) && len.ValueKind == JsonValueKind.Number,
+        ["unicode_literal"] = n => n.Type == "literal" && n.GetString("literal_type") == "string" && (n.GetString("value") ?? "").Any(c => c > 127),
+        ["string_equality"] = n => n.Type switch
+        {
+            "eq" or "neq" => IsStringLiteral(n, "left") || IsStringLiteral(n, "right"),
+            "in" => n.TryGet("expressions", out var xs) && xs.ValueKind == JsonValueKind.Array && xs.EnumerateArray().Any(IsStringLiteral),
+            _ => false,
+        },
+        ["qualify"] = n => Select(n) && NonNull(n, "qualify"),
+        ["group_by_ordinal"] = n => Select(n) && n.TryGet("group_by", out var g) && g.ValueKind == JsonValueKind.Object &&
+            g.TryGetProperty("expressions", out var xs) && xs.ValueKind == JsonValueKind.Array && xs.EnumerateArray().Any(IsNumberLiteral),
+        ["group_by_all"] = n => Select(n) && n.TryGet("group_by", out var g) && g.ValueKind == JsonValueKind.Object &&
+            g.TryGetProperty("all", out var all) && all.ValueKind == JsonValueKind.True,
+        ["order_nulls"] = n => (Select(n) && NonNull(n, "order_by")) ||
+            (n.Type == "window_function" && n.TryGet("over", out var over) && over.ValueKind == JsonValueKind.Object &&
+             over.TryGetProperty("order_by", out var ob) && ob.ValueKind == JsonValueKind.Array && ob.GetArrayLength() > 0),
+        ["join_using"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("using", out var u) && u.ValueKind == JsonValueKind.Array && u.GetArrayLength() > 0),
+        ["join_natural"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("kind", out var k) && k.GetString() == "Natural"),
+        ["distinct_on"] = n => Select(n) && NonNull(n, "distinct_on"),
+        ["lateral_subquery"] = n => n.Type == "subquery" && n.TryGet("lateral", out var l) && l.ValueKind == JsonValueKind.True,
+        ["sample"] = n => Select(n) && NonNull(n, "sample"),
+    };
+
+    /// <summary>For clause-level detectors: the select field whose position best locates the construct.</summary>
+    public static readonly IReadOnlyDictionary<string, string> LocationField = new Dictionary<string, string>
+    {
+        ["qualify"] = "qualify", ["group_by_ordinal"] = "group_by", ["group_by_all"] = "group_by", ["order_nulls"] = "order_by",
+        ["join_using"] = "joins", ["join_natural"] = "joins", ["distinct_on"] = "distinct_on", ["sample"] = "sample",
+    };
+
+    public static bool Select(AstNode n) => n.Type == "select";
+
+    public static bool NonNull(AstNode n, string field) =>
+        n.TryGet(field, out var v) && v.ValueKind is not (JsonValueKind.Null or JsonValueKind.False) &&
+        !(v.ValueKind == JsonValueKind.Array && v.GetArrayLength() == 0);
+
+    public static IEnumerable<JsonElement> Joins(AstNode n) =>
+        n.TryGet("joins", out var j) && j.ValueKind == JsonValueKind.Array ? j.EnumerateArray() : [];
+
+    private static bool IsStringLiteral(AstNode n, string field) => n.TryGet(field, out var v) && IsStringLiteral(v);
+
+    private static bool IsStringLiteral(JsonElement e) => LiteralType(e) == "string";
+
+    private static bool IsNumberLiteral(JsonElement e) => LiteralType(e) == "number";
+
+    private static string? LiteralType(JsonElement e) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty("literal", out var l) && l.ValueKind == JsonValueKind.Object &&
+        l.TryGetProperty("literal_type", out var t) ? t.GetString() : null;
+}

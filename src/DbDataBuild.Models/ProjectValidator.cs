@@ -2,8 +2,12 @@ using DbDataBuild.Core;
 
 namespace DbDataBuild.Models;
 
-public sealed record ProjectValidationResult(IReadOnlyList<ModelDefinition> Models, IReadOnlyList<Diagnostic> Diagnostics)
+/// <summary>A valid model definition with the project-relative paths of its two files.</summary>
+public sealed record ModelSource(ModelDefinition Definition, string DefinitionFile, string QueryFile);
+
+public sealed record ProjectValidationResult(IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics)
 {
+    public IReadOnlyList<ModelDefinition> Models => Sources.Select(s => s.Definition).ToList();
     public bool HasErrors => Diagnostics.Any(d => d.Severity == Severity.Error);
 }
 
@@ -15,7 +19,7 @@ public static class ProjectValidator
     public static ProjectValidationResult Validate(string projectRoot)
     {
         var diags = new List<Diagnostic>();
-        var models = new List<ModelDefinition>();
+        var models = new List<ModelSource>();
         var modelsRoot = Path.Combine(projectRoot, ModelsDir);
         if (!Directory.Exists(modelsRoot))
             return new(models, [new Diagnostic(DiagnosticCatalog.MissingKey, new(ModelsDir, 0, 0),
@@ -45,7 +49,7 @@ public static class ProjectValidator
 
             var expected = stem[(ModelsDir.Length + 1)..].Replace('/', '.');
             var def = ModelDefinitionLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags);
-            if (def != null) models.Add(def);
+            if (def != null) models.Add(new ModelSource(def, file, stem + ".sql"));
         }
         return new(models, diags);
     }

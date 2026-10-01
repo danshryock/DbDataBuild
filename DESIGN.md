@@ -341,11 +341,14 @@ The matrix is **data**, stored under `matrix/`, and every non-`native` row is ba
     any: { status: unsupported }
 ```
 
+A row also carries `detect:` (how the linter finds the construct: `node:<polyglot Expression tag>`, `fn:<FUNCTION>`, or `detector:<name>` for a coded predicate such as `qualify`), and each non-native, non-unverified entry names a `test:` (currently `spike/<case id>`, replaced by conformance test ids in milestone 3). `matrix/covered.yml` lists the nodes, functions and cast data types verified as plain SQL, each with the cases that show it. The matrix files are embedded in the tool.
+
 Keys include engine version or compatibility level where behavior differs. Per-target keys are `sqlserver`, `fabric`, and `postgres`; a `tsql` group is shorthand for both T-SQL targets. A construct that is `native` or `translated` on the T-SQL targets is **not** assumed to behave the same on Postgres, so each target has its own row and conformance test.
 
 ### 7.3 Use
 
-- The linter maps each AST node to construct IDs and reports per declared target. Policy config sets severity per status.
+- The linter maps each AST node to construct IDs and reports per declared target. Default severities: `unsupported` is an error (DDB-301), `approximated` and `unverified` are warnings (DDB-302, DDB-304), `emulated` is a note (DDB-303), and a `min_version` is a warning until target versions are configured (DDB-308). Policy config will set severity per status.
+- **Nothing is assumed safe.** An AST node, function, cast data type, or select clause that is neither matched by a matrix row nor listed in `covered.yml` is reported as DDB-305. This is deliberate: the spike showed polyglot silently passes unsupported constructs through, and its `unsupportedLevel: raise` option catches only a few.
 - A `dbdatabuild matrix` command prints the matrix, and a per-model portability report lists exactly which constructs limit which targets.
 - **Semantic profile rules** (string comparison/collation, trailing-space handling, integer division, cast lengths, Unicode literals, NULL ordering, boolean/bit handling, timestamp and decimal precision) are matrix rows tied to per-target profiles. Seed list in section 15.4.
 

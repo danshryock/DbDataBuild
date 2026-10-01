@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DbDataBuild.Core\DbDataBuild.Core.csproj" />
     <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />
   </ItemGroup>
 
   <ItemGroup>

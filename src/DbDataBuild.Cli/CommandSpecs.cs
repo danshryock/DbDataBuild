@@ -37,7 +37,7 @@ public static class CommandSpecs
         new("validate", EffectClass.OfflineOnly, "Validate config and models (offline)", true),
         new("render", EffectClass.RepoFilesOnly, "Render load operations and resolvers per target", false),
         new("loads", EffectClass.OfflineOnly, "Print the model x target x operation pairing table", false),
-        new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", false),
+        new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", false),
         new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, history inputs", false),

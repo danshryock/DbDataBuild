@@ -15,7 +15,7 @@ using Npgsql;
 //   diff <root> <mssql host:port> <pg host:port>   execute on DuckDB (oracle) and the targets, compare results
 // Synthetic data only. Connects only to the endpoints given on the command line (local ephemeral containers).
 var mode = args.Length > 0 ? args[0] : "transpile";
-var root = args.Length > 1 ? args[1] : ".";
+var root = args.Length > 1 && mode != "ast" ? args[1] : ".";
 var diags = new List<Diagnostic>();
 var doc = StrictYamlReader.Read(File.ReadAllText(Path.Combine(root, "spike", "constructs.yml")), "constructs.yml", diags);
 if (doc is not YamlSequence seq) { Console.Error.WriteLine("bad constructs.yml"); return 1; }
@@ -23,6 +23,56 @@ var constructs = seq.Items.Cast<YamlMapping>()
     .Select(m => (Id: Str(m, "id"), Sql: Str(m, "sql"), Expect: Str(m, "expect"))).ToList();
 var opts = Environment.GetEnvironmentVariable("SPIKE_OPTS") ?? "{}";
 
+if (mode == "covered")
+{
+    // covered <root> <diff.md>: node types seen only in constructs that MATCHed on every target, with the constructs as evidence.
+    var matched = File.ReadAllLines(args[2]).Where(l => l.StartsWith("| ") && !l.StartsWith("| id") && !l.StartsWith("|---"))
+        .Select(l => l.Split('|', StringSplitOptions.TrimEntries)).Where(c => c[3] == "MATCH" && c[4] == "MATCH" && c[5] == "MATCH").Select(c => c[1]).ToHashSet();
+    var d1 = new List<Diagnostic>();
+    var y1 = (YamlSequence)StrictYamlReader.Read(File.ReadAllText(Path.Combine(args[1], "spike", "constructs.yml")), "c", d1)!;
+    var evidence = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+    foreach (var m in y1.Items.Cast<YamlMapping>())
+    {
+        var id = ((YamlScalar)m.Get("id")!).Value;
+        if (!matched.Contains(id)) continue;
+        var ast = DbDataBuild.Sql.Ast.AstNode.Parse(Polyglot.Parse(((YamlScalar)m.Get("sql")!).Value, Dialects.Canonical).Data!);
+        foreach (var t in ast.Descendants().Where(n => n.Type != "function").Select(n => n.Type).Distinct())
+            (evidence.TryGetValue("node:" + t, out var l) ? l : evidence["node:" + t] = []).Add(id);
+        foreach (var dt in ast.Descendants().Where(n => n.Type is "cast" or "try_cast")
+                     .Select(n => n.TryGet("to", out var to) && to.TryGetProperty("data_type", out var dtp) ? dtp.GetString() : null).Where(x => x != null).Distinct())
+            (evidence.TryGetValue("datatype:" + dt, out var l3) ? l3 : evidence["datatype:" + dt] = []).Add(id);
+        foreach (var f in ast.Descendants().Where(n => n.Type == "function").Select(n => n.GetString("name")!.ToUpperInvariant()).Distinct())
+            (evidence.TryGetValue("function:" + f, out var l2) ? l2 : evidence["function:" + f] = []).Add(id);
+    }
+    foreach (var (t, ids) in evidence)
+    {
+        var kind = t[..t.IndexOf(':')]; var name = t[(t.IndexOf(':') + 1)..];
+        Console.WriteLine($"- {{ {kind}: {name}, evidence: [{string.Join(", ", ids.Take(3))}] }}");
+    }
+    return 0;
+}
+if (mode == "matrix-check")
+{
+    var md = new List<Diagnostic>();
+    DbDataBuild.Sql.Matrix.MatrixLoader.LoadFromDirectory(Path.Combine(args[1], "matrix"), md);
+    foreach (var d in md.Take(6)) Console.Write(DiagnosticFormatter.Format(d));
+    Console.WriteLine($"{md.Count} diagnostics");
+    return 0;
+}
+if (mode == "ast-types")
+{
+    var root0 = args.Length > 1 ? args[1] : ".";
+    var d0 = new List<Diagnostic>();
+    var y = (YamlSequence)StrictYamlReader.Read(File.ReadAllText(Path.Combine(root0, "spike", "constructs.yml")), "c", d0)!;
+    foreach (var m in y.Items.Cast<YamlMapping>())
+    {
+        var id = ((YamlScalar)m.Get("id")!).Value; var sql0 = ((YamlScalar)m.Get("sql")!).Value;
+        var ast = DbDataBuild.Sql.Ast.AstNode.Parse(Polyglot.Parse(sql0, Dialects.Canonical).Data!);
+        Console.WriteLine($"{id,-20} {string.Join(",", ast.Descendants().Select(n => n.Type).Distinct().Where(t => t is not ("column" or "identifier" or "table" or "select" or "from" or "alias")))}");
+    }
+    return 0;
+}
+if (mode == "ast") { Console.WriteLine(Polyglot.Parse(args[1], Dialects.Canonical).Data); return 0; }
 return mode == "transpile" ? Transpile() : Diff(args[2], args[3]);
 
 static string Str(YamlMapping m, string k) => ((YamlScalar)m.Get(k)!).Value;

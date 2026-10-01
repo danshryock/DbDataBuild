@@ -20,7 +20,8 @@ public class DiagnosticCatalogTests
         }
     }
 
-    // One fixture per code (DESIGN.md 15.5). DDB-108 is covered in ProjectValidatorTests, DDB-900 in CliTests.
+    // One fixture per code (DESIGN.md 15.5). DDB-108 is covered in ProjectValidatorTests, DDB-900 in CliTests,
+    // DDB-301..308 in MatrixLinterTests (one fixture per matrix row plus the uncovered/parse cases).
     public static TheoryData<string, string> Fixtures => new()
     {
         { "DDB-101", "a: [1, 2\n" },
@@ -53,7 +54,7 @@ public class DiagnosticCatalogTests
     [Fact]
     public void Every_code_has_a_fixture_or_a_documented_other_test()
     {
-        var covered = Fixtures.Select(f => (string)f[0]).Concat(["DDB-108", "DDB-900"]).ToHashSet();
+        var covered = Fixtures.Select(f => (string)f[0]).Concat(["DDB-108", "DDB-900", "DDB-301", "DDB-302", "DDB-303", "DDB-304", "DDB-305", "DDB-306", "DDB-307", "DDB-308"]).ToHashSet();
         Assert.Equal(DiagnosticCatalog.All.Select(d => d.Code).ToHashSet(), covered);
     }
 }

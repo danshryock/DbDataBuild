@@ -2,7 +2,7 @@ using System.Text;
 
 namespace DbDataBuild.Core;
 
-public enum Severity { Error, Warning }
+public enum Severity { Error, Warning, Note }
 
 /// <summary>Static metadata for one diagnostic code. The catalog of these is data; docs are generated from it.</summary>
 public sealed record DiagnosticDescriptor(
@@ -34,6 +34,10 @@ public static class DiagnosticCatalog
 {
     private static DiagnosticDescriptor E(string code, string title, string supported, string fix, string explanation) =>
         new(ProductInfo.DiagnosticPrefix + code, Severity.Error, title, supported, fix, explanation);
+    private static DiagnosticDescriptor W(string code, string title, string supported, string fix, string explanation) =>
+        new(ProductInfo.DiagnosticPrefix + code, Severity.Warning, title, supported, fix, explanation);
+    private static DiagnosticDescriptor N(string code, string title, string supported, string fix, string explanation) =>
+        new(ProductInfo.DiagnosticPrefix + code, Severity.Note, title, supported, fix, explanation);
 
     // 1xx: config / model definition
     public static readonly DiagnosticDescriptor YamlSyntax = E("101", "YAML syntax error",
@@ -87,6 +91,40 @@ public static class DiagnosticCatalog
         "Declare the column, or correct the reference.",
         "Declared columns are the model's output schema. Everything else must refer to it.");
 
+    // 3xx: matrix / portability
+    public static readonly DiagnosticDescriptor ConstructUnsupported = E("301", "Construct unsupported on a declared target",
+        "Constructs whose matrix status for every declared target is native, translated, emulated, approximated or unverified.",
+        "Rewrite the model without the construct, or remove the target from `targets:`.",
+        "The support matrix marks this construct `unsupported` for a target the model declares, so the build would fail or give wrong results there.");
+    public static readonly DiagnosticDescriptor ConstructApproximated = W("302", "Construct approximated on a declared target",
+        "A rewrite with a documented semantic difference (see the note).",
+        "Check that the documented difference is acceptable for this model, or avoid the construct.",
+        "The construct is rewritten for the target, but the result can differ from DuckDB. The matrix note says how.");
+    public static readonly DiagnosticDescriptor ConstructEmulated = N("303", "Construct emulated on a declared target",
+        "A multi-statement or helper rewrite (see the note).",
+        "No action needed unless the note describes a concern for this model.",
+        "The target has no native equivalent; the rewrite emulates it. Check atomicity and performance notes.");
+    public static readonly DiagnosticDescriptor ConstructUnverified = W("304", "Construct unverified on a declared target",
+        "A construct with a passing conformance test for the target.",
+        "Add a conformance case and a matrix test reference, or avoid the construct.",
+        "A rewrite exists, but no conformance test has passed for it on this target.");
+    public static readonly DiagnosticDescriptor ConstructNotCovered = W("305", "Construct not covered by the support matrix",
+        "Nodes, functions and clauses listed in matrix/covered.yml or matrix/constructs.yml.",
+        "Add a conformance case for the construct and extend the matrix, or avoid it.",
+        "The linter never assumes an unknown construct is safe. It was not exercised by any passing conformance case.");
+    public static readonly DiagnosticDescriptor SqlParseFailure = E("306", "Model query could not be parsed",
+        "A single SELECT in DuckDB dialect.",
+        "Correct the SQL so that it runs in DuckDB.",
+        "The query body could not be parsed as DuckDB SQL. There is no best-effort fallback.");
+    public static readonly DiagnosticDescriptor NotASingleSelect = E("307", "Model query is not a single SELECT",
+        "Exactly one SELECT (or set operation) statement.",
+        "Keep one query in the .sql file, with no other statements.",
+        "A model body is a single query that load strategies can wrap.");
+    public static readonly DiagnosticDescriptor ConstructNeedsVersion = W("308", "Construct needs a minimum target version",
+        "Target versions at or above the matrix min_version.",
+        "Confirm the target version, or avoid the construct.",
+        "The construct is supported only from a certain engine version. Target versions are not configured yet, so this cannot be checked offline.");
+
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",
         Severity.Error, "Internal error (tool bug)",
@@ -97,6 +135,8 @@ public static class DiagnosticCatalog
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference,
+        ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion,
         InternalError,
     ];
 
@@ -109,7 +149,7 @@ public static class DiagnosticFormatter
     public static string Format(Diagnostic d)
     {
         var sb = new StringBuilder();
-        sb.Append(d.Severity == Severity.Error ? "error" : "warning").Append(' ').Append(d.Code).Append("  ").AppendLine(d.Location.ToString());
+        sb.Append(d.Severity switch { Severity.Error => "error", Severity.Warning => "warning", _ => "note" }).Append(' ').Append(d.Code).Append("  ").AppendLine(d.Location.ToString());
         sb.Append("  ").AppendLine(d.Found);
         sb.Append("  Supported: ").AppendLine(d.Supported ?? d.Descriptor.Supported);
         sb.Append("  Fix: ").AppendLine(d.Fix ?? d.Descriptor.Fix);
