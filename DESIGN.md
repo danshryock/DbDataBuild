@@ -644,7 +644,7 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 
 `plan`, `check`, `apply` and `ack` exist (see `docs/progress/state-and-apply.md` entries 5 to 8 for the decisions and the evidence). Points where the build settles or differs from the text above:
 
-- The decision table is `matrix/decision-table.yml`: 31 rows, each with an owner (`planner`, `command` or `apply`), and a test for every planner row. Planner steps name their row id first in their reason chain.
+- The decision table is `matrix/decision-table.yml`: 32 rows, each with an owner (`planner`, `command` or `apply`), and a test for every planner row. Planner steps name their row id first in their reason chain.
 - A plan with blocks is still written for the models that are not blocked; blocks and skips are listed in the report and the command exits non-zero.
 - Plan files are YAML with a SHA-256 over their content. `apply` refuses any plan that is not byte-for-byte what `plan` wrote (DDB-435), including cosmetic edits.
 - `apply` takes `--allow-risky`, `--allow-destructive <object>` (repeatable, naming each object), `--resume`, `--dry-run` and `--allow-dirty`. A plan is applied once (DDB-438); a plan that stopped part-way is resumed only from the exact intermediate state it recorded.
