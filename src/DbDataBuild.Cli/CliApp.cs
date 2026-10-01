@@ -12,8 +12,9 @@ public static class CliApp
 
     /// <param name="input">Where interactive answers are read from. Only used when <paramref name="interactive"/> is true.</param>
     /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
-    public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false) =>
-        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }));
+    /// <param name="environment">Where logins are read from (connection strings in environment variables). Defaults to the process environment.</param>
+    public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
+        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }));
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body)
@@ -26,12 +27,12 @@ public static class CliApp
         {
             // Never a stack trace as primary output (DESIGN.md 14.2). Full detail would go to a scrubbed log file.
             error.Write(DiagnosticFormatter.Format(new Diagnostic(DiagnosticCatalog.InternalError, new("<internal>", 0, 0),
-                $"The tool failed with {ex.GetType().Name} while running `{string.Join(' ', args)}`. No target statements ran (none are issued by this command surface yet).")));
+                $"The tool failed with {ex.GetType().Name} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.")));
             return ExitInternal;
         }
     }
 
-    public static RootCommand Build(TextWriter output, TextWriter error, TextReader input, bool interactive)
+    public static RootCommand Build(TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?>? environment = null)
     {
         var root = new RootCommand($"{ProductInfo.Name}: explicit SQL transformation tool. Every command declares an effect class.");
 
@@ -70,6 +71,13 @@ public static class CliApp
                     var loadsProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Options.Add(loadsProject);
                     cmd.SetAction(pr => RenderCommand.Loads(spec, pr.GetValue(loadsProject)!.FullName, output, error));
+                    break;
+                case "init":
+                    var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var initTarget = new Option<string?>("--target") { Description = "Target to initialize (default: the project's only default target)" };
+                    var initApply = new Option<bool>("--apply") { Description = "Run the script on the write login (default: print it for review and connect to nothing)" };
+                    cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply);
+                    cmd.SetAction(pr => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), output, error, environment ?? Environment.GetEnvironmentVariable));
                     break;
                 case "matrix":
                     cmd.SetAction(_ => PrintMatrix(spec, output, error));

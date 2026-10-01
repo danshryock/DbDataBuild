@@ -5,3 +5,4 @@ obj/
 TestResults/
 .build/
 native/
+.dbdatabuild/

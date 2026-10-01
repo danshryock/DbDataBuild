@@ -50,6 +50,10 @@ public abstract class Engine : IAsyncDisposable
         }
     }
 
+    /// <summary>A connection string for the ephemeral database, for tools under test that open their own connections.</summary>
+    public string ConnectionString => ConnectionStringFor(database ?? throw new InvalidOperationException("Engine not started."));
+    protected abstract string ConnectionStringFor(string database);
+
     public DbConnection Conn => connection ?? throw new InvalidOperationException("Engine not started.");
 
     protected static async Task ExecAsync(DbConnection c, string sql)
@@ -135,6 +139,9 @@ public sealed class SqlServerEngine : Engine
         return new SqlConnection(b.ConnectionString);
     }
 
+    protected override string ConnectionStringFor(string database) =>
+        new SqlConnectionStringBuilder(csb.ConnectionString) { InitialCatalog = database, TrustServerCertificate = true }.ConnectionString;
+
     protected override string CreateDatabaseSql(string name) => $"CREATE DATABASE [{name}]";
     protected override string DropDatabaseSql(string name) => $"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]";
     protected override string TempTableProbe(string name) => $"SELECT 1 FROM tempdb.sys.tables WHERE name LIKE '{name}%'";
@@ -155,6 +162,9 @@ public sealed class PostgresEngine : Engine
         var b = new NpgsqlConnectionStringBuilder(csb.ConnectionString) { Database = database ?? "postgres", Pooling = false };
         return new NpgsqlConnection(b.ConnectionString);
     }
+
+    protected override string ConnectionStringFor(string database) =>
+        new NpgsqlConnectionStringBuilder(csb.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
 
     protected override string CreateDatabaseSql(string name) => $"CREATE DATABASE \"{name}\"";
     protected override string DropDatabaseSql(string name) => $"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)";

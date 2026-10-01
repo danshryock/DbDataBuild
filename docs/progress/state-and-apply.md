@@ -33,3 +33,12 @@ The only project that references a database driver (Microsoft.Data.SqlClient, Np
 - New diagnostics DDB-501 to DDB-505 (state and safety).
 
 Tests: `MutationGateTests`, `ReadGuardTests`, `GateInvariantTests`. Unit suite: 649 tests passing.
+
+## 3. Catalog reader, tracking store, `init` command
+
+- **`CatalogReader`** (read session): live shapes of the tables and views in a schema on SQL Server and PostgreSQL: columns (types without parameters, length in characters, precision, scale, nullability, collation, computed text) and physical items (indexes, SQL Server compression and partition counts). Lengths are normalized (`nvarchar(20)` is 40 bytes on SQL Server, reported as 20).
+- **`Drift.Classify`** (State, pure): `Missing`, `Untracked` (ask to adopt), `InSync`, `OutOfBand` (block) from the live shape and the newest recorded shape hash. These are the object-level rows of the decision table in DESIGN.md 11.
+- **`TrackingStore`**: `InitAsync` (through the gate), `StatusAsync` (missing / ready / unknown layout, DDB-505), `LatestShapeHashesAsync`, `RecordSchemaVersionAsync`. Timestamps come from `TrackingClock`, strictly increasing at millisecond precision, so two records for one object in the same millisecond still order. The values are UTC wall time with Kind Unspecified because the columns are zone-less and Npgsql refuses UTC-kind values for them (found by the PostgreSQL conformance test).
+- **`dbdatabuild init`** (effect: tracking tables only): prints the idempotent script by default and connects to nothing; `--target` is needed when the project has more than one default target; `--apply` runs it on the write login through the gate and writes `.dbdatabuild/statement-log/` (now git-ignored). No fallback from read to write login. The generic internal-error text no longer says "no target statements ran"; it points to the statement log.
+
+Real-engine tests (SQL Server 2022 and PostgreSQL 17): init and rerun, unknown layout version, shape and physical hashes change exactly when a column, length or index changes, schema-version round trip with drift classification, failure outcomes without driver text, PostgreSQL read sessions are read-only, and the `init --apply` command end to end with its statement log.

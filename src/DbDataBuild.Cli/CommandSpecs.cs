@@ -46,6 +46,6 @@ public static class CommandSpecs
         new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", false),
         new("run", EffectClass.TargetDataWrites, "Plan + apply for routine loads only", false),
         new("ack", EffectClass.TrackingTablesOnly, "Record a human decision (drift, history)", false),
-        new("init", EffectClass.TrackingTablesOnly, "Create tracking schema and tables", false),
+        new("init", EffectClass.TrackingTablesOnly, "Create tracking schema and tables (prints the script; --apply runs it)", true),
     ];
 }

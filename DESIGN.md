@@ -518,7 +518,7 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild apply <plan>` | **Target writes** (DDL and/or data, as the plan states) | Execute exactly the plan's recorded statements |
 | `dbdatabuild run <selector>` | **Target writes (data only)** | Shorthand: plan + apply, allowed only when the plan contains routine load steps and no questions or DDL. Otherwise refuses and points to `plan` |
 | `dbdatabuild ack ...` | Tracking tables only | Records a human decision (drift, history). Changes no user data |
-| `dbdatabuild init` | Tracking tables only | Creates tracking schema/tables (via a reviewable script) |
+| `dbdatabuild init` | Tracking tables only | Creates tracking schema/tables. Prints the reviewable, idempotent script by default and connects to nothing; `--apply` runs it on the write login through the mutation gate |
 
 No flag changes a command's effect class. Backfills are requested through `plan` (scope option), not a separate mutating command.
 
