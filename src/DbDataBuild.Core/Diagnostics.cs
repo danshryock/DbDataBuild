@@ -180,6 +180,11 @@ public static class DiagnosticCatalog
         "Add the missing entry under string_semantics.collations.",
         "Generated DDL always states collations explicitly, so each engine in use needs a collation name for every logical collation a model uses.");
 
+    public static readonly DiagnosticDescriptor TypeNotMappable = E("321", "Column type has no native mapping on a target",
+        "A logical type from the mapping table (BIGINT, INTEGER, SMALLINT, TINYINT, DOUBLE, FLOAT, BOOLEAN, DATE, TIMESTAMP, TIME, TIMESTAMP WITH TIME ZONE, DECIMAL(p, s), VARCHAR(n), UUID, BLOB).",
+        "Declare a supported type for the column (a cast in the query, then `define`), or remove the target from the model.",
+        "DDL needs an exact native type for every declared column. Types without a faithful equivalent (unsigned integers, HUGEINT, structs, lists, a VARCHAR without a length) are refused rather than guessed.");
+
     // 4xx: planning / questions
     public static readonly DiagnosticDescriptor AnswerForUnknownQuestion = W("410", "Answer for a question that was not asked",
         "Answers whose id matches a question asked in this run.",
@@ -252,7 +257,7 @@ public static class DiagnosticCatalog
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
-        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, DefinitionFileChanged, DefinitionNotEditable,

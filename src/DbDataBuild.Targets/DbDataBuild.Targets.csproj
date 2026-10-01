@@ -5,6 +5,7 @@
     <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
     <ProjectReference Include="..\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />
     <ProjectReference Include="..\DbDataBuild.Define\DbDataBuild.Define.csproj" />
+    <ProjectReference Include="..\DbDataBuild.State\DbDataBuild.State.csproj" />
   </ItemGroup>
 
   <ItemGroup>

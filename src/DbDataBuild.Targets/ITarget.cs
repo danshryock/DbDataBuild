@@ -34,6 +34,9 @@ public interface ITarget
     /// <summary>Statement assembly for the load strategies on this engine.</summary>
     ILoader Loader { get; }
 
+    /// <summary>DDL statements and the logical-to-native type table for this engine. Collations come from the project's string-comparison profile.</summary>
+    Ddl.DdlGenerator CreateDdl(ProjectConfig config);
+
     /// <summary>
     /// Offline syntax validation of a rendered script (ScriptDOM for T-SQL targets, polyglot for PostgreSQL). <paramref name="version"/> is the
     /// engine's configured major version; when it is unknown the newest grammar is used, because the matrix already warns that the version is unconfirmed.

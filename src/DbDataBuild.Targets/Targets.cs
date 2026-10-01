@@ -1,4 +1,5 @@
 using DbDataBuild.Core;
+using DbDataBuild.Models;
 using DbDataBuild.Sql;
 using DbDataBuild.Targets.Loaders;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -11,6 +12,7 @@ public abstract class TSqlTarget(string name, string dialect, Func<int?, TSqlPar
     public string Name => name;
     public string Dialect => dialect;
     public ILoader Loader { get; } = new TSqlLoader();
+    public Ddl.DdlGenerator CreateDdl(ProjectConfig config) => new Ddl.TSqlDdl(name, config);
 
     public IReadOnlyList<Diagnostic> Validate(string sql, string file, int? version = null)
     {
@@ -35,6 +37,7 @@ public sealed class PostgresTarget : ITarget
     public string Name => "postgres";
     public string Dialect => "postgresql";
     public ILoader Loader { get; } = new PostgresLoader();
+    public Ddl.DdlGenerator CreateDdl(ProjectConfig config) => new Ddl.PostgresDdl(config);
 
     public IReadOnlyList<Diagnostic> Validate(string sql, string file, int? version = null)
     {

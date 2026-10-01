@@ -97,6 +97,13 @@ public static partial class LogicalTypes
         return (baseName, m.Groups[2].Success ? m.Groups[2].Value : null, m.Groups[3].Success ? m.Groups[3].Value : null);
     }
 
+    /// <summary>Canonical spelling with synonyms resolved: INT is INTEGER, TEXT(20) is VARCHAR(20), NUMERIC(14,2) is DECIMAL(14, 2). Unrecognized text is only normalized.</summary>
+    public static string Canonical(string type)
+    {
+        if (Shape(type) is not { } s) return Normalize(type);
+        return s.P == null ? s.Base : s.S == null ? $"{s.Base}({s.P})" : $"{s.Base}({s.P}, {s.S})";
+    }
+
     /// <summary>
     /// Whether a declared type and a resolved type are the same type. Synonyms match (INT/INTEGER), a bare DECIMAL is DuckDB's DECIMAL(18, 3),
     /// and a resolved VARCHAR with no length (all DuckDB can say) matches any declared VARCHAR(n).

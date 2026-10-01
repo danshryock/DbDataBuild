@@ -42,3 +42,29 @@ Tests: `MutationGateTests`, `ReadGuardTests`, `GateInvariantTests`. Unit suite: 
 - **`dbdatabuild init`** (effect: tracking tables only): prints the idempotent script by default and connects to nothing; `--target` is needed when the project has more than one default target; `--apply` runs it on the write login through the gate and writes `.dbdatabuild/statement-log/` (now git-ignored). No fallback from read to write login. The generic internal-error text no longer says "no target statements ran"; it points to the statement log.
 
 Real-engine tests (SQL Server 2022 and PostgreSQL 17): init and rerun, unknown layout version, shape and physical hashes change exactly when a column, length or index changes, schema-version round trip with drift classification, failure outcomes without driver text, PostgreSQL read sessions are read-only, and the `init --apply` command end to end with its statement log.
+
+## 4. DDL generation and the type table (`DbDataBuild.Targets/Ddl`)
+
+`ITarget.CreateDdl(config)` gives a `DdlGenerator` per engine (`TSqlDdl` for SQL Server and Fabric, `PostgresDdl`): logical type to native type, expected live shape per column, and the statements CREATE SCHEMA/TABLE, ADD/DROP/RENAME/ALTER COLUMN, DROP TABLE and CREATE OR ALTER VIEW (PostgreSQL: DROP VIEW then CREATE VIEW, because `CREATE OR REPLACE VIEW` cannot change columns).
+
+Mapping choices (DESIGN.md has no table for these; this is the proposal for review):
+
+| Logical | SQL Server | Fabric (unverified) | PostgreSQL |
+|---|---|---|---|
+| BIGINT / INTEGER / SMALLINT | bigint / int / smallint | same | bigint / integer / smallint |
+| TINYINT | **smallint** (T-SQL tinyint is unsigned, DuckDB's is signed) | smallint | smallint |
+| DOUBLE / FLOAT | float(53) / real | same | double precision / real |
+| BOOLEAN | bit | bit | boolean |
+| TIMESTAMP, TIME | datetime2(6), time(6) | same | timestamp(6), time(6) |
+| TIMESTAMP WITH TIME ZONE | datetimeoffset(6) | same | timestamp(6) with time zone |
+| DECIMAL(p, s), bare DECIMAL | decimal(p, s), decimal(18, 3) | same | numeric(p, s), numeric(18, 3) |
+| VARCHAR(n) | nvarchar(n), nvarchar(max) above 4000 | varchar(n), varchar(max) above 8000 | varchar(n) |
+| UUID, BLOB | uniqueidentifier, varbinary(max) | same | uuid, bytea |
+
+Refused with DDB-321 (new): unsigned integers, HUGEINT, a VARCHAR without a length, DECIMAL beyond 38 digits, structs, lists, JSON. Text columns always carry the profile collation (`default` or the column's declared logical collation, from `string_semantics.collations`); a missing entry is DDB-312, and collation names are validated before they reach DDL text. Nothing is left to the database default, so the expected shape is known offline.
+
+`DdlGenerator.Classify` grades a type change: none, widening (larger length or precision at the same scale, wider integer), or other. Widening is safe; other is destructive (DESIGN.md 10.4).
+
+**Verified on real engines** (SQL Server 2022, PostgreSQL 17): for 20 columns covering every mapped type, the shape the generator predicts equals, attribute for attribute, what the catalog reader reports after CREATE TABLE. ADD, widening ALTER, NULL/NOT NULL ALTER, rename, drop, and a view created then replaced with different columns all run and change the shape as predicted. The PostgreSQL test image (alpine) has no `en_US.utf8`, so its tests use the `C` and `POSIX` collations.
+
+Not done here: constraints and indexes from the model (`unique_key` does not create a unique constraint; the physical hash only tracks what exists). Noted for the plan's "noticed but not done" list.
