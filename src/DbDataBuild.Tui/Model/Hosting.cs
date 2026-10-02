@@ -21,6 +21,9 @@ public sealed record CommandInfo(string Name, string Purpose, string Effect, Imp
 /// <summary>What a command printed. The TUI always asks for `--format json`, so <see cref="Out"/> is one document.</summary>
 public sealed record CommandResult(int Exit, string Out, string Err);
 
+/// <summary>What the TUI can hand a running command: where to report progress as it happens, and a question the command asks between steps ("should I stop?").</summary>
+public sealed record RunHooks(Action<string>? Progress = null, Func<bool>? StopRequested = null);
+
 /// <summary>
 /// The TUI's only way to do anything: the command catalog (read from the real command definitions, so a new option shows up here without work) and running a command
 /// in process with arguments. The TUI is a client of the same machine interface a script or an agent uses.
@@ -28,5 +31,5 @@ public sealed record CommandResult(int Exit, string Out, string Err);
 public interface ICommandHost
 {
     IReadOnlyList<CommandInfo> Commands { get; }
-    CommandResult Run(IReadOnlyList<string> args);
+    CommandResult Run(IReadOnlyList<string> args, RunHooks? hooks = null);
 }

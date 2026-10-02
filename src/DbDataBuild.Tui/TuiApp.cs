@@ -52,12 +52,24 @@ public sealed class TuiSession(IApplication app, ICommandHost host, TuiOptions o
         return Target;
     }
 
-    /// <summary>Runs a command and returns what it printed as a document. The caller decides how to show it.</summary>
+    /// <summary>
+    /// Runs a command and returns what it printed as a document. The command runs on its own thread; if it takes longer than a moment a progress window appears with what it
+    /// reports as it goes, and for `apply` and `run` a button that asks it to stop after the step it is on.
+    /// </summary>
     public ResultModel Run(IReadOnlyList<string> args)
     {
-        Status?.Invoke($"running: dbdatabuild {string.Join(' ', args.Take(1))} …");
-        App.LayoutAndDraw(true);
-        var result = ResultModel.From(args[0], Host.Run(args));
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var stop = false;
+        var hooks = new RunHooks(l => lines.Enqueue(l), () => Volatile.Read(ref stop));
+        var started = DateTime.UtcNow;
+        var task = Task.Run(() => Host.Run(args, hooks));
+        Status?.Invoke($"running: dbdatabuild {args[0]} …");
+        if (!task.Wait(TimeSpan.FromMilliseconds(400)))
+        {
+            var window = new ProgressWindow(this, args, lines, task, started, canStop: args[0] is "apply" or "run", requestStop: () => Volatile.Write(ref stop, true));
+            App.Run(window);
+        }
+        var result = ResultModel.From(args[0], task.GetAwaiter().GetResult());
         LastResult = result;
         Status?.Invoke(result.Headline());
         return result;

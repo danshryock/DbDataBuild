@@ -1000,4 +1000,38 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task An_apply_reports_each_step_as_it_runs_can_be_stopped_between_steps_and_is_then_resumed(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan");
+            Ok(plan, "plan");
+            var planFile = run.PlanFile(plan.Out);
+
+            // the terminal interface's hooks: progress lines arrive while the apply runs, and a stop request is asked about before each step
+            var seen = new List<string>();
+            var stop = false;
+            var hooks = new CommandHooks(line => { seen.Add(line); if (line.Contains("step 1 done")) stop = true; }, () => stop);
+            var stopped = CommandContext.With(hooks, () => run.Cli("apply", planFile));
+            Assert.Equal(1, stopped.Exit);
+            Assert.Contains("DDB-445", stopped.Err);
+            Assert.Contains(seen, l => l.StartsWith("step 1/4:"));
+            Assert.Contains(seen, l => l.StartsWith("  step 1 done in "));
+            Assert.DoesNotContain(seen, l => l.StartsWith("step 2/4:"));                    // the second step never started
+            Assert.Contains("step 2: stopped", stopped.Out);
+            Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));   // the schema was created, no table was
+
+            // nothing is half done: the plan resumes from the second step and completes
+            var resumed = run.Cli("apply", planFile, "--resume");
+            Ok(resumed, "apply --resume");
+            Assert.Contains("step 1: skipped", resumed.Out);
+            Assert.Equal(2, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

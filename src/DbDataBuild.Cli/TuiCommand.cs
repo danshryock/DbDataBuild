@@ -26,11 +26,12 @@ internal static class TuiCommand
 
         public IReadOnlyList<CommandInfo> Commands => commands ??= Catalog();
 
-        public CommandResult Run(IReadOnlyList<string> args)
+        public CommandResult Run(IReadOnlyList<string> args, RunHooks? hooks = null)
         {
             var o = new StringWriter();
             var e = new StringWriter();
-            var exit = CliApp.Run([.. args, "--format", "json"], o, e, input: TextReader.Null, interactive: false, environment: env);
+            var exit = CommandContext.With(new CommandHooks(hooks?.Progress, hooks?.StopRequested),
+                () => CliApp.Run([.. args, "--format", "json"], o, e, input: TextReader.Null, interactive: false, environment: env));
             return new CommandResult(exit, o.ToString(), e.ToString());
         }
 

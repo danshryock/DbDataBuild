@@ -64,7 +64,7 @@ internal static class ApplyCommand
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName);
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested);
 
         // refusals that need no connection come first
         var offline = new List<Diagnostic>(ApplyEngine.CheckAllowances(plan, options));
@@ -83,13 +83,14 @@ internal static class ApplyCommand
         }
 
         var runId = Guid.NewGuid();
+        var hooks = CommandContext.Hooks;       // captured here: the apply runs on another thread
         ApplyResult result;
         string? logPath = null;
         {
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
             logPath = Path.GetRelativePath(root, log.Path);
             output.WriteLine($"Statement log: {logPath}");
-            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, options, log, runId, line => output.WriteLine(line))).GetAwaiter().GetResult();
+            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
         }
 
         if (dryRun)

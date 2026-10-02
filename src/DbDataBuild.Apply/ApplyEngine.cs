@@ -10,9 +10,9 @@ using DbDataBuild.Targets.Ddl;
 namespace DbDataBuild.Apply;
 
 /// <param name="AllowDestructive">Object names (`marts.fct`) whose destructive steps are allowed. Never "all".</param>
-public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, bool Resume, string TrackingSchema, string? GitCommit, bool GitDirty, string Invoker);
+public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, bool Resume, string TrackingSchema, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null);
 
-/// <param name="Status">ok, dry-run, skipped (done in an earlier attempt) or failed.</param>
+/// <param name="Status">ok, dry-run, skipped (done in an earlier attempt), stopped (the operator stopped before it) or failed.</param>
 public sealed record StepOutcome(string StepId, string Description, string Status, string? Detail = null);
 
 public sealed record ApplyResult(IReadOnlyList<StepOutcome> Outcomes, IReadOnlyList<Diagnostic> Refusals)
@@ -131,7 +131,15 @@ public static class ApplyEngine
         foreach (var step in plan.Steps)
         {
             if (done.Contains(step.Id)) { outcomes.Add(new(step.Id, step.Description, "skipped", "finished in an earlier attempt")); continue; }
+            // an operator's request to stop is honoured between steps only: a statement that has started is never abandoned
+            if (o.StopRequested?.Invoke() == true)
+            {
+                outcomes.Add(new(step.Id, step.Description, "stopped", "stopped by the operator before it started"));
+                await FinishMigration(gate, plan, planHash, planText, o, "failed", ct);
+                return new ApplyResult(outcomes, [new Diagnostic(DiagnosticCatalog.ApplyStopped, new($"step:{step.Id}", 0, 0), $"Apply was stopped before step {step.Id} ({step.Description}). The steps before it finished; it and the later steps did not run.")]);
+            }
             progress($"step {step.Id}/{plan.Steps.Count}: {step.Description}");
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var diagnostic = await ExecuteStepAsync(plan, step, reader, gate, o, runId, ct);
@@ -142,6 +150,7 @@ public static class ApplyEngine
                     return new ApplyResult(outcomes, [diagnostic]);
                 }
                 outcomes.Add(new(step.Id, step.Description, gate.DryRun ? "dry-run" : "ok"));
+                progress($"  step {step.Id} done in {clock.Elapsed.TotalSeconds:0.0}s");
             }
             catch (GateRefusedException ex)
             {

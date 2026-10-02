@@ -302,6 +302,10 @@ public static class DiagnosticCatalog
         "Every step completing.",
         $"Read the statement log named in the output, fix the cause, then `{ProductInfo.Cli} apply --resume <plan>` or generate a new plan.",
         "Steps stopped at the failure; later steps did not run. The step's status and the objects' hashes are recorded.");
+    public static readonly DiagnosticDescriptor ApplyStopped = E("445", "Apply was stopped by the operator",
+        "an apply that runs every step, or is stopped between two of them",
+        $"`{ProductInfo.Cli} apply --resume <plan>` continues from the next step if the objects are still in the state the finished steps left them in.",
+        "The operator asked to stop (from the terminal interface). A step that had started finished; the next one never started, so nothing is half done, and the migration is recorded as failed so that --resume can pick it up.");
     public static readonly DiagnosticDescriptor StepResultDiffers = E("441", "A step's result differs from the plan",
         "A shape hash after each DDL step equal to the one the plan promised.",
         $"Inspect the object, then generate a new plan.",
@@ -347,7 +351,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
