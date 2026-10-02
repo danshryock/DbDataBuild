@@ -30,8 +30,8 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 - **Hook events for drops and other reserved kinds** (`HookEvents` marks them `Fires = false`; the model loader rejects them with a message). Only the events the planner actually performs are accepted.
 - **`define` asking about extra loads** (section 6.5): not built.
-- **Linting and generation of indexes** (warn when a merge key has no unique index, generate the index): you deferred this; nothing exists. An undeclared index is never dropped by the planner (a `drop`/exclusive setting is a small addition if wanted).
-- **Machine-readable JSON Schemas for each command's `data`**: output has one envelope schema (`schemas/output.schema.json`); each command's `data` payload is untyped.
+- **Index lint and generation: built** (entry 26). Not built: adding indexes when `define` updates an existing definition (the surgical editor has no block insertion), a `drop`/exclusive setting for undeclared indexes (the planner still never drops one), and lint for the partial or filtered indexes the model syntax cannot express yet.
+- **JSON Schemas for each command's `data` and the metadata documents: built** (entry 27). Not done: marking keys as required per outcome (the schemas only close the key sets and fix types), and a published JSON Schema for the plan YAML's embedded JSON beyond `plan.schema.json`.
 - **History consistency as a *blocking* condition** (section 12.3: "may be configured as a warning or as a block for downstream models, using lineage"): only the warning and the acknowledgement exist. The `report` doc comment still says the per-column report is not built; the code reads history, so the comment is stale.
 - **Redaction** of logged parameter values and resolver results (decision 6 says it can be added later).
 

@@ -33,8 +33,12 @@ public sealed record ModelDefinition(
     IReadOnlyList<RenameDefinition> Renames,
     IReadOnlyList<LoadOperation>? DeclaredLoads = null,
     IReadOnlyList<IndexDefinition>? DeclaredIndexes = null,
-    IReadOnlyList<HookDefinition>? DeclaredHooks = null)
+    IReadOnlyList<HookDefinition>? DeclaredHooks = null,
+    IReadOnlyList<string>? DeclaredLintIgnore = null)
 {
+    /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224) the operator has silenced for this model (`lint_ignore:`).</summary>
+    public IReadOnlyList<string> LintIgnore => DeclaredLintIgnore ?? [];
+
     public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];
 
     /// <summary>Hook entries in the order written (the order they run in); groups are expanded by <see cref="HookReader.Resolve"/>.</summary>

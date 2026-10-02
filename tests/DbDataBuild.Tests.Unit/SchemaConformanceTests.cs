@@ -16,8 +16,14 @@ namespace DbDataBuild.Tests.Unit;
 /// </summary>
 public class SchemaConformanceTests
 {
-    internal static JsonSchema LoadSchema(string name) =>
-        JsonSchema.FromFile(Path.Combine(RepoRoot(), "schemas", name + ".schema.json"));
+    internal static JsonSchema LoadSchema(string name)
+    {
+        // output.schema.json refers to metadata.schema.json by its $id, so that one is loaded (and registered) first
+        var schema = JsonSchema.FromFile(Path.Combine(RepoRoot(), "schemas", name + ".schema.json"));
+        if (name == "metadata") SchemaRegistry.Global.Register(schema);
+        if (name == "output") LoadSchema("metadata");
+        return schema;
+    }
 
     /// <summary>YAML as a YAML-aware editor reads it: unquoted true/false/numbers are typed.</summary>
     internal static JsonNode? EditorView(string yaml)
@@ -138,6 +144,8 @@ public class SchemaConformanceTests
         Ok("hooks: every form", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: grant, event: post_create, script: hooks/grant.sql}\n" +
             "  - name: stats\n    event: post_load\n    script: {sqlserver: hooks/sqlserver/stats.sql, postgres: hooks/postgres/stats.sql}\n    effect: data\n" +
             "  - {name: only_pg, event: pre_alter, script: hooks/lock.sql, targets: [postgres], risk: risky}\n  - {use: standard}\n"),
+        Ok("lint_ignore: both codes", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "lint_ignore: [DDB-223, DDB-224]\n"),
+        Bad("lint_ignore: an unknown code", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "lint_ignore: [DDB-999]\n", "DDB-106"),
         Bad("hooks: not a list", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks: nope\n", "DDB-106"),
         Bad("hooks: script missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load}\n", "DDB-105"),
         Bad("hooks: event missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, script: hooks/x.sql}\n", "DDB-105"),

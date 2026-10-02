@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["default_targets", "targets", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering"];
+    private static readonly string[] TopKeys = ["default_targets", "targets", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] TargetKeys = ["version"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -52,7 +52,18 @@ public static class ProjectConfigLoader
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top), ReadMetadata(top), ReadLowering(top));
+            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top), ReadMetadata(top), ReadLowering(top), ReadLintIndexes(top));
+        }
+
+        private bool ReadLintIndexes(YamlMapping top)
+        {
+            if (top.Get("lint") is not { } node) return true;
+            if (node is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, node, "`lint` must be a mapping."); return true; }
+            CheckKeys(m, ["indexes"], "`lint`");
+            if (m.Get("indexes") is not { } v) return true;
+            if (v is YamlScalar s && s.Value is "true" or "false") return s.Value == "true";
+            Add(DiagnosticCatalog.InvalidValue, v, "`lint.indexes` must be true or false (lowercase).");
+            return true;
         }
 
         private bool ReadLowering(YamlMapping top)

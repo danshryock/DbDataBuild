@@ -230,6 +230,20 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         }
 
         var def = new ModelDefinition(name, kind, uniqueKey, timeColumn, lookback, grain, targets, columns, []);
+
+        // round 3: indexes the loads would use (advice from IndexAdvisor; never added without an answer, and never by --accept-inferred, which takes only high-certainty proposals)
+        var advice = IndexAdvisor.For(def, targets ?? config.DefaultTargets);
+        if (advice.Count > 0)
+        {
+            var r3 = session.Ask([DefineQuestions.Indexes(t.ModelName, advice)]);
+            answers.AddRange(r3.Answers);
+            if (!r3.Complete) return new DefineOutcome(t, DefineStatus.Incomplete, null, r3.Diagnostics, answers, notes, r3.Unanswered);
+            if (r3.Answers.Single().Choice == "add_suggested")
+            {
+                def = def with { DeclaredIndexes = advice.Select(a => a.Suggested).ToList() };
+                notes.Add($"Declared {advice.Count} suggested index(es): {string.Join(", ", advice.Select(a => a.SuggestedName))}.");
+            }
+        }
         var text = DefinitionWriter.Create(def);
         var verify = new List<Diagnostic>();
         if (ModelDefinitionLoader.Load(text, t.DefinitionFile, t.ModelName, verify) == null)

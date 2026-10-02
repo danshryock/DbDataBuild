@@ -80,6 +80,18 @@
           }
         ]
       }
+    },
+    "lint_ignore": {
+      "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key) and DDB-224 (a load's column has no leading index).",
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "DDB-223",
+          "DDB-224"
+        ]
+      }
     }
   },
   "allOf": [

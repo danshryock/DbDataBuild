@@ -5,7 +5,7 @@ namespace DbDataBuild.Define;
 
 /// <summary>
 /// Writes a new definition in canonical formatting with a fixed key order (DESIGN.md 6.5):
-/// name, kind, grain, targets, columns, renames. <c>nullable</c> is written only when false.
+/// name, kind, grain, targets, columns, renames, indexes. <c>nullable</c> is written only when false.
 /// </summary>
 public static class DefinitionWriter
 {
@@ -33,6 +33,18 @@ public static class DefinitionWriter
             sb.Append("renames:\n");
             foreach (var r in d.Renames)
                 sb.Append("  - from: ").Append(YamlText.Scalar(r.From)).Append("\n    to: ").Append(YamlText.Scalar(r.To)).Append('\n');
+        }
+        if (d.Indexes.Count > 0)
+        {
+            sb.Append("indexes:\n");
+            foreach (var i in d.Indexes)
+            {
+                sb.Append("  - {name: ").Append(YamlText.Scalar(i.Name)).Append(", columns: ").Append(YamlText.FlowList(i.Columns));
+                if (i.Unique) sb.Append(", unique: true");
+                if (i.Include.Count > 0) sb.Append(", include: ").Append(YamlText.FlowList(i.Include));
+                if (i.Targets is { Count: > 0 }) sb.Append(", targets: ").Append(YamlText.FlowList(i.Targets));
+                sb.Append("}\n");
+            }
         }
         return sb.ToString();
     }

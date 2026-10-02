@@ -116,3 +116,9 @@ New step between the lowered query and the transpile (DESIGN.md 7.6.1, `docs/pro
 
 Details in `docs/progress/state-and-apply.md` entry 25 and the new `docs/operations.md`. Seeded fuzzing of every file a person edits found one real bug (a truncated YAML file threw an uncaught exception; fixed). The error-scrub test the design asked for now exists and passes on both engines: a value quoted by a driver error reaches no output, file or tracking table. A one-file linux-x64 build works (`scripts/publish.sh`); getting there exposed a native-library lookup that fails inside a single-file app, now fixed and guarded by the build. Not done: Windows publish, fuzzing the interactive question flow. Unit tests 978, real-engine tests 81. Fabric remains last, as you set it.
 
+## Update (2026-10-02): indexes and JSON schemas
+
+**Indexes** (entry 26): `validate` and `plan` now advise. A key-based load with no index on its key is a warning (DDB-223) and carries the exact `indexes:` line to paste; a key indexed but not unique, and the watermark, time and range columns, are notes (DDB-224). Nothing is created without being declared, and a key never needs an index or constraint (your option B). You can silence a code per model (`lint_ignore`) or all of it per project (`lint: { indexes: false }`). `define` asks for new models whether to declare the suggested indexes; `--accept-inferred` never says yes to that question.
+
+**JSON schemas** (entry 27): every command's `data` has a closed schema, and the metadata documents have their own (`schemas/metadata.schema.json`), so a pipeline or the SQL views over the stored metadata can rely on the shapes; tests fail on any drift, and the real-engine suite validates every JSON document it produces. This found two gaps, both fixed: `define` had no data at all, and `report` listed an accepted drift as needing attention. Unit tests 996, real-engine tests 83.
+

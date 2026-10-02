@@ -155,6 +155,11 @@ internal static class MetadataBuilder
             loads = rendered,
             indexes = def.Indexes.Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include, targets = i.Targets }).ToList(),
             hooks,
+            index_advice = IndexAdvisor.For(def, targets).Select(a => new
+            {
+                code = a.Code, severity = a.Severity, reason = a.Reason, columns = a.Columns, unique = a.WantUnique,
+                suggested = a.SuggestedName, existing_index = a.Existing, targets = a.Targets, silenced = def.LintIgnore.Contains(a.Code) || !ctx.Config.LintIndexes,
+            }).ToList(),
         };
     }
 }

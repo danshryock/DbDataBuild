@@ -6,7 +6,7 @@ namespace DbDataBuild.Define;
 /// <summary>
 /// The questions `define` asks (DESIGN.md 6.5), built in one place. Every inferred value is a proposal with evidence; accepting it is an
 /// explicit answer. Field names in ids: name, kind, targets, grain, unique_key, time_column, lookback, columns.&lt;c&gt;.type,
-/// columns.&lt;c&gt;.nullable, columns.&lt;c&gt;.remove.
+/// columns.&lt;c&gt;.nullable, columns.&lt;c&gt;.remove, indexes.
 /// </summary>
 internal static class DefineQuestions
 {
@@ -95,6 +95,14 @@ internal static class DefineQuestions
         $"How far back should each load of `{model}` re-read, from MAX(time column)?",
         ["A lookback re-reads recent rows to catch late-arriving data."],
         [new("use_lookback", "Use this lookback", TakesValue: true, ValueHint: "for example 3 days"), new("no_lookback", "No lookback")]);
+
+    public static Question Indexes(string model, IReadOnlyList<IndexAdvice> advice) => new(
+        QuestionIds.Define(model, "indexes"),
+        $"The loads of `{model}` would use these indexes. Declare them under `indexes:`?",
+        [.. advice.Select(a => $"{IndexAdvisor.Yaml(a)}   ({(a.Reason == IndexReason.MergeKey ? "key of a load" : "column a load reads")}; {string.Join(", ", a.Targets)})"),
+         "The tool creates only indexes you declare, and never infers one from unique_key. Declaring `unique: true` makes the engine reject duplicate keys; leave it off to merge on a key without enforcing it."],
+        [new("add_suggested", "Declare the suggested indexes", "`plan` will create them"), new("no_indexes", "Declare none", "the advice stays as a lint note on `validate` and `plan`")],
+        new Proposal("add_suggested", null, ProposalCertainty.Normal, [$"{advice.Count} access path(s) without an index"]));
 
     public static Question Rename(string model, RenameCandidate c, IReadOnlyList<string> references)
     {

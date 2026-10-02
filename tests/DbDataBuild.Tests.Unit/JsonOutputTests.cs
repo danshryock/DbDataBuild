@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DbDataBuild.Cli;
 using Json.Schema;
+using static DbDataBuild.Tests.Unit.PolyglotBindingTests;
 using static DbDataBuild.Tests.Unit.TestSupport;
 
 namespace DbDataBuild.Tests.Unit;
@@ -151,5 +152,69 @@ public class JsonOutputTests
         Assert.DoesNotContain("secret-row-value", o.ToString());
         Assert.DoesNotContain("   at ", o.ToString());
         Assert.True(Schema.Evaluate(JsonSerializer.SerializeToNode(doc)).IsValid);
+    }
+    [Fact]
+    public void Every_command_has_a_data_schema_and_the_schema_rejects_drift()
+    {
+        var text = File.ReadAllText(Path.Combine(RepoRoot(), "schemas", "output.schema.json"));
+        var declared = JsonNode.Parse(text)!["allOf"]!.AsArray().Select(x => (string)x!["if"]!["properties"]!["command"]!["const"]!).Order().ToList();
+        Assert.Equal(CommandSpecs.All.Select(c => c.Name).Order(), declared);       // a new command without a data schema fails here
+
+        var dir = Project();
+        var (_, doc, _, _) = Run("loads", "--project", dir);
+        bool Valid(JsonNode n) => Schema.Evaluate(JsonSerializer.SerializeToNode(n), new EvaluationOptions { OutputFormat = OutputFormat.List }).IsValid;
+        Assert.True(Valid(doc));
+        var renamed = JsonNode.Parse(doc.ToJsonString())!;
+        renamed["data"]!["operations"]![0]!["strategy"] = 5;                            // a retyped key
+        Assert.False(Valid(renamed));
+        var extra = JsonNode.Parse(doc.ToJsonString())!;
+        extra["data"]!["operations"]![0]!["surprise"] = "x";                            // an unannounced key
+        Assert.False(Valid(extra));
+        var unknownKey = JsonNode.Parse(doc.ToJsonString())!;
+        unknownKey["data"]!["rows"] = new JsonArray();
+        Assert.False(Valid(unknownKey));
+    }
+
+    [Fact]
+    public void Model_and_project_documents_satisfy_the_standalone_metadata_schema_and_carry_the_index_advice()
+    {
+        var metadata = SchemaConformanceTests.LoadSchema("metadata");
+        var dir = Project();
+        var (_, doc, _, _) = Run("metadata", "--project", dir);
+        bool Valid(JsonNode? n) => metadata.Evaluate(JsonSerializer.SerializeToNode(n), new EvaluationOptions { OutputFormat = OutputFormat.List }).IsValid;
+        Assert.True(Valid(doc["data"]!["project"]));
+        var model = doc["data"]!["models"]![0]!;
+        Assert.True(Valid(model));
+        var advice = model["index_advice"]!.AsArray().Single()!;
+        Assert.Equal(("DDB-223", "warning", "merge_key", "ux_fct_orders_order_id"), ((string)advice["code"]!, (string)advice["severity"]!, (string)advice["reason"]!, (string)advice["suggested"]!));
+        Assert.False((bool)advice["silenced"]!);
+        var broken = JsonNode.Parse(model.ToJsonString())!;
+        broken["schema"] = "dbdatabuild.model/2";
+        Assert.False(Valid(broken));
+    }
+
+    [Fact]
+    public void Define_reports_what_it_checked_wrote_and_still_needs_in_its_data()
+    {
+        var dir = Project();
+        var (exit, doc, _, _) = Run("define", "--check", "--project", dir);
+        Assert.Equal("check", (string?)doc["data"]!["mode"]);
+        Assert.Equal(1, (int)doc["data"]!["definitions"]!);
+        Assert.Equal(exit == 0 ? 0 : 1, (int)doc["data"]!["differences"]! > 0 ? 1 : 0);
+
+        File.Delete(Path.Combine(dir, "models/marts/fct_orders.yml"));
+        var (_, asked, _, _) = Run("define", "--write", "--project", dir, "--answers", WriteAnswers(dir, ""));
+        Assert.True(asked["data"]!["models"] != null, asked.ToJsonString());
+        var model = asked["data"]!["models"]![0]!;
+        Assert.Equal("incomplete", (string?)model["status"]);
+        Assert.Contains(model["open_questions"]!.AsArray(), q => ((string)q!["id"]!).EndsWith("-kind"));
+        Assert.Empty(asked["data"]!["written"]!.AsArray());
+    }
+
+    private static string WriteAnswers(string dir, string body)
+    {
+        var path = Path.Combine(dir, "answers.yml");
+        File.WriteAllText(path, "answers: []\n" + body);
+        return path;
     }
 }

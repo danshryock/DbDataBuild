@@ -92,6 +92,9 @@ internal static class DefineCommand
             found.AddRange(engine.Check(targets));
             foreach (var d in found) error.Diag(d);
             var errors = found.Count(d => d.Severity == Severity.Error);
+            output.Payload("mode", "check");
+            output.Payload("definitions", targets.Count);
+            output.Payload("differences", errors);
             output.WriteLine(errors == 0
                 ? $"OK: {targets.Count} definition(s) in sync with their queries."
                 : $"FAILED: {errors} difference(s) between definitions and queries. Run `{Core.ProductInfo.Cli} define` to update them.");
@@ -116,6 +119,13 @@ internal static class DefineCommand
         var run = engine.Run(targets, answers, answersFile?.Name ?? QuestionResolver.NoAnswersFile, prompter, acceptInferred);
         foreach (var d in shown.Concat(run.Diagnostics)) error.Diag(d);
 
+        output.Payload("mode", write ? "write" : "interactive");
+        output.Payload("written", new List<string>());       // replaced below once files are written
+        output.Payload("models", run.Outcomes.Select(o => new
+        {
+            query = o.Target.QueryFile, definition = o.Target.DefinitionFile, status = o.Status, notes = o.Notes,
+            open_questions = o.Unanswered.Select(PlanCommand.QuestionJson).ToList(),
+        }).ToList());
         foreach (var o in run.Outcomes)
         {
             output.WriteLine();
@@ -156,13 +166,15 @@ internal static class DefineCommand
         }
 
         var failed = false;
+        var written = new List<string>();
         foreach (var o in changed)
         {
             var path = Path.Combine(projectRoot, o.Target.DefinitionFile);
             var problem = DefinitionFile.WriteIfUnchanged(path, o.Target.DefinitionFile, hashes[o.Target.DefinitionFile], o.NewText!);
             if (problem != null) { error.Diag(problem); failed = true; }
-            else output.WriteLine($"wrote {o.Target.DefinitionFile}");
+            else { output.WriteLine($"wrote {o.Target.DefinitionFile}"); written.Add(o.Target.DefinitionFile); }
         }
+        output.Payload("written", written);
 
         // the query files must be exactly as they were read (DESIGN.md 6.5)
         foreach (var (file, hash) in queryHashes)

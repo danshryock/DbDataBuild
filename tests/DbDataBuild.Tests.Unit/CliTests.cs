@@ -49,7 +49,7 @@ public class CliTests
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]", "targets: [sqlserver]"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT 1");
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\nlint:\n  indexes: false\n");
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(0, exit);
         Assert.Contains("effect: Offline only", output);
@@ -98,7 +98,7 @@ public class CliTests
     [Fact]
     public void Validate_passes_with_warnings_and_notes_when_nothing_is_unsupported()
     {
-        var dir = ProjectWith("SELECT a / b AS x FROM staging.t ORDER BY a", "[sqlserver]");
+        var dir = ProjectWith("SELECT a / b AS x FROM staging.t ORDER BY a", "[sqlserver]", "default_targets: [sqlserver]\nlint:\n  indexes: false\n");
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-302", err);

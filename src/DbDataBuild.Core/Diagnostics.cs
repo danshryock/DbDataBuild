@@ -117,6 +117,14 @@ public static class DiagnosticCatalog
         "Break the cycle: one of the models must not query another in the cycle.",
         "Models are defined and built in dependency order, which needs an acyclic graph.");
 
+    public static readonly DiagnosticDescriptor MergeKeyNotIndexed = W("223", "A key-based load has no index on its key",
+        "an index whose leading columns are the load's key, declared under `indexes:`",
+        "Declare the index shown, or silence the advice with `lint_ignore: [DDB-223]` in the model (or `lint: { indexes: false }` in dbdatabuild.yml).",
+        "A merge or delete-and-insert by key looks every incoming row up in the target. Without an index that leads with the key, each load scans the table. The tool never creates an index you did not declare, and does not infer one from `unique_key`; whether the key is also enforced as unique is your choice. This is advice only and never blocks a plan.");
+    public static readonly DiagnosticDescriptor LoadColumnNotIndexed = N("224", "A load's column has no leading index",
+        "an index whose first column is the load's watermark, time or range column, or (for a key) a unique one",
+        "Declare the index shown, or silence the advice with `lint_ignore: [DDB-224]` in the model (or `lint: { indexes: false }` in dbdatabuild.yml).",
+        "Loads that read MAX(watermark column) or delete a time range, and key loads whose key is indexed but not declared unique, are served better by an index that leads with that column. Nothing is created for you; this is advice only.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -335,7 +343,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,

@@ -18,3 +18,5 @@ columns:
   - name: order_date
     type: DATE
     nullable: false
+indexes:
+  - {name: ux_fct_orders_order_id, columns: [order_id], unique: true}

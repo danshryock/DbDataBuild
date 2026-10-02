@@ -27,6 +27,7 @@ public partial class ApplyConformanceTests
             var o = new StringWriter();
             var e = new StringWriter();
             var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            if (args.Zip(args.Skip(1)).Any(p => p is ("--format", "json"))) OutputSchemas.Check(args[0], o.ToString());     // every JSON document the suite sees is checked against the schema
             return (exit, o.ToString(), e.ToString());
         }
 
@@ -950,6 +951,40 @@ public partial class ApplyConformanceTests
             foreach (var file in Directory.EnumerateFiles(run.Dir, "*", SearchOption.AllDirectories)) Assert.DoesNotContain(secret, File.ReadAllText(file));
             foreach (var table in new[] { "tracking_version", "schema_version", "ddl_log", "run_log", "operation_interval", "block_log", "migration_log", "metadata_document" })
                 foreach (var row in await engine.RowsAsync($"SELECT * FROM {run.Q("dbdatabuild")}.{run.Q(table)}")) Assert.DoesNotContain(secret, row);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Every_database_command_prints_json_that_satisfies_the_output_schema(string name)
+    {
+        // Run.Cli checks each --format json document against schemas/output.schema.json and throws when it does not fit
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var json = (string[] args, int exit) => { var r = run.Cli([.. args, "--format", "json"]); Assert.True(r.Exit == exit, $"{string.Join(' ', args)} exited {r.Exit}, expected {exit}:\n{r.Out}\n{r.Err}"); return r; };
+            json(["init", "--apply"], 0);
+            json(["render", "--write"], 0);
+            json(["check"], 0);
+            var plan = json(["plan"], 0);
+            var planFile = Path.Combine(run.Dir, System.Text.Json.Nodes.JsonNode.Parse(plan.Out)!["data"]!["files"]!["plan"]!.GetValue<string>());
+            json(["apply", planFile, "--dry-run"], 0);
+            json(["apply", planFile], 0);
+            json(["apply", planFile], 1);                                                   // a plan is applied once: the refusal is a document too
+            json(["check"], 0);
+            json(["run"], 0);                                                               // a routine load
+            json(["report"], 0);
+            json(["publish-metadata"], 0);
+            json(["publish-metadata"], 0);                                                  // unchanged the second time
+
+            // drift: someone adds a column outside the tool
+            await engine.ExecAsync("ALTER TABLE marts.fct_orders ADD scratch INT NULL");
+            json(["check"], 1);
+            json(["run"], 1);
+            json(["ack", "drift", "marts.fct_orders", "--reason", "scratch column from the DBA"], 0);
+            var after = json(["report"], 0);
+            Assert.DoesNotContain("changed outside the tool (`", after.Out);              // an accepted drift is shown as accepted, not as something that needs attention
+            json(["ack", "history", "marts.fct_orders.nothing", "--reason", "x"], 1);       // nothing to acknowledge: a refusal is still a valid document
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }

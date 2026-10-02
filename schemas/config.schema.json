@@ -160,6 +160,26 @@
           ]
         }
       }
+    },
+    "lint": {
+      "description": "Advisory lints. `indexes: false` turns off the index advice (DDB-223, DDB-224) for the whole project; a model can silence single codes with `lint_ignore`. Default true.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "indexes": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "$defs": {

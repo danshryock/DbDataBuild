@@ -48,7 +48,30 @@ public class DefineEngineTests
         Choice(Id(model, "targets"), "choose_targets", "sqlserver, fabric"),
         Accept(Id(model, "grain")),
         Accept(Id(model, "unique_key")),
+        Choice(Id(model, "indexes"), "add_suggested"),
     }.Concat(Columns(model, OrderColumns)).ToArray();
+
+    [Fact]
+    public void Indexes_are_proposed_for_a_key_load_but_only_declared_when_answered_and_never_by_accept_inferred()
+    {
+        const string m = "marts.fct_orders";
+        var noIndexes = UniqueKeyAnswers(m).Where(a => a.QuestionId != Id(m, "indexes")).Append(Choice(Id(m, "indexes"), "no_indexes")).ToArray();
+        var declined = One(Run(Engine(), [Target(m, Orders)], noIndexes));
+        Assert.Equal(DefineStatus.Created, declined.Status);
+        Assert.DoesNotContain("indexes:", declined.NewText);
+
+        var unanswered = UniqueKeyAnswers(m).Where(a => a.QuestionId != Id(m, "indexes")).ToArray();
+        var asked = One(Run(Engine(), [Target(m, Orders)], unanswered, accept: true));       // a normal-certainty proposal is not taken by --accept-inferred
+        Assert.Equal(DefineStatus.Incomplete, asked.Status);
+        var q = Assert.Single(asked.Unanswered, x => x.Id == Id(m, "indexes"));
+        Assert.Contains("- {name: ux_fct_orders_order_id, columns: [order_id], unique: true}", string.Join("\n", q.Context));
+
+        var accepted = One(Run(Engine(), [Target(m, Orders)], UniqueKeyAnswers(m)));
+        var diags = new List<Diagnostic>();
+        var reloaded = ModelDefinitionLoader.Load(accepted.NewText!, "models/marts/fct_orders.yml", m, diags);
+        Assert.Empty(diags.Select(DiagnosticFormatter.Format));
+        Assert.Empty(IndexAdvisor.For(reloaded!, ["sqlserver", "fabric"]));         // the generated definition satisfies the advice that produced it
+    }
 
     [Fact]
     public void A_new_definition_is_generated_from_answers_and_matches_the_golden_file()
@@ -151,6 +174,7 @@ public class DefineEngineTests
         {
             Accept(Id(m, "name")), Choice(Id(m, "kind"), "incremental_by_time_range"), Accept(Id(m, "targets")),
             Accept(Id(m, "grain")), Choice(Id(m, "time_column"), "use_column", "ORDER_DATE"), Choice(Id(m, "lookback"), "use_lookback", "3 days"),
+            Choice(Id(m, "indexes"), "no_indexes"),
         };
         answers.AddRange(Columns(m, ["order_date", "created_at", "n"]));
         var o = One(Run(Engine(), [Target(m, sql)], answers.ToArray()));

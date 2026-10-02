@@ -2,6 +2,7 @@ using System.Globalization;
 using DbDataBuild.Core;
 using DbDataBuild.Execution;
 using DbDataBuild.Models;
+using DbDataBuild.Planning;
 using DbDataBuild.State;
 using DbDataBuild.Targets.Ddl;
 
@@ -65,12 +66,14 @@ internal static class ReportCommand
             var live = new Dictionary<string, ObjectShape>();
             foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, target, s)) live[k] = v;
             var drifted = new List<string>();
+            var accepted = (await TargetSnapshotReader.ReadAsync(read, target, schema, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
+            bool Accepted(string name) => live.TryGetValue(name, out var l) && accepted.Contains(Acknowledgements.Key(DiagnosticCatalog.ObjectChangedOutsideTool.Code, name, l.ShapeHash));
             Table("objects", "Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
             {
                 var name = Cell(r[0]);
                 var state = Drift.Classify(live.GetValueOrDefault(name), recorded.GetValueOrDefault(name));
-                if (state == ObjectState.OutOfBand) drifted.Add(name);
-                return new[] { name, Cell(r[1]), Cell(r[2]), state switch { ObjectState.InSync => "in sync", ObjectState.Missing => "MISSING on the target", ObjectState.OutOfBand => "CHANGED OUTSIDE THE TOOL", _ => "not tracked" } };
+                if (state == ObjectState.OutOfBand && !Accepted(name)) drifted.Add(name);
+                return new[] { name, Cell(r[1]), Cell(r[2]), state switch { ObjectState.InSync => "in sync", ObjectState.Missing => "MISSING on the target", ObjectState.OutOfBand => Accepted(name) ? "changed outside the tool (accepted)" : "CHANGED OUTSIDE THE TOOL", _ => "not tracked" } };
             }));
 
             // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----

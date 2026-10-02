@@ -1,41 +1,1801 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "output.schema.json",
+  "$id": "urn:dbdatabuild:schemas:output",
   "title": "DbDataBuild command output (--format json)",
-  "description": "The one JSON document a command writes to standard output with `--format json`. `data` holds what the command found or did (its keys are documented in docs/progress and covered by tests); `diagnostics` are the structured form of what text mode prints on standard error; `messages` and `errors` keep the human text so nothing is lost. Exit codes are the same as in text mode: 0 ok, 1 findings, 2 usage, 3 not implemented, 70 internal error.",
+  "description": "The one JSON document a command writes to standard output with `--format json`. `data` holds what the command found or did, and its shape is checked per command below (`$defs.data_<command>`): keys are present when the command got far enough to produce them (a command refused early has few or none), and null values are omitted rather than written as null. `diagnostics` are the structured form of what text mode prints on standard error; `messages` and `errors` keep the human text so nothing is lost. Exit codes are the same as in text mode: 0 ok, 1 findings, 2 usage, 3 not implemented, 70 internal error. Metadata documents (`validate`, `metadata`) are defined in metadata.schema.json (id urn:dbdatabuild:schemas:metadata).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "command", "tool_version", "exit_code", "ok", "data", "diagnostics", "messages", "errors"],
+  "required": [
+    "schema",
+    "command",
+    "tool_version",
+    "exit_code",
+    "ok",
+    "data",
+    "diagnostics",
+    "messages",
+    "errors"
+  ],
   "properties": {
-    "schema": { "const": "dbdatabuild.output/1" },
-    "command": { "type": "string" },
-    "tool_version": { "type": "string" },
-    "exit_code": { "enum": [0, 1, 2, 3, 70] },
-    "ok": { "type": "boolean" },
-    "data": { "type": "object" },
+    "schema": {
+      "const": "dbdatabuild.output/1"
+    },
+    "command": {
+      "type": "string"
+    },
+    "tool_version": {
+      "type": "string"
+    },
+    "exit_code": {
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        70
+      ]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "data": {
+      "type": "object"
+    },
     "diagnostics": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code", "severity", "title", "location", "found", "supported", "fix"],
+        "required": [
+          "code",
+          "severity",
+          "title",
+          "location",
+          "found",
+          "supported",
+          "fix"
+        ],
         "properties": {
-          "code": { "type": "string", "pattern": "^DDB-[1-59][0-9][0-9]$" },
-          "severity": { "enum": ["error", "warning", "note"] },
-          "title": { "type": "string" },
+          "code": {
+            "type": "string",
+            "pattern": "^DDB-[1-59][0-9][0-9]$"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "note"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
           "location": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["file", "line", "column"],
-            "properties": { "file": { "type": "string" }, "line": { "type": "integer", "minimum": 0 }, "column": { "type": "integer", "minimum": 0 } }
+            "required": [
+              "file",
+              "line",
+              "column"
+            ],
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           },
-          "found": { "type": "string" },
-          "supported": { "type": "string" },
-          "fix": { "type": "string" }
+          "found": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "string"
+          }
         }
       }
     },
-    "messages": { "type": "array", "items": { "type": "string" } },
-    "errors": { "type": "array", "items": { "type": "string" } }
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "validate"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_validate"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "metadata"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_metadata"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "matrix"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_matrix"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "explain"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_explain"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "render"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_render"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "loads"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_loads"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "define"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_define"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "init"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_init"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "check"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_check"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "plan"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_plan"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "apply"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_apply"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "run"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_run"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "report"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_report"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "ack"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_ack"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "publish-metadata"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_publish_metadata"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "consequence": {
+                "type": "string"
+              },
+              "takes_value": {
+                "type": "boolean"
+              },
+              "value_hint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "description",
+              "takes_value"
+            ]
+          }
+        },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "option": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "certainty": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "option",
+            "certainty",
+            "evidence"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "options"
+      ]
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "type": "string"
+        },
+        "choice": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "file",
+            "interactive",
+            "accepted_proposal",
+            "accepted_proposal_by_flag"
+          ]
+        }
+      },
+      "required": [
+        "question_id",
+        "choice",
+        "source"
+      ]
+    },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "source"
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "ddl",
+            "load",
+            "backfill",
+            "hook",
+            "track"
+          ]
+        },
+        "object": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "risky",
+            "destructive"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hash_after": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/param"
+          }
+        },
+        "resolver_text": {
+          "type": "string"
+        },
+        "resolver_result": {
+          "type": "string"
+        },
+        "has_resolver": {
+          "type": "boolean"
+        },
+        "file_hash": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "shape_source": {
+          "type": "string"
+        },
+        "definition_hash": {
+          "type": "string"
+        },
+        "expect": {
+          "type": "string"
+        },
+        "hook": {
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "ddl",
+            "data"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "object",
+        "description",
+        "text",
+        "risk",
+        "reasons",
+        "parameters",
+        "has_resolver"
+      ]
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "git_commit": {
+          "type": "string"
+        },
+        "git_dirty": {
+          "type": "boolean"
+        },
+        "tool_version": {
+          "type": "string"
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "missing",
+                  "untracked",
+                  "in_sync",
+                  "out_of_band"
+                ]
+              },
+              "live_shape_hash": {
+                "type": "string"
+              },
+              "recorded_shape_hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "state"
+            ]
+          }
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "noticed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "target",
+        "git_dirty",
+        "tool_version",
+        "bases",
+        "answers",
+        "steps",
+        "noticed"
+      ]
+    },
+    "docRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "hash"
+      ]
+    },
+    "loadRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "is_default": {
+          "type": "boolean"
+        },
+        "matrix_status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "target",
+        "operation",
+        "strategy",
+        "is_default",
+        "matrix_status"
+      ]
+    },
+    "filesHashed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "hash"
+        ]
+      }
+    },
+    "data_validate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "models": {
+              "type": "integer"
+            },
+            "errors": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "integer"
+            },
+            "notes": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "models",
+            "errors",
+            "warnings",
+            "notes"
+          ]
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "effective": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "effective"
+          ]
+        },
+        "project": {
+          "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+          }
+        }
+      }
+    },
+    "data_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+          }
+        }
+      }
+    },
+    "data_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "constructs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "targets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "native",
+                        "translated",
+                        "approximated",
+                        "emulated",
+                        "unsupported",
+                        "unverified"
+                      ]
+                    },
+                    "min_version": {
+                      "type": "integer"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "targets"
+            ]
+          }
+        },
+        "covered_entries": {
+          "type": "integer"
+        }
+      }
+    },
+    "data_explain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "default_severity": {
+              "enum": [
+                "error",
+                "warning",
+                "note"
+              ]
+            },
+            "supported": {
+              "type": "string"
+            },
+            "fix": {
+              "type": "string"
+            },
+            "explanation": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "title",
+            "default_severity",
+            "supported",
+            "fix",
+            "explanation"
+          ]
+        }
+      }
+    },
+    "data_render": {
+      "description": "print: files and operations; --write: files, wrote, removed; --check: files, out_of_date.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files": {
+              "$ref": "#/$defs/filesHashed"
+            },
+            "operations": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files": {
+              "$ref": "#/$defs/filesHashed"
+            },
+            "wrote": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "removed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files": {
+              "$ref": "#/$defs/filesHashed"
+            },
+            "out_of_date": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "data_loads": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/loadRow"
+          }
+        }
+      }
+    },
+    "data_define": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "check",
+            "write",
+            "interactive"
+          ]
+        },
+        "definitions": {
+          "type": "integer"
+        },
+        "differences": {
+          "type": "integer"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "definition": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "in_sync",
+                  "unchanged",
+                  "created",
+                  "updated",
+                  "incomplete",
+                  "failed",
+                  "skipped"
+                ]
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "open_questions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/question"
+                }
+              }
+            },
+            "required": [
+              "query",
+              "definition",
+              "status",
+              "notes",
+              "open_questions"
+            ]
+          }
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "data_init": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "tracking_schema": {
+          "type": "string"
+        },
+        "layout_version": {
+          "type": "integer"
+        },
+        "unverified": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "description",
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    "data_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string"
+        },
+        "login": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "missing",
+                  "untracked",
+                  "in_sync",
+                  "out_of_band"
+                ]
+              },
+              "live_shape_hash": {
+                "type": "string"
+              },
+              "recorded_shape_hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "state"
+            ]
+          }
+        },
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "steps": {
+              "type": "integer"
+            },
+            "risky": {
+              "type": "integer"
+            },
+            "destructive": {
+              "type": "integer"
+            },
+            "questions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/question"
+              }
+            },
+            "blocked": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "skipped": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "steps",
+            "risky",
+            "destructive",
+            "questions",
+            "blocked",
+            "skipped"
+          ]
+        },
+        "noticed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "data_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string"
+        },
+        "login": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "target": {
+          "type": "string"
+        },
+        "questions_asked": {
+          "type": "integer"
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        "noticed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "string"
+            },
+            "report": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "plan",
+            "report"
+          ]
+        }
+      }
+    },
+    "data_apply": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "step",
+              "description",
+              "status"
+            ]
+          }
+        },
+        "statement_log": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "ddl",
+                  "load",
+                  "backfill",
+                  "hook",
+                  "track"
+                ]
+              },
+              "risk": {
+                "enum": [
+                  "safe",
+                  "risky",
+                  "destructive"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/param"
+                }
+              }
+            },
+            "required": [
+              "step",
+              "type",
+              "risk",
+              "text",
+              "parameters"
+            ]
+          }
+        },
+        "metadata_stored": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/docRow"
+          }
+        }
+      }
+    },
+    "data_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string"
+        },
+        "login": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "target": {
+          "type": "string"
+        },
+        "questions_asked": {
+          "type": "integer"
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        "noticed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "string"
+            },
+            "report": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "plan",
+            "report"
+          ]
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "step",
+              "description",
+              "status"
+            ]
+          }
+        },
+        "statement_log": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "ddl",
+                  "load",
+                  "backfill",
+                  "hook",
+                  "track"
+                ]
+              },
+              "risk": {
+                "enum": [
+                  "safe",
+                  "risky",
+                  "destructive"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/param"
+                }
+              }
+            },
+            "required": [
+              "step",
+              "type",
+              "risk",
+              "text",
+              "parameters"
+            ]
+          }
+        },
+        "metadata_stored": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/docRow"
+          }
+        }
+      }
+    },
+    "data_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "applied_plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "when_utc": {
+                "type": "string"
+              },
+              "plan": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "by": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "when_utc",
+              "plan",
+              "status"
+            ]
+          }
+        },
+        "ddl": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "when_utc": {
+                "type": "string"
+              },
+              "object": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "plan": {
+                "type": "string"
+              },
+              "statement": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "when_utc",
+              "object",
+              "status",
+              "plan"
+            ]
+          }
+        },
+        "loads": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "started_utc": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "string"
+              },
+              "plan": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "started_utc",
+              "model",
+              "operation",
+              "status"
+            ]
+          }
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "shapes_recorded": {
+                "type": "string"
+              },
+              "last_recorded_utc": {
+                "type": "string"
+              },
+              "now": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "now"
+            ]
+          }
+        },
+        "column_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "column": {
+                "type": "string"
+              },
+              "decision": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "needs_attention": {
+                "type": "boolean"
+              },
+              "acknowledgement": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "utc": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "reason",
+                  "utc"
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "column",
+              "decision",
+              "text",
+              "needs_attention"
+            ]
+          }
+        },
+        "needs_attention": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "data_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "by": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "subject",
+              "key",
+              "by",
+              "reason"
+            ]
+          }
+        }
+      }
+    },
+    "data_publish_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/docRow"
+          }
+        },
+        "unchanged": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/docRow"
+          }
+        }
+      }
+    }
   }
 }

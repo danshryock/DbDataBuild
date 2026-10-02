@@ -40,7 +40,35 @@ internal static class ProjectChecks
             diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
+        if (config.LintIndexes)
+            foreach (var source in sources)
+                diagnostics.AddRange(IndexAdvice(source, (source.Definition.Targets ?? config.DefaultTargets).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList()));
         diagnostics.AddRange(CollationChecker.Check(config, sources));
         return diagnostics;
     }
+
+    /// <summary>Index lint (DDB-223, DDB-224): advice only, with the exact index to declare. A model silences single codes with `lint_ignore`.</summary>
+    internal static IEnumerable<Diagnostic> IndexAdvice(ModelSource source, IReadOnlyList<string> targets)
+    {
+        var def = source.Definition;
+        foreach (var a in IndexAdvisor.For(def, targets).Where(a => !def.LintIgnore.Contains(a.Code)))
+        {
+            var columns = string.Join(", ", a.Columns);
+            var what = a.Reason switch
+            {
+                IndexReason.MergeKey => $"loads by key ({columns})",
+                IndexReason.TimeColumn => $"loads by the time column ({columns})",
+                IndexReason.Watermark => $"reads its watermark column ({columns})",
+                _ => $"deletes by the range column ({columns})",
+            };
+            var found = a.Existing != null
+                ? $"{def.Name} {what}; index `{a.Existing}` leads with it but is not declared unique, so the engine will not reject a duplicate key ({string.Join(", ", a.Targets)})."
+                : $"{def.Name} {what}, but no declared index leads with it, so each load scans the table ({string.Join(", ", a.Targets)}).";
+            var fix = a.Existing != null
+                ? $"Add `unique: true` to index `{a.Existing}` if you want the engine to enforce the key; leaving it is allowed."
+                : $"Add under `indexes:` in {source.DefinitionFile}:  {Models.IndexAdvisor.Yaml(a)}";
+            yield return new Diagnostic(a.Severity == Severity.Warning ? DiagnosticCatalog.MergeKeyNotIndexed : DiagnosticCatalog.LoadColumnNotIndexed, new(source.DefinitionFile, 0, 0), found, Fix: fix);
+        }
+    }
 }
+
