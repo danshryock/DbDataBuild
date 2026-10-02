@@ -1,0 +1,54 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    # Windows runs the same suite natively: the Wine runs in docs/progress entry 34 are no substitute.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Prebuilt polyglot library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-native.sh
+      - run: dotnet build -c Release
+      - run: dotnet test tests/DbDataBuild.Tests.Unit -c Release --no-build
+
+  conformance:
+    # SQL Server 2022 and PostgreSQL 17 in docker, as in CLAUDE.md. Linux only.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Prebuilt polyglot library
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-native.sh
+      - run: dotnet build -c Release
+      - name: Start the engines
+        run: scripts/test-engines.sh up
+      - name: Conformance tests
+        run: |
+          eval "$(scripts/test-engines.sh env)"
+          dotnet test tests/DbDataBuild.Tests.Conformance -c Release --no-build
+      - name: Stop the engines
+        if: always()
+        run: scripts/test-engines.sh down

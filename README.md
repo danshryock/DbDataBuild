@@ -29,7 +29,8 @@ dbdatabuild tui                           # the same, interactively
 Requires the .NET 10 SDK. The SQL parser is a native library built from source once:
 
 ```
-scripts/build-polyglot.sh     # needs a Rust toolchain; writes native/<rid>/
+scripts/fetch-native.sh       # downloads the prebuilt SQL library for the pinned commit into native/<rid>/
+scripts/build-polyglot.sh     # or build it yourself (needs a Rust toolchain, about 12 minutes)
 dotnet build
 dotnet test tests/DbDataBuild.Tests.Unit
 scripts/publish.sh linux-x64  # one self-contained executable

@@ -1,0 +1,73 @@
+name: release
+# Push a tag such as v0.1.0 and this builds the single-file executables for linux-x64 and win-x64, checks them, and publishes a GitHub release.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  rid: linux-x64, ext: tar.gz }
+          - { os: windows-latest, rid: win-x64,   ext: zip }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Prebuilt polyglot library
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-native.sh ${{ matrix.rid }}
+      - name: Unit tests
+        run: dotnet test tests/DbDataBuild.Tests.Unit -c Release
+      - name: Publish
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}" scripts/publish.sh ${{ matrix.rid }} out
+      - name: Smoke test the published executable
+        shell: bash
+        run: |
+          exe=out/dbdatabuild; [ -f out/dbdatabuild.exe ] && exe=out/dbdatabuild.exe
+          "$exe" --help > /dev/null
+          "$exe" matrix --format json | grep -q '"ok": true'
+      - name: Package
+        shell: bash
+        run: |
+          name="dbdatabuild-${{ github.ref_name }}-${{ matrix.rid }}"
+          mkdir "$name"
+          cp out/dbdatabuild* LICENSE THIRD-PARTY-NOTICES.md README.md "$name"/
+          if [ "${{ matrix.ext }}" = zip ]; then 7z a "$name.zip" "$name" > /dev/null; else tar czf "$name.tar.gz" "$name"; fi
+          ls -l "$name.${{ matrix.ext }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: dbdatabuild-*.${{ matrix.ext }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""; case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes $prerelease

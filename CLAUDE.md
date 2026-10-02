@@ -5,6 +5,7 @@ dbdatabuild is a .NET 10 CLI that builds analytics tables and views on SQL Serve
 ## Build and test
 
 ```
+scripts/fetch-native.sh                        # once: the prebuilt polyglot library (or scripts/build-polyglot.sh to compile it)
 dotnet build                                   # warnings are errors
 dotnet test tests/DbDataBuild.Tests.Unit       # no database needed; about 15 seconds
 scripts/test-engines.sh up                     # SQL Server 2022 and PostgreSQL 17 in docker, loopback only
@@ -34,4 +35,4 @@ scripts/test-duckdb-preview.sh                 # the unit tests against DuckDB's
 - Match the surrounding code: comments explain why, not what; names are long and plain. Records for data, static classes for pure logic, no hidden state.
 - Prefer a table or a data file over a switch when the rules will grow (the decision table, the matrix, the hook events).
 - When behavior changes, update in the same commit: the test, `DESIGN.md` ("as built" section), a numbered entry in `docs/progress/state-and-apply.md`, and `OPEN-ITEMS.md` if something is left undone. Say plainly what was verified on a real engine and what was not; Fabric has never been run.
-- `native/` (the polyglot library) is built by `scripts/build-polyglot.sh` and is not committed.
+- `native/` (the polyglot library) is not committed: `scripts/fetch-native.sh` downloads it from the `native-<pin>` release. Changing the pin means building it (`scripts/build-polyglot.sh`, both rids), publishing it (`scripts/publish-native.sh` or the `native` workflow) and updating `PolyglotNative.PinnedCommit`.
