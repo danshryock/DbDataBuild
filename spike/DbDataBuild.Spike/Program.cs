@@ -145,7 +145,7 @@ int Diff(string mssql, string pg)
     var ver = Scalar(ms, "SELECT CAST(SERVERPROPERTY('ProductVersion') AS varchar(30)) + ' / ' + CAST(SERVERPROPERTY('Collation') AS varchar(60))");
 
     var (pgHost, pgPort) = Split(pg);
-    var pgc = new NpgsqlConnection($"Host={pgHost};Port={pgPort};Username=postgres;Password=ddbspike;Database=postgres");
+    var pgc = new NpgsqlConnection($"Host={pgHost};Port={pgPort};Username=postgres;Password={Environment.GetEnvironmentVariable("SPIKE_PG_PASSWORD") ?? "ddbspike"};Database=postgres");
     Retry(() => pgc.Open());
     Exec(pgc, "DROP TABLE IF EXISTS t; DROP TABLE IF EXISTS u;");
     var pgVer = Scalar(pgc, "SHOW server_version") + " / " + Scalar(pgc, "SELECT datcollate FROM pg_database WHERE datname = current_database()");
