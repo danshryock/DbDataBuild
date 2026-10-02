@@ -369,6 +369,25 @@
       "if": {
         "properties": {
           "command": {
+            "const": "sample"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_sample"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
             "const": "ack"
           }
         },
@@ -1735,6 +1754,93 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "data_sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows_per_source": {
+          "type": "integer"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "source",
+                  "model"
+                ]
+              },
+              "origin": {
+                "type": "string"
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ]
+                }
+              },
+              "row_count": {
+                "type": "integer"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": "string"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "columns",
+              "row_count",
+              "rows",
+              "warnings"
+            ]
           }
         }
       }

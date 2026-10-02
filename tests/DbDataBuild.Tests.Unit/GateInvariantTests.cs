@@ -29,7 +29,7 @@ public class GateInvariantTests
     {
         var pattern = new Regex(@"\b(ExecuteNonQuery(Async)?|ExecuteScalar(Async)?|ExecuteReader(Async)?|CreateCommand|SqlCommand|NpgsqlCommand|DbCommand|NpgsqlBatch|SqlBatch|DbBatch)\b");
         var offenders = SourceFiles()
-            .Where(f => !Rel(f).StartsWith("DbDataBuild.Targets.DuckDb/")) // the in-memory DuckDB describer has no target connection
+            .Where(f => !Rel(f).StartsWith("DbDataBuild.Targets.DuckDb/") && !Rel(f).StartsWith("DbDataBuild.Sample/")) // the in-memory DuckDB describer and sample runner have no target connection
             .Where(f => !DriverFiles.Contains(Rel(f)) && pattern.IsMatch(File.ReadAllText(f)))
             .Select(Rel).ToList();
         Assert.True(offenders.Count == 0, "Statements must go through MutationGate or ReadSession. Found driver calls in: " + string.Join(", ", offenders));

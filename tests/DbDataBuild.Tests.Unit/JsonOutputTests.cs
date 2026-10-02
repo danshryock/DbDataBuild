@@ -217,4 +217,18 @@ public class JsonOutputTests
         File.WriteAllText(path, "answers: []\n" + body);
         return path;
     }
+    [Fact]
+    public void Sample_reports_its_tables_rows_and_errors_as_data()
+    {
+        var dir = Project();
+        var (exit, doc, _, _) = Run("sample", "--project", dir, "--rows", "12", "--limit", "3", "--sources");
+        Assert.Equal(0, exit);
+        var tables = doc["data"]!["tables"]!.AsArray();
+        var model = tables.Single(t => (string?)t!["kind"] == "model")!;
+        Assert.Equal("marts.fct_orders", (string?)model["name"]);
+        Assert.Equal(12, (int)model["row_count"]!);
+        Assert.Equal(3, model["rows"]!.AsArray().Count);
+        Assert.Equal(2, model["rows"]![0]!.AsArray().Count);
+        Assert.Equal(12, (int)tables.Single(t => (string?)t!["kind"] == "source")!["row_count"]!);
+    }
 }

@@ -79,6 +79,18 @@ public static class CliApp
                     cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), o, e)));
                     break;
+                case "sample":
+                    var sampleModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var sampleProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var sampleRows = new Option<int>("--rows") { Description = "Rows generated for each source table", DefaultValueFactory = _ => 50 };
+                    var sampleSeed = new Option<int>("--seed") { Description = "Seed of the generator: the same seed gives the same rows", DefaultValueFactory = _ => 1 };
+                    var sampleLimit = new Option<int>("--limit") { Description = "Rows of each result to show (the row count is always complete)", DefaultValueFactory = _ => 20 };
+                    var sampleData = new Option<DirectoryInfo?>("--data") { Description = "A directory of CSV files named after sources (staging.orders.csv) to use instead of generated rows" };
+                    var sampleSources = new Option<bool>("--sources") { Description = "Also show the source tables the models read" };
+                    cmd.Arguments.Add(sampleModels);
+                    cmd.Options.Add(sampleProject); cmd.Options.Add(sampleRows); cmd.Options.Add(sampleSeed); cmd.Options.Add(sampleLimit); cmd.Options.Add(sampleData); cmd.Options.Add(sampleSources);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => SampleCommand.Run(spec, pr.GetValue(sampleProject)!.FullName, pr.GetValue(sampleModels) ?? [], pr.GetValue(sampleRows), pr.GetValue(sampleSeed), pr.GetValue(sampleLimit), pr.GetValue(sampleData)?.FullName, pr.GetValue(sampleSources), o, e)));
+                    break;
                 case "loads":
                     var loadsProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Options.Add(loadsProject);
