@@ -859,7 +859,7 @@ Each milestone ends with its tests green and this document updated.
 
 **[VERIFY]** (do before depending on them)
 - polyglot-sql: **spike done for 47 constructs (`spike/RESULTS.md`)**: FFI binding and pinned build work; fidelity gaps found, including silent wrong rewrites, `fabric` dialect gaps, and an incomplete `unsupportedLevel: raise`, so the matrix linter must walk the AST itself. Still open: round-trip stability for comment-preserving substitution, pre-1.0 API churn, Windows build and single-file publish, native distribution plan.
-- DuckDB plan lowering (macros, seeded PIVOT, star expansion, type-driven corrections via the bound plan): **researched twice, not built** (`docs/research/duckdb-plan-lowering/README.md`). Round 2 prototyped a plan-to-SQL lowering that lowers 81 of the 93 spike constructs result-equal and, on real engines, matches 8 more cases on SQL Server and 2 more on PostgreSQL than the original text with no regressions; it recommends making lowering a stage before lint and transpile, committed as a reviewable artifact. Open decisions are listed in section 6 of that document; plan JSON stability across DuckDB versions remains the main risk.
+- DuckDB plan lowering: **built** (section 7.6; research in `docs/research/duckdb-plan-lowering/README.md`). Open: target-specific rules and `sum` widening, listed in `docs/progress/OPEN-ITEMS.md`.
 - ScriptDOM: available parser versions; Fabric-specific syntax coverage.
 - Fabric Warehouse: MERGE/ALTER/TRUNCATE/rename support, trigger support, extended properties, query history retention.
 - `sp_describe_first_result_set`: limits (temp tables, dynamic SQL) and Fabric availability.

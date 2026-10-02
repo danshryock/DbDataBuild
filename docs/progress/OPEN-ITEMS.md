@@ -1,0 +1,63 @@
+# Open items and status
+
+Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer series) was finished. Unit tests 956, real-engine tests 75 (SQL Server 2022, PostgreSQL 17). Fabric has never been run against a real engine.
+
+## Where the milestones stand (DESIGN.md section 16)
+
+| # | Milestone | State |
+|---|---|---|
+| 1-3 | Spike, foundations, test infrastructure | Done |
+| 4 | State and safety core | Done (gate, logins, statement log, lock, invariant test) |
+| 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
+| 7 | Incremental kinds, loads, `run` | Done |
+| 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
+| 9 | Hardening | **Not started**: fuzzing, error-scrub tests beyond the one guard test, single-file publish, docs generation, SQL Agent guide |
+| extra | Plan lowering | Built (section 7.6) |
+
+## A. Lowering: open items (the ones you asked to have written down)
+
+1. **Target-specific rules.** Lowering produces one DuckDB-dialect query; some behaviors differ per engine and need target-specific syntax, so they belong in a step *between the lowered query and the transpile* that I have not designed. Known cases:
+   - `LENGTH`/`LEN` ignores trailing spaces on SQL Server, counts them on DuckDB and PostgreSQL.
+   - `TRY_CAST`: PostgreSQL has none; needs an emulation or a refusal.
+   - `ROUND(double, n)`: rounds differently on PostgreSQL (it has no `ROUND(double precision, int)`) and can differ in half-way cases.
+   - Design question to settle first: does the step rewrite the lowered AST per target (readable, testable, but the committed artifact is then no longer the whole truth), or does the lowerer emit target-neutral forms that every transpile handles?
+2. **`sum` widening and decimal pinning.** DuckDB widens `sum` of integers to HUGEINT and of decimals to DECIMAL(38, s); SQL Server and PostgreSQL widen differently, so overflow and result scale can differ. The lowered header already records DuckDB's output types; the rule would add explicit casts, as `avg` has.
+3. **`x op ANY/ALL (subquery)` and row-value `IN`.** Refused today. Both can be written with `EXISTS`/`NOT EXISTS` plus null handling; the risk is three-valued logic, so each needs differential tests including NULLs.
+4. **Correlated subquery over `UNION`/`INTERSECT`/`EXCEPT`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset.** Refused; no plan to build unless a real model needs them.
+5. **Author table aliases are lost** (DuckDB's plan does not carry them), so lowered sources are named after their tables (`orders`, `orders_2`). Cosmetic, but it makes lowered queries less similar to the source than you asked for. Possible fix: recover aliases by matching the source text to the plan, or rename on a per-query basis from the parsed AST.
+6. **Date/timestamp series, `UNNEST`, list/struct constructors, `USING SAMPLE`, `LIMIT ... PERCENT`.** Refused by decision. A date series could be an integer series plus `DATEADD`/interval arithmetic; I left it out because every interval unit needs its own differential check.
+7. **Engine limit, not a lowering gap**: SQL Server rejects an aggregate over a subquery (`sum((SELECT ...))`). Could be worked around by lifting the subquery into a join; not done.
+8. **Plan JSON is DuckDB-internal.** A DuckDB upgrade can change plans, which shows as a stale lowered artifact in `render --check`. The header records the DuckDB version; there is no tooling to explain *why* an artifact changed.
+9. **Evidence gaps**: the `fn.generate_series` matrix row cites a spike case that has not been run (the conformance test is the real evidence). Re-run the spike when convenient.
+
+## B. Features designed or reserved but not built
+
+- **Hook events for drops and other reserved kinds** (`HookEvents` marks them `Fires = false`; the model loader rejects them with a message). Only the events the planner actually performs are accepted.
+- **`define` asking about extra loads** (section 6.5): not built.
+- **Linting and generation of indexes** (warn when a merge key has no unique index, generate the index): you deferred this; nothing exists. An undeclared index is never dropped by the planner (a `drop`/exclusive setting is a small addition if wanted).
+- **Machine-readable JSON Schemas for each command's `data`**: output has one envelope schema (`schemas/output.schema.json`); each command's `data` payload is untyped.
+- **History consistency as a *blocking* condition** (section 12.3: "may be configured as a warning or as a block for downstream models, using lineage"): only the warning and the acknowledgement exist. The `report` doc comment still says the per-column report is not built; the code reads history, so the comment is stale.
+- **Redaction** of logged parameter values and resolver results (decision 6 says it can be added later).
+
+## C. Unverified or risky areas
+
+- **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. The draft upstream issue notes exist but you have not decided to submit them.
+- **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, but only on single local containers: no concurrency between two real `apply` processes under load, no network failures mid-step.
+- **Native dependency**: polyglot-sql 0.13.1 is pinned and built from source by `scripts/build-polyglot.sh`; pre-1.0 API churn, a Windows build and a distribution plan are open (section 17).
+- **Windows**: nothing has been built or run on Windows (single-file publish for win-x64 is a stated requirement).
+- **Licenses** of native and managed dependencies not audited.
+- **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
+- **Error scrubbing**: one guard test shows exception messages are not echoed; there is no broader fuzz of config, YAML and plan files for unhandled exceptions.
+
+## D. Documentation debt
+
+- DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.
+- Not written: operations guide (SQL Server Audit for out-of-band DDL, SQL Agent invocation, PostgreSQL and Fabric equivalents), user-facing docs, a generated command reference.
+- REVIEW.md accumulates dated updates; it needs a consolidated rewrite before anyone else reads it.
+
+## E. Suggested order (for you to change)
+
+1. Target-specific rules and `sum` widening (they change query results, so they matter most for correctness), starting with the design question in A1.
+2. Fabric verification, if a Fabric instance is available; otherwise decide whether Fabric stays "unverified by design" for the first release.
+3. Milestone 9 hardening: error-scrub fuzzing, single-file publish on linux and Windows, operations guide.
+4. `ANY`/`ALL`, row-value `IN`, index lint/generation, per-command JSON Schemas, as demand appears.
