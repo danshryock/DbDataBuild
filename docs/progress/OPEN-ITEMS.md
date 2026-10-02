@@ -41,7 +41,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, but only on single local containers: no concurrency between two real `apply` processes under load, no network failures mid-step.
 - **Native dependency**: polyglot-sql 0.13.1 is pinned and built from source by `scripts/build-polyglot.sh`; pre-1.0 API churn, a Windows build and a distribution plan are open (section 17).
 - **Windows**: nothing has been built or run on Windows. Linux single-file publish works (`scripts/publish.sh`); win-x64 needs the polyglot library built for Windows first.
-- **Licenses** of native and managed dependencies not audited.
+- **Licenses**: audited 2026-10-02 (all permissive; see `THIRD-PARTY-NOTICES.md`); re-check when dependencies change.
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
 - **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Not covered: fuzzing the interactive answer flow, hook scripts' content, and the resolver query results.
 

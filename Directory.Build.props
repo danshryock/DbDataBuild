@@ -8,4 +8,10 @@
     <!-- a single-file publish is a deliverable: code that breaks inside one (Assembly.Location, for example) fails the build -->
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Dan Shryock</Authors>
+    <Copyright>Copyright (c) 2026 Dan Shryock</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
 </Project>
