@@ -161,3 +161,7 @@ The operator accepted the three decisions of section 6 (the lowered query is a c
 - **Output names come from `DESCRIBE`, not the plan**: a query whose plan has no projection at the top (a bare aggregate) loses its author's aliases in the plan, which the end-to-end test caught (`AS size` became `col1`). Names are applied to the lowered query by position.
 - **Null ordering is always written** in `ORDER BY` and window ordering (`x NULLS LAST`), because DuckDB, SQL Server and PostgreSQL disagree about where NULLs sort and the plan states it explicitly.
 - The string-collation marker macros of section 4 are still a proposal, not built.
+
+## Update (2026-10-02): subqueries
+
+The plan shapes are in `subq_probe.py`. `EXISTS`/`NOT EXISTS`/`IN`/`NOT IN`/scalar/`LATERAL` all arrive as `DELIM_JOIN` (types `MARK`, `SINGLE`, `INNER`, `LEFT`) with the right side reading the outer values through `DELIM_GET`; uncorrelated `IN` is a `MARK` comparison join, uncorrelated scalar and `EXISTS` are crossed one-row subqueries guarded by `CASE WHEN count(*) > 1 THEN error(...) ELSE first(x) END` and by `count(*) = 1` over `LIMIT 1`. The lowerer reverses all of it (see DESIGN.md section 7.6). 53 subquery forms lower to queries with the same rows in DuckDB, and run on real engines: 51 match on SQL Server and 52 on PostgreSQL. The two differences are an engine limitation (SQL Server rejects `sum((SELECT ...))`) and the case-insensitive collation of the spike database (`s IN (SELECT ...)` over strings that differ only by case), neither a lowering problem.

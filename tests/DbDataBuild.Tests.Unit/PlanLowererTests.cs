@@ -65,8 +65,8 @@ public class PlanLowererTests
         return seq.Items.Cast<YamlMapping>().Select(m => (((YamlScalar)m.Get("id")!).Value, ((YamlScalar)m.Get("sql")!).Value)).ToList();
     }
 
-    // what has no lowering yet: correlated subqueries, UNNEST, USING SAMPLE, DISTINCT ON, nested constructors
-    private static readonly string[] NotLowered = ["list_literal", "struct_literal", "unnest", "select_distinct_on", "sample_clause", "lateral_join", "exists_subquery", "in_subquery"];
+    // what has no lowering yet: UNNEST, USING SAMPLE, DISTINCT ON, nested constructors
+    private static readonly string[] NotLowered = ["list_literal", "struct_literal", "unnest", "select_distinct_on", "sample_clause"];
 
     [Fact]
     public void Every_corpus_construct_lowers_to_an_equal_query_or_is_refused_with_a_reason()
@@ -198,11 +198,101 @@ public class PlanLowererTests
         Assert.Equal("HUGEINT", sums.Columns[0].DuckDbType);         // the type an engine's SUM over integers does not have
     }
 
+    // subqueries: every one lowers to a query with the same rows (DuckDB's binder had decorrelated them; the lowerer writes them back as subqueries)
+    public static TheoryData<string> Subqueries => new()
+    {
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a)",
+        "SELECT id FROM t WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.a = t.a)",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a AND u.b > t.b)",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a OR u.b = t.b)",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.b > t.a * 10)",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u)",
+        "SELECT id FROM t WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.a > 100)",
+        "SELECT id FROM t WHERE a IN (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a NOT IN (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a NOT IN (SELECT a FROM u WHERE a IS NOT NULL)",
+        "SELECT id FROM t WHERE a IN (SELECT u.a FROM u WHERE u.b > t.b)",
+        "SELECT id FROM t WHERE a NOT IN (SELECT u.a FROM u WHERE u.b > t.b)",
+        "SELECT id FROM t WHERE a IN (SELECT a FROM u WHERE b > 150)",
+        "SELECT id, EXISTS (SELECT 1 FROM u WHERE u.a = t.a) AS has_match FROM t",
+        "SELECT id, a IN (SELECT a FROM u) AS in_u FROM t",
+        "SELECT id, CASE WHEN EXISTS (SELECT 1 FROM u WHERE u.a = t.a) THEN 'y' ELSE 'n' END AS m FROM t",
+        "SELECT id, (SELECT max(u.b) FROM u WHERE u.a = t.a) AS m FROM t",
+        "SELECT id, (SELECT count(*) FROM u WHERE u.a = t.a) AS c FROM t",
+        "SELECT id, (SELECT sum(u.b) FROM u WHERE u.a = t.a) AS s FROM t",
+        "SELECT id, (SELECT u.b FROM u WHERE u.a = t.a AND u.b > 250) AS only_one FROM t",
+        "SELECT id, (SELECT max(b) FROM u) AS m FROM t",
+        "SELECT id FROM t WHERE b > (SELECT avg(u.b) / 100 FROM u WHERE u.a = t.a)",
+        "SELECT id FROM t WHERE a > (SELECT min(a) FROM u)",
+        "SELECT id FROM t WHERE (SELECT count(*) FROM u WHERE u.a = t.a) = 0",
+        "SELECT id FROM t WHERE (SELECT u.b FROM u WHERE u.a = t.a ORDER BY u.b DESC LIMIT 1) > 100",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a AND EXISTS (SELECT 1 FROM u u2 WHERE u2.b = u.b AND u2.a = t.a))",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a AND u.b IN (SELECT b FROM u u3 WHERE u3.a = t.a))",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM (SELECT a, b FROM u WHERE b > 100) v WHERE v.a = t.a)",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a GROUP BY u.a HAVING count(*) > 0)",
+        "SELECT a, count(*) AS n FROM t GROUP BY a HAVING EXISTS (SELECT 1 FROM u WHERE u.a = t.a)",
+        "SELECT t.id, x.b FROM t, LATERAL (SELECT u.b FROM u WHERE u.a = t.a) x",
+        "SELECT t.id, x.b FROM t LEFT JOIN LATERAL (SELECT u.b FROM u WHERE u.a = t.a) x ON TRUE",
+        "SELECT t.id, x.m FROM t, LATERAL (SELECT max(u.b) AS m FROM u WHERE u.a = t.a) x",
+        "SELECT t.id FROM t JOIN u ON t.a = u.a WHERE EXISTS (SELECT 1 FROM u u2 WHERE u2.b > u.b AND u2.a = t.a)",
+        "SELECT id FROM t WHERE id IN (SELECT id FROM t t2 WHERE t2.a = t.a AND t2.id <> t.id)",
+        "WITH big AS (SELECT a FROM u WHERE b > 100) SELECT id FROM t WHERE EXISTS (SELECT 1 FROM big WHERE big.a = t.a)",
+        "SELECT id FROM t WHERE s IN (SELECT s FROM t t2 WHERE t2.d > t.d)",
+        "SELECT t.id FROM t JOIN u ON t.a = u.a ORDER BY (SELECT count(*) FROM u u2 WHERE u2.a = t.a), t.id",
+        "SELECT t.id FROM t JOIN u ON t.a = u.a AND EXISTS (SELECT 1 FROM u u2 WHERE u2.b > u.b)",
+        "SELECT t.id, u.b FROM t JOIN u ON t.a = u.a WHERE u.b > (SELECT avg(u2.b) FROM u u2 WHERE u2.a = t.a)",
+        "SELECT a, (SELECT count(*) FROM u WHERE u.a = x.a) AS c FROM (SELECT DISTINCT a FROM t) x",
+        "SELECT id FROM t WHERE a + 1 IN (SELECT a FROM u WHERE u.b > t.b)",
+        "SELECT sum((SELECT count(*) FROM u WHERE u.a = t.a)) AS s FROM t",
+        "SELECT id FROM t WHERE EXISTS (SELECT DISTINCT u.b FROM u WHERE u.a = t.a)",
+        "SELECT id, (SELECT u.b FROM u WHERE u.a = t.a ORDER BY u.b LIMIT 1) AS first_b FROM t",
+        "SELECT id FROM t WHERE (SELECT count(*) FROM u WHERE u.a = t.a) > (SELECT count(*) FROM u WHERE u.b = t.b)",
+        "SELECT id, (SELECT max(b) FROM u WHERE u.a = t.a) + (SELECT min(b) FROM u WHERE u.a = t.a) AS span FROM t",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a AND u.b > (SELECT avg(b) FROM u u2 WHERE u2.a = t.a))",
+        "SELECT id FROM t WHERE NOT EXISTS (SELECT 1 FROM u)",
+        "SELECT id FROM t WHERE a = (SELECT max(a) FROM u)",
+        "SELECT id, row_number() OVER (ORDER BY (SELECT count(*) FROM u WHERE u.a = t.a), id) AS r FROM t",
+        "SELECT id FROM t WHERE (SELECT count(*) FROM u WHERE u.a = t.a) BETWEEN 1 AND 2",
+        "SELECT id FROM (SELECT id, a FROM t ORDER BY id LIMIT 5) q WHERE EXISTS (SELECT 1 FROM u WHERE u.a = q.a)",
+    };
+
+    [Theory, MemberData(nameof(Subqueries))]
+    public void Subqueries_lower_to_subqueries_with_the_same_rows_as_the_original(string source)
+    {
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+        Assert.Contains("SELECT", lowered);
+    }
+
+    [Fact]
+    public void Correlated_subqueries_read_like_the_original_with_the_outer_column_qualified()
+    {
+        using var c = Open();
+        Assert.Equal("SELECT id\nFROM t\nWHERE EXISTS (\n  SELECT 1\n  FROM u\n  WHERE (u.a = t.a)\n)", Lower(c, "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a)"));
+        Assert.Equal("SELECT id\nFROM t\nWHERE (NOT EXISTS (\n  SELECT 1\n  FROM u\n  WHERE (u.a = t.a)\n))", Lower(c, "SELECT id FROM t WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.a = t.a)"));
+        Assert.Equal("SELECT id\nFROM t\nWHERE (a IN (\n  SELECT a\n  FROM u\n))", Lower(c, "SELECT id FROM t WHERE a IN (SELECT a FROM u)"));
+        var scalar = Lower(c, "SELECT id, (SELECT max(u.b) FROM u WHERE u.a = t.a) AS m FROM t");
+        Assert.Contains("max(u.b)", scalar);
+        Assert.Contains("(u.a = t.a)", scalar);
+        Assert.DoesNotContain("GROUP BY", scalar);          // the group on the correlated value is gone
+    }
+
+    [Fact]
+    public void An_unqualified_name_inside_a_subquery_never_stands_for_an_outer_column()
+    {
+        using var c = Open();
+        // t and u both have columns a and b: inside the subquery every column is written with its source
+        var sql = Lower(c, "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a AND u.b = t.b)");
+        Assert.DoesNotContain("WHERE (a =", sql);
+        Assert.Contains("u.a = t.a", sql);
+        Assert.Contains("u.b = t.b", sql);
+    }
+
     [Theory]
     [InlineData("SELECT * FROM unnest([1, 2])", "table function")]
     [InlineData("SELECT a FROM t USING SAMPLE 3 ROWS", "SAMPLE")]
     [InlineData("SELECT DISTINCT ON (a) a, b FROM t", "DISTINCT ON")]
-    [InlineData("SELECT a FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.a = t.a)", "DELIM_JOIN")]
     [InlineData("SELECT [1, 2] AS l", "list_value")]
     [InlineData("SELECT a FROM t LIMIT 10 PERCENT", "percentage")]
     public void What_has_no_lowering_is_refused_by_name_never_guessed(string source, string mention)

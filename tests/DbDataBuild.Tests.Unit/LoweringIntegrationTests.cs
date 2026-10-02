@@ -108,7 +108,7 @@ public class LoweringIntegrationTests
 
     [Theory]
     [InlineData("SELECT customer_id, [1, 2] AS l FROM staging.orders", "DDB-324", "list_value")]
-    [InlineData("SELECT customer_id FROM staging.orders o WHERE EXISTS (SELECT 1 FROM staging.orders p WHERE p.customer_id = o.customer_id)", "DDB-324", "DELIM_JOIN")]
+    [InlineData("SELECT DISTINCT ON (customer_id) customer_id, order_id FROM staging.orders", "DDB-324", "DISTINCT ON")]
     [InlineData("SELEC customer_id FROM staging.orders", "DDB-306", "syntax error")]
     [InlineData("SELECT customer_id FROM staging.missing", "DDB-218", "missing")]
     public void A_query_that_cannot_be_lowered_is_an_error_that_names_why_and_nothing_is_written(string sql, string code, string mention)
@@ -120,6 +120,21 @@ public class LoweringIntegrationTests
         Assert.Contains(mention, err, StringComparison.OrdinalIgnoreCase);
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered")));
         Assert.Equal(1, Run("validate", "--project", dir).Exit);
+    }
+
+    [Fact]
+    public void Correlated_subqueries_are_lowered_and_checked_like_any_other_query()
+    {
+        var dir = Project("SELECT o.customer_id, (SELECT count(*) FROM staging.orders p WHERE p.customer_id = o.customer_id) AS n FROM staging.orders o WHERE EXISTS (SELECT 1 FROM staging.orders q WHERE q.customer_id = o.customer_id AND q.amount > 10)\n");
+        var (exit, _, err) = Run("render", "--project", dir, "--write");
+        Assert.True(exit == 0, err);
+        var text = File.ReadAllText(Path.Combine(dir, "rendered/lowered/marts.fct/lowered.sql"));
+        Assert.Contains("EXISTS (", text);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, @"\(orders_\d\.customer_id = orders\.customer_id\)").Count);   // the outer column is qualified inside each subquery
+        Assert.Contains("FROM staging.orders\nWHERE EXISTS", text);                                                                         // and the outer block names its table once
+        Assert.DoesNotContain("DELIM", text);
+        Assert.Contains("EXISTS", File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.fct/load.default.sql")), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, Run("render", "--project", dir, "--check").Exit);
     }
 
     [Fact]

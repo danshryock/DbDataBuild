@@ -781,4 +781,33 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Correlated_subqueries_give_the_same_rows_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("models/marts/fct_rank.yml", "name: marts.fct_rank\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT}\n  - {name: earlier, type: BIGINT}\n  - {name: rank_tag, type: \"VARCHAR(10)\"}\n");
+            // a correlated scalar subquery with an aggregate, a correlated EXISTS inside a CASE, and NOT IN against a set that contains a NULL-amount row's key
+            run.Write("models/marts/fct_rank.sql",
+                "SELECT o.order_id,\n  (SELECT count(*) FROM staging.orders p WHERE p.order_id < o.order_id) AS earlier,\n" +
+                "  CASE WHEN EXISTS (SELECT 1 FROM staging.orders q WHERE q.amount > o.amount) THEN 'has_bigger' ELSE 'top' END AS rank_tag\n" +
+                "FROM staging.orders o\nWHERE o.order_id NOT IN (SELECT r.order_id FROM staging.orders r WHERE r.amount IS NULL)\n");
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00)");
+
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var lowered = File.ReadAllText(Path.Combine(run.Dir, "rendered/lowered/marts.fct_rank/lowered.sql"));
+            Assert.Contains("EXISTS (", lowered);
+            Assert.DoesNotContain("DELIM", lowered);
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+
+            Assert.Equal(new List<string> { "1|0|has_bigger", "2|1|has_bigger", "4|3|top" }, await engine.RowsAsync("SELECT order_id, earlier, rank_tag FROM marts.fct_rank"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

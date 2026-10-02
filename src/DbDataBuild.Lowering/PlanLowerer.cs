@@ -143,6 +143,16 @@ public sealed class PlanLowerer
             case "OPERATOR_CAST": return Cast(e, outs);
             case "BOUND_FUNCTION": return Function(e, outs);
             case "BOUND_AGGREGATE": return Aggregate(e, outs);
+            case "COMPARE_BETWEEN" or "COMPARE_NOT_BETWEEN":
+            {
+                // the binder keeps BETWEEN as one node when its input is not a plain column or constant (a subquery, for example)
+                var input = Expr(e.GetProperty("input"), outs);
+                var lower = Expr(e.GetProperty("lower"), outs);
+                var upper = Expr(e.GetProperty("upper"), outs);
+                var both = e.GetProperty("lower_inclusive").ValueKind == JsonValueKind.True && e.GetProperty("upper_inclusive").ValueKind == JsonValueKind.True;
+                if (!both) throw new LoweringException("a BETWEEN with an exclusive bound");
+                return $"({input} {(t == "COMPARE_NOT_BETWEEN" ? "NOT " : "")}BETWEEN {lower} AND {upper})";
+            }
             case "COMPARE_IN" or "COMPARE_NOT_IN":
             {
                 var ch = Arr(e, "children").Select(c => Expr(c, outs)).ToList();
@@ -157,8 +167,13 @@ public sealed class PlanLowerer
             case "CASE_EXPR":
             {
                 var sb = new StringBuilder("CASE ");
-                foreach (var c in Arr(e, "case_checks")) sb.Append($"WHEN {Expr(c.GetProperty("when_expr"), outs)} THEN {Expr(c.GetProperty("then_expr"), outs)} ");
+                var checks = Arr(e, "case_checks").ToList();
+                foreach (var c in checks) sb.Append($"WHEN {Expr(c.GetProperty("when_expr"), outs)} THEN {Expr(c.GetProperty("then_expr"), outs)} ");
                 if (e.TryGetProperty("else_expr", out var el)) sb.Append($"ELSE {Expr(el, outs)} ");
+                // DuckDB's guard for count(*) over a correlated subquery that matched no rows: `CASE WHEN count(*) IS NULL THEN 0 ELSE count(*) END`. A count is never NULL here.
+                if (checks.Count == 1 && e.TryGetProperty("else_expr", out var guarded) && Expr(guarded, outs) is var inner && inner.StartsWith("count(", StringComparison.Ordinal) &&
+                    Expr(checks[0].GetProperty("when_expr"), outs) == $"({inner} IS NULL)" && Expr(checks[0].GetProperty("then_expr"), outs) == "0")
+                    return inner;
                 return sb.Append("END").ToString();
             }
         }
@@ -298,7 +313,8 @@ public sealed class PlanLowerer
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------
     // relations
 
-    private sealed record Item(string Sql, string? Alias, string? Type);
+    /// <param name="Outer">The column holds a value of the enclosing query (a correlated reference) or a pass-through of one.</param>
+    private sealed record Item(string Sql, string? Alias, string? Type, bool Outer = false);
 
     private sealed class Rel
     {
@@ -315,6 +331,10 @@ public sealed class PlanLowerer
         public bool HasWindow { get; set; }
         public bool HasAgg { get; set; }
         public bool Plain { get; set; }
+        public bool IsDelim { get; set; }
+        /// <summary>A correlated `LIMIT k` that DuckDB wrote as `row_number() OVER (PARTITION BY correlated values ORDER BY ...) <= k`: the select item and the ordering to restore.</summary>
+        public (int Index, List<string> Orders)? LimitWindow { get; set; }
+        public bool SuppressAliases { get; set; }
         public string? SetOp { get; set; }
         public bool SetOpDistinct { get; set; }
         public IReadOnlyList<string>? SetOpNames { get; set; }
@@ -322,13 +342,28 @@ public sealed class PlanLowerer
         public IReadOnlyList<string> Outs() => Sel.Select(s => s.Sql).ToList();
         public bool Mergeable() => Limit == null && Offset == null && !Distinct && SetOp == null;
 
+        // a marker is `\0source\u0001column\0`, qualified only in a block with several sources; `\u0002...\u0002` is a reference to the enclosing query and is always qualified
+        private bool qualifyAll;
+
         public string Render(string text)
         {
-            var multi = Sources.Count > 1;
-            return Regex.Replace(text, "\0([^\u0001\0]*)\u0001([^\0]*)\0", m => (multi ? Ident(m.Groups[1].Value) + "." : "") + Ident(m.Groups[2].Value));
+            var multi = Sources.Count > 1 || qualifyAll;
+            return Regex.Replace(text, "([\0\u0002])([^\u0001\0\u0002]*)\u0001([^\0\u0002]*)[\0\u0002]", m => (multi || m.Groups[1].Value == "\u0002" ? Ident(m.Groups[2].Value) + "." : "") + Ident(m.Groups[3].Value));
         }
 
-        private static readonly Regex Plainref = new("^\0[^\u0001\0]*\u0001([^\0]*)\0$");
+        private bool HasOuterReference() =>
+            Sel.Any(i => i.Sql.Contains('\u0002')) || Frm.Contains('\u0002') || Where.Any(x => x.Contains('\u0002')) || Group.Any(x => x.Contains('\u0002')) ||
+            Having.Any(x => x.Contains('\u0002')) || Order.Any(x => x.Contains('\u0002'));
+
+        public Rel Clone() => new Rel()
+        {
+            Sel = [.. Sel], Frm = Frm, Sources = [.. Sources], Group = [.. Group], Order = [.. Order], Limit = Limit, Offset = Offset, Distinct = Distinct, HasWindow = HasWindow,
+            HasAgg = HasAgg, Plain = Plain, IsDelim = IsDelim, LimitWindow = LimitWindow, SuppressAliases = SuppressAliases, SetOp = SetOp, SetOpDistinct = SetOpDistinct, SetOpNames = SetOpNames,
+        }.CopyPredicates(this);
+
+        private Rel CopyPredicates(Rel from) { Where.AddRange(from.Where); Having.AddRange(from.Having); return this; }
+
+        private static readonly Regex Plainref = new("^[\0\u0002][^\u0001\0\u0002]*\u0001([^\0\u0002]*)[\0\u0002]$");
 
         public IReadOnlyList<string> Aliases()
         {
@@ -348,12 +383,13 @@ public sealed class PlanLowerer
         public string Sql()
         {
             if (SetOp != null) return SetOp;
+            qualifyAll = HasOuterReference();
             var names = Aliases();
             var items = new List<string>();
             for (var i = 0; i < Sel.Count; i++)
             {
                 var m = Plainref.Match(Sel[i].Sql);
-                var needsAs = !m.Success || m.Groups[1].Value != names[i];
+                var needsAs = (!m.Success && !SuppressAliases) || (m.Success && m.Groups[1].Value != names[i]);
                 items.Add(Render(Sel[i].Sql) + (needsAs ? $" AS {Ident(names[i])}" : ""));
             }
             var sb = new StringBuilder($"SELECT {(Distinct ? "DISTINCT " : "")}{string.Join(", ", items)}");
@@ -386,7 +422,7 @@ public sealed class PlanLowerer
         {
             Frm = $"(\n{IndentText(rel.Sql())}\n) AS {a}",
             Sources = [a],
-            Sel = names.Select((n, i) => new Item(Token(a, n), n, i < types.Count ? types[i] : null)).ToList(),
+            Sel = names.Select((n, i) => new Item(Token(a, n), n, i < types.Count ? types[i] : null, rel.Sel.Count > i && rel.Sel[i].Outer)).ToList(),
         };
     }
 
@@ -402,7 +438,8 @@ public sealed class PlanLowerer
                 if (fd.ValueKind != JsonValueKind.Object || !fd.TryGetProperty("table", out var table)) throw new LoweringException("a table function");
                 var names = p.GetProperty("names").EnumerateArray().Select(x => x.GetString()!).ToList();
                 var types = p.GetProperty("returned_types").EnumerateArray().Select(TypeName).ToList();
-                var idx = Arr(p, "column_indexes").Select(c => c.GetProperty("index").GetInt32()).ToList();
+                // an index past the columns is DuckDB's virtual row-id column, which a query that selects no column of the table (EXISTS (SELECT 1 FROM u)) still scans
+                var idx = Arr(p, "column_indexes").Select(c => c.GetProperty("index").TryGetInt32(out var i) && i < names.Count ? i : -1).ToList();
                 if (idx.Count == 0) idx = Enumerable.Range(0, names.Count).ToList();
                 var baseName = table.GetString()!;
                 uses[baseName] = uses.GetValueOrDefault(baseName) + 1;
@@ -413,17 +450,19 @@ public sealed class PlanLowerer
                     Frm = (schema is null or "main" ? baseName : $"{schema}.{baseName}") + (alias == baseName ? "" : $" AS {alias}"),
                     Sources = [alias],
                     Plain = true,
-                    Sel = idx.Select(i => new Item(Token(alias, names[i]), names[i], types[i])).ToList(),
+                    Sel = idx.Select(i => i < 0 ? new Item("NULL", null, "BIGINT") : new Item(Token(alias, names[i]), names[i], types[i])).ToList(),
                 };
                 return rel;
             }
             case "LOGICAL_DUMMY_SCAN": return new Rel();
+            case "LOGICAL_PROJECTION" when TryUncorrelatedScalar(p, kids) is { } constant: return constant;
             case "LOGICAL_PROJECTION":
             {
                 var c = Node(kids[0]);
                 if (!c.Mergeable()) c = Wrap(c);
                 var outs = c.Outs();
-                c.Sel = Arr(p, "expressions").Select(e => new Item(Expr(e, outs), Str(e, "alias"), TypeId(e) is { } id ? TypeNameOf(e) : null)).ToList();
+                var childItems = c.Sel;
+                c.Sel = Arr(p, "expressions").Select(e => new Item(Expr(e, outs), Str(e, "alias"), TypeNameOf(e), IsOuterRef(e, childItems))).ToList();
                 c.Plain = false;
                 if (c.Sel.Any(s => s.Sql.Contains(" OVER (", StringComparison.Ordinal))) c.HasWindow = true;
                 return c;
@@ -431,6 +470,17 @@ public sealed class PlanLowerer
             case "LOGICAL_FILTER":
             {
                 var c = Node(kids[0]);
+                if (c.LimitWindow is { } lw)
+                {
+                    var preds0 = Arr(p, "expressions").ToList();
+                    var ok = preds0.Count == 1 && Str(preds0[0], "type") == "COMPARE_LESSTHANOREQUALTO" && preds0[0].GetProperty("left").GetProperty("type").GetString() == "BOUND_REF" &&
+                             preds0[0].GetProperty("left").GetProperty("index").GetInt32() == lw.Index && preds0[0].GetProperty("right").GetProperty("type").GetString() == "VALUE_CONSTANT";
+                    if (!ok) throw new LoweringException("a correlated LIMIT with an offset or another shape of row filter");
+                    c.Order = lw.Orders;
+                    c.Limit = preds0[0].GetProperty("right").GetProperty("value").GetProperty("value").GetInt64();
+                    c.LimitWindow = null;
+                    return c;
+                }
                 if (c.HasWindow || !c.Mergeable()) c = Wrap(c);
                 var preds = Arr(p, "expressions").Select(e => Expr(e, c.Outs())).ToList();
                 if (c.HasAgg && c.Having.Count == 0 && !c.Plain) c.Having.AddRange(preds); else c.Where.AddRange(preds);
@@ -439,13 +489,16 @@ public sealed class PlanLowerer
             case "LOGICAL_AGGREGATE_AND_GROUP_BY":
             {
                 var c = Node(kids[0]);
-                if (!c.Mergeable() || c.HasWindow || c.Group.Count > 0 || c.Having.Count > 0) c = Wrap(c);
+                if (!c.Mergeable() || c.HasWindow || c.HasAgg || c.Group.Count > 0 || c.Having.Count > 0) c = Wrap(c);
                 var outs = c.Outs();
-                var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g))).ToList();
-                var aggs = Arr(p, "expressions").Select(a => (Sql: Expr(a, outs), Type: TypeNameOf(a))).ToList();
+                var childItems = c.Sel;
+                var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems))).ToList();
+                var aggs = Arr(p, "expressions").Select(a => (Sql: Expr(a, outs), Type: TypeNameOf(a), Outer: false)).ToList();
                 if (groups.Count == 0 && aggs.Count == 0) throw new LoweringException("an empty aggregate");
-                c.Group = groups.Select(g => g.Sql).ToList();
-                c.Sel = groups.Concat(aggs).Select(x => new Item(x.Sql, null, x.Type)).ToList();
+                // a group on a value of the enclosing query is constant for each outer row (DuckDB added it when it decorrelated the subquery), so it is not a GROUP BY any more
+                if (groups.Count > 0 && groups.All(g => g.Outer) && aggs.Count == 0) throw new LoweringException("an aggregate that only groups by correlated values");
+                c.Group = groups.Where(g => !g.Outer).Select(g => g.Sql).ToList();
+                c.Sel = groups.Concat(aggs).Select(x => new Item(x.Sql, null, x.Type, x.Outer)).ToList();
                 c.HasAgg = true;
                 c.Plain = false;
                 return c;
@@ -480,10 +533,26 @@ public sealed class PlanLowerer
                 c.Distinct = true;
                 return c;
             }
+            case "LOGICAL_DELIM_GET":
+            {
+                if (delimFrames.Count == 0) throw new LoweringException("a correlated reference outside a subquery");
+                return new Rel { IsDelim = true, Sel = delimFrames.Peek().Select(i => i with { Outer = true }).ToList() };
+            }
+            case "LOGICAL_DELIM_JOIN": return DelimJoin(p, kids);
+            case "LOGICAL_COMPARISON_JOIN" when Str(p, "join_type") == "MARK": return MarkJoin(p, kids);
             case "LOGICAL_COMPARISON_JOIN" or "LOGICAL_CROSS_PRODUCT":
             {
                 var l = Node(kids[0]);
                 var r = Node(kids[1]);
+                if (l.IsDelim || r.IsDelim) return JoinWithDelim(p, t, l, r);
+                if (t == "LOGICAL_CROSS_PRODUCT" && (IsConstantRow(l) || IsConstantRow(r)))
+                {
+                    // a subquery that returns one value: it is an expression of the other side, not a table
+                    var host = IsConstantRow(l) ? r : l;
+                    host.Sel = l.Sel.Concat(r.Sel).ToList();
+                    host.Plain = false;
+                    return host;
+                }
                 if (!l.Plain) l = Wrap(l);
                 if (!r.Plain) r = Wrap(r);
                 var rel = new Rel { Sources = l.Sources.Concat(r.Sources).ToList(), Sel = l.Sel.Concat(r.Sel).ToList() };
@@ -500,8 +569,24 @@ public sealed class PlanLowerer
                 var c = Node(kids[0]);
                 if (!c.Mergeable()) c = Wrap(c);
                 var outs = c.Outs();
-                c.Sel = c.Sel.Concat(Arr(p, "expressions").Select(e => new Item(Window(e, outs), null, TypeNameOf(e)))).ToList();
-                c.HasWindow = true;
+                var childItems = c.Sel;
+                var first = c.Sel.Count;
+                var items = new List<Item>();
+                foreach (var e in Arr(p, "expressions"))
+                {
+                    var partitions = Arr(e, "partitions").ToList();
+                    var correlated = partitions.Count(x => IsOuterRef(x, childItems));
+                    if (correlated > 0)
+                    {
+                        // `LIMIT k` inside a correlated subquery: DuckDB numbers the rows per correlated value. Undo that when it is only that.
+                        if (correlated != partitions.Count || e.GetProperty("type").GetString() != "WINDOW_ROW_NUMBER") throw new LoweringException("a window function partitioned by a correlated value");
+                        c.LimitWindow = (first + items.Count, Arr(e, "orders").Select(o => OrderItem(o, outs)).ToList());
+                        items.Add(new Item("NULL", null, TypeNameOf(e)));
+                    }
+                    else items.Add(new Item(Window(e, outs), null, TypeNameOf(e)));
+                }
+                c.Sel = c.Sel.Concat(items).ToList();
+                if (items.Any(i => i.Sql != "NULL")) c.HasWindow = true;
                 return c;
             }
             case "LOGICAL_MATERIALIZED_CTE":
@@ -543,6 +628,206 @@ public sealed class PlanLowerer
             }
         }
         throw new LoweringException($"the plan operator {t[8..]}");
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------------------------------------
+    // subqueries
+    //
+    // DuckDB's binder has already decorrelated every subquery: an EXISTS is a DELIM_JOIN of type MARK, a scalar subquery a SINGLE join, a LATERAL an INNER or LEFT one, and the
+    // right side reads the outer query's values through DELIM_GET. Here that is undone. Each DELIM_GET column is a reference to the outer expression that feeds it, the
+    // joins back to the duplicate-eliminated values and the GROUP BYs on them are dropped (they are constant per outer row), and the right side is printed as a nested
+    // query that mentions the outer columns, which is what the author wrote.
+
+    private readonly Stack<List<Item>> delimFrames = new();
+
+    private static bool IsOuterRef(JsonElement e, List<Item> childItems) =>
+        e.GetProperty("type").GetString() == "BOUND_REF" && e.GetProperty("index").GetInt32() is var i && i < childItems.Count && childItems[i].Outer;
+
+    /// <summary>A reference to a column of an enclosing block: printed qualified wherever it appears.</summary>
+    private static string Requalify(string text) => text.Replace('\0', '\u0002');
+    private static string Unqualify(string text) => text.Replace('\u0002', '\0');
+
+    private static string Nested(Rel r)
+    {
+        var sql = r.Sql();
+        return string.Join('\n', sql.Split('\n').Select(l => "  " + l));
+    }
+
+    private static string SubqueryWith(Rel r, string selectSql)
+    {
+        var copy = r.Clone();
+        copy.Sel = [new Item(selectSql, null, null)];
+        copy.SuppressAliases = true;                      // a subquery's column has no name worth writing
+        return Nested(copy);
+    }
+
+    private Rel DelimJoin(JsonElement p, List<JsonElement> kids)
+    {
+        var left = Node(kids[0]);
+        // the subquery becomes part of the select list or WHERE of the outer block, so that block must be able to hold it: not a DISTINCT, LIMIT, set operation or window
+        if (!left.Mergeable() || left.HasWindow) left = Wrap(left);
+        var lo = left.Outs();
+        var duplicate = Arr(p, "duplicate_eliminated_columns").Select(e => new Item(Requalify(Expr(e, lo)), null, TypeNameOf(e), Outer: true)).ToList();
+        if (left.HasAgg && duplicate.Any(d => !Regex.IsMatch(d.Sql, "^\u0002[^\u0001\0\u0002]*\u0001[^\0\u0002]*\u0002$")))
+        {
+            left = Wrap(left);         // correlated on an aggregate: it has to be a column of something
+            lo = left.Outs();
+            duplicate = Arr(p, "duplicate_eliminated_columns").Select(e => new Item(Requalify(Expr(e, lo)), null, TypeNameOf(e), Outer: true)).ToList();
+        }
+        delimFrames.Push(duplicate);
+        Rel right;
+        try { right = Node(kids[1]); }
+        finally { delimFrames.Pop(); }
+
+        var joinType = Str(p, "join_type")!;
+        if (right.SetOp != null) throw new LoweringException("a correlated subquery over a set operation (UNION, INTERSECT, EXCEPT)");
+        var ro = right.Outs();
+        // conditions that tie a duplicate-eliminated column to its carried copy on the right are plumbing; any other condition is the comparison of an IN
+        var real = new List<(string Left, string Op, string Right, int RightIndex)>();
+        foreach (var c in Arr(p, "conditions"))
+        {
+            var r = c.GetProperty("right");
+            var carried = r.GetProperty("type").GetString() == "BOUND_REF" && right.Sel[r.GetProperty("index").GetInt32()].Outer;
+            if (carried) continue;
+            real.Add((Expr(c.GetProperty("left"), lo), Str(c, "comparison")!, Expr(r, ro), r.TryGetProperty("index", out var ix) ? ix.GetInt32() : -1));
+        }
+
+        switch (joinType)
+        {
+            case "MARK":
+            {
+                string mark;
+                if (real.Count == 0) mark = $"EXISTS (\n{SubqueryWith(right, "1")}\n)";
+                else if (real.Count == 1 && real[0].Op == "COMPARE_EQUAL") mark = $"({real[0].Left} IN (\n{SubqueryWith(right, real[0].Right)}\n))";
+                else throw new LoweringException("a subquery comparison other than IN and EXISTS");
+                left.Sel = left.Sel.Append(new Item(mark, null, "BOOLEAN")).ToList();
+                left.Plain = false;
+                return left;
+            }
+            case "SINGLE":
+            {
+                var items = new List<Item>();
+                for (var i = 0; i < right.Sel.Count; i++)
+                {
+                    var item = right.Sel[i];
+                    if (item.Outer)
+                    {
+                        // the carried copy of an outer value is that outer value
+                        var link = Arr(p, "conditions").FirstOrDefault(c => c.GetProperty("right").GetProperty("type").GetString() == "BOUND_REF" && c.GetProperty("right").GetProperty("index").GetInt32() == i);
+                        items.Add(new Item(link.ValueKind == JsonValueKind.Object ? Expr(link.GetProperty("left"), lo) : Unqualify(item.Sql), null, item.Type, Outer: false));
+                    }
+                    else items.Add(new Item($"(\n{SubqueryWith(right, item.Sql)}\n)", null, item.Type));
+                }
+                left.Sel = left.Sel.Concat(items).ToList();
+                left.Plain = false;
+                return left;
+            }
+            case "INNER" or "LEFT":
+            {
+                if (real.Count > 0) throw new LoweringException("a lateral join with a comparison");
+                if (!left.Plain && (joinType == "LEFT" || !left.Mergeable() || left.HasAgg || left.HasWindow || left.Where.Count > 0)) left = Wrap(left);
+                var alias = Fresh();
+                var rightNames = right.Aliases();
+                var lateral = Nested(right);
+                var rel = new Rel
+                {
+                    Sources = left.Sources.Append(alias).ToList(),
+                    Frm = $"{left.Frm}\n{(joinType == "LEFT" ? "LEFT JOIN" : "CROSS JOIN")} LATERAL (\n{lateral}\n) AS {alias}{(joinType == "LEFT" ? " ON TRUE" : "")}",
+                    Sel = left.Sel.Concat(rightNames.Select((n, i) => new Item(Token(alias, n), n, right.Sel[i].Type))).ToList(),
+                };
+                rel.Where.AddRange(left.Where);
+                return rel;
+            }
+        }
+        throw new LoweringException($"a subquery of join type {joinType}");
+    }
+
+    /// <summary>`x IN (SELECT y ...)` with no correlation: a MARK join of the outer relation with the subquery.</summary>
+    private Rel MarkJoin(JsonElement p, List<JsonElement> kids)
+    {
+        var left = Node(kids[0]);
+        var right = Node(kids[1]);
+        var conditions = Arr(p, "conditions").ToList();
+        if (conditions.Count != 1 || Str(conditions[0], "comparison") != "COMPARE_EQUAL") throw new LoweringException("a subquery comparison other than IN and EXISTS");
+        var x = Expr(conditions[0].GetProperty("left"), left.Outs());
+        var y = Expr(conditions[0].GetProperty("right"), right.Outs());
+        left.Sel = left.Sel.Append(new Item($"({x} IN (\n{SubqueryWith(right, y)}\n))", null, "BOOLEAN")).ToList();
+        left.Plain = false;
+        return left;
+    }
+
+    /// <summary>A join where one side is the duplicate-eliminated outer values: those are not a table here, they are the outer query, so the join disappears.</summary>
+    private Rel JoinWithDelim(JsonElement p, string type, Rel l, Rel r)
+    {
+        var other = l.IsDelim ? r : l;
+        if (l.IsDelim && r.IsDelim) throw new LoweringException("a join of two sets of correlated values");
+        if (type == "LOGICAL_COMPARISON_JOIN")
+        {
+            var jt = Str(p, "join_type");
+            if (jt is not ("INNER" or "LEFT") || (jt == "LEFT" && !l.IsDelim)) throw new LoweringException($"the correlated join type {jt}");
+            var lo = l.Outs(); var ro = r.Outs();
+            foreach (var c in Arr(p, "conditions"))
+            {
+                var le = c.GetProperty("left"); var re = c.GetProperty("right");
+                var bothOuter = IsOuterRef(le, l.Sel) && IsOuterRef(re, r.Sel);
+                if (bothOuter) continue;      // the join back to the outer value: true by construction
+                if (other.HasAgg) throw new LoweringException("a correlated predicate over an aggregate");
+                other.Where.Add($"({Expr(le, lo)} {Comparisons[Str(c, "comparison")!]} {Expr(re, ro)})");
+            }
+            if (p.TryGetProperty("expression", out _)) throw new LoweringException("a correlated join with an extra expression");
+        }
+        var sel = l.Sel.Concat(r.Sel).ToList();
+        other.Sel = sel;
+        other.Plain = false;
+        return other;
+    }
+
+    private static bool IsConstantRow(Rel r) => r.Frm.Length == 0 && r.Sources.Count == 0 && !r.IsDelim && r.SetOp == null && r.Where.Count == 0 && r.Group.Count == 0;
+
+    /// <summary>
+    /// An uncorrelated scalar subquery or EXISTS is a one-row relation crossed with the outer query. DuckDB writes the single-row guarantee of a scalar subquery as
+    /// `CASE WHEN count(*) > 1 THEN error(...) ELSE first(x) END` over the subquery, and EXISTS as `count(*) = 1` over `LIMIT 1`. Both are turned back into the subquery.
+    /// </summary>
+    private Rel? TryUncorrelatedScalar(JsonElement p, List<JsonElement> kids)
+    {
+        if (kids.Count != 1 || Str(kids[0], "type") != "LOGICAL_AGGREGATE_AND_GROUP_BY" || kids[0].TryGetProperty("groups", out var gs) && gs.GetArrayLength() > 0) return null;
+        var agg = kids[0];
+        var aggs = Arr(agg, "expressions").ToList();
+        var aggKids = Arr(agg, "children").ToList();
+        if (aggKids.Count != 1) return null;
+        var projections = Arr(p, "expressions").ToList();
+
+        // EXISTS (SELECT ...): count(*) over a LIMIT 1, compared with 1
+        if (aggs.Count == 1 && Str(aggs[0], "name") == "count_star" && Str(aggKids[0], "type") == "LOGICAL_LIMIT" && projections.Count == 1 &&
+            Str(projections[0], "type") == "COMPARE_EQUAL" && projections[0].GetProperty("left").GetProperty("type").GetString() == "BOUND_REF" &&
+            projections[0].GetProperty("right").GetProperty("type").GetString() == "VALUE_CONSTANT")
+        {
+            var want = projections[0].GetProperty("right").GetProperty("value").GetProperty("value").GetInt64();
+            if (want is not (0 or 1)) return null;
+            var limit = aggKids[0];
+            if (!(Str(limit.GetProperty("limit_val"), "type") == "CONSTANT_VALUE" && limit.GetProperty("limit_val").GetProperty("constant_integer").GetInt64() == 1) || (limit.TryGetProperty("offset_val", out var off) && Str(off, "type") != "UNSET")) return null;
+            var inner = Node(Arr(limit, "children").First());
+            var text = $"EXISTS (\n{SubqueryWith(inner, "1")}\n)";
+            return new Rel { Sel = [new Item(want == 1 ? text : $"(NOT {text})", Str(projections[0], "alias"), "BOOLEAN")] };
+        }
+
+        // (SELECT x FROM ...): first(x) guarded by count(*) > 1
+        if (aggs.Count >= 1 && aggs.Count <= 2 && aggs.Any(a => Str(a, "name") == "first") && projections.Count >= 1 && projections.All(e => Str(e, "type") == "CASE_EXPR"))
+        {
+            var guarded = projections.All(e => Arr(e, "case_checks").Count() == 1 && Str(Arr(e, "case_checks").First().GetProperty("then_expr"), "name") == "error" && e.GetProperty("else_expr").GetProperty("type").GetString() == "BOUND_REF");
+            if (!guarded) return null;
+            var columns = new List<(JsonElement Expression, int Column)>();
+            foreach (var e in projections)
+            {
+                var firstAgg = aggs[e.GetProperty("else_expr").GetProperty("index").GetInt32()];
+                if (Str(firstAgg, "name") != "first") return null;
+                columns.Add((e, Arr(firstAgg, "children").First().GetProperty("index").GetInt32()));
+            }
+            var inner = Node(aggKids[0]);          // only now that the shape is certain: lowering a node has side effects (aliases are numbered)
+            var items = columns.Select(x => new Item($"(\n{SubqueryWith(inner, inner.Sel[x.Column].Sql)}\n)", Str(x.Expression, "alias"), TypeNameOf(x.Expression))).ToList();
+            return new Rel { Sel = items };
+        }
+        return null;
     }
 
     private static string? TypeNameOf(JsonElement e) => e.TryGetProperty("return_type", out var t) ? TypeName(t) : null;
