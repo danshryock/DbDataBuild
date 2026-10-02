@@ -57,3 +57,9 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 2. Milestone 9 hardening: error-scrub fuzzing, single-file publish on linux and Windows, operations guide.
 3. `ANY`/`ALL`, row-value `IN`, index lint/generation, per-command JSON Schemas, as demand appears.
 4. Fabric verification (moved to the back by your decision, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
+
+## F. Terminal interface and agents (added 2026-10-02)
+
+- **TUI gaps**: apply runs on the UI thread with no progress or cancel (streaming the statement log into the screen is the fix); forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; Windows terminals not tried; view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
+- **Sample data gaps**: no `--target` emulation (it runs in DuckDB only, so string-semantics emulation of a target is not applied); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
+

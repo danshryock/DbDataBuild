@@ -1,0 +1,87 @@
+using System.CommandLine;
+using DbDataBuild.Core;
+using DbDataBuild.Models;
+using DbDataBuild.Tui;
+using DbDataBuild.Tui.Model;
+
+namespace DbDataBuild.Cli;
+
+/// <summary>`dbdatabuild tui`: the terminal user interface. It connects to nothing itself; each action it runs is a command with its own effect class.</summary>
+internal static class TuiCommand
+{
+    public static int Run(CommandSpec spec, string projectRoot, string? target, bool json, TextWriter output, TextWriter error, Func<string, string?> env)
+    {
+        if (json) { error.WriteLine("`tui` is interactive and has no JSON form. Use the other commands with --format json."); return CliApp.ExitUsage; }
+        if (Console.IsOutputRedirected || Console.IsInputRedirected) { error.WriteLine("`tui` needs a terminal: standard input and output must not be redirected."); return CliApp.ExitUsage; }
+        if (!Directory.Exists(projectRoot)) { error.WriteLine($"The project directory `{projectRoot}` does not exist."); return CliApp.ExitUsage; }
+        if (target != null && !TargetNames.All.Contains(target)) { error.WriteLine($"Unknown target `{target}`. One of: {string.Join(", ", TargetNames.All)}."); return CliApp.ExitUsage; }
+        return TuiApp.Run(new CliHost(env), new TuiOptions(Path.GetFullPath(projectRoot), target));
+    }
+
+    /// <summary>Commands run in this process through the same entry point as the real CLI, always with `--format json`, never interactively.</summary>
+    internal sealed class CliHost(Func<string, string?> env) : ICommandHost
+    {
+        private static readonly string[] Hidden = ["--help", "--version", "--format"];
+        private IReadOnlyList<CommandInfo>? commands;
+
+        public IReadOnlyList<CommandInfo> Commands => commands ??= Catalog();
+
+        public CommandResult Run(IReadOnlyList<string> args)
+        {
+            var o = new StringWriter();
+            var e = new StringWriter();
+            var exit = CliApp.Run([.. args, "--format", "json"], o, e, input: TextReader.Null, interactive: false, environment: env);
+            return new CommandResult(exit, o.ToString(), e.ToString());
+        }
+
+        internal static IReadOnlyList<CommandInfo> Catalog()
+        {
+            var root = CliApp.Build(new StringWriter(), new StringWriter(), TextReader.Null, interactive: false);
+            var specs = CommandSpecs.All.ToDictionary(s => s.Name);
+            var result = new List<CommandInfo>();
+            foreach (var cmd in root.Subcommands.Where(c => c.Name != "tui"))
+            {
+                var spec = specs[cmd.Name];
+                var args = cmd.Arguments.Select(a => new ArgumentInfo(a.Name, a.Description ?? "", a.Arity.MaximumNumberOfValues > 1, a.Arity.MinimumNumberOfValues > 0, ArgumentChoices(cmd.Name, a.Name))).ToList();
+                var options = cmd.Options.Where(o => !Hidden.Contains(o.Name)).Select(o => Describe(o)).ToList();
+                result.Add(new CommandInfo(cmd.Name, spec.Purpose, spec.Effect.Describe(), ImpactOf(spec.Effect), args, options, WriteFlagOf(cmd.Name)));
+            }
+            return result;
+        }
+
+        private static OptionInfo Describe(Option o)
+        {
+            var type = o.ValueType;
+            var kind = type == typeof(bool) ? OptionKind.Flag : type == typeof(int) ? OptionKind.Integer
+                : type == typeof(DirectoryInfo) || type == typeof(FileInfo) ? OptionKind.Path : type == typeof(string[]) ? OptionKind.List : OptionKind.Text;
+            string? def = o.HasDefaultValue ? o.GetDefaultValue() switch { null => null, string[] a => string.Join(",", a), var v => v.ToString() } : null;
+            var choices = o.Name == "--target" ? TargetNames.All : [];
+            if (choices.Count > 0 && kind == OptionKind.Text) kind = OptionKind.Choice;
+            return new OptionInfo(o.Name, o.Description ?? "", kind, def, choices);
+        }
+
+        private static IReadOnlyList<string> ArgumentChoices(string command, string name) => (command, name) switch
+        {
+            ("ack", "kind") => ["drift", "definition", "history"],
+            _ => [],
+        };
+
+        /// <summary>Commands that only change something when a flag says so (render prints unless --write; apply changes unless --dry-run).</summary>
+        private static string? WriteFlagOf(string command) => command switch
+        {
+            "render" or "define" => "--write",
+            "init" => "--apply",
+            "apply" => "!--dry-run",
+            _ => null,
+        };
+
+        private static Impact ImpactOf(EffectClass e) => e switch
+        {
+            EffectClass.RepoFilesOnly => Impact.RepoFiles,
+            EffectClass.TrackingTablesOnly => Impact.TrackingTables,
+            EffectClass.TargetDataWrites => Impact.TargetData,
+            EffectClass.TargetWrites => Impact.Target,
+            _ => Impact.None,
+        };
+    }
+}

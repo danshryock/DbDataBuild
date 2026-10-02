@@ -12,11 +12,16 @@
     <ProjectReference Include="..\DbDataBuild.Apply\DbDataBuild.Apply.csproj" />
     <ProjectReference Include="..\DbDataBuild.Lowering\DbDataBuild.Lowering.csproj" />
     <ProjectReference Include="..\DbDataBuild.Sample\DbDataBuild.Sample.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Tui\DbDataBuild.Tui.csproj" />
     <ProjectReference Include="..\DbDataBuild.Targets.DuckDb\DbDataBuild.Targets.DuckDb.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DbDataBuild.Tests.Unit" />
   </ItemGroup>
 
   <PropertyGroup>

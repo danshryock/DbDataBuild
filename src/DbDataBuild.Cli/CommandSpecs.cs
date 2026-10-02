@@ -39,6 +39,7 @@ public static class CommandSpecs
         new("loads", EffectClass.OfflineOnly, "Print the model x target x operation pairing table", true),
         new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
+        new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
         new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
         new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),

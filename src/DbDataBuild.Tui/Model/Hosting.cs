@@ -1,0 +1,32 @@
+namespace DbDataBuild.Tui.Model;
+
+public enum OptionKind { Flag, Text, Integer, Path, Choice, List }
+
+/// <summary>What running a command can change, from nothing to the target's tables. Drives the confirmation the TUI asks for.</summary>
+public enum Impact { None, RepoFiles, TrackingTables, TargetData, Target }
+
+/// <param name="Name">The option's long name with its dashes (`--allow-risky`).</param>
+/// <param name="Default">The default value as text (null when there is none).</param>
+/// <param name="Choices">The values the option accepts, when it is a closed set.</param>
+public sealed record OptionInfo(string Name, string Description, OptionKind Kind, string? Default, IReadOnlyList<string> Choices);
+
+/// <param name="Repeatable">Takes several values (`models`).</param>
+/// <param name="Required">At least one value must be given.</param>
+public sealed record ArgumentInfo(string Name, string Description, bool Repeatable, bool Required, IReadOnlyList<string> Choices);
+
+/// <param name="Effect">The effect class as the command prints it ("Target read-only").</param>
+/// <param name="WriteFlag">When the command only changes something with a flag: `--write` (render, define), `--apply` (init), or `!--dry-run` (apply, which changes things unless the flag is given). Null: always, if <paramref name="Impact"/> is not None.</param>
+public sealed record CommandInfo(string Name, string Purpose, string Effect, Impact Impact, IReadOnlyList<ArgumentInfo> Arguments, IReadOnlyList<OptionInfo> Options, string? WriteFlag = null);
+
+/// <summary>What a command printed. The TUI always asks for `--format json`, so <see cref="Out"/> is one document.</summary>
+public sealed record CommandResult(int Exit, string Out, string Err);
+
+/// <summary>
+/// The TUI's only way to do anything: the command catalog (read from the real command definitions, so a new option shows up here without work) and running a command
+/// in process with arguments. The TUI is a client of the same machine interface a script or an agent uses.
+/// </summary>
+public interface ICommandHost
+{
+    IReadOnlyList<CommandInfo> Commands { get; }
+    CommandResult Run(IReadOnlyList<string> args);
+}

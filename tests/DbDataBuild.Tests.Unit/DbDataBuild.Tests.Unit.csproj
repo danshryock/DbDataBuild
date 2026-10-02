@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DbDataBuild.Core\DbDataBuild.Core.csproj" />
+    <ProjectReference Include="..\..\src\DbDataBuild.Tui\DbDataBuild.Tui.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Models\DbDataBuild.Models.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Cli\DbDataBuild.Cli.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Sql\DbDataBuild.Sql.csproj" />

@@ -541,6 +541,8 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild validate` | Offline only | Validate config, models, matrix lint, ScriptDOM parse. No target connection |
 | `dbdatabuild render [<model>]` | Repo files only (no target connection) | Render load operations and resolvers per target. Prints by default; `--write` writes the committed `rendered/` files; `--check` fails if committed files differ from a fresh render and writes nothing |
 | `dbdatabuild loads` | Offline only | Print the model x target x operation pairing table with matrix status |
+| `dbdatabuild sample [<model>...]` | Offline only | Run models on generated or supplied sample data in an in-memory DuckDB and show the rows (section 15.2). Connects to nothing, writes nothing |
+| `dbdatabuild tui` | Offline only itself; each action it runs declares its own effect | Interactive terminal interface (section 9.6) |
 | `dbdatabuild matrix` | Offline only | Print matrix and portability report |
 | `dbdatabuild explain <code>` | Offline only | Long-form diagnostic explanation |
 | `dbdatabuild define <path>` | Repo files only (no target connection) | Generate or update model definition files (YAML) from the query plus a guided walkthrough (section 6.5). `--check` writes nothing |
@@ -606,6 +608,19 @@ Every command takes `--format json` and then prints exactly one JSON document on
 - `schemas/metadata.schema.json` (`urn:dbdatabuild:schemas:metadata`) defines the **metadata documents**, one per project (`dbdatabuild.project/1`) and one per model (`dbdatabuild.model/1`): declared, DuckDB and native types per target, lineage, lowered artifact and rules, rendered loads with hashes and matrix status, indexes, resolved hooks, expected shape hashes, and the index advice. The same documents are what `validate` and `metadata` print and what `publish-metadata` stores in the tracking schema, so one schema covers both. A new optional key is not a version change; a removed or retyped key is.
 - The unit tests validate every offline command's document; the real-engine suite validates every document it sees from `init`, `check`, `plan`, `apply` (dry run, applied and refused), `run`, `report`, `ack` and `publish-metadata` against the schema, on both engines.
 - `define` reports its mode, what it checked or wrote, and each model's status with any open questions (as data, with options and proposals) so a pipeline can answer them and run again.
+
+### 9.6 The terminal interface (as built)
+
+`dbdatabuild tui` (Terminal.Gui 2.5, which needs .NET 10, so the solution moved from .NET 8, whose support ends in November 2026) lets a person choose an operation, plan it, read the plan and run it, without remembering options. **It has no logic of its own.** It is a client of the machine interface of section 9.5: every action runs a command in process with `--format json` and shows that document, and anything a command could not do it cannot do either. The consequences, all tested:
+
+- **Forms come from the command definitions.** The catalog is read from the real command tree (every option and argument, its type, default and description), and a form has one field per option or argument. A new option appears in the TUI without writing anything; a test requires every option of every command to be in the catalog, and that the arguments every form can produce are accepted by the real parser. The form shows the exact command line it stands for.
+- **Confirmation is by effect.** An action that changes something (data, the target, tracking tables, files) asks first, unless the form as filled in does not change anything (`render` without `--write`, `apply --dry-run`). A project with several default targets is asked once which to work on, instead of letting the command refuse.
+- **Questions become dialogs.** When `plan` or `define` stops with open questions, the TUI shows each with its context, options and the tool's proposal (never taken without an explicit choice), writes the answers as an answers file under `.dbdatabuild/`, and runs the command again with `--answers`, the way a pipeline would.
+- **Plans are read before they run.** The plan browser lists every step with its risk, the reasons, parameters, resolver result and the exact script, shows the report, and offers a dry run or apply with the flags the plan needs (`--allow-risky`, `--allow-destructive <objects>`) already filled in. A plan that was edited by hand cannot be opened as valid.
+- **Models** are browsed from the metadata document (columns with native types per target, loads, indexes, index advice, the lowered query) with actions on the selected model: sample data, render, plan, check.
+- **Sample data**: results of `sample` show as tables, one per model, with warnings (declared columns the query does not return) and errors.
+
+Keys: Enter opens, Tab moves, Esc closes a screen, F1 help, F2 models, F3 plans, F4 target, F5 last result, Ctrl+Q quits. `tui` refuses `--format json` and a redirected terminal. Terminal.Gui has no headless driver in its package, so the screens are checked by `scripts/tui_drive.py`, which runs the real app in a pseudo-terminal and prints the screen; the parts that decide behaviour (forms, results, questions, plans) are unit tested without a terminal.
 
 ## 10. Planning and applying
 
@@ -830,6 +845,7 @@ error DDB-214  marts/fct_orders.yml:3
 - A single schema source (the models' declared `columns` and source descriptors) generates both DuckDB DDL and target DDL. The type mapping lives in the matrix.
 - **Edge-case packs**: trailing spaces, mixed case, empty string vs NULL, non-ASCII text, max-precision decimals, boundary dates, duplicate keys, late-arriving rows.
 - Loading into the test engine: read from DuckDB and `SqlBulkCopy` into ephemeral tables.
+- **`dbdatabuild sample` (as built)** uses the same idea for people: it fills every source a model reads from its declared columns (`SampleGenerator`: deterministic from a seed; NULLs in nullable columns; strings that differ only by case, accent or trailing space, empty strings, quotes; decimals on rounding boundaries; doubles with inexact text; month-end dates; unique grain columns, with a composite grain unique as a combination and its first columns repeating so joins and GROUP BYs find matches), or from `<schema.table>.csv` files in `--data <dir>`, then runs the selected models and everything they read in dependency order as `CREATE TABLE ... AS <query>` in an in-memory DuckDB with external access off, so a downstream model reads what its upstream produced. A type with no generator is refused with the way out (supply rows). It answers what a query returns on data like this, offline; it is not a differential test and says nothing about a target engine.
 
 ### 15.3 Differential comparison rules
 

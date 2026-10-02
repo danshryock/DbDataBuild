@@ -79,6 +79,12 @@ public static class CliApp
                     cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), o, e)));
                     break;
+                case "tui":
+                    var tuiProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var tuiTarget = new Option<string?>("--target") { Description = "Target to work on (default: the project's only default target)" };
+                    cmd.Options.Add(tuiProject); cmd.Options.Add(tuiTarget);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => TuiCommand.Run(spec, pr.GetValue(tuiProject)!.FullName, pr.GetValue(tuiTarget), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "sample":
                     var sampleModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var sampleProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };

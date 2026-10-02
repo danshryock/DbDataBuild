@@ -1,0 +1,105 @@
+using System.Collections.ObjectModel;
+using System.Text;
+using System.Text.Json.Nodes;
+using DbDataBuild.Tui.Model;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
+
+namespace DbDataBuild.Tui.Views;
+
+/// <summary>The models of the project, read from the `metadata` document: what each one is, and the things to do with it (sample data, render, plan).</summary>
+public sealed class ModelsWindow : Ui.Modal
+{
+    private readonly TuiSession session;
+    private readonly JsonArray models;
+    private readonly ListView list;
+    private readonly TextView detail;
+
+    public static void Open(TuiSession s)
+    {
+        var result = s.Run(["metadata", "--project", s.ProjectRoot]);
+        if (result.Data["models"] is not JsonArray models || models.Count == 0)
+        {
+            Flow.Show(s, result);
+            return;
+        }
+        s.App.Run(new ModelsWindow(s, models));
+    }
+
+    private ModelsWindow(TuiSession s, JsonArray models) : base($"Models  ({models.Count})", 96, 94)
+    {
+        session = s;
+        this.models = models;
+        list = new ListView { X = 0, Y = 0, Width = 36, Height = Dim.Fill(2) };
+        list.SetSource(new ObservableCollection<string>(models.Select(m => (string?)m!["name"] ?? "?")));
+        detail = new TextView { X = Pos.Right(list) + 1, Y = 0, Width = Dim.Fill(1), Height = Dim.Fill(2), ReadOnly = true };
+        list.ValueChanged += (_, _) => ShowModel();
+
+        var close = Ui.Button("Close", () => Close(s.App), isDefault: true);
+        close.X = 0; close.Y = Pos.AnchorEnd(1);
+        View previous = close;
+        foreach (var (text, command) in new[] { ("Sample data…", "sample"), ("Render…", "render"), ("Plan…", "plan"), ("Check…", "check") })
+        {
+            var b = Ui.Button(text, () => Run(command));
+            b.X = Pos.Right(previous) + 2; b.Y = Pos.AnchorEnd(1);
+            Add(b);
+            previous = b;
+        }
+        Add(list, detail, close);
+        Ui.EscapeCloses(this, s.App);
+        ShowModel();
+    }
+
+    private string? Selected() => (list.SelectedItem ?? 0) is var i && i >= 0 && i < models.Count ? (string?)models[i]!["name"] : null;
+
+    private void Run(string command)
+    {
+        var name = Selected();
+        if (name == null) return;
+        var info = session.Host.Commands.First(c => c.Name == command);
+        Flow.Command(session, info, f => { if (f.Fields.FirstOrDefault(x => x.IsArgument && x.Label == "models") is { } models) models.Value = name; });
+    }
+
+    private void ShowModel()
+    {
+        var name = Selected();
+        detail.Text = name == null ? "" : Describe(models.First(m => (string?)m!["name"] == name)!);
+    }
+
+    private static string Describe(JsonNode m)
+    {
+        var sb = new StringBuilder();
+        var kind = m["kind"]!;
+        sb.AppendLine($"{(string?)m["name"]}   {(string?)kind["type"]}");
+        sb.AppendLine($"targets: {Join(m["targets"])}    grain: {Join(m["grain"])}");
+        if (kind["unique_key"] is JsonArray { Count: > 0 } uk) sb.AppendLine($"unique key: {Join(uk)}");
+        if ((string?)kind["time_column"] is { } tc) sb.AppendLine($"time column: {tc}{((string?)kind["lookback"] is { } lb ? ", lookback " + lb : "")}");
+        sb.AppendLine($"files: {(string?)m["files"]!["query"]}");
+        if (m["upstream"] is JsonArray { Count: > 0 } up) sb.AppendLine("reads: " + string.Join(", ", up.Select(u => $"{(string?)u!["name"]} ({(string?)u["kind"]})")));
+        sb.AppendLine().AppendLine("Columns");
+        foreach (var c in m["columns"]!.AsArray())
+        {
+            var native = c!["native"] is JsonObject n ? string.Join("; ", n.Select(p => $"{p.Key}: {(string?)p.Value!["type"] ?? (string?)p.Value["error"]}")) : "";
+            sb.AppendLine($"  {(string?)c["name"],-22} {(string?)c["logical_type"],-18} {((bool?)c["nullable"] ?? true ? "null" : "not null"),-9} {native}");
+        }
+        if (m["loads"] is JsonArray { Count: > 0 } loads)
+        {
+            sb.AppendLine().AppendLine("Loads");
+            foreach (var l in loads) sb.AppendLine($"  {(string?)l!["target"],-10} {(string?)l["operation"],-14} {(string?)l["strategy"],-24} {(string?)l["matrix_status"]}{((bool?)l["is_default"] == true ? "  (default)" : "")}");
+        }
+        if (m["indexes"] is JsonArray { Count: > 0 } ix)
+        {
+            sb.AppendLine().AppendLine("Indexes");
+            foreach (var i in ix) sb.AppendLine($"  {(string?)i!["name"]}  ({Join(i["columns"])}){((bool?)i["unique"] == true ? " unique" : "")}");
+        }
+        if (m["index_advice"] is JsonArray { Count: > 0 } adv)
+        {
+            sb.AppendLine().AppendLine("Index advice");
+            foreach (var a in adv) sb.AppendLine($"  {(string?)a!["code"]} {(string?)a["severity"]}: {Join(a["columns"])} ({(string?)a["reason"]}) -> {(string?)a["suggested"]}{((bool?)a["silenced"] == true ? "  [silenced]" : "")}");
+        }
+        if (m["lowered"] is JsonObject lo) sb.AppendLine().AppendLine($"Lowered query: {(string?)lo["file"]}   rules: {Join(lo["rules"])}");
+        return sb.ToString();
+    }
+
+    private static string Join(JsonNode? n) => n is JsonArray a ? string.Join(", ", a.Select(x => (string?)x)) : "";
+}
