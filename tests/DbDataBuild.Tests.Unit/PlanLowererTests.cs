@@ -16,6 +16,7 @@ public class PlanLowererTests
         var c = new DuckDBConnection("DataSource=:memory:");
         c.Open();
         Exec(c, File.ReadAllText(Path.Combine(RepoRoot(), "spike", "seed.duckdb.sql")));
+        QueryDescriber.PreparePlanConnection(c);        // the same plan shape as the production path
         return c;
     }
 

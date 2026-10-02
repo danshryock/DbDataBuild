@@ -525,6 +525,7 @@ public sealed class PlanLowerer
             }
             case "LOGICAL_DUMMY_SCAN": return new Rel();
             case "LOGICAL_PROJECTION" when TryUncorrelatedScalar(p, kids) is { } constant: return constant;
+            case "LOGICAL_PROJECTION" when TryCountPatch(p, kids) is { } counted: return counted;
             case "LOGICAL_PROJECTION":
             {
                 var c = Node(kids[0]);
@@ -623,9 +624,20 @@ public sealed class PlanLowerer
                     host.Plain = false;
                     return host;
                 }
+                // an aggregate without groups returns exactly one row: next to another relation it is a scalar subquery, and reads like the one the author wrote
+                if (t == "LOGICAL_CROSS_PRODUCT" && (IsSingleRow(r) || IsSingleRow(l)) && !(IsSingleRow(r) && IsSingleRow(l)))
+                {
+                    var hostIsLeft = IsSingleRow(r);
+                    var (host, single) = hostIsLeft ? (l, r) : (r, l);
+                    if (!host.Mergeable() || host.HasWindow) host = Wrap(host);
+                    var scalars = single.Sel.Select(i => new Item($"(\n{SubqueryWith(single, i.Sql)}\n)", null, i.Type)).ToList();
+                    host.Sel = (hostIsLeft ? host.Sel.Concat(scalars) : scalars.Concat(host.Sel)).ToList();
+                    host.Plain = false;
+                    return host;
+                }
                 if (!l.Plain) l = Wrap(l);
                 if (!r.Plain) r = Wrap(r);
-                var rel = new Rel { Sources = l.Sources.Concat(r.Sources).ToList(), Sel = l.Sel.Concat(r.Sel).ToList() };
+                var rel = new Rel { Sources = l.Sources.Concat(r.Sources).ToList(), Sel = l.Sel.Concat(RightColumns(p, r.Sel)).ToList() };
                 if (t == "LOGICAL_CROSS_PRODUCT") { rel.Frm = $"{l.Frm}\nCROSS JOIN {r.Frm}"; return rel; }
                 var joinType = Str(p, "join_type") switch { "INNER" => "JOIN", "LEFT" => "LEFT JOIN", "RIGHT" => "RIGHT JOIN", "OUTER" or "FULL" => "FULL JOIN", var other => throw new LoweringException($"the join type {other}") };
                 if (p.TryGetProperty("expression", out _)) throw new LoweringException("a join with an extra expression");
@@ -717,6 +729,9 @@ public sealed class PlanLowerer
     private static string Requalify(string text) => text.Replace('\0', '\u0002');
     private static string Unqualify(string text) => text.Replace('\u0002', '\0');
 
+    /// <summary>A block that is an aggregate with no grouping and nothing after it: it returns exactly one row.</summary>
+    private static bool IsSingleRow(Rel r) => r.HasAgg && r.Group.Count == 0 && r.Having.Count == 0 && !r.HasWindow && r.SetOp == null && !r.Distinct && r.Limit == null && r.Offset == null && r.Sel.All(i => !i.Outer);
+
     private static string Nested(Rel r)
     {
         var sql = r.Sql();
@@ -779,6 +794,7 @@ public sealed class PlanLowerer
                 var items = new List<Item>();
                 for (var i = 0; i < right.Sel.Count; i++)
                 {
+                    if (!Projected(p, i)) continue;
                     var item = right.Sel[i];
                     if (item.Outer)
                     {
@@ -803,7 +819,7 @@ public sealed class PlanLowerer
                 {
                     Sources = left.Sources.Append(alias).ToList(),
                     Frm = $"{left.Frm}\n{(joinType == "LEFT" ? "LEFT JOIN" : "CROSS JOIN")} LATERAL (\n{lateral}\n) AS {alias}{(joinType == "LEFT" ? " ON TRUE" : "")}",
-                    Sel = left.Sel.Concat(rightNames.Select((n, i) => new Item(Token(alias, n), n, right.Sel[i].Type))).ToList(),
+                    Sel = left.Sel.Concat(rightNames.Select((n, i) => (n, i)).Where(x => Projected(p, x.i)).Select(x => new Item(Token(alias, x.n), x.n, right.Sel[x.i].Type))).ToList(),
                 };
                 rel.Where.AddRange(left.Where);
                 return rel;
@@ -812,7 +828,68 @@ public sealed class PlanLowerer
         throw new LoweringException($"a subquery of join type {joinType}");
     }
 
-    /// <summary>`x IN (SELECT y ...)` with no correlation: a MARK join of the outer relation with the subquery.</summary>
+    /// <summary>
+    /// DuckDB 2.0 guards a correlated `count` against the COUNT bug: an outer key with no rows must give 0, not NULL. Its plan is the grouped count LEFT-joined to the
+    /// distinct outer keys, LEFT-joined again to a count over an empty result, and a CASE that picks the empty count when the key found nothing:
+    /// <code>PROJECTION [CASE WHEN marker IS NULL THEN empty_count ELSE count END, key]  over  LEFT(LEFT(DELIM_GET, AGG(count, count GROUP BY key)), AGG(count OVER EMPTY))</code>
+    /// A scalar subquery `(SELECT count(*) ...)` already yields 0 over no rows, so the whole shape is just the grouped aggregate: this returns its count and the carried key,
+    /// which is what the 1.x plan had.
+    /// </summary>
+    /// <summary>
+    /// DuckDB 2.0 lists the columns of the right side that a join outputs in `right_projection_map` (it drops the carried copy of a correlated key, for example). Absent, as in
+    /// 1.x, every column is output.
+    /// </summary>
+    private static IReadOnlyList<Item> RightColumns(JsonElement p, IReadOnlyList<Item> right) =>
+        p.TryGetProperty("right_projection_map", out var map) && map.ValueKind == JsonValueKind.Array && map.GetArrayLength() > 0
+            ? map.EnumerateArray().Select(i => right[i.GetInt32()]).ToList() : right;
+
+    private static bool Projected(JsonElement p, int rightIndex) =>
+        !(p.TryGetProperty("right_projection_map", out var map) && map.ValueKind == JsonValueKind.Array && map.GetArrayLength() > 0) || map.EnumerateArray().Any(i => i.GetInt32() == rightIndex);
+
+    private Rel? TryCountPatch(JsonElement p, List<JsonElement> kids)
+    {
+        if (kids.Count != 1 || Str(kids[0], "type") != "LOGICAL_COMPARISON_JOIN" || Str(kids[0], "join_type") != "LEFT" || Arr(kids[0], "conditions").Any()) return null;
+        var outer = Arr(kids[0], "children").ToList();
+        if (outer.Count != 2 || Str(outer[1], "type") != "LOGICAL_AGGREGATE_AND_GROUP_BY" || Arr(outer[1], "groups").Any()) return null;
+        var emptyKids = Arr(outer[1], "children").ToList();
+        if (emptyKids.Count != 1 || Str(emptyKids[0], "type") != "LOGICAL_EMPTY_RESULT") return null;
+        var inner = outer[0];
+        if (Str(inner, "type") != "LOGICAL_COMPARISON_JOIN" || Str(inner, "join_type") != "LEFT" || Arr(inner, "conditions").Any(c => Str(c, "comparison") != "COMPARE_NOT_DISTINCT_FROM")) return null;
+        var inside = Arr(inner, "children").ToList();
+        if (inside.Count != 2 || Str(inside[0], "type") != "LOGICAL_DELIM_GET" || Str(inside[1], "type") != "LOGICAL_AGGREGATE_AND_GROUP_BY") return null;
+        if (!Arr(outer[1], "expressions").All(e => Str(e, "name") is "count_star" or "count")) throw new LoweringException("a correlated aggregate that is not a count, over a COUNT-bug guard");
+
+        var delim = Node(inside[0]);
+        var agg = Node(inside[1]);
+        var items = delim.Sel.Concat(agg.Sel).Append(new Item("0", null, "BIGINT")).ToList();
+        var outs = items.Select(i => i.Sql).ToList();
+        var result = new List<Item>();
+        foreach (var e in Arr(p, "expressions"))
+        {
+            if (Str(e, "type") == "CASE_EXPR" && Arr(e, "case_checks").ToList() is [{ } check] && IsGuardCase(e, check, delim.Sel.Count, items.Count - 1, out var count))
+                result.Add(items[count] with { Outer = false });
+            else
+                result.Add(new Item(Expr(e, outs), Str(e, "alias"), TypeNameOf(e), IsOuterRef(e, items)));
+        }
+        var rel = agg.Clone();
+        rel.Sel = result;
+        rel.Plain = false;
+        return rel;
+    }
+
+    /// <summary>`CASE WHEN #marker IS NULL THEN #empty ELSE #count END`: the marker is a column of the grouped side, the empty count is the last column.</summary>
+    private static bool IsGuardCase(JsonElement e, JsonElement check, int firstAggColumn, int emptyColumn, out int count)
+    {
+        count = -1;
+        var when = check.GetProperty("when_expr");
+        var then = check.GetProperty("then_expr");
+        var other = e.GetProperty("else_expr");
+        if (Str(when, "type") != "OPERATOR_IS_NULL" || Arr(when, "children").FirstOrDefault() is not { ValueKind: JsonValueKind.Object } m || Str(m, "type") != "BOUND_REF") return false;
+        if (Str(then, "type") != "BOUND_REF" || then.GetProperty("index").GetInt32() != emptyColumn || Str(other, "type") != "BOUND_REF") return false;
+        count = other.GetProperty("index").GetInt32();
+        return m.GetProperty("index").GetInt32() >= firstAggColumn && count >= firstAggColumn;
+    }
+
     /// <summary>
     /// A MARK join that is not wrapped in a delim join: how DuckDB 2.0 hands over EXISTS and IN. Its decorrelation has already happened, so the correlated predicates are join
     /// conditions between the outer (left) and the subquery (right) side. An EQUAL condition is the comparison of an IN; the other conditions are the correlation and go back into
@@ -885,7 +962,7 @@ public sealed class PlanLowerer
             }
             if (p.TryGetProperty("expression", out _)) throw new LoweringException("a correlated join with an extra expression");
         }
-        var sel = l.Sel.Concat(r.Sel).ToList();
+        var sel = l.Sel.Concat(RightColumns(p, r.Sel)).ToList();
         other.Sel = sel;
         other.Plain = false;
         return other;

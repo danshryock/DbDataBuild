@@ -4,10 +4,11 @@ Investigated 2026-10-02 against **2.0.0-alpha44073** (the `v2.0-cyanoptera` bran
 
 ## Bottom line
 
-- **Nothing in dbdatabuild's SQL semantics breaks.** On the 94-construct corpus (`spike/constructs.yml` on the seeded data) 1.5 and 2.0 return the same rows, errors and types. The script reports 4 differences: one is a column name (below), and three are noise (the CSV header printed on an error path, and a random `USING SAMPLE`). The query-level breaking changes in DuckDB 2.0 (integer `//` by zero raises, `~` matches like PostgreSQL, the lambda arrow errors) do not touch anything dbdatabuild generates or accepts.
-- **One real incompatibility: the serialized plan.** DuckDB 2.0 restructured `json_serialize_plan`, which the lowerer reads. About **1,057 of 1,074 unit tests pass on 2.0 after a normalizer** (`PlanNormalizer`, committed, harmless on 1.x). The 17 that fail are all **correlated scalar subqueries that return an aggregate** (the decorrelation shape changed; details below). EXISTS, IN, NOT EXISTS, LATERAL-free forms, joins, windows, DISTINCT ON, integer series, CTEs, every target rule, `define`, `sample`, `render`, `plan`'s offline half all pass.
+- **Update 2026-10-02 (later the same day): the whole suite passes on the 2.0 alpha.** Unit tests 1,084 of 1,084 and the real-engine suite 83 of 83 (SQL Server 2022 and PostgreSQL 17, with the alpha `libduckdb` swapped in), same as on 1.5.6. Across 207 lowering queries the lowered text differs on only three cosmetic points (below), so committed artifacts hardly change on upgrade.
+- **Nothing in dbdatabuild's SQL semantics breaks.** On the 94-construct corpus (`spike/constructs.yml` on the seeded data) 1.5 and 2.0 return the same rows, errors and types. The script reports 4 differences: one is a column name, and three are noise (the CSV header printed on an error path, and a random `USING SAMPLE`). The query-level breaking changes in DuckDB 2.0 (integer `//` by zero raises, `~` matches like PostgreSQL, the lambda arrow errors) do not touch anything dbdatabuild generates or accepts.
+- **One real incompatibility, now handled: the serialized plan.** DuckDB 2.0 restructured `json_serialize_plan`, which the lowerer reads. `PlanNormalizer` rewrites a 2.0 plan into the 1.x shape (identity on 1.x). Correlated subqueries needed one more thing: DuckDB 2.0 decorrelates them into materialized CTEs and joins to grouped derived tables, which cannot be turned back into the author's subquery without pattern-matching every rewrite. DuckDB's setting **`delim_join_as_cte = false`** brings the old delim-join form back, and `QueryDescriber.PreparePlanConnection` sets it whenever it exists. **That setting is marked deprecated** ("will be removed in a future release"). Without it 16 of the 1,084 tests fail (correlated subqueries again: see "If the setting goes away").
 - **DuckDB.NET has no 2.0 build yet** (latest 1.5.6; its `develop` branch is active and a `nightly-builds` branch exists). The *old* C API still works against the 2.0 library, which is why the experiment could run with only the native library swapped.
-- **Recommendation:** keep 1.5.6 as the default now. Land 2.0 support in this order: (1) the plan normalizer and a CI job that runs the suite against the preview (done: `scripts/test-duckdb-preview.sh`); (2) finish the correlated-scalar lowering once a **release candidate** exists, because the plan shape is the one thing still allowed to move; (3) switch the pinned version when DuckDB 2.0.0 and a matching DuckDB.NET are both out. Adopting the alpha as the default now would regress correlated scalar subqueries, which are a hard requirement.
+- **Recommendation (revised):** 2.0 can now be adopted as soon as 2.0.0 and a matching DuckDB.NET exist: no lowering work stands in the way. Until then 1.5.6 stays the default. Run `scripts/test-duckdb-preview.sh` (and with `TEST_PROJECT=tests/DbDataBuild.Tests.Conformance` against the engines) on each alpha or release candidate; if the deprecated setting disappears before or at 2.0.0, do the inverse decorrelation described below.
 
 ## How it was tested
 
@@ -40,17 +41,30 @@ DuckDB's plan JSON is internal, so a major version moving it is expected. The di
  "left":{...}, "right":{...}}                   "qname":{"path":[">"]}, "children":[{...},{...}]}
 ```
 
-### What is left for 2.0: correlated scalar subqueries
+### If the setting goes away: correlated scalar subqueries
 
-17 test forms fail on the alpha, in three shapes: a `SINGLE` or `LEFT` join to a grouped derived table (`SELECT id, (SELECT max(b) FROM u WHERE u.a = t.a) FROM t`), the `count(*)` version with `LOGICAL_EMPTY_RESULT` and a CASE, and a `SEMI` join (a new join type in unoptimized plans). The lowering is a pattern match that turns the decorrelated join back into the subquery the author wrote:
+Without `delim_join_as_cte = false` the alpha plans correlated scalar subqueries as a `SINGLE` or `LEFT` join to a grouped derived table, a `count(*)` additionally gets a CASE and an empty-result branch (the COUNT-bug guard) wrapped in materialized CTEs (`LOGICAL_MATERIALIZED_CTE` / `LOGICAL_CTE_REF`), and a `SEMI` join appears. 16 test forms fail in that configuration. Turning it back into the author's subquery is a pattern match:
 
 ```sql
--- the author wrote                                   -- the 2.0 plan describes
+-- the author wrote                                   -- the 2.0 plan (setting off the old shape) describes
 SELECT id, (SELECT max(b) FROM u WHERE u.a = t.a)     SELECT t.id, g.m FROM t LEFT JOIN
 FROM t                                                  (SELECT a, max(b) AS m FROM u WHERE a IS NOT NULL GROUP BY a) g ON t.a = g.a
 ```
 
-Both are correct; the first is what we promised ("reasonably similar to the source"). The inverse needs the shapes to be final. DuckDB has **no setting** to keep the old decorrelation (checked `duckdb_settings()`), so this cannot be avoided by configuration.
+Both are correct; the first is what we promised ("reasonably similar to the source"). The pieces already written help: `TryCountPatch` recognizes the COUNT-bug guard, and `MarkJoin` already reads the 2.0 MARK join for EXISTS and IN.
+
+### What the adaptation changed in the lowerer
+
+| Where | Change |
+|---|---|
+| `PlanNormalizer` | names from `qname`; comparison, cast and BETWEEN functions back to their node kinds; `NOT` over `IN` is `NOT IN`; `NOT` over a comparison is the opposite comparison (2.0 no longer folds it); `lead`/`lag` arguments, with an offset of 1 and a NULL default dropped as 1.x did |
+| `MarkJoin` | EXISTS and IN arrive as MARK joins with the correlation in the join conditions; EQUAL is an IN, the rest go back into the subquery's WHERE (its own column first: `u.a = t.a`), and the `IS NOT NULL` guard that makes null-safe equality an equality is removed again |
+| `TryCountPatch` | the COUNT-bug guard shape is just the grouped count |
+| right projection map | 2.0 lists the right-side columns a join outputs (`right_projection_map`); absent means all, as in 1.x |
+| single-row cross product | an ungrouped aggregate next to another relation is a scalar subquery again: `WHERE a > (SELECT min(a) FROM u)` instead of a CROSS JOIN |
+| `QueryDescriber.PreparePlanConnection` | sets `delim_join_as_cte = false` when the setting exists |
+
+The three remaining text differences are cosmetic and equivalent: `SELECT NULL AS x` is no longer cast to INTEGER (the column is untyped NULL), `date_part('year', d)` is `year(d)`, and an unaliased `trim(s)` column is named `"trim"(s)` instead of `main."trim"(s)`.
 
 ## Behavior changes found
 
@@ -73,6 +87,6 @@ The matrix needed no change: it describes engines other than DuckDB, and DuckDB'
 
 ## When to move
 
-- **Now:** nothing breaks on 1.5.6, and the normalizer is in. Run `scripts/test-duckdb-preview.sh` weekly (or in CI) to watch the alpha converge; each run says how many forms still fail.
-- **When the first release candidate appears:** finish the correlated-scalar lowering against it (budget a day or two), and re-run the real-engine suite with the preview library, since lowered text feeds the target engines.
-- **When 2.0.0 and a DuckDB.NET release for it exist:** bump `DuckDB.NET.Data.Full` and `Bindings.Full`, regenerate the committed lowered artifacts (their headers change), run both suites, and make 2.0 the default. Keep the 1.x path alive for one release: DuckDB 1.4 is an LTS line and 1.5 stays supported for a while, and the normalizer costs nothing.
+- **Now:** nothing blocks the move except the two packages: run `scripts/test-duckdb-preview.sh` (unit) and `TEST_PROJECT=tests/DbDataBuild.Tests.Conformance scripts/test-duckdb-preview.sh` (real engines) on each alpha or release candidate, watching for the deprecated setting.
+- **When 2.0.0 and a DuckDB.NET release for it exist:** bump `DuckDB.NET.Data.Full` and `Bindings.Full`, regenerate the committed lowered artifacts (their headers carry the DuckDB version), run both suites, and make 2.0 the default. Keep the 1.x path for one release: DuckDB 1.4 is an LTS line and 1.5 stays supported for a while, and the normalizer costs nothing.
+- **If `delim_join_as_cte` is removed first:** write the inverse decorrelation described above (a day or two, with the 16 forms as the test).

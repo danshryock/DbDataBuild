@@ -132,3 +132,7 @@ The solution is now on **.NET 10** (Terminal.Gui 2.1+ needs it, and .NET 8 leave
 
 Unit tests 1032; real-engine tests 83 (re-run after the schema changes).
 
+## Update (2026-10-02): correlated subqueries on DuckDB 2.0
+
+Done: the whole suite now passes on the 2.0 alpha, both the unit tests (1,084) and the real-engine tests on SQL Server and PostgreSQL (83), and the lowered text matches 1.5's except for three cosmetic differences (an untyped `NULL` column, `year(d)` for `date_part('year', d)`, and the generated name of an unaliased `trim(s)` column). The key was a DuckDB setting that keeps the old subquery plan shape. **The risk to know about:** DuckDB has already marked that setting deprecated. If it disappears, 16 correlated-subquery forms need an inverse decorrelation (a day or two; written up in `docs/research/duckdb-2.0/README.md`). I also fixed a bug the work exposed in how a join's output columns are counted, which would have produced wrong values for a query with two scalar subqueries on 2.0. Adoption now waits only on DuckDB 2.0.0 and a DuckDB.NET release for it; I'd switch then, not before.
+

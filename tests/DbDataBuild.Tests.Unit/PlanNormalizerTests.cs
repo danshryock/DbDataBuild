@@ -71,4 +71,43 @@ public class PlanNormalizerTests
         var n = Norm("{\"qname\":{\"path\":[\"x\"]},\"ci\":{\"index\":0,\"type\":{\"id\":\"INVALID\"}}}");
         Assert.Equal("INVALID", (string)n["ci"]!["type"]!["id"]!);
     }
+    [Fact]
+    public void Between_becomes_a_between_with_input_lower_upper_and_its_inclusive_flags()
+    {
+        var n = Norm("{\"e\":{\"expression_class\":\"BOUND_FUNCTION\",\"type\":\"COMPARE_BETWEEN\",\"qname\":{\"path\":[\"__between\"]},\"function_data\":{\"lower_inclusive\":true,\"upper_inclusive\":false},\"children\":[{\"type\":\"BOUND_REF\",\"index\":1},{\"type\":\"VALUE_CONSTANT\",\"alias\":\"lo\"},{\"type\":\"VALUE_CONSTANT\",\"alias\":\"hi\"}]}}");
+        var e = n["e"]!;
+        Assert.Equal("BOUND_BETWEEN", (string)e["expression_class"]!);
+        Assert.Equal((1, "lo", "hi"), ((int)e["input"]!["index"]!, (string)e["lower"]!["alias"]!, (string)e["upper"]!["alias"]!));
+        Assert.Equal((true, false), ((bool)e["lower_inclusive"]!, (bool)e["upper_inclusive"]!));
+        Assert.Null(e["children"]);
+    }
+    [Fact]
+    public void Not_over_a_comparison_is_the_opposite_comparison_as_1x_folded_it()
+    {
+        var n = Norm("{\"qname\":{\"path\":[\"x\"]},\"e\":{\"type\":\"OPERATOR_NOT\",\"expression_class\":\"BOUND_OPERATOR\",\"children\":[{\"type\":\"COMPARE_EQUAL\",\"expression_class\":\"BOUND_FUNCTION\",\"children\":[{\"type\":\"BOUND_REF\",\"index\":0},{\"type\":\"VALUE_CONSTANT\"}]}]}}");
+        var e = n["e"]!;
+        Assert.Equal(("COMPARE_NOTEQUAL", "BOUND_COMPARISON"), ((string)e["type"]!, (string)e["expression_class"]!));
+        Assert.Equal("BOUND_REF", (string)e["left"]!["type"]!);
+        foreach (var (from, to) in new[] { ("COMPARE_LESSTHAN", "COMPARE_GREATERTHANOREQUALTO"), ("COMPARE_GREATERTHAN", "COMPARE_LESSTHANOREQUALTO"), ("COMPARE_NOT_DISTINCT_FROM", "COMPARE_DISTINCT_FROM") })
+        {
+            var m = Norm("{\"qname\":{\"path\":[\"x\"]},\"e\":{\"type\":\"OPERATOR_NOT\",\"children\":[{\"type\":\"" + from + "\",\"expression_class\":\"BOUND_FUNCTION\",\"children\":[{\"type\":\"BOUND_REF\"},{\"type\":\"BOUND_REF\"}]}]}}");
+            Assert.Equal(to, (string)m["e"]!["type"]!);
+        }
+    }
+
+    [Fact]
+    public void An_offset_of_one_and_a_null_default_are_what_1x_left_out_for_lag()
+    {
+        const string plain = "{\"type\":\"VALUE_CONSTANT\",\"value\":{\"type\":{\"id\":\"BIGINT\"},\"is_null\":false,\"value\":1}}";
+        const string nullCast = "{\"expression_class\":\"BOUND_CAST\",\"type\":\"OPERATOR_CAST\",\"child\":{\"type\":\"VALUE_CONSTANT\",\"value\":{\"is_null\":true}}}";
+        var omitted = Norm("{\"qname\":{\"path\":[\"x\"]},\"w\":{\"type\":\"WINDOW_LAG\",\"children\":[{\"type\":\"BOUND_REF\"}," + plain + "," + nullCast + "]}}");
+        Assert.Null(omitted["w"]!["offset_expr"]);
+        Assert.Null(omitted["w"]!["default_expr"]);
+        // a real offset or default is kept
+        var offset = Norm("{\"qname\":{\"path\":[\"x\"]},\"w\":{\"type\":\"WINDOW_LAG\",\"children\":[{\"type\":\"BOUND_REF\"},{\"type\":\"VALUE_CONSTANT\",\"value\":{\"is_null\":false,\"value\":2}}," + nullCast + "]}}");
+        Assert.NotNull(offset["w"]!["offset_expr"]);
+        Assert.Null(offset["w"]!["default_expr"]);
+        var defaulted = Norm("{\"qname\":{\"path\":[\"x\"]},\"w\":{\"type\":\"WINDOW_LAG\",\"children\":[{\"type\":\"BOUND_REF\"}," + plain + ",{\"type\":\"VALUE_CONSTANT\",\"value\":{\"is_null\":false,\"value\":0}}]}}");
+        Assert.NotNull(defaulted["w"]!["default_expr"]);
+    }
 }
