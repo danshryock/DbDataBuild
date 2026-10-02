@@ -32,10 +32,10 @@ public static class AnswerSerializer
         var sb = new StringBuilder("answers:\n");
         foreach (var a in answers.OrderBy(a => a.QuestionId, StringComparer.Ordinal))
         {
-            sb.Append("  - id: ").AppendLine(a.QuestionId);
-            sb.Append("    choice: ").AppendLine(a.Choice);
-            if (a.Value != null) sb.Append("    value: ").AppendLine(Scalar(a.Value));
-            if (a.Note != null) sb.Append("    note: ").AppendLine(Scalar(a.Note));
+            sb.Append("  - id: ").AppendLineLf(a.QuestionId);
+            sb.Append("    choice: ").AppendLineLf(a.Choice);
+            if (a.Value != null) sb.Append("    value: ").AppendLineLf(Scalar(a.Value));
+            if (a.Note != null) sb.Append("    note: ").AppendLineLf(Scalar(a.Note));
         }
         return sb.ToString();
     }

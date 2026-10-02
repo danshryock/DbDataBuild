@@ -39,18 +39,18 @@ public sealed class PlanBrowser
     public string Detail(PlanStep s)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Step {s.Id}: {s.Description}");
-        sb.AppendLine($"Type {s.Type.ToString().ToLowerInvariant()}   Risk {s.Risk.ToString().ToLowerInvariant()}   Object {s.Object}");
-        if (s.Operation != null) sb.AppendLine($"Operation {s.Operation}");
-        if (s.Hook != null) sb.AppendLine($"Hook {s.Hook} ({s.Effect})");
-        if (s.Reasons.Count > 0) sb.AppendLine("Why: " + string.Join("; ", s.Reasons));
-        foreach (var p in s.Parameters) sb.AppendLine($"Parameter @{p.Name} ({p.Type}, {p.Source}) = {p.Value ?? "NULL"}");
-        if (s.HasResolver) sb.AppendLine($"Resolver result at plan time: {s.ResolverResult ?? "NULL"}");
-        if (s.HashAfter != null) sb.AppendLine($"Shape hash afterwards: {s.HashAfter[..Math.Min(16, s.HashAfter.Length)]}…");
-        if (s.Expect != null) sb.AppendLine($"Expect: {s.Expect}");
-        sb.AppendLine();
-        sb.AppendLine(s.Text);
-        if (s.ResolverText != null) { sb.AppendLine(); sb.AppendLine("-- resolver"); sb.AppendLine(s.ResolverText); }
+        sb.AppendLineLf($"Step {s.Id}: {s.Description}");
+        sb.AppendLineLf($"Type {s.Type.ToString().ToLowerInvariant()}   Risk {s.Risk.ToString().ToLowerInvariant()}   Object {s.Object}");
+        if (s.Operation != null) sb.AppendLineLf($"Operation {s.Operation}");
+        if (s.Hook != null) sb.AppendLineLf($"Hook {s.Hook} ({s.Effect})");
+        if (s.Reasons.Count > 0) sb.AppendLineLf("Why: " + string.Join("; ", s.Reasons));
+        foreach (var p in s.Parameters) sb.AppendLineLf($"Parameter @{p.Name} ({p.Type}, {p.Source}) = {p.Value ?? "NULL"}");
+        if (s.HasResolver) sb.AppendLineLf($"Resolver result at plan time: {s.ResolverResult ?? "NULL"}");
+        if (s.HashAfter != null) sb.AppendLineLf($"Shape hash afterwards: {s.HashAfter[..Math.Min(16, s.HashAfter.Length)]}…");
+        if (s.Expect != null) sb.AppendLineLf($"Expect: {s.Expect}");
+        sb.AppendLineLf();
+        sb.AppendLineLf(s.Text);
+        if (s.ResolverText != null) { sb.AppendLineLf(); sb.AppendLineLf("-- resolver"); sb.AppendLineLf(s.ResolverText); }
         return sb.ToString();
     }
 

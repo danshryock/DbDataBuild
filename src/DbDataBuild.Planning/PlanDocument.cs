@@ -9,12 +9,6 @@ using DbDataBuild.State;
 
 namespace DbDataBuild.Planning;
 
-internal static class StringBuilderLf
-{
-    /// <summary>Plan files always use `\n`, so the content hash does not depend on the platform.</summary>
-    public static StringBuilder AppendLineLf(this StringBuilder sb, string text) => sb.Append(text).Append('\n');
-}
-
 /// <summary>
 /// The plan as a file (DESIGN.md 10.2, 10.3): one machine-readable YAML that `apply` consumes, and a readable Markdown rendering of the same object.
 /// Every string is written as a JSON-quoted scalar (valid YAML), so scripts with quotes, newlines, backslashes or non-ASCII text survive exactly.

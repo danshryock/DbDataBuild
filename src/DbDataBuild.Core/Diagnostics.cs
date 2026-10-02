@@ -370,11 +370,11 @@ public static class DiagnosticFormatter
     public static string Format(Diagnostic d)
     {
         var sb = new StringBuilder();
-        sb.Append(d.Severity switch { Severity.Error => "error", Severity.Warning => "warning", _ => "note" }).Append(' ').Append(d.Code).Append("  ").AppendLine(d.Location.ToString());
-        sb.Append("  ").AppendLine(Indent(d.Found));
-        sb.Append("  Supported: ").AppendLine(Indent(d.Supported ?? d.Descriptor.Supported));
-        sb.Append("  Fix: ").AppendLine(Indent(d.Fix ?? d.Descriptor.Fix));
-        sb.Append("  Docs: ").Append(ProductInfo.Cli).Append(" explain ").AppendLine(d.Code);
+        sb.Append(d.Severity switch { Severity.Error => "error", Severity.Warning => "warning", _ => "note" }).Append(' ').Append(d.Code).Append("  ").AppendLineLf(d.Location.ToString());
+        sb.Append("  ").AppendLineLf(Indent(d.Found));
+        sb.Append("  Supported: ").AppendLineLf(Indent(d.Supported ?? d.Descriptor.Supported));
+        sb.Append("  Fix: ").AppendLineLf(Indent(d.Fix ?? d.Descriptor.Fix));
+        sb.Append("  Docs: ").Append(ProductInfo.Cli).Append(" explain ").AppendLineLf(d.Code);
         return sb.ToString();
     }
 

@@ -12,7 +12,8 @@ eval "$(scripts/test-engines.sh env)"
 dotnet test tests/DbDataBuild.Tests.Conformance   # real engines, about 3 minutes; skipped without the env vars
 scripts/test-engines.sh down
 UPDATE_GOLDEN=1 dotnet test tests/DbDataBuild.Tests.Unit   # rewrites golden files; review the diff
-scripts/publish.sh linux-x64                   # one self-contained executable
+scripts/publish.sh linux-x64                   # one self-contained executable (win-x64 too: TARGET_RID=win-x64 scripts/build-polyglot.sh first)
+scripts/test-windows-wine.sh                  # the unit tests with Windows semantics under Wine (TEST_PROJECT=DbDataBuild.Tests.Conformance for the engines; PostgreSQL cannot log in under Wine)
 scripts/test-duckdb-preview.sh                 # the unit tests against DuckDB's preview library (2.0 alpha); see docs/research/duckdb-2.0
 ```
 
@@ -24,6 +25,7 @@ scripts/test-duckdb-preview.sh                 # the unit tests against DuckDB's
 - **The support matrix** (`matrix/constructs.yml`) is data: a row needs a fixture in `MatrixLinterTests`, a case in `spike/constructs.yml`, and a status per target. Changing it changes the matrix hash, which is in every rendered header, so regenerate the goldens (`UPDATE_GOLDEN=1`) and look at the diff. Do not use polyglot's `unsupportedLevel: raise`; the linter walks the AST.
 - **Lowering and target rules** (`DbDataBuild.Lowering`, `DbDataBuild.Targets/Rules`): anything the lowerer cannot reproduce faithfully is refused (DDB-324), never approximated silently. A rule is tested three ways: the unit text, a differential run against DuckDB, and a real-engine test with the rows compared to DuckDB's.
 - **Plan files and rendered files are hashed**; a test that edits one must expect a refusal. Rendered output is deterministic: no timestamps, no machine names.
+- **Text is LF on every platform**: use `AppendLineLf` (Core) rather than `AppendLine` for anything hashed, compared, written to a file or pasted, and write files as UTF-8 without a BOM. Windows differences (line endings, file sharing, console encoding) have already bitten once; `scripts/test-windows-wine.sh` finds them.
 - **Inputs a person edits** (YAML files, plans, answers) are covered by seeded mutation tests (`FuzzTests`); a loader must answer a damaged file with a diagnostic, never an exception.
 - **The TUI is a client of the JSON surface**: it runs commands in process and shows their documents. Do not give it logic or a second code path to a database. Check screens with `scripts/tui_drive.py` (needs pyte); Terminal.Gui has no headless driver.
 

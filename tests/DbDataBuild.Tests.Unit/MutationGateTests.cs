@@ -144,7 +144,7 @@ public class MutationGateTests
             var run = Guid.NewGuid();
             using var log = new FileStatementLog(dir, "apply", run);
             log.Append(new StatementLogEntry(run, 1, DateTime.UtcNow, "apply", "begin", "s1", "Data", "h", "SELECT 'é'", [("p", "v")], null));
-            var line = File.ReadAllLines(log.Path).Single(); // readable while the log is still open: it was flushed
+            var line = ReadWhileOpen(log.Path).Single(); // readable while the log is still open: it was flushed
             Assert.Contains("\"step\":\"s1\"", line);
             Assert.Contains("é", line);
         }
@@ -173,4 +173,13 @@ public class MutationGateTests
         var (integrated, _) = LoginSettings.FromEnvironment("sqlserver", Login.Read, new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=x;Integrated Security=true" }.GetValueOrDefault);
         Assert.Equal("integrated/default (DBDATABUILD_SQLSERVER_READ)", integrated!.Describe());
     }
+
+    /// <summary>A reader must allow the writer's open handle (FileShare.ReadWrite); File.ReadAllLines does not, and on Windows that is a sharing violation.</summary>
+    private static string[] ReadWhileOpen(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(fs);
+        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    }
 }
+

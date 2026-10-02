@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -70,34 +71,34 @@ public sealed class ModelsWindow : Ui.Modal
     {
         var sb = new StringBuilder();
         var kind = m["kind"]!;
-        sb.AppendLine($"{(string?)m["name"]}   {(string?)kind["type"]}");
-        sb.AppendLine($"targets: {Join(m["targets"])}    grain: {Join(m["grain"])}");
-        if (kind["unique_key"] is JsonArray { Count: > 0 } uk) sb.AppendLine($"unique key: {Join(uk)}");
-        if ((string?)kind["time_column"] is { } tc) sb.AppendLine($"time column: {tc}{((string?)kind["lookback"] is { } lb ? ", lookback " + lb : "")}");
-        sb.AppendLine($"files: {(string?)m["files"]!["query"]}");
-        if (m["upstream"] is JsonArray { Count: > 0 } up) sb.AppendLine("reads: " + string.Join(", ", up.Select(u => $"{(string?)u!["name"]} ({(string?)u["kind"]})")));
-        sb.AppendLine().AppendLine("Columns");
+        sb.AppendLineLf($"{(string?)m["name"]}   {(string?)kind["type"]}");
+        sb.AppendLineLf($"targets: {Join(m["targets"])}    grain: {Join(m["grain"])}");
+        if (kind["unique_key"] is JsonArray { Count: > 0 } uk) sb.AppendLineLf($"unique key: {Join(uk)}");
+        if ((string?)kind["time_column"] is { } tc) sb.AppendLineLf($"time column: {tc}{((string?)kind["lookback"] is { } lb ? ", lookback " + lb : "")}");
+        sb.AppendLineLf($"files: {(string?)m["files"]!["query"]}");
+        if (m["upstream"] is JsonArray { Count: > 0 } up) sb.AppendLineLf("reads: " + string.Join(", ", up.Select(u => $"{(string?)u!["name"]} ({(string?)u["kind"]})")));
+        sb.AppendLineLf().AppendLineLf("Columns");
         foreach (var c in m["columns"]!.AsArray())
         {
             var native = c!["native"] is JsonObject n ? string.Join("; ", n.Select(p => $"{p.Key}: {(string?)p.Value!["type"] ?? (string?)p.Value["error"]}")) : "";
-            sb.AppendLine($"  {(string?)c["name"],-22} {(string?)c["logical_type"],-18} {((bool?)c["nullable"] ?? true ? "null" : "not null"),-9} {native}");
+            sb.AppendLineLf($"  {(string?)c["name"],-22} {(string?)c["logical_type"],-18} {((bool?)c["nullable"] ?? true ? "null" : "not null"),-9} {native}");
         }
         if (m["loads"] is JsonArray { Count: > 0 } loads)
         {
-            sb.AppendLine().AppendLine("Loads");
-            foreach (var l in loads) sb.AppendLine($"  {(string?)l!["target"],-10} {(string?)l["operation"],-14} {(string?)l["strategy"],-24} {(string?)l["matrix_status"]}{((bool?)l["is_default"] == true ? "  (default)" : "")}");
+            sb.AppendLineLf().AppendLineLf("Loads");
+            foreach (var l in loads) sb.AppendLineLf($"  {(string?)l!["target"],-10} {(string?)l["operation"],-14} {(string?)l["strategy"],-24} {(string?)l["matrix_status"]}{((bool?)l["is_default"] == true ? "  (default)" : "")}");
         }
         if (m["indexes"] is JsonArray { Count: > 0 } ix)
         {
-            sb.AppendLine().AppendLine("Indexes");
-            foreach (var i in ix) sb.AppendLine($"  {(string?)i!["name"]}  ({Join(i["columns"])}){((bool?)i["unique"] == true ? " unique" : "")}");
+            sb.AppendLineLf().AppendLineLf("Indexes");
+            foreach (var i in ix) sb.AppendLineLf($"  {(string?)i!["name"]}  ({Join(i["columns"])}){((bool?)i["unique"] == true ? " unique" : "")}");
         }
         if (m["index_advice"] is JsonArray { Count: > 0 } adv)
         {
-            sb.AppendLine().AppendLine("Index advice");
-            foreach (var a in adv) sb.AppendLine($"  {(string?)a!["code"]} {(string?)a["severity"]}: {Join(a["columns"])} ({(string?)a["reason"]}) -> {(string?)a["suggested"]}{((bool?)a["silenced"] == true ? "  [silenced]" : "")}");
+            sb.AppendLineLf().AppendLineLf("Index advice");
+            foreach (var a in adv) sb.AppendLineLf($"  {(string?)a!["code"]} {(string?)a["severity"]}: {Join(a["columns"])} ({(string?)a["reason"]}) -> {(string?)a["suggested"]}{((bool?)a["silenced"] == true ? "  [silenced]" : "")}");
         }
-        if (m["lowered"] is JsonObject lo) sb.AppendLine().AppendLine($"Lowered query: {(string?)lo["file"]}   rules: {Join(lo["rules"])}");
+        if (m["lowered"] is JsonObject lo) sb.AppendLineLf().AppendLineLf($"Lowered query: {(string?)lo["file"]}   rules: {Join(lo["rules"])}");
         return sb.ToString();
     }
 

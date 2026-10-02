@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Text;
 
 namespace DbDataBuild.State;
@@ -29,7 +30,7 @@ public static class TrackingDdl
     public static string Render(IReadOnlyList<InitStatement> script)
     {
         var sb = new StringBuilder();
-        foreach (var s in script) sb.Append("-- ").Append(s.Id).Append(": ").AppendLine(s.Description).AppendLine(s.Text.TrimEnd()).AppendLine();
+        foreach (var s in script) sb.Append("-- ").Append(s.Id).Append(": ").AppendLineLf(s.Description).AppendLineLf(s.Text.TrimEnd()).AppendLineLf();
         return sb.ToString();
     }
 

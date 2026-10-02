@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Collections.ObjectModel;
 using System.Text;
 using DbDataBuild.Tui.Model;
@@ -37,11 +38,11 @@ public sealed class QuestionsWindow : Ui.Modal
     {
         question = q;
         var text = new StringBuilder();
-        text.AppendLine(q.Prompt).AppendLine();
-        foreach (var c in q.Context) text.AppendLine("  " + c);
+        text.AppendLineLf(q.Prompt).AppendLineLf();
+        foreach (var c in q.Context) text.AppendLineLf("  " + c);
         if (q.Proposal != null)
-            text.AppendLine().AppendLine($"Proposed: {q.Proposal.Option}{(q.Proposal.Value != null ? " " + q.Proposal.Value : "")} ({q.Proposal.Certainty}) because: {string.Join("; ", q.Proposal.Evidence)}");
-        text.AppendLine().AppendLine(q.Id);
+            text.AppendLineLf().AppendLineLf($"Proposed: {q.Proposal.Option}{(q.Proposal.Value != null ? " " + q.Proposal.Value : "")} ({q.Proposal.Certainty}) because: {string.Join("; ", q.Proposal.Evidence)}");
+        text.AppendLineLf().AppendLineLf(q.Id);
         var body = new TextView { X = 0, Y = 0, Width = Dim.Fill(1), Height = 10, ReadOnly = true, WordWrap = true, Text = text.ToString() };
 
         options = new ListView { X = 0, Y = Pos.Bottom(body) + 1, Width = Dim.Fill(1), Height = Math.Min(q.Options.Count + 1, 8) };

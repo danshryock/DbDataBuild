@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Collections.Concurrent;
 using DbDataBuild.Tui.Model;
 using Terminal.Gui.ViewBase;
@@ -41,7 +42,7 @@ public sealed class ProgressWindow : Ui.Modal
         session.App.AddTimeout(TimeSpan.FromMilliseconds(200), () =>
         {
             var text = new System.Text.StringBuilder();
-            while (lines.TryDequeue(out var line)) text.AppendLine(line);
+            while (lines.TryDequeue(out var line)) text.AppendLineLf(line);
             if (text.Length > 0) { log.Text += text.ToString(); log.MoveEnd(); }
             var span = DateTime.UtcNow - started;
             elapsed.Text = $"dbdatabuild {string.Join(' ', args.Take(1))}   {(int)span.TotalMinutes}:{span.Seconds:00}";

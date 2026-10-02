@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
@@ -55,12 +56,12 @@ public sealed class ResultWindow : Ui.Modal
     private static string Describe(DiagnosticItem d)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"{d.Severity} {d.Code}: {d.Title}");
-        if (d.Location.Length > 0) sb.AppendLine($"at {d.Location}");
-        sb.AppendLine().AppendLine(d.Found);
-        if (d.Supported.Length > 0) sb.AppendLine().AppendLine("Supported: " + d.Supported);
-        if (d.Fix.Length > 0) sb.AppendLine().AppendLine("Fix: " + d.Fix);
-        sb.AppendLine().AppendLine($"More: dbdatabuild explain {d.Code}");
+        sb.AppendLineLf($"{d.Severity} {d.Code}: {d.Title}");
+        if (d.Location.Length > 0) sb.AppendLineLf($"at {d.Location}");
+        sb.AppendLineLf().AppendLineLf(d.Found);
+        if (d.Supported.Length > 0) sb.AppendLineLf().AppendLineLf("Supported: " + d.Supported);
+        if (d.Fix.Length > 0) sb.AppendLineLf().AppendLineLf("Fix: " + d.Fix);
+        sb.AppendLineLf().AppendLineLf($"More: dbdatabuild explain {d.Code}");
         return sb.ToString();
     }
 

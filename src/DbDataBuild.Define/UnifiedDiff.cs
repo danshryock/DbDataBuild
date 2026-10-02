@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using System.Text;
 
 namespace DbDataBuild.Define;
@@ -16,8 +17,8 @@ public static class UnifiedDiff
         var ops = Edits(a, b);
 
         var sb = new StringBuilder();
-        sb.Append("--- ").AppendLine(oldText == null ? "/dev/null" : "a/" + path);
-        sb.Append("+++ b/").AppendLine(path);
+        sb.Append("--- ").AppendLineLf(oldText == null ? "/dev/null" : "a/" + path);
+        sb.Append("+++ b/").AppendLineLf(path);
 
         // group changes into hunks with context
         var changeIdx = Enumerable.Range(0, ops.Count).Where(i => ops[i].Kind != ' ').ToList();
@@ -36,12 +37,12 @@ public static class UnifiedDiff
             var slice = ops.Skip(from).Take(to - from + 1).ToList();
             var oldCount = slice.Count(o => o.Kind != '+');
             var newCount = slice.Count(o => o.Kind != '-');
-            sb.AppendLine($"@@ -{Range(oldStart, oldCount)} +{Range(newStart, newCount)} @@");
+            sb.AppendLineLf($"@@ -{Range(oldStart, oldCount)} +{Range(newStart, newCount)} @@");
             foreach (var op in slice)
             {
                 var noNl = op.Text.EndsWith(NoNewline);
-                sb.Append(op.Kind).AppendLine(noNl ? op.Text[..^1] : op.Text);
-                if (noNl) sb.AppendLine("\\ No newline at end of file");
+                sb.Append(op.Kind).AppendLineLf(noNl ? op.Text[..^1] : op.Text);
+                if (noNl) sb.AppendLineLf("\\ No newline at end of file");
             }
             i0 = j;
         }
