@@ -167,7 +167,7 @@ public static class ApplyEngine
     private static bool IsDone(PlanStep s, PlanProgress p) => s.Type switch
     {
         StepType.Ddl => p.CompletedDdlHashes.Contains(Hashing.ScriptHash(s.Text)),
-        StepType.Load or StepType.Backfill => p.CompletedRunSteps.Contains(s.Id),
+        StepType.Load or StepType.Backfill or StepType.Hook => p.CompletedRunSteps.Contains(s.Id),
         StepType.Track => s.HashAfter != null && p.RecordedShapes.Contains((s.Object, s.HashAfter)),
         _ => false,
     };
@@ -259,6 +259,29 @@ public static class ApplyEngine
                 var end = step.Parameters.FirstOrDefault(p => p.Name == "end")?.Value;
                 if (start != null || end != null)
                     await AuditLog.IntervalAsync(gate, target, schema, step.Id + ":interval", step.Object, runId, start, end, shapeEnd ?? "", step.Type == StepType.Backfill ? "backfill" : "load", ct);
+                return null;
+            }
+
+            case StepType.Hook:
+            {
+                // a hook is native SQL run exactly as committed; it is logged like a load (operation = its event, load_name = its name)
+                var kind = step.Effect == "data" ? StatementKind.Data : StatementKind.Ddl;
+                var before = gate.DryRun ? null : await LiveAsync(reader, target, step.Object, ct);
+                if (!gate.DryRun)
+                    await AuditLog.BeginRunAsync(gate, target, schema, step.Id, runId, step.Object, step.Operation ?? "hook", plan.Id, o.GitCommit, null, before?.ShapeHash, step.Hook, step.FileHash, null, null, null, ct);
+                long rows;
+                try { rows = await gate.ExecuteAsync(GateStatement.FromPlanStep(step.Id, kind, step.Text), ct); }
+                catch (Exception) when (!gate.DryRun)
+                {
+                    await AuditLog.FinishRunAsync(gate, target, schema, step.Id, runId, "failed", null, null, ct);
+                    throw;
+                }
+                if (gate.DryRun) return null;
+                var after = await LiveAsync(reader, target, step.Object, ct);
+                await AuditLog.FinishRunAsync(gate, target, schema, step.Id, runId, "ok", rows, after?.ShapeHash, ct);
+                // a script that changed the object's shape was the operator's own decision: record the new shape so it is not mistaken for an outside change
+                if (kind == StatementKind.Ddl && after != null && before != null && after.ShapeHash != before.ShapeHash)
+                    await TrackingStore.RecordSchemaVersionAsync(gate, target, schema, step.Id + ":version", step.Object, after.ShapeHash, after.PhysicalHash, "hook", plan.Id, o.GitCommit, ct);
                 return null;
             }
 

@@ -27,6 +27,7 @@ internal static class ProjectChecks
             diagnostics.AddRange(linter.Lint(sql, source.QueryFile, targets, config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
             diagnostics.AddRange(renderer.Render(source.Definition, sql, source.QueryFile, targets).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
+            foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
         diagnostics.AddRange(CollationChecker.Check(config, sources));
         return diagnostics;

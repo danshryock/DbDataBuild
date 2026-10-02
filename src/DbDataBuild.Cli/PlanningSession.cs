@@ -116,7 +116,7 @@ internal sealed class PlanningSession
         {
             var hash = AstHasher.Hash(m.Sql).Hash ?? "";
             var bases = QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
-            return new PlannedModel(m.Source.Definition, m.Sql, m.Source.QueryFile, hash, bases);
+            return new PlannedModel(m.Source.Definition, m.Sql, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()));
         }).ToList();
 
         TargetSnapshot snapshot;

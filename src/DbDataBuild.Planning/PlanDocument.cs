@@ -85,6 +85,8 @@ public static class PlanDocument
             if (s.ShapeSource != null) sb.Append("    shape_source: ").AppendLineLf(Q(s.ShapeSource));
             if (s.DefinitionHash != null) sb.Append("    definition_hash: ").AppendLineLf(Q(s.DefinitionHash));
             if (s.Expect != null) sb.Append("    expect: ").AppendLineLf(Q(s.Expect));
+            if (s.Hook != null) sb.Append("    hook: ").AppendLineLf(Q(s.Hook));
+            if (s.Effect != null) sb.Append("    effect: ").AppendLineLf(Q(s.Effect));
             if (s.HasResolver)
             {
                 sb.AppendLineLf("    resolver:");
@@ -118,7 +120,7 @@ public static class PlanDocument
     private static readonly string[] PlanKeys = ["id", "hash", "target", "tool_version", "git_commit", "git_dirty"];
     private static readonly string[] BaseKeys = ["object", "state", "live_shape_hash", "recorded_shape_hash"];
     private static readonly string[] AnswerKeys = ["id", "choice", "value", "note", "source"];
-    private static readonly string[] StepKeys = ["id", "type", "object", "description", "risk", "reasons", "hash_after", "operation", "file_hash", "shape_source", "definition_hash", "expect", "resolver", "parameters", "text"];
+    private static readonly string[] StepKeys = ["id", "type", "object", "description", "risk", "reasons", "hash_after", "operation", "file_hash", "shape_source", "definition_hash", "expect", "hook", "effect", "resolver", "parameters", "text"];
     private static readonly string[] ParamKeys = ["name", "type", "source", "value"];
 
     /// <summary>Reads a plan file. Returns null with diagnostics when it is malformed, has unknown keys, or its content hash does not match.</summary>
@@ -184,7 +186,7 @@ public static class PlanDocument
                     hasResolver = true; resolverText = Req(rm, "text"); resolverResult = S(rm, "result");
                 }
                 steps.Add(new PlanStep(Req(m, "id"), EnumOf<StepType>(m, "type"), Req(m, "object"), Req(m, "description"), Req(m, "text"), EnumOf<RiskClass>(m, "risk"), reasons,
-                    S(m, "hash_after"), parameters, resolverText, resolverResult, hasResolver, S(m, "file_hash"), S(m, "operation"), S(m, "shape_source"), S(m, "definition_hash"), S(m, "expect")));
+                    S(m, "hash_after"), parameters, resolverText, resolverResult, hasResolver, S(m, "file_hash"), S(m, "operation"), S(m, "shape_source"), S(m, "definition_hash"), S(m, "expect"), S(m, "hook"), S(m, "effect")));
             }
         var noticed = (top.Get("noticed") as YamlSequence)?.Items.OfType<YamlScalar>().Select(x => x.Value).ToList() ?? [];
 

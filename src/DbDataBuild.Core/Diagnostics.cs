@@ -195,6 +195,11 @@ public static class DiagnosticCatalog
         "Remove the index, restrict it with `targets: [...]`, or remove the target from the model.",
         "Fabric Warehouse has no CREATE INDEX (its constraints are metadata only), so a declared index there is refused rather than skipped. Indexed views are out of scope.");
 
+    public static readonly DiagnosticDescriptor HookScriptInvalid = E("323", "Hook script missing, invalid, or attached to an event the model cannot have",
+        "For each hook of a model, on each target it applies to: an existing project-relative .sql file whose native SQL parses on that engine, attached to an event the model's kind has.",
+        "Create or correct the script named in the message, or change the hook's event or targets.",
+        "Hooks are native SQL run exactly as committed, so each script is read and parsed with the target's offline validator before anything is planned. A view has no load or backfill, so it has no hooks for them.");
+
     // 4xx: planning / questions
     public static readonly DiagnosticDescriptor AnswerForUnknownQuestion = W("410", "Answer for a question that was not asked",
         "Answers whose id matches a question asked in this run.",
@@ -322,7 +327,7 @@ public static class DiagnosticCatalog
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
-        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, DefinitionFileChanged, DefinitionNotEditable,

@@ -653,8 +653,7 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 - `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
 - `plan --op model=operation` and `plan --backfill model=operation` choose operations; a backfill is a risky step recorded in `operation_interval`.
 - `report` includes the per-column history report (12.3) built from the answers in applied plans; its configurable warning-or-block policy for downstream models is not built.
-- Indexes are declared in the model (`indexes:`), never implied by `unique_key`; the planner creates missing ones, rebuilds changed ones (risky), and never drops undeclared ones. Hooks have a model syntax and a registry of events; planning and applying them is the next step.
-- Not built yet: hook steps in plans.
+- Indexes are declared in the model (`indexes:`), never implied by `unique_key`; the planner creates missing ones, rebuilds changed ones (risky), and never drops undeclared ones. Hooks (`hooks:` in a model, `hook_groups:` in `dbdatabuild.yml`) are ordered, named, native-SQL scripts attached to events (`pre_`/`post_` create, alter, load, backfill; drop is reserved) per engine, and run as `hook` steps in plans.
 
 ### 10.5 Plans live in the repo
 

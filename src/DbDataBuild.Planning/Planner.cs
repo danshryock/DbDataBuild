@@ -9,7 +9,14 @@ using DbDataBuild.Targets.Ddl;
 
 namespace DbDataBuild.Planning;
 
-public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables);
+/// <summary>A hook for one target with its script read from the project. The text is executed exactly as written.</summary>
+public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash);
+
+/// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
+public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null)
+{
+    public IReadOnlyList<PlannedHook> HookList => Hooks ?? [];
+}
 
 /// <summary>A committed rendered load operation, read from `rendered/` (the command has already checked it is fresh).</summary>
 public sealed record RenderedLoad(string Operation, bool IsDefault, string Script, string FileHash, string? ResolverText, IReadOnlyList<RenderedParameter> Parameters, WatermarkSpec? Watermark);
@@ -190,6 +197,7 @@ public static class Planner
         var live = c.Input.Live.GetValueOrDefault(def.Name);
         var gate = Baseline(c, live, ddlSteps, bases, blocks, out var state);
         if (gate != Gate.Proceed) return gate == Gate.Waiting;
+        var viewStart = ddlSteps.Count;
 
         var statementHash = Hashing.ScriptHash(statement);
         if (state == ObjectState.Missing)
@@ -201,6 +209,9 @@ public static class Planner
         {
             ddlSteps.Add(Step(StepType.Ddl, def.Name, $"alter view {def.Name}", statement, RiskClass.Safe, ["view.changed"]));
         }
+        var viewSteps = ddlSteps.Skip(viewStart).ToList();
+        ddlSteps.RemoveRange(viewStart, ddlSteps.Count - viewStart);
+        ddlSteps.AddRange(Hooked.Structure(c.Model, state == ObjectState.Missing, viewSteps));
         return true;
     }
 
@@ -245,7 +256,7 @@ public static class Planner
             if (blocks.Count > before) return false;
         }
         if (!PlanIndexes(c, live, local, blocks)) return false;
-        ddlSteps.AddRange(local);
+        ddlSteps.AddRange(Hooked.Structure(c.Model, state == ObjectState.Missing, local));
 
         return PlanLoads(c, state == ObjectState.Missing, loadSteps, blocks) && !waiting;
     }
@@ -477,9 +488,10 @@ public static class Planner
         if (open) return true;
         if (!SpanFits(c, load, parameters, blocks)) return false;
 
-        loadSteps.Add(new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
+        var loadStep = new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
             backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
-            load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash));
+            load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash);
+        loadSteps.AddRange(Hooked.Around(c.Model, backfill ? "backfill" : "load", loadStep));
         return true;
     }
 
@@ -515,4 +527,33 @@ public static class Planner
         new(QuestionIds.Param(model, load.Operation, p.Name), $"{model} / {load.Operation}: what value should `@{p.Name}` take?", [why],
             [new("provide", "Run the load with this value", "The value is recorded in the plan and in the run log.", TakesValue: true, ValueHint: $"a {p.Type} literal"),
              new("skip_load", "Do not load this model in this plan", "Its structure is still planned; no rows are loaded.")]);
+}
+
+/// <summary>
+/// Where hooks go in a plan. A hook is attached to an event (`pre_`/`post_` create, alter, load, backfill); this is the one place that says what each event wraps, so
+/// a new kind of hook is a row in <see cref="HookEvents"/> and a case here. Hooks of one event run in the order the model lists them.
+/// </summary>
+internal static class Hooked
+{
+    private static PlanStep Step(PlannedModel model, PlannedHook h) => new("", StepType.Hook, model.Definition.Name, $"hook {h.Hook.Name} ({h.Hook.Event})", h.Text,
+        Enum.Parse<RiskClass>(h.Hook.Risk, ignoreCase: true), h.Hook.Group == null ? ["hook.fired", $"event {h.Hook.Event}"] : ["hook.fired", $"event {h.Hook.Event}", $"group {h.Hook.Group}"],
+        null, [], Operation: h.Hook.Event, FileHash: h.FileHash, Hook: h.Hook.Name, Effect: h.Hook.Effect);
+
+    private static IEnumerable<PlanStep> Of(PlannedModel model, string phase, string action) =>
+        model.HookList.Where(h => h.Hook.Event == $"{phase}_{action}").Select(h => Step(model, h));
+
+    /// <summary>The structure steps of one model, wrapped: create hooks around a creation, alter hooks around changes to an existing object.</summary>
+    public static IEnumerable<PlanStep> Structure(PlannedModel model, bool creating, List<PlanStep> steps)
+    {
+        // adoption's track step and schema creation are bookkeeping, not changes to the object
+        var changes = steps.Where(s => s.Type == StepType.Ddl && !s.Description.StartsWith("create schema", StringComparison.Ordinal)).ToList();
+        if (changes.Count == 0) return steps;
+        var action = creating ? "create" : "alter";
+        var first = steps.IndexOf(changes[0]);
+        var last = steps.IndexOf(changes[^1]);
+        return steps.Take(first).Concat(Of(model, "pre", action)).Concat(steps.Skip(first).Take(last - first + 1)).Concat(Of(model, "post", action)).Concat(steps.Skip(last + 1));
+    }
+
+    public static IEnumerable<PlanStep> Around(PlannedModel model, string action, PlanStep step) =>
+        Of(model, "pre", action).Append(step).Concat(Of(model, "post", action));
 }

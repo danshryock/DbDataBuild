@@ -10,7 +10,7 @@ public static class DecisionTable
 {
     private static readonly string[] Keys = ["id", "owner", "kinds", "when", "result", "risk", "code", "test"];
     public static readonly IReadOnlyList<string> Owners = ["planner", "command", "apply"];
-    public static readonly IReadOnlyList<string> Results = ["ddl", "track", "load", "question", "block", "skip", "refuse", "note"];
+    public static readonly IReadOnlyList<string> Results = ["ddl", "track", "load", "question", "block", "skip", "refuse", "note", "hook"];
 
     public static IReadOnlyList<DecisionRow> LoadEmbedded(List<Diagnostic> diags)
     {

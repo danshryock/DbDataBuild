@@ -626,7 +626,7 @@ public class PlannerTests
         var ids = rows.Select(r => r.Id).ToHashSet();
         Assert.Equal(rows.Count, ids.Count);
 
-        var methods = typeof(PlannerTests).GetMethods().Select(m => m.Name).ToHashSet();
+        var methods = new[] { typeof(PlannerTests), typeof(HookPlanningTests) }.SelectMany(t => t.GetMethods()).Select(m => m.Name).ToHashSet();
         foreach (var row in rows.Where(r => r.Owner == "planner")) Assert.True(methods.Contains(row.Test!), $"row {row.Id} cites test `{row.Test}`, which does not exist");
 
         // reason chains of steps from a busy scenario start with row ids

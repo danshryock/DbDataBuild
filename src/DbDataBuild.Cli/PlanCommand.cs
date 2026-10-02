@@ -93,7 +93,7 @@ internal static class PlanCommand
 
         var risky = plan.Steps.Count(s => s.Risk == RiskClass.Risky);
         var destructive = plan.Steps.Count(s => s.Risk == RiskClass.Destructive);
-        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Backfill)} backfill, {plan.Steps.Count(s => s.Type == StepType.Track)} track); {risky} risky, {destructive} destructive.");
+        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Backfill)} backfill, {plan.Steps.Count(s => s.Type == StepType.Hook)} hook, {plan.Steps.Count(s => s.Type == StepType.Track)} track); {risky} risky, {destructive} destructive.");
         output.WriteLine($"  report: {Path.GetRelativePath(root, mdPath)}");
         output.WriteLine($"  plan:   {Path.GetRelativePath(root, yamlPath)}");
         if (result.Blocks.Count + result.Skipped.Count > 0)

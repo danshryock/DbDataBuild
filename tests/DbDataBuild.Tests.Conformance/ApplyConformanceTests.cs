@@ -461,4 +461,96 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Hooks_run_around_their_events_in_order_and_are_checked_before_anything_is_planned(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // a table the hooks write to (one extra column keeps their order), and the hook scripts: native SQL per engine, committed as written
+            await engine.ExecAsync(name == "postgres"
+                ? "CREATE TABLE staging.hook_log (seq serial PRIMARY KEY, event varchar(50) NOT NULL)"
+                : "CREATE TABLE staging.hook_log (seq int IDENTITY PRIMARY KEY, event nvarchar(50) NOT NULL)");
+            void Hook(string path, string eventName) => run.Write(path, $"INSERT INTO staging.hook_log (event) VALUES ('{eventName}');\n");
+            Hook("hooks/created.sql", "created");
+            Hook("hooks/pre_load.sql", "group_pre_load");
+            Hook("hooks/post_load.sql", "group_post_load");
+            Hook("hooks/sqlserver/native.sql", "native_sqlserver");
+            Hook("hooks/postgres/native.sql", "native_postgres");
+            run.Write("dbdatabuild.yml", File.ReadAllText(Path.Combine(run.Dir, "dbdatabuild.yml")) +
+                "hook_groups:\n  audit:\n    - {name: before, event: pre_load, script: hooks/pre_load.sql, effect: data}\n    - {name: after, event: post_load, script: hooks/post_load.sql, effect: data}\n");
+            var hooks = "hooks:\n  - {name: created, event: post_create, script: hooks/created.sql}\n  - {use: audit}\n" +
+                        "  - {name: native, event: post_create, script: {sqlserver: hooks/sqlserver/native.sql, postgres: hooks/postgres/native.sql}}\n";
+            run.Write("models/marts/fct_orders.yml", FctYaml + hooks);
+            // read in insertion order (RowsAsync sorts, which would hide the order that matters here)
+            async Task<List<string>> Log() => ((string?)await engine.ScalarAsync(name == "postgres"
+                ? "SELECT string_agg(event, ',' ORDER BY seq) FROM staging.hook_log"
+                : "SELECT STRING_AGG(event, ',') WITHIN GROUP (ORDER BY seq) FROM staging.hook_log"))?.Split(',').ToList() ?? [];
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Ok(run.Cli("validate"), "validate with hooks");
+
+            // plan: the hooks are steps, placed around their events, with the script text in the plan
+            var plan = run.Cli("plan");
+            Ok(plan, "plan");
+            var file = run.PlanFile(plan.Out);
+            var parsed = PlanDocument.Parse(File.ReadAllText(file), "p", new List<Diagnostic>())!;
+            Assert.Equal(["create schema marts", "create table marts.fct_orders", "hook created (post_create)", $"hook native (post_create)", "create view marts.v_orders",
+                "hook audit.before (pre_load)", "load marts.fct_orders (default)", "hook audit.after (post_load)"], parsed.Steps.Select(s => s.Description));
+            Assert.Equal(name == "postgres" ? "native_postgres" : "native_sqlserver", System.Text.RegularExpressions.Regex.Match(parsed.Steps.Single(s => s.Hook == "native").Text, "'([a-z_]+)'").Groups[1].Value);
+            Assert.Contains("hook audit.before (pre_load)", File.ReadAllText(file.Replace(".plan.yml", ".plan.md")));
+
+            // dry run shows them and runs none
+            var dry = run.Cli("apply", file, "--dry-run");
+            Ok(dry, "dry run");
+            Assert.Contains("INSERT INTO staging.hook_log", dry.Out);
+            Assert.Empty(await Log());
+
+            Ok(run.Cli("apply", file), "apply");
+            Assert.Equal(["created", name == "postgres" ? "native_postgres" : "native_sqlserver", "group_pre_load", "group_post_load"], await Log());     // the order the plan gave
+            Assert.Equal(4, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "operation IN ('post_create', 'pre_load', 'post_load') AND status = 'ok'"));
+
+            // a routine load with only data hooks is still routine for `run`; create hooks do not fire for an existing table
+            await engine.ExecAsync("DELETE FROM staging.hook_log");
+            var routine = run.Cli("run");
+            Ok(routine, "run with data hooks");
+            Assert.Equal(["group_pre_load", "group_post_load"], await Log());
+
+            // a hook that is not a data hook (the default effect is ddl) makes the load not routine: run refuses, plan and apply do it
+            run.Write("models/marts/fct_orders.yml", FctYaml + hooks + "  - {name: ddl_hook, event: post_load, script: hooks/created.sql}\n");
+            var refused = run.Cli("run");
+            Refused(refused, "only runs routine loads", "run with a ddl hook around the load");
+            Assert.Contains("hook: hook ddl_hook (post_load)", refused.Out);
+
+            // checked before anything is planned: a missing script, a script that does not parse, an unknown group
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: gone, event: post_create, script: hooks/nowhere.sql}\n");
+            Refused(run.Cli("plan"), "DDB-323", "a hook whose script does not exist");
+            Refused(run.Cli("validate"), "DDB-323", "validate with a missing hook script");
+            run.Write("hooks/broken.sql", "SELEC nothing FRM nowhere ((;\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: broken, event: post_create, script: hooks/broken.sql}\n");
+            Refused(run.Cli("plan"), "DDB-323", "a hook script that does not parse");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {use: no_such_group}\n");
+            var group = run.Cli("plan");
+            Assert.NotEqual(0, group.Exit);
+            Assert.Contains("no_such_group", group.Err + group.Out);
+
+            // a hook that fails stops the apply, is recorded as failed, and the plan resumes after it is fixed
+            run.Write("hooks/failing.sql", "INSERT INTO staging.no_such_table (x) VALUES (1);\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: failing, event: post_load, script: hooks/failing.sql, effect: data}\n");
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (9, 90.00)");
+            var failPlan = run.Cli("plan");
+            Ok(failPlan, "plan with a failing hook");
+            var failFile = run.PlanFile(failPlan.Out);
+            var failed = run.Cli("apply", failFile);
+            Refused(failed, "DDB-440", "a failing hook");
+            Assert.Equal(1, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "operation = 'post_load' AND status = 'failed'"));
+            Assert.Equal(4, await CountAsync(run, "marts.fct_orders"));                                   // the load before the hook had already committed (3 rows plus order 9)
+            await engine.ExecAsync("CREATE TABLE staging.no_such_table (x int)");
+            Ok(run.Cli("apply", failFile, "--resume"), "resume after fixing the hook's cause");
+            Assert.Equal(1, await CountAsync(run, "staging.no_such_table"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

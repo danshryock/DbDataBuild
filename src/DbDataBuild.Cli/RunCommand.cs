@@ -21,7 +21,8 @@ internal static class RunCommand
         if (!result.Complete) reasons.Add($"{result.Questions.Count} open question(s) ({string.Join(", ", result.Questions.Select(q => q.Id))})");
         if (result.Blocks.Count > 0) reasons.Add($"{result.Blocks.Count} blocked model(s) ({string.Join(", ", result.Blocks.Select(b => b.Code).Distinct())})");
         if (result.Skipped.Count > 0) reasons.Add($"{result.Skipped.Count} skipped model(s)");
-        var notLoads = result.Steps.Where(s => s.Type != StepType.Load || s.Risk != RiskClass.Safe).ToList();
+        // a data hook around the load (pre_load, post_load) is part of a routine load; anything else is not
+        var notLoads = result.Steps.Where(s => !(s.Risk == RiskClass.Safe && (s.Type == StepType.Load || (s.Type == StepType.Hook && s.Effect == "data" && s.Operation is "pre_load" or "post_load")))).ToList();
         if (notLoads.Count > 0) reasons.Add($"{notLoads.Count} step(s) that are not routine loads ({string.Join("; ", notLoads.Take(3).Select(s => $"{s.Type.ToString().ToLowerInvariant()}: {s.Description}"))}{(notLoads.Count > 3 ? "; ..." : "")})");
         if (reasons.Count > 0)
         {
