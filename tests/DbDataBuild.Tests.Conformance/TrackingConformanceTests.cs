@@ -38,7 +38,8 @@ public class TrackingConformanceTests
         Assert.Null(status.AsDiagnostic(Schema));
 
         var shapes = await CatalogReader.ReadSchemaAsync(read, name, Schema);
-        Assert.Equal(TrackingSchema.Tables.Select(t => $"{Schema}.{t.Name}").Order(), shapes.Keys.Order());
+        Assert.Equal(TrackingSchema.Tables.Select(t => $"{Schema}.{t.Name}").Order(), shapes.Where(x => x.Value.Kind == ObjectKind.Table).Select(x => x.Key).Order());
+        Assert.Contains(shapes, x => x.Value.Kind == ObjectKind.View && x.Key == $"{Schema}.metadata_current");
         Assert.Single(await engine.RowsAsync($"SELECT version FROM {engine.QuoteIdent(Schema)}.{engine.QuoteIdent("tracking_version")}"));
     }
 

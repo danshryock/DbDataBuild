@@ -159,6 +159,13 @@ public static class CliApp
                     cmd.Arguments.Add(metaModels); cmd.Options.Add(metaProject);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => MetadataCommand.Run(spec, pr.GetValue(metaProject)!.FullName, pr.GetValue(metaModels) ?? [], o, e)));
                     break;
+                case "publish-metadata":
+                    var pubModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var pubProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var pubTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    cmd.Arguments.Add(pubModels); cmd.Options.Add(pubProject); cmd.Options.Add(pubTarget);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PublishMetadataCommand.Run(spec, pr.GetValue(pubProject)!.FullName, pr.GetValue(pubTarget), pr.GetValue(pubModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "matrix":
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PrintMatrix(spec, o, e)));
                     break;

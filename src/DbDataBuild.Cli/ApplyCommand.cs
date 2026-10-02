@@ -12,6 +12,29 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class ApplyCommand
 {
+    /// <summary>`metadata.store_on_apply`: after a successful apply, store the project, the touched models and the plan as JSON documents. A failure here never turns a good apply into a bad one.</summary>
+    private static void StoreMetadata(Plan plan, string root, ProjectConfig config, LoginSettings read, LoginSettings write, string? commit, TextWriter output, TextWriter error)
+    {
+        try
+        {
+            var ctx = ProjectContext.Load(root);
+            if (ctx.Diagnostics.Any(d => d.Severity == Severity.Error && d.Code != DiagnosticCatalog.OrphanFile.Code))
+            {
+                output.WriteLine("note: metadata was not stored: the project has errors now (`validate` shows them).");
+                return;
+            }
+            var touched = plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal).ToList();
+            var docs = MetadataPublisher.Collect(ctx, touched, plan);
+            var stored = Task.Run(() => MetadataPublisher.PublishAsync(docs, plan.Target, config.TrackingSchema, read, write, "apply-metadata", root, plan.Id, commit)).GetAwaiter().GetResult();
+            output.WriteLine($"Metadata stored: {stored.Written.Count} document(s) written, {stored.Unchanged.Count} unchanged.");
+            output.Payload("metadata_stored", stored.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
+        }
+        catch (Exception ex) when (ex is GateRefusedException or IOException or InvalidOperationException)
+        {
+            output.WriteLine($"note: the plan was applied, but its metadata was not stored ({ex.GetType().Name}).");
+        }
+    }
+
     public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool resume, bool allowDirty,
         TextWriter output, TextWriter error, Func<string, string?> env)
     {
@@ -77,6 +100,7 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
+        if (result.Success && !dryRun && config.StoreMetadataOnApply) StoreMetadata(plan, root, config, read!, write!, commit, output, error);
         output.Payload("outcomes", result.Outcomes.Select(o => new { step = o.StepId, description = o.Description, status = o.Status, detail = o.Detail }).ToList());
         output.Payload("statement_log", logPath?.Replace('\\', '/'));
         output.Payload("success", result.Success);

@@ -120,6 +120,26 @@
           "$ref": "#/$defs/hook"
         }
       }
+    },
+    "metadata": {
+      "description": "Metadata stored in the target for introspection (`publish-metadata`). `store_on_apply: true` also stores the project and the applied models' documents, and the plan, after every successful `apply`. Default false.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "store_on_apply": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "$defs": {

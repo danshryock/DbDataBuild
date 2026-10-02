@@ -663,4 +663,94 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Metadata_can_be_stored_in_the_target_queried_with_sql_and_republished_without_noise(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            System.Text.Json.Nodes.JsonNode Json((int Exit, string Out, string Err) r)
+            {
+                Assert.Equal(0, r.Exit);
+                return System.Text.Json.Nodes.JsonNode.Parse(r.Out)!;
+            }
+            var meta = (string table) => $"{run.Q("dbdatabuild")}.{run.Q(table)}";
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+
+            // the operator's choice of when to store: nothing is stored until asked
+            Assert.Equal(0, await CountAsync(run, meta("metadata_document")));
+            var first = Json(run.Cli("publish-metadata", "--format", "json"));
+            Assert.Equal(3, first["data"]!["written"]!.AsArray().Count);              // the project, and the two models
+            Assert.Empty(first["data"]!["unchanged"]!.AsArray());
+            Assert.Equal(3, await CountAsync(run, meta("metadata_document")));
+
+            // unchanged documents are not written again
+            var second = Json(run.Cli("publish-metadata", "--format", "json"));
+            Assert.Empty(second["data"]!["written"]!.AsArray());
+            Assert.Equal(3, await CountAsync(run, meta("metadata_document")));
+
+            // introspection with SQL: the stored document is the one `metadata` prints, and the column view unpacks it
+            var printed = Json(run.Cli("metadata", "--format", "json"))["data"]!["models"]!.AsArray().Single(m => (string?)m!["name"] == "marts.fct_orders")!;
+            var storedHash = (string?)await engine.ScalarAsync(name == "postgres"
+                ? $"SELECT document ->> 'definition_hash' FROM {meta("metadata_current")} WHERE kind = 'model' AND subject = 'marts.fct_orders'"
+                : $"SELECT JSON_VALUE(document, '$.definition_hash') FROM {meta("metadata_current")} WHERE kind = 'model' AND subject = 'marts.fct_orders'");
+            Assert.Equal((string?)printed["definition_hash"], storedHash);
+            var amount = await engine.RowsAsync($"SELECT {run.Q("logical_type")}, {run.Q(name == "postgres" ? "postgres_type" : "sqlserver_type")}, {run.Q("nullable")} FROM {meta("metadata_columns")} WHERE model = 'marts.fct_orders' AND column_name = 'amount'");
+            Assert.Equal(new List<string> { name == "postgres" ? "DECIMAL(14, 2)|numeric(14, 2)|True" : "DECIMAL(14, 2)|decimal(14, 2)|True" }, amount);
+            Assert.Equal(new[] { "order_id", "amount" }.Order(), (await engine.RowsAsync($"SELECT column_name FROM {meta("metadata_columns")} WHERE model = 'marts.fct_orders'")).Order());
+
+            // a changed model changes its own document and the project document (which lists every model's hash), and nothing else
+            run.Write("models/marts/v_orders.sql", "SELECT order_id FROM marts.fct_orders WHERE order_id > 0\n");
+            var third = Json(run.Cli("publish-metadata", "--format", "json"));
+            Assert.Equal(["marts.v_orders", "project"], third["data"]!["written"]!.AsArray().Select(d => (string)d!["subject"]!).Order().ToArray());
+            Assert.Equal(5, await CountAsync(run, meta("metadata_document")));      // history is kept; metadata_current shows the latest
+            Assert.Equal(3, await CountAsync(run, meta("metadata_current")));
+
+            // only the models named are stored
+            run.Write("models/marts/fct_orders.sql", "SELECT o.order_id, o.amount FROM staging.orders o WHERE 1 = 1\n");
+            var only = Json(run.Cli("publish-metadata", "marts.fct_orders", "--format", "json"));
+            Assert.Equal(["marts.fct_orders", "project"], only["data"]!["written"]!.AsArray().Select(d => (string)d!["subject"]!).Order().ToArray());
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task An_older_tracking_layout_is_upgraded_by_init_and_apply_can_store_metadata_itself(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var T = (string t) => $"{run.Q("dbdatabuild")}.{run.Q(t)}";
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+
+            // turn the tracking tables back into layout 1: no metadata objects, version row 1
+            await engine.ExecAsync($"DROP VIEW {T("metadata_columns")}");
+            await engine.ExecAsync($"DROP VIEW {T("metadata_current")}");
+            await engine.ExecAsync($"DROP TABLE {T("metadata_document")}");
+            await engine.ExecAsync($"UPDATE {T("tracking_version")} SET {run.Q("version")} = 1");
+            var old = run.Cli("plan");
+            Refused(old, "DDB-505", "planning against an older layout");
+            Assert.Contains("layout version 1", old.Err);
+            Ok(run.Cli("init", "--apply"), "init upgrades");
+            Assert.Equal(["1", "2"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
+            Ok(run.Cli("plan"), "plan after the upgrade");
+
+            // metadata.store_on_apply: a successful apply also stores the project, the models it touched and the plan
+            run.Write("dbdatabuild.yml", File.ReadAllText(Path.Combine(run.Dir, "dbdatabuild.yml")) + "metadata:\n  store_on_apply: true\n");
+            var plan = run.Cli("plan");
+            Ok(plan, "plan");
+            var applied = run.Cli("apply", run.PlanFile(plan.Out));
+            Ok(applied, "apply");
+            Assert.Contains("Metadata stored: 4 document(s) written", applied.Out);       // project, two models, the plan
+            Assert.Equal(["model", "model", "plan", "project"], await engine.RowsAsync($"SELECT kind FROM {T("metadata_document")}"));
+            var planId = PlanDocument.Parse(File.ReadAllText(run.PlanFile(plan.Out)), "p", new List<Diagnostic>())!.Id;
+            Assert.Equal(1, await CountAsync(run, T("metadata_document"), $"kind = 'plan' AND subject = '{planId}'"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

@@ -43,6 +43,7 @@ public static class CommandSpecs
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),
         new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),
         new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", true),
+        new("publish-metadata", EffectClass.TrackingTablesOnly, "Store the project and model metadata as JSON in the target for introspection", true),
         new("report", EffectClass.TargetReadOnly, "Applied plans, DDL and load history, recorded shapes, and what needs attention", true),
         new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", true),
         new("run", EffectClass.TargetDataWrites, "Plan + apply for routine loads only (refuses anything else)", true),

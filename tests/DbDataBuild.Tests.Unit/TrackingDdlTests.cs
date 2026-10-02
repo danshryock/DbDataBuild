@@ -11,7 +11,8 @@ public class TrackingDdlTests
     public void Script_creates_the_schema_every_table_and_the_version_row(string target)
     {
         var script = TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0");
-        Assert.Equal(TrackingSchema.Tables.Count + 2, script.Count);
+        var views = target == "fabric" ? 1 : 2;                                  // metadata_current, and metadata_columns where OPENJSON is verified
+        Assert.Equal(1 + TrackingSchema.Tables.Count + views + 1, script.Count);   // schema, tables, views, the version row
         Assert.Equal(script.Count, script.Select(s => s.Id).Distinct().Count());
         var text = TrackingDdl.Render(script);
         foreach (var t in TrackingSchema.Tables) Assert.Contains(t.Name, text);
@@ -24,9 +25,9 @@ public class TrackingDdlTests
         foreach (var s in TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0"))
         {
             Assert.DoesNotContain("DROP ", s.Text, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("ALTER ", s.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("ALTER ", s.Text.Replace("CREATE OR ALTER VIEW", ""), StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("TRUNCATE", s.Text, StringComparison.OrdinalIgnoreCase);
-            Assert.Matches("(IF |CREATE SCHEMA IF NOT EXISTS|NOT EXISTS)", s.Text);
+            Assert.Matches("(IF |CREATE SCHEMA IF NOT EXISTS|NOT EXISTS|CREATE OR ALTER VIEW|CREATE OR REPLACE VIEW)", s.Text);
         }
     }
 
@@ -72,5 +73,18 @@ public class TrackingDdlTests
             Assert.NotEmpty(t.PrimaryKey);
             foreach (var k in t.PrimaryKey) Assert.False(t.Columns.Single(c => c.Name == k).Nullable, $"{t.Name}.{k}");
         }
+    }
+
+    [Theory, MemberData(nameof(AllTargets))]
+    public void The_metadata_table_holds_json_and_the_views_read_it(string target)
+    {
+        var text = TrackingDdl.Render(TrackingDdl.For(target).InitScript("dbdatabuild", "0.1.0"));
+        Assert.Contains("metadata_document", text);
+        Assert.Contains("metadata_current", text);
+        Assert.Equal(target != "fabric", text.Contains("VIEW [dbdatabuild].[metadata_columns]") || text.Contains("VIEW \"dbdatabuild\".\"metadata_columns\""));
+        if (target == "postgres") Assert.Contains("\"document\" jsonb NOT NULL", text);
+        if (target == "sqlserver") Assert.Contains("CHECK (ISJSON([document]) = 1)", text);          // SQL Server holds JSON as text, so the engine checks it
+        Assert.Equal(2, TrackingSchema.Version);
+        Assert.Contains("[version], [tool_version]", TrackingDdl.Render(TrackingDdl.For("sqlserver").InitScript("d", "x")));
     }
 }

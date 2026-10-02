@@ -1,0 +1,56 @@
+using System.Text.Json;
+using DbDataBuild.Core;
+using DbDataBuild.Execution;
+using DbDataBuild.Planning;
+using DbDataBuild.State;
+
+namespace DbDataBuild.Cli;
+
+/// <summary>Writes the metadata documents of `metadata` into the target's `metadata_document` table, only the ones that changed. Used by `publish-metadata` and, when configured, after `apply`.</summary>
+internal static class MetadataPublisher
+{
+    public sealed record Document(string Kind, string Subject, string Json, string Hash);
+    public sealed record Result(IReadOnlyList<Document> Written, IReadOnlyList<Document> Unchanged);
+
+    public static Document Make(string kind, string subject, object document)
+    {
+        var json = MetadataBuilder.ToStoredJson(document);
+        return new Document(kind, subject, json, Hashing.ScriptHash(json));
+    }
+
+    /// <summary>The project document and the documents of the named models (all when null).</summary>
+    public static List<Document> Collect(ProjectContext ctx, IEnumerable<string>? models, Plan? plan)
+    {
+        var docs = new List<Document> { Make("project", "project", MetadataBuilder.Project(ctx)) };
+        var wanted = models?.ToHashSet(StringComparer.Ordinal);
+        foreach (var s in ctx.Project.Sources.Where(s => wanted == null || wanted.Contains(s.Definition.Name)).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
+            docs.Add(Make("model", s.Definition.Name, MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(ctx.Root, s.QueryFile)))));
+        if (plan != null) docs.Add(Make("plan", plan.Id, plan));
+        return docs;
+    }
+
+    public static async Task<Result> PublishAsync(IReadOnlyList<Document> documents, string target, string schema, LoginSettings read, LoginSettings write, string command, string root, string? planId, string? gitCommit)
+    {
+        await using var reader = await ReadSession.OpenAsync(read);
+        var status = await TrackingStore.StatusAsync(reader, target, schema);
+        if (status.AsDiagnostic(schema) is { } notReady) throw new GateRefusedException(notReady);
+        var latest = await MetadataStore.LatestHashesAsync(reader, target, schema);
+
+        var written = new List<Document>();
+        var unchanged = new List<Document>();
+        var changed = documents.Where(d => !latest.TryGetValue(MetadataStore.Key(d.Kind, d.Subject), out var h) || h != d.Hash).ToList();
+        unchanged.AddRange(documents.Except(changed));
+        if (changed.Count == 0) return new Result(written, unchanged);
+
+        var runId = Guid.NewGuid();
+        using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), command, runId);
+        await using var gate = await MutationGate.OpenAsync(write, command, StatementKind.Tracking, log, runId);
+        var n = 0;
+        foreach (var d in changed)
+        {
+            await MetadataStore.StoreAsync(gate, target, schema, $"metadata-{++n:000}", d.Kind, d.Subject, d.Json, d.Hash, ProductInfo.Version, planId, gitCommit);
+            written.Add(d);
+        }
+        return new Result(written, unchanged);
+    }
+}

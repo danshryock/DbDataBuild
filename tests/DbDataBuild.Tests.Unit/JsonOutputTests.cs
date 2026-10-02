@@ -110,7 +110,7 @@ public class JsonOutputTests
 
         var init = Run("init", "--project", dir);
         Assert.False(init.Doc["data"]!["applied"]!.GetValue<bool>());
-        Assert.Equal(9, init.Doc["data"]!["statements"]!.AsArray().Count);
+        Assert.Equal(12, init.Doc["data"]!["statements"]!.AsArray().Count);        // schema, eight tables, two views, the version row
         Assert.Contains("CREATE TABLE", init.Doc["data"]!["statements"]![1]!["text"]!.GetValue<string>());
 
         var meta = Run("metadata", "--project", dir);

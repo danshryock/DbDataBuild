@@ -53,6 +53,7 @@ internal sealed class TSqlTrackingDdl(string target, bool unverified) : ITrackin
         TrackingType.Int => "int",
         TrackingType.Guid => "uniqueidentifier",
         TrackingType.TimestampUtc => target == "fabric" ? "datetime2(6)" : "datetime2(3)",
+        TrackingType.Json => target == "fabric" ? "varchar(max)" : "nvarchar(max)",
         _ => throw new ArgumentOutOfRangeException(nameof(t)),
     };
 
@@ -70,9 +71,13 @@ internal sealed class TSqlTrackingDdl(string target, bool unverified) : ITrackin
             var key = string.Join(", ", t.PrimaryKey.Select(Quote));
             var pk = target == "fabric" ? $"PRIMARY KEY NONCLUSTERED ({key}) NOT ENFORCED" : $"PRIMARY KEY ({key})";
             var obj = $"{s}.{Quote(t.Name)}";
+            // a JSON column must hold JSON (Fabric does not have ISJSON constraints verified)
+            var checks = target == "fabric" ? "" : string.Concat(t.Columns.Where(c => c.Type == TrackingType.Json).Select(c => $",\n  CONSTRAINT {Quote($"ck_{t.Name}_{c.Name}")} CHECK (ISJSON({Quote(c.Name)}) = 1)"));
             list.Add(new($"init-{n++:00}", $"table {t.Name}: {t.Purpose}",
-                $"IF OBJECT_ID({TrackingDdl.Literal(schema + "." + t.Name)}, N'U') IS NULL\nCREATE TABLE {obj} (\n{cols},\n  CONSTRAINT {Quote("pk_" + t.Name)} {pk}\n);"));
+                $"IF OBJECT_ID({TrackingDdl.Literal(schema + "." + t.Name)}, N'U') IS NULL\nCREATE TABLE {obj} (\n{cols},\n  CONSTRAINT {Quote("pk_" + t.Name)} {pk}{checks}\n);"));
         }
+        foreach (var (id, text) in TrackingViews.TSql(s, target == "fabric"))
+            list.Add(new($"init-{n++:00}", id, text));
         var v = $"{s}.{Quote("tracking_version")}";
         list.Add(new($"init-{n}", "record the layout version",
             $"IF NOT EXISTS (SELECT 1 FROM {v} WHERE [version] = {TrackingSchema.Version})\nINSERT INTO {v} ([version], [tool_version], [applied_utc]) VALUES ({TrackingSchema.Version}, {TrackingDdl.Literal(toolVersion)}, SYSUTCDATETIME());"));
@@ -96,6 +101,7 @@ internal sealed class PostgresTrackingDdl : ITrackingDdl
         TrackingType.Int => "integer",
         TrackingType.Guid => "uuid",
         TrackingType.TimestampUtc => "timestamp(3)",
+        TrackingType.Json => "jsonb",
         _ => throw new ArgumentOutOfRangeException(nameof(t)),
     };
 
@@ -111,9 +117,41 @@ internal sealed class PostgresTrackingDdl : ITrackingDdl
             list.Add(new($"init-{n++:00}", $"table {t.Name}: {t.Purpose}",
                 $"CREATE TABLE IF NOT EXISTS {s}.{Quote(t.Name)} (\n{cols},\n  CONSTRAINT {Quote("pk_" + t.Name)} PRIMARY KEY ({key})\n);"));
         }
+        foreach (var (id, text) in TrackingViews.Postgres(s))
+            list.Add(new($"init-{n++:00}", id, text));
         var v = $"{s}.{Quote("tracking_version")}";
         list.Add(new($"init-{n}", "record the layout version",
             $"INSERT INTO {v} (\"version\", \"tool_version\", \"applied_utc\")\nSELECT {TrackingSchema.Version}, {TrackingDdl.Literal(toolVersion)}, (now() AT TIME ZONE 'utc')\nWHERE NOT EXISTS (SELECT 1 FROM {v} WHERE \"version\" = {TrackingSchema.Version});"));
         return list;
+    }
+}
+
+/// <summary>The introspection views over `metadata_document`: the latest document per subject, and the model columns unpacked into rows.</summary>
+internal static class TrackingViews
+{
+    public static IEnumerable<(string Description, string Text)> TSql(string schema, bool fabric)
+    {
+        yield return ("view metadata_current: the latest document per kind and subject",
+            $"CREATE OR ALTER VIEW {schema}.[metadata_current] AS\nSELECT m.[kind], m.[subject], m.[document], m.[document_hash], m.[recorded_utc], m.[tool_version], m.[plan_id], m.[git_commit]\n" +
+            $"FROM {schema}.[metadata_document] m\nWHERE m.[recorded_utc] = (SELECT MAX(x.[recorded_utc]) FROM {schema}.[metadata_document] x WHERE x.[kind] = m.[kind] AND x.[subject] = m.[subject]);");
+        if (fabric) yield break; // OPENJSON on Fabric is not verified
+        yield return ("view metadata_columns: one row per model column, from the latest model documents",
+            $"CREATE OR ALTER VIEW {schema}.[metadata_columns] AS\nSELECT m.[subject] AS [model], c.[name] AS [column_name], c.[logical_type], c.[nullable], c.[collation],\n" +
+            "  JSON_VALUE(c.[native], '$.sqlserver.type') AS [sqlserver_type], JSON_VALUE(c.[native], '$.postgres.type') AS [postgres_type], JSON_VALUE(c.[native], '$.fabric.type') AS [fabric_type],\n" +
+            "  JSON_VALUE(c.[lineage], '$.inferred_nullability') AS [inferred_nullability], JSON_QUERY(c.[lineage], '$.upstream') AS [upstream]\n" +
+            $"FROM {schema}.[metadata_current] m\nCROSS APPLY OPENJSON(m.[document], '$.columns') WITH (\n  [name] nvarchar(256) '$.name', [logical_type] nvarchar(128) '$.logical_type', [nullable] bit '$.nullable', [collation] nvarchar(128) '$.collation',\n" +
+            "  [native] nvarchar(max) '$.native' AS JSON, [lineage] nvarchar(max) '$.lineage' AS JSON) c\nWHERE m.[kind] = 'model';");
+    }
+
+    public static IEnumerable<(string Description, string Text)> Postgres(string schema)
+    {
+        yield return ("view metadata_current: the latest document per kind and subject",
+            $"CREATE OR REPLACE VIEW {schema}.\"metadata_current\" AS\nSELECT m.\"kind\", m.\"subject\", m.\"document\", m.\"document_hash\", m.\"recorded_utc\", m.\"tool_version\", m.\"plan_id\", m.\"git_commit\"\n" +
+            $"FROM {schema}.\"metadata_document\" m\nWHERE m.\"recorded_utc\" = (SELECT MAX(x.\"recorded_utc\") FROM {schema}.\"metadata_document\" x WHERE x.\"kind\" = m.\"kind\" AND x.\"subject\" = m.\"subject\");");
+        yield return ("view metadata_columns: one row per model column, from the latest model documents",
+            $"CREATE OR REPLACE VIEW {schema}.\"metadata_columns\" AS\nSELECT m.\"subject\" AS \"model\", c ->> 'name' AS \"column_name\", c ->> 'logical_type' AS \"logical_type\", (c ->> 'nullable')::boolean AS \"nullable\", c ->> 'collation' AS \"collation\",\n" +
+            "  c -> 'native' -> 'sqlserver' ->> 'type' AS \"sqlserver_type\", c -> 'native' -> 'postgres' ->> 'type' AS \"postgres_type\", c -> 'native' -> 'fabric' ->> 'type' AS \"fabric_type\",\n" +
+            "  c -> 'lineage' ->> 'inferred_nullability' AS \"inferred_nullability\", c -> 'lineage' -> 'upstream' AS \"upstream\"\n" +
+            $"FROM {schema}.\"metadata_current\" m\nCROSS JOIN LATERAL jsonb_array_elements(m.\"document\" -> 'columns') AS c\nWHERE m.\"kind\" = 'model';");
     }
 }
