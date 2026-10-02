@@ -44,7 +44,7 @@ These are invariants. Each one must have automated tests (section 15).
 
 | Concern | Choice | Notes |
 |---|---|---|
-| Language/runtime | C#, .NET 8+ (LTS) | Single-file, self-contained publish for win-x64 and linux-x64 |
+| Language/runtime | C#, .NET 10 (LTS; moved from .NET 8, which leaves support in November 2026, so that Terminal.Gui 2.x can be used) | Single-file, self-contained publish for win-x64 and linux-x64 |
 | CLI | `System.CommandLine` | Interactive prompts via a small abstraction (Spectre.Console is acceptable) |
 | SQL parse/transpile | `polyglot-sql` (Rust, MIT) via its C FFI library (`polyglot-sql-ffi`) | Bound with P/Invoke (`DbDataBuild.Sql`). Native library built from the pinned commit by `scripts/build-polyglot.sh` (verified in the milestone 1 spike, `spike/RESULTS.md`). The FFI crate is not on crates.io, so it is built from the repo. Dialects are `tsql`, `fabric`, `postgresql`, `duckdb`; SQL Server maps to `tsql` |
 | Offline DuckDB | `DuckDB.NET.Data` (MIT, verified) | Synthetic data, local execution, result typing |
