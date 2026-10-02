@@ -5,7 +5,7 @@
 -- target:          postgres
 -- strategy:        merge_by_key
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      none
 BEGIN;
@@ -25,7 +25,7 @@ COMMIT;
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (TIMESTAMP, resolver, overridable)
 SELECT COALESCE(MAX("event_ts") - INTERVAL '6 hours', CAST('2020-01-01 00:00:00' AS TIMESTAMP)) FROM "marts"."fct_events";
@@ -37,7 +37,7 @@ SELECT COALESCE(MAX("event_ts") - INTERVAL '6 hours', CAST('2020-01-01 00:00:00'
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (TIMESTAMP, resolver, overridable)
 BEGIN;
@@ -57,7 +57,7 @@ COMMIT;
 -- target:          postgres
 -- strategy:        full_replace
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      none
 BEGIN;
@@ -77,7 +77,7 @@ COMMIT;
 -- target:          postgres
 -- strategy:        delete_insert_by_range
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @start (TIMESTAMP, runtime), @end (TIMESTAMP, runtime, max_span 400 days)
 BEGIN;
@@ -97,7 +97,7 @@ COMMIT;
 -- target:          postgres
 -- strategy:        delete_insert_by_key
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      none
 BEGIN;
@@ -117,7 +117,7 @@ COMMIT;
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (BIGINT, resolver)
 SELECT MAX("seq") FROM "marts"."fct_events";
@@ -129,7 +129,7 @@ SELECT MAX("seq") FROM "marts"."fct_events";
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (BIGINT, resolver)
 BEGIN;
@@ -146,7 +146,7 @@ COMMIT;
 model: marts.fct_events
 target: postgres
 definition_hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
-matrix_version: a8574c89ab44
+matrix_version: 73eac1f86059
 tool_version: 0.1.0
 sources: [staging.events]
 operations:
@@ -157,7 +157,7 @@ operations:
     matrix: supported
     findings: []
     script: load.by_key.sql
-    script_sha256: 75ddb9170609d36aec30367a467be1204ef02f1f94bb4a6653ce652abd24eb6a
+    script_sha256: ca3993f6c6b20abaed312688abdcd71c25c6d626c092b1c5f98ab831a903db7a
     parameters: []
   - name: daily
     default: true
@@ -166,9 +166,9 @@ operations:
     matrix: supported
     findings: []
     script: load.daily.sql
-    script_sha256: 59a2fed6347e25bc797dd5dc99bfd7fca69ac526828f2da6c823fb0a50c79982
+    script_sha256: 2ee2798fe970bc1b3f9545e9f3ac250b67b06e8d123e68b4adc29c0110ef5f10
     resolver: load.daily.resolve.sql
-    resolver_sha256: c94a7e6eae317d54da141b77682726510b2d1e3389e8351b34361023ce859f6f
+    resolver_sha256: f4132a2868caf0d370cd01208ac16e598a1f8e1bd8aba42be74a4690d2fd4c93
     parameters:
       - name: watermark
         type: TIMESTAMP
@@ -181,7 +181,7 @@ operations:
     matrix: supported
     findings: []
     script: load.everything.sql
-    script_sha256: 8a561e322846be6938ed52e88e4d4746f931aedde13ef5b69297112b427300c9
+    script_sha256: 652c52844e4ac827e230a4d7e18bb6e380da03110fa0209d6161b9d1fd20ebac
     parameters: []
   - name: reload_period
     default: false
@@ -190,7 +190,7 @@ operations:
     matrix: supported
     findings: []
     script: load.reload_period.sql
-    script_sha256: 94057b9e271783fa6260e0dded40e121535fc8deb6a310bae05b44d70100acf1
+    script_sha256: 8144c3e1eb8ccc5042a203a6a7b1ac9e5b268d94aefb91bc4bc78938fdb33133
     parameters:
       - name: start
         type: TIMESTAMP
@@ -206,7 +206,7 @@ operations:
     matrix: supported
     findings: []
     script: load.replace_keys.sql
-    script_sha256: 2cfa19a2d2257593a367df1e0950cac71700dffae6ac308b0a9ae809b9ee624e
+    script_sha256: 6943275cc8ed14051eb234abeeb524448357df697c79c06336d3f70d9793127f
     parameters: []
   - name: tail
     default: false
@@ -215,9 +215,9 @@ operations:
     matrix: supported
     findings: []
     script: load.tail.sql
-    script_sha256: b4a059f3e37c4bfbd16b68281ba7ce5410839e606072a7948dd517d86973e9f8
+    script_sha256: eba1e4f689f066087f6417e3880606dfb6992fbcb66aec656516c22627ff075c
     resolver: load.tail.resolve.sql
-    resolver_sha256: 5350e7d19ac20490149fcb045fe326cfed4dfb4fd5a3cddefac9fb7c853f67f0
+    resolver_sha256: 5fabbc4666a91899359a962535f3e8f2539e89c77f4bab209d71c33a7a39cab8
     parameters:
       - name: watermark
         type: BIGINT

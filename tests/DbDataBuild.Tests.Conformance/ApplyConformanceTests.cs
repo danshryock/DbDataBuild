@@ -838,4 +838,24 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Integer_series_become_the_engines_own_generate_series_and_join_to_tables(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("models/marts/fct_slots.yml", "name: marts.fct_slots\nkind: {type: full}\ncolumns:\n  - {name: slot, type: BIGINT}\n  - {name: orders_in_slot, type: BIGINT}\n");
+            // range excludes its end; the slots with no orders must still appear
+            run.Write("models/marts/fct_slots.sql", "SELECT g.s AS slot, count(o.order_id) AS orders_in_slot FROM range(0, 4) AS g(s) LEFT JOIN staging.orders o ON o.order_id = g.s GROUP BY g.s\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Assert.Contains("generate_series(0, 3)", File.ReadAllText(Path.Combine(run.Dir, "rendered/lowered/marts.fct_slots/lowered.sql")));
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+            Assert.Equal(new List<string> { "0|0", "1|1", "2|1", "3|1" }, (await engine.RowsAsync("SELECT slot, orders_in_slot FROM marts.fct_slots")).Order().ToList());
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

@@ -46,6 +46,7 @@
 - { id: in_list,             sql: "SELECT * FROM t WHERE a IN (1, 2, 3)",                      expect: translate }
 - { id: list_literal,        sql: "SELECT [1, 2, 3] AS l",                                     expect: unsupported }
 - { id: struct_literal,      sql: "SELECT {'a': 1} AS s",                                      expect: unsupported }
+- { id: generate_series,    sql: "SELECT x FROM generate_series(1, 5) AS g(x)",                  expect: translate }
 - { id: unnest,              sql: "SELECT UNNEST([1, 2, 3]) AS u",                             expect: unsupported }
 - { id: int_overflow,        sql: "SELECT CAST(2147483647 AS INTEGER) + 1 AS x",               expect: differs }
 - { id: try_cast,            sql: "SELECT TRY_CAST(s AS INTEGER) AS x FROM t",                 expect: translate }

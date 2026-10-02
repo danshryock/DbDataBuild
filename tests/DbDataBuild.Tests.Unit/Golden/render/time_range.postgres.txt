@@ -5,7 +5,7 @@
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 SELECT CAST(MAX("order_date") - INTERVAL '3 days' AS DATE) FROM "marts"."fct_daily";
@@ -17,7 +17,7 @@ SELECT CAST(MAX("order_date") - INTERVAL '3 days' AS DATE) FROM "marts"."fct_dai
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 BEGIN;
@@ -35,7 +35,7 @@ COMMIT;
 model: marts.fct_daily
 target: postgres
 definition_hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
-matrix_version: a8574c89ab44
+matrix_version: 73eac1f86059
 tool_version: 0.1.0
 sources: [staging.orders]
 operations:
@@ -46,9 +46,9 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: f1201c40e1cb8db90a1557ab71f0ce9187fe7add7be3d1e6867a8eacd1183a60
+    script_sha256: 9b8d8624e22a7f5268cc9045544bbefd42313400fd35a3105bc9fa9ba2321ed6
     resolver: load.default.resolve.sql
-    resolver_sha256: dd7049ffada63dd19221b4171e4cdb32edb3d1f7f0d135388db86b92f7cad8a6
+    resolver_sha256: 28d0cc65539bd17f7ba96a3afbe1c453a184a8b8ccce28febf44a956ffa99e57
     parameters:
       - name: watermark
         type: DATE

@@ -114,6 +114,9 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
                 Fix: "Rewrite the construct the transpiler names, or remove the target."));
             return null;
         }
+        // T-SQL takes no column list after a table function; the lowered series names its column `value`, which is what SQL Server's is called
+        if (target.Dialect is "tsql" or "fabric")
+            transpiled = System.Text.RegularExpressions.Regex.Replace(transpiled, @"(GENERATE_SERIES\([^()]*\)) AS (\w+)\(value\)", "$1 AS $2", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         var tail = transpiled.TrimEnd();
         if (!tail.EndsWith(TailOfWrapper, StringComparison.Ordinal))
             throw new InvalidOperationException($"The transpiled body of {pair} does not end with `{TailOfWrapper}`; the renderer cannot place its own statements. This is a tool bug.");

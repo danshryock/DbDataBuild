@@ -5,7 +5,7 @@
 -- target:          fabric
 -- strategy:        delete_insert_by_key
 -- definition hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
--- matrix version:  a8574c89ab44
+-- matrix version:  73eac1f86059
 -- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
@@ -24,7 +24,7 @@ COMMIT TRANSACTION;
 model: marts.fct_orders
 target: fabric
 definition_hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
-matrix_version: a8574c89ab44
+matrix_version: 73eac1f86059
 tool_version: 0.1.0
 sources: [staging.orders]
 operations:
@@ -35,5 +35,5 @@ operations:
     matrix: unverified
     findings: [syntax.order_nulls]
     script: load.default.sql
-    script_sha256: 03b600e23386db385582bcd183ca1490953c4fee9360b8d70c0a8db7fd1360c5
+    script_sha256: 12c1c784f562f39e58eb0ea821377b8e0c34d85ce914a87aa6ffbb08d304d1b6
     parameters: []

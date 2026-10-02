@@ -434,6 +434,40 @@ public sealed class PlanLowerer
         };
     }
 
+    /// <summary>
+    /// `generate_series(a, b[, s])` and `range(...)` over integer constants become the engines' own GENERATE_SERIES (SQL Server 2022, PostgreSQL), with
+    /// `range`'s exclusive end turned into an inclusive one. The column is cast to BIGINT because DuckDB's is, and SQL Server's would otherwise be INT.
+    /// Date and timestamp series, UNNEST and any other table function are refused: the engines have no equal.
+    /// </summary>
+    private Rel Series(JsonElement p)
+    {
+        var name = Str(p, "name");
+        if (name is not ("generate_series" or "range")) throw new LoweringException($"the table function {name ?? "(unnamed)"}");
+        var args = new List<long>();
+        foreach (var a in Arr(p, "parameters"))
+        {
+            var type = a.TryGetProperty("type", out var ty) && ty.TryGetProperty("id", out var id) ? id.GetString() : null;
+            if (type is null || !IntegerTypes.Contains(type) || type is "HUGEINT" or "UBIGINT" || (a.TryGetProperty("is_null", out var n) && n.ValueKind == JsonValueKind.True))
+                throw new LoweringException($"{name} over {type ?? "a non-constant"} values (only integer series are lowered)");
+            args.Add(a.GetProperty("value").GetInt64());
+        }
+        if (args.Count is < 1 or > 3 || (name == "generate_series" && args.Count < 2)) throw new LoweringException($"{name} with {args.Count} argument(s)");
+        var (start, stop, step) = args.Count switch { 1 => (0L, args[0], 1L), 2 => (args[0], args[1], 1L), _ => (args[0], args[1], args[2]) };
+        if (step == 0) throw new LoweringException($"{name} with a step of zero");
+        if (name == "range") stop += step > 0 ? -1 : 1;     // range excludes its end
+        var column = p.GetProperty("names").EnumerateArray().First().GetString()!;
+        uses["series"] = uses.GetValueOrDefault("series") + 1;     // range is a keyword on SQL Server, so both functions share one alias
+        var alias = uses["series"] == 1 ? "series" : $"series_{uses["series"]}";
+        var call = $"generate_series({start}, {stop}{(step == 1 ? "" : $", {step}")})";
+        return new Rel
+        {
+            // the column is named `value`, which is what SQL Server calls it: it takes no column list after a function, so the renderer drops this one there
+            Frm = $"{call} AS {alias}(value)",
+            Sources = [alias],
+            Sel = [new Item($"CAST({Token(alias, "value")} AS BIGINT)", column, "BIGINT")],
+        };
+    }
+
     private Rel Node(JsonElement p)
     {
         var t = p.GetProperty("type").GetString()!;
@@ -443,7 +477,7 @@ public sealed class PlanLowerer
             case "LOGICAL_GET":
             {
                 var fd = p.TryGetProperty("function_data", out var f) ? f : default;
-                if (fd.ValueKind != JsonValueKind.Object || !fd.TryGetProperty("table", out var table)) throw new LoweringException("a table function");
+                if (fd.ValueKind != JsonValueKind.Object || !fd.TryGetProperty("table", out var table)) return Series(p);
                 var names = p.GetProperty("names").EnumerateArray().Select(x => x.GetString()!).ToList();
                 var types = p.GetProperty("returned_types").EnumerateArray().Select(TypeName).ToList();
                 // an index past the columns is DuckDB's virtual row-id column, which a query that selects no column of the table (EXISTS (SELECT 1 FROM u)) still scans

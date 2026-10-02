@@ -69,7 +69,7 @@ public class PlanLowererTests
         return seq.Items.Cast<YamlMapping>().Select(m => (((YamlScalar)m.Get("id")!).Value, ((YamlScalar)m.Get("sql")!).Value)).ToList();
     }
 
-    // what has no lowering yet: UNNEST, USING SAMPLE, DISTINCT ON, nested constructors
+    // what has no lowering yet: UNNEST, USING SAMPLE, nested constructors
     private static readonly string[] NotLowered = ["list_literal", "struct_literal", "unnest", "select_distinct_on", "sample_clause"];
 
     [Fact]
@@ -113,6 +113,45 @@ public class PlanLowererTests
     {
         using var c = Open();
         Assert.Equal(expected, Lower(c, source));
+    }
+
+    [Theory]
+    [InlineData("SELECT x FROM generate_series(1, 10) AS g(x)")]
+    [InlineData("SELECT x FROM generate_series(0, 9, 3) AS g(x)")]
+    [InlineData("SELECT x FROM generate_series(10, 1, -4) AS g(x)")]
+    [InlineData("SELECT x FROM generate_series(5, 1) AS g(x)")]
+    [InlineData("SELECT x FROM range(5) AS g(x)")]
+    [InlineData("SELECT x FROM range(2, 12, 5) AS g(x)")]
+    [InlineData("SELECT x FROM range(10, 0, -5) AS g(x)")]
+    [InlineData("SELECT x FROM range(0) AS g(x)")]
+    [InlineData("SELECT x * 2 AS y FROM generate_series(1, 4) AS g(x) WHERE x > 1")]
+    [InlineData("SELECT g.x, t.id FROM generate_series(1, 3) AS g(x) JOIN t ON t.a = g.x")]
+    [InlineData("SELECT * FROM generate_series(1, 3)")]
+    public void Integer_series_lower_to_generate_series_and_return_the_same_rows(string source)
+    {
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Contains("generate_series(", lowered);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+        Assert.Equal(ResultNames(c, source), ResultNames(c, lowered));
+    }
+
+    [Fact]
+    public void Range_ends_are_made_inclusive_and_the_column_keeps_DuckDBs_bigint_type()
+    {
+        using var c = Open();
+        Assert.Equal("SELECT CAST(value AS BIGINT) AS x\nFROM generate_series(0, 4) AS series(value)", Lower(c, "SELECT x FROM range(5) AS g(x)"));
+        Assert.Contains("generate_series(2, 11, 5)", Lower(c, "SELECT x FROM range(2, 12, 5) AS g(x)"));
+    }
+
+    [Theory]
+    [InlineData("SELECT d FROM generate_series(DATE '2024-01-01', DATE '2024-01-05', INTERVAL 1 DAY) AS g(d)")]
+    [InlineData("SELECT x FROM generate_series(1, 3) AS g(x) WHERE x > (SELECT min(a) FROM t)", false)]
+    public void Series_that_have_no_equal_on_the_engines_are_refused(string source, bool refused = true)
+    {
+        using var c = Open();
+        if (refused) Assert.Throws<LoweringException>(() => Lower(c, source));
+        else Assert.Contains("generate_series", Lower(c, source));
     }
 
     [Fact]

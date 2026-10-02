@@ -32,6 +32,7 @@ public class MatrixLinterTests
         ["syntax.group_by_all"] = "SELECT a, COUNT(*) FROM t GROUP BY ALL",
         ["type.list"] = "SELECT [1, 2] AS l",
         ["type.struct"] = "SELECT {'a': 1} AS s",
+        ["fn.generate_series"] = "SELECT x FROM generate_series(1, 5) AS g(x)",
         ["fn.unnest"] = "SELECT UNNEST([1, 2]) AS u",
         ["fn.date_trunc"] = "SELECT DATE_TRUNC('month', d) AS x FROM t",
         ["op.interval_add"] = "SELECT d + INTERVAL 3 DAY AS x FROM t",

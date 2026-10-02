@@ -92,7 +92,7 @@ You accepted the three lowering decisions (committed artifact, hard error, the b
 
 - Every model query is bound by DuckDB and lowered to one explicit query before the matrix lint and the transpile. The lowered query is committed as `rendered/lowered/<model>/lowered.sql` (written by `render --write`, checked by `render --check` and `plan`), with a header recording the source hash, the DuckDB version and each output column's resolved type.
 - `GROUP BY ALL`, ordinals, `USING`, `NATURAL JOIN`, `SELECT *` and implicit casts are expanded before polyglot sees the query, so they are no longer findings. `avg` over integers and DATE-to-TIMESTAMP widening are pinned with explicit casts; null ordering is always written. An end-to-end test shows both engines now compute the 1.5 and 3.5 DuckDB computes.
-- What cannot be lowered (correlated subqueries, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, `LIMIT ... PERCENT`, list and struct constructors) is DDB-324. `lowering: { enabled: false }` in `dbdatabuild.yml` turns the stage off for a project.
+- What cannot be lowered (at that point correlated subqueries, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, `LIMIT ... PERCENT`, list and struct constructors; subqueries and `DISTINCT ON` have since been built) is DDB-324. `lowering: { enabled: false }` in `dbdatabuild.yml` turns the stage off for a project.
 - Two bugs the real-engine tests caught in my first version, both fixed and now covered by the lowerer's differential test: the author's output aliases were lost when no projection sat at the top of the plan (the plan does not carry them), and a repeated output name needed a suffix.
 - Metadata records each column's resolved DuckDB type, the lowered artifact's hash and the rules that fired.
 
@@ -103,3 +103,8 @@ Still open from the research: target-specific rules (`LENGTH` ignoring trailing 
 Correlated and uncorrelated subqueries now lower (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 21): `EXISTS`, `NOT EXISTS`, `IN`, `NOT IN`, scalar subqueries with aggregates, `LATERAL`, correlated `LIMIT`, nesting, and subqueries anywhere in the query. 53 forms were checked against DuckDB and on SQL Server and PostgreSQL (51 and 52 match; the two differences are an engine limit and the spike database's collation), and an end-to-end model runs on both engines. Refused by name: `ANY`/`ALL`, row-value `IN`, a correlated subquery over `UNION`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset. Unit tests 928, real-engine tests 71.
 
 Known cosmetic difference: the author's table aliases (`o`, `p`) are not in DuckDB's plan, so sources in the lowered query are named after their tables (`orders`, `orders_2`). Next in the agreed order: `DISTINCT ON` with a total order, then `generate_series` and `UNNEST` for the engines that have them.
+
+## Update (2026-10-02): integer series
+
+`generate_series` and `range` over integer constants now lower to the engines' own `GENERATE_SERIES` (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 23). SQL Server 2022 needs version 16 or later and does not accept a column list after the function, so the renderer drops it for T-SQL; this is recorded in the matrix as a new row. Date series, `UNNEST`, list and struct constructors, and `USING SAMPLE` stay refused (DDB-324). The agreed order is finished. Unit tests 956, real-engine tests 75.
+
