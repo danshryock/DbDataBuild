@@ -34,8 +34,12 @@ public sealed record ProjectConfig(
     string TrackingSchema,
     StringSemantics StringSemantics,
     IReadOnlyDictionary<string, Severity> Policy,
-    IReadOnlyDictionary<string, int>? SourceLines = null)
+    IReadOnlyDictionary<string, int>? SourceLines = null,
+    IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>>? DeclaredHookGroups = null)
 {
+    /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();
+
     /// <summary>1-based lines in dbdatabuild.yml of settings that were present, keyed by dotted path (for diagnostics). Empty for defaults.</summary>
     public IReadOnlyDictionary<string, int> Lines { get; } = SourceLines ?? new Dictionary<string, int>();
 

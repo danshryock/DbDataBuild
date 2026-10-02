@@ -31,8 +31,15 @@ public sealed record ModelDefinition(
     IReadOnlyList<string>? Targets,   // null: project default applies
     IReadOnlyList<ColumnDefinition> Columns,
     IReadOnlyList<RenameDefinition> Renames,
-    IReadOnlyList<LoadOperation>? DeclaredLoads = null)
+    IReadOnlyList<LoadOperation>? DeclaredLoads = null,
+    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null,
+    IReadOnlyList<HookDefinition>? DeclaredHooks = null)
 {
+    public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];
+
+    /// <summary>Hook entries in the order written (the order they run in); groups are expanded by <see cref="HookReader.Resolve"/>.</summary>
+    public IReadOnlyList<HookDefinition> Hooks => DeclaredHooks ?? [];
+
     /// <summary>Declared load operations (the `loads:` block). Empty when the kind supplies its single default (see <see cref="LoadPlan"/>).</summary>
     public IReadOnlyList<LoadOperation> Loads => DeclaredLoads ?? [];
 }

@@ -147,3 +147,34 @@ Limits: the "ranges before the change hold NULL" count is about recorded ranges 
 ## 13. JSON Schema for plan files
 
 `schemas/plan.schema.json` describes the plan file for editors and reviewers (every key, enum, hash shape, and the rule that a step's reason chain is non-empty). Tests check three things: what the writer produces satisfies it; structural damage (unknown key, bad step type, risk, target, state, short hash) fails both the schema and the parser; and a well-formed *content* edit passes the schema but is refused by the parser, which is the point: the schema cannot verify the content hash, so it is for editors and the hash is the guard.
+
+## 14. Model syntax for indexes and hooks (decisions from the operator)
+
+Operator decisions recorded here: **indexes are declared, never implied** (a table with no unique constraint can still merge on a column; engine enforcement is the operator's choice, and lint or generation features may suggest or create them later), and **hooks are an open structure**: ordered, named, per-event, per-target, with named groups.
+
+```yaml
+indexes:
+  - {name: uq_fct_orders_key, columns: [order_id], unique: true}
+  - {name: ix_fct_orders_date, columns: [order_date], include: [amount], targets: [sqlserver]}
+
+hooks:                                   # an ordered list: this is the run order within an event
+  - {name: grant_reader, event: post_create, script: hooks/grant_reader.sql}
+  - name: refresh_stats
+    event: post_load
+    script: {sqlserver: hooks/sqlserver/stats.sql, postgres: hooks/postgres/stats.sql}   # one file per engine
+    effect: data                         # ddl (default) or data; `run` runs only data hooks
+    risk: safe                           # the author's declaration: safe (default), risky, destructive
+  - {use: standard_audit}                # insert the hooks of a group, in place
+
+# dbdatabuild.yml
+hook_groups:
+  standard_audit:
+    - {name: stamp, event: post_load, script: hooks/audit_stamp.sql, targets: [sqlserver]}
+```
+
+- **Events are a registry** (`HookEvents`): `pre_` and `post_` times `create`, `alter`, `drop`, `load`, `backfill`. Adding a kind of hook is one row there plus the place in the planner that fires it. An event the planner does not fire yet (`pre_drop`, `post_drop`: there is no step that drops a whole object) is reserved and refused, so a hook never silently does nothing.
+- **Groups** are defined once in `dbdatabuild.yml`, referenced with `use:`, expand in place, do not nest, and their hooks appear in plans as `group.name`. Names must be unique per model after expansion. A group can contain per-target scripts and `targets:` filters, so one group serves every engine.
+- **Scripts** are project-relative `.sql` paths (no `..`, no absolute or drive paths, forward slashes); each holds native SQL for one engine and is executed exactly as committed. Validated by the loader, `schemas/model.schema.json` and `schemas/config.schema.json`, and through one conformance corpus (all new fixtures pass in both).
+- `HookReader.Resolve(model, config, target, ...)` produces the ordered hooks for one target: groups expanded, other targets dropped, unknown groups and clashes reported once.
+
+Not wired yet at this commit: planning, applying and offline validation of the scripts, index DDL, and index drift.

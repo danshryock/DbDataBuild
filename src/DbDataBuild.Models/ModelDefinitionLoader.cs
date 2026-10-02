@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads and validates one model definition (.yml). All problems are reported in one pass.</summary>
 public static class ModelDefinitionLoader
 {
-    private static readonly string[] TopKeys = ["name", "kind", "grain", "targets", "columns", "renames", "loads"];
+    private static readonly string[] TopKeys = ["name", "kind", "grain", "targets", "columns", "renames", "loads", "indexes", "hooks"];
     private static readonly string[] RenameKeys = ["from", "to"];
 
     /// <param name="file">Path shown in diagnostics.</param>
@@ -54,6 +54,8 @@ public static class ModelDefinitionLoader
             var columns = ReadColumns(top);
             var loads = ReadLoads(top, kindType?.Value, uniqueKey, timeColumn, columns);
             var renames = ReadRenames(top);
+            var indexes = ReadIndexes(top, columns, targets?.Select(t => t.Value).ToList());
+            var hooks = top.Get("hooks") is { } hn ? HookReader.ReadList(hn, allowUse: true, "`hooks`", (d, n, f) => Add(d, n, f)) : [];
 
             // semantic checks
             var declared = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -84,7 +86,7 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads);
+                columns, renames, loads, indexes, hooks);
         }
 
         private (YamlScalar? Type, List<YamlScalar>? UniqueKey, YamlScalar? TimeColumn, YamlScalar? Lookback, YamlNode? Node) ReadKind(YamlMapping top)
@@ -288,6 +290,45 @@ public static class ModelDefinitionLoader
                 else Add(DiagnosticCatalog.InvalidValue, ov, $"overridable is `{ov.Value}`.", "true or false (lowercase).");
             }
             return col == null ? null : new WatermarkSpec(def?.Name ?? col.Value, lookback, onNull, initial?.Value, overridable);
+        }
+
+        private List<IndexDefinition> ReadIndexes(YamlMapping top, List<ColumnDefinition> columns, List<string>? modelTargets)
+        {
+            var result = new List<IndexDefinition>();
+            if (top.Get("indexes") is not { } node) return result;
+            if (node is not YamlSequence seq) { Add(DiagnosticCatalog.InvalidValue, node, "`indexes` must be a list."); return result; }
+            string[] keys = ["name", "columns", "unique", "include", "targets"];
+            var declared = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in seq.Items)
+            {
+                if (item is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, item, "Each index must be a mapping with `name` and `columns`."); continue; }
+                CheckKeys(m, keys, "an index");
+                var name = Scalar(m, "name", required: true, at: m);
+                var cols = StringList(m, "columns", required: true, allowEmpty: false, unique: true);
+                var include = StringList(m, "include", required: false, allowEmpty: false, unique: true);
+                var idxTargets = StringList(m, "targets", required: false, allowEmpty: false, unique: true);
+                var unique = false;
+                if (Scalar(m, "unique", required: false, at: m) is { } u)
+                {
+                    if (u.Value is "true" or "false") unique = u.Value == "true";
+                    else Add(DiagnosticCatalog.InvalidValue, u, $"unique is `{u.Value}`.", "true or false (lowercase).");
+                }
+                if (name != null)
+                {
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(name.Value, "^[A-Za-z_][A-Za-z0-9_]*$")) Add(DiagnosticCatalog.InvalidValue, name, $"`{name.Value}` is not a valid index name.", "Letters, digits and underscores, not starting with a digit.");
+                    else if (!names.Add(name.Value)) Add(DiagnosticCatalog.DuplicateKey, name, $"The index name `{name.Value}` is used more than once.");
+                }
+                foreach (var c in (cols ?? []).Concat(include ?? []).Where(c => columns.Count > 0 && !declared.Contains(c.Value)))
+                    Add(DiagnosticCatalog.UnknownColumnReference, c, $"The index refers to `{c.Value}`, which is not declared in `columns`.");
+                foreach (var c in (include ?? []).Where(i => cols?.Any(k => string.Equals(k.Value, i.Value, StringComparison.OrdinalIgnoreCase)) == true))
+                    Add(DiagnosticCatalog.InvalidValue, c, $"`{c.Value}` is both a key and an included column of the index.");
+                foreach (var t in (idxTargets ?? []).Where(t => !TargetNames.All.Contains(t.Value)))
+                    Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                if (name == null || cols == null) continue;
+                result.Add(new IndexDefinition(name.Value, cols.Select(c => c.Value).ToList(), unique, include?.Select(c => c.Value).ToList() ?? [], idxTargets?.Select(t => t.Value).ToList(), m.Line));
+            }
+            return result;
         }
 
         private List<RenameDefinition> ReadRenames(YamlMapping top)

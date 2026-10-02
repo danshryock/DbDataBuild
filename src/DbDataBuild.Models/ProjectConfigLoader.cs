@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["default_targets", "targets", "tracking_schema", "string_semantics", "policy"];
+    private static readonly string[] TopKeys = ["default_targets", "targets", "tracking_schema", "string_semantics", "policy", "hook_groups"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] TargetKeys = ["version"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -52,7 +52,20 @@ public static class ProjectConfigLoader
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, versions, schema, semantics, policy, lines);
+            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top));
+        }
+
+        private Dictionary<string, IReadOnlyList<HookDefinition>> ReadHookGroups(YamlMapping top)
+        {
+            var result = new Dictionary<string, IReadOnlyList<HookDefinition>>(StringComparer.Ordinal);
+            if (top.Get("hook_groups") is not { } node) return result;
+            if (node is not YamlMapping groups) { Add(DiagnosticCatalog.InvalidValue, node, "`hook_groups` must map group names to lists of hooks."); return result; }
+            foreach (var e in groups.Entries)
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(e.Key.Value, @"^[A-Za-z_][A-Za-z0-9_\-]*$")) { Add(DiagnosticCatalog.InvalidValue, e.Key, $"`{e.Key.Value}` is not a valid hook group name."); continue; }
+                result[e.Key.Value] = HookReader.ReadList(e.Value, allowUse: false, $"the hook group `{e.Key.Value}`", (d, n, f) => Add(d, n, f));
+            }
+            return result;
         }
 
         private List<string>? ReadDefaultTargets(YamlMapping top)

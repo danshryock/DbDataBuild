@@ -64,6 +64,12 @@ public class ProjectConfigTests
         new("unsupported severity is not configurable", "policy:\n  severity:\n    unsupported: warning\n", false, "DDB-104"),
         new("bad severity value", "policy:\n  severity:\n    approximated: loud\n", false, "DDB-106"),
         new("unknown policy key", "policy:\n  mode: strict\n", false, "DDB-104"),
+        new("hook groups", "hook_groups:\n  standard:\n    - {name: grant, event: post_create, script: hooks/grant.sql}\n    - {name: stats, event: post_load, script: {sqlserver: hooks/s.sql, postgres: hooks/p.sql}, effect: data}\n  empty: []\n", true),
+        new("hook group not a list", "hook_groups:\n  standard: nope\n", false, "DDB-106"),
+        new("hook group entry without event", "hook_groups:\n  standard:\n    - {name: grant, script: hooks/grant.sql}\n", false, "DDB-105"),
+        new("hook groups do not nest", "hook_groups:\n  standard:\n    - {use: other}\n", false, "DDB-106"),
+        new("hook group name with a space", "hook_groups:\n  \"my group\":\n    - {name: x, event: post_load, script: hooks/x.sql}\n", false, "DDB-106"),
+        new("hook group duplicate hook name", "hook_groups:\n  g:\n    - {name: x, event: post_load, script: hooks/x.sql}\n    - {name: x, event: pre_load, script: hooks/y.sql}\n", true, "DDB-102"),
     ];
 
     public static TheoryData<Case> Data

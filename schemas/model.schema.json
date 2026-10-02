@@ -59,6 +59,27 @@
       "additionalProperties": {
         "$ref": "#/$defs/loadOperation"
       }
+    },
+    "indexes": {
+      "description": "Indexes the operator wants on the table. Created by `plan` when missing; an index that exists but is not declared is left alone and reported. Merging or loading by a key never requires an index or constraint.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/index"
+      }
+    },
+    "hooks": {
+      "description": "Ordered hooks: native-SQL scripts run before or after plan steps (events pre_/post_ create, alter, load, backfill), or `use:` a group of hooks defined in dbdatabuild.yml.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/hook"
+          },
+          {
+            "$ref": "#/$defs/hookUse"
+          }
+        ]
+      }
     }
   },
   "allOf": [
@@ -531,6 +552,161 @@
           }
         }
       ]
+    },
+    "index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "columns": {
+          "description": "Key columns, in order.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unique": {
+          "description": "Engine-enforced uniqueness. Never implied by `unique_key`: the operator decides what the database enforces.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
+        },
+        "include": {
+          "description": "Covering (non-key) columns.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "sqlserver",
+              "fabric",
+              "postgres"
+            ]
+          }
+        }
+      }
+    },
+    "hook": {
+      "title": "hook",
+      "description": "A native-SQL script attached to a plan event. `script` is one path, or a path per target; the file is executed exactly as committed. The list order is the run order.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "event",
+        "script"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
+        },
+        "event": {
+          "description": "pre_ or post_ create, alter, load or backfill. pre_drop and post_drop are reserved: the planner has no drop step yet, so they are refused.",
+          "enum": [
+            "pre_create",
+            "post_create",
+            "pre_alter",
+            "post_alter",
+            "pre_load",
+            "post_load",
+            "pre_backfill",
+            "post_backfill"
+          ]
+        },
+        "script": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(^|/)\\.\\.?(/|$))[^/].*\\.[sS][qQ][lL]$"
+            },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(^|/)\\.\\.?(/|$))[^/].*\\.[sS][qQ][lL]$"
+              }
+            }
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "sqlserver",
+              "fabric",
+              "postgres"
+            ]
+          }
+        },
+        "effect": {
+          "description": "What the script may do: ddl (default) or data. `run` runs only data hooks.",
+          "enum": [
+            "ddl",
+            "data"
+          ]
+        },
+        "risk": {
+          "description": "The author's declaration, which sets the plan step's risk class. Default safe.",
+          "enum": [
+            "safe",
+            "risky",
+            "destructive"
+          ]
+        }
+      }
+    },
+    "hookUse": {
+      "title": "group reference",
+      "description": "Inserts the hooks of a group defined under `hook_groups` in dbdatabuild.yml, in place and in order.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use"
+      ],
+      "properties": {
+        "use": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
+        }
+      }
     }
   }
 }

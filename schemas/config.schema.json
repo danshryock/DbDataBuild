@@ -11,16 +11,24 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/target" }
+      "items": {
+        "$ref": "#/$defs/target"
+      }
     },
     "targets": {
       "description": "Per-target settings used by offline checks.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sqlserver": { "$ref": "#/$defs/targetSettings" },
-        "fabric": { "$ref": "#/$defs/targetSettings" },
-        "postgres": { "$ref": "#/$defs/targetSettings" }
+        "sqlserver": {
+          "$ref": "#/$defs/targetSettings"
+        },
+        "fabric": {
+          "$ref": "#/$defs/targetSettings"
+        },
+        "postgres": {
+          "$ref": "#/$defs/targetSettings"
+        }
       }
     },
     "tracking_schema": {
@@ -33,9 +41,24 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "case": { "enum": ["sensitive", "insensitive"] },
-        "accent": { "enum": ["sensitive", "insensitive"] },
-        "trailing_space": { "enum": ["significant", "ignored"] },
+        "case": {
+          "enum": [
+            "sensitive",
+            "insensitive"
+          ]
+        },
+        "accent": {
+          "enum": [
+            "sensitive",
+            "insensitive"
+          ]
+        },
+        "trailing_space": {
+          "enum": [
+            "significant",
+            "ignored"
+          ]
+        },
         "collations": {
           "description": "Logical collation name to per-engine collation name.",
           "type": "object",
@@ -43,10 +66,18 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "duckdb": { "$ref": "#/$defs/collation" },
-              "sqlserver": { "$ref": "#/$defs/collation" },
-              "fabric": { "$ref": "#/$defs/collation" },
-              "postgres": { "$ref": "#/$defs/collation" }
+              "duckdb": {
+                "$ref": "#/$defs/collation"
+              },
+              "sqlserver": {
+                "$ref": "#/$defs/collation"
+              },
+              "fabric": {
+                "$ref": "#/$defs/collation"
+              },
+              "postgres": {
+                "$ref": "#/$defs/collation"
+              }
             }
           }
         }
@@ -61,19 +92,55 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "approximated": { "$ref": "#/$defs/severity" },
-            "emulated": { "$ref": "#/$defs/severity" },
-            "unverified": { "$ref": "#/$defs/severity" },
-            "not_covered": { "$ref": "#/$defs/severity" }
+            "approximated": {
+              "$ref": "#/$defs/severity"
+            },
+            "emulated": {
+              "$ref": "#/$defs/severity"
+            },
+            "unverified": {
+              "$ref": "#/$defs/severity"
+            },
+            "not_covered": {
+              "$ref": "#/$defs/severity"
+            }
           }
+        }
+      }
+    },
+    "hook_groups": {
+      "description": "Named, ordered sets of hooks that models reference with `use: <group>`. Groups do not nest. Hook names inside a group are prefixed with the group name in plans (`group.name`).",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/hook"
         }
       }
     }
   },
   "$defs": {
-    "target": { "enum": ["sqlserver", "fabric", "postgres"] },
-    "severity": { "enum": ["error", "warning", "note"] },
-    "collation": { "type": "string", "minLength": 1 },
+    "target": {
+      "enum": [
+        "sqlserver",
+        "fabric",
+        "postgres"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "error",
+        "warning",
+        "note"
+      ]
+    },
+    "collation": {
+      "type": "string",
+      "minLength": 1
+    },
     "targetSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -81,8 +148,94 @@
         "version": {
           "description": "The engine's major version (SQL Server 2022 is 16, 2025 is 17). Lets the matrix linter resolve min_version rows.",
           "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            { "type": "string", "pattern": "^[1-9][0-9]*$" }
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          ]
+        }
+      }
+    },
+    "hook": {
+      "title": "hook",
+      "description": "A native-SQL script attached to a plan event. `script` is one path, or a path per target; the file is executed exactly as committed. The list order is the run order.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "event",
+        "script"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
+        },
+        "event": {
+          "description": "pre_ or post_ create, alter, load or backfill. pre_drop and post_drop are reserved: the planner has no drop step yet, so they are refused.",
+          "enum": [
+            "pre_create",
+            "post_create",
+            "pre_alter",
+            "post_alter",
+            "pre_load",
+            "post_load",
+            "pre_backfill",
+            "post_backfill"
+          ]
+        },
+        "script": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(^|/)\\.\\.?(/|$))[^/].*\\.[sS][qQ][lL]$"
+            },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "enum": [
+                  "sqlserver",
+                  "fabric",
+                  "postgres"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(^|/)\\.\\.?(/|$))[^/].*\\.[sS][qQ][lL]$"
+              }
+            }
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "sqlserver",
+              "fabric",
+              "postgres"
+            ]
+          }
+        },
+        "effect": {
+          "description": "What the script may do: ddl (default) or data. `run` runs only data hooks.",
+          "enum": [
+            "ddl",
+            "data"
+          ]
+        },
+        "risk": {
+          "description": "The author's declaration, which sets the plan step's risk class. Default safe.",
+          "enum": [
+            "safe",
+            "risky",
+            "destructive"
           ]
         }
       }

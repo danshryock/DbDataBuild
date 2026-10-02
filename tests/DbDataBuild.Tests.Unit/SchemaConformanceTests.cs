@@ -123,6 +123,36 @@ public class SchemaConformanceTests
         Bad("loads: on a view", "name: marts.fct_orders\nkind: {type: view}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n", "DDB-106"),
         Bad("kind lookback not a duration", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: soon}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n", "DDB-106"),
 
+        // indexes (declared by the operator; never implied by unique_key)
+        Ok("indexes: unique, covering, per target", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: INT}\n  - {name: b, type: INT}\n  - {name: c, type: INT}\nindexes:\n  - {name: uq_a, columns: [a], unique: true}\n  - {name: ix_b, columns: [b, a], include: [c], targets: [sqlserver]}\n"),
+        Bad("indexes: columns missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix}\n", "DDB-105"),
+        Bad("indexes: unknown key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], clustered: true}\n", "DDB-104"),
+        Bad("indexes: bad name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: \"my index\", columns: [a]}\n", "DDB-106"),
+        Bad("indexes: unique maybe", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], unique: maybe}\n", "DDB-106"),
+        Bad("indexes: unknown target", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], targets: [oracle]}\n", "DDB-106"),
+        Semantic("indexes: column not declared", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [ghost]}\n", "DDB-217"),
+        Semantic("indexes: duplicate name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a]}\n  - {name: IX, columns: [a]}\n", "DDB-102"),
+        Semantic("indexes: key column also included", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], include: [a]}\n", "DDB-106"),
+
+        // hooks: ordered, named, per-event, per-target; groups are referenced with `use`
+        Ok("hooks: every form", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: grant, event: post_create, script: hooks/grant.sql}\n" +
+            "  - name: stats\n    event: post_load\n    script: {sqlserver: hooks/sqlserver/stats.sql, postgres: hooks/postgres/stats.sql}\n    effect: data\n" +
+            "  - {name: only_pg, event: pre_alter, script: hooks/lock.sql, targets: [postgres], risk: risky}\n  - {use: standard}\n"),
+        Bad("hooks: not a list", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks: nope\n", "DDB-106"),
+        Bad("hooks: script missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load}\n", "DDB-105"),
+        Bad("hooks: event missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, script: hooks/x.sql}\n", "DDB-105"),
+        Bad("hooks: unknown event", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: after_lunch, script: hooks/x.sql}\n", "DDB-106"),
+        Bad("hooks: reserved event", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: pre_drop, script: hooks/x.sql}\n", "DDB-106"),
+        Bad("hooks: unknown key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql, retries: 3}\n", "DDB-104"),
+        Bad("hooks: script escapes the project", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: ../outside.sql}\n", "DDB-106"),
+        Bad("hooks: absolute script path", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: /etc/x.sql}\n", "DDB-106"),
+        Bad("hooks: script is not .sql", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sh}\n", "DDB-106"),
+        Bad("hooks: bad effect", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql, effect: everything}\n", "DDB-106"),
+        Bad("hooks: bad risk", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql, risk: yolo}\n", "DDB-106"),
+        Bad("hooks: use with other keys", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {use: standard, name: x}\n", "DDB-106"),
+        Semantic("hooks: duplicate name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql}\n  - {name: x, event: pre_load, script: hooks/y.sql}\n", "DDB-102"),
+        Semantic("hooks: targets and per-target script together", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: {postgres: hooks/x.sql}, targets: [postgres]}\n", "DDB-106"),
+
         // Semantic rules: the schema cannot express them, so it accepts and the loader rejects.
         Semantic("name does not match path", "name: marts.other\nkind: {type: full}\n" + Cols, "DDB-107"),
         Semantic("grain differs from unique_key", TestSupport.ValidModel.Replace("grain: [order_id]", "grain: [customer_id]"), "DDB-216"),
