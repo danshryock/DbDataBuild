@@ -74,6 +74,10 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **`import-sources`** (entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported; indexes and foreign keys of sources are not exported; a refresh rewrites a descriptor without its comments; `--check` needs a database login in CI.
 - **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import-sources --format json` has them), and the tool's own tracking tables.
 
+## J. Project tests (2026-10-02)
+
+- **Built**: metadata rules (`test`, entry 37). **Not built**: model data tests (`tests/models/`, DESIGN.md 9.8); gating `plan`/`apply`/`run` on tests, including by tag group (the tags exist, nothing reads them but `test --tag`); the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML; floating-point tolerance, parameterized loads and multi-run incremental behaviour for data tests; tests on a real target.
+
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 
 - **DuckDB 2.0 adoption** (see `docs/research/duckdb-2.0/README.md`): lowering work is done (all unit and real-engine tests pass on the alpha). Open: it depends on the deprecated `delim_join_as_cte` setting (if it is removed, write the inverse decorrelation: 16 forms); wait for a DuckDB.NET release built for 2.0; then regenerate committed lowered artifacts (their headers carry the DuckDB version) and make 2.0 the default. A CI job running `scripts/test-duckdb-preview.sh` weekly would show convergence.

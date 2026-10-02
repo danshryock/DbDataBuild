@@ -24,6 +24,7 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 |---|---|---|
 | `validate` | offline | check config, models and sources; lowers every query with DuckDB, lints it per target; `data.models` has full metadata |
 | `sample [models]` | offline | run models on generated or supplied rows and see the result (`--rows --seed --limit --data <dir> --sources`) |
+| `test [names] [--tag t] [--strict]` | offline | run the project's tests: metadata rules in `tests/metadata/*.sql` (DuckDB SELECTs over the `metadata_*` views that return violations); exit 1 if an error-severity rule returns rows |
 | `metadata`, `loads`, `matrix`, `explain <code>` | offline | what the tool knows: types per target, load operations, what differs per engine, a code's meaning |
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |
@@ -39,6 +40,10 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 4. `define --check`; if the declared columns are out of sync (DDB-420), `define --write` with answers, or edit the `columns:` by hand.
 5. `render --write`, then commit `rendered/`.
 6. `plan --format json`. If it has `open_questions`, stop and ask (a parameter of a reload or backfill can be given as `--param model.operation.parameter=value` once the person has chosen the value). Otherwise give the person the plan path and a summary of the steps (`data.plan.steps`: type, risk, description). Risky and destructive steps need their own flags at apply time, and that is the person's call.
+
+## Project tests
+
+`tests/metadata/<name>.sql` is a rule: one DuckDB SELECT over the `metadata_*` views that returns the violations (no rows = pass). Put settings in comments at the top: `-- description: ...`, `-- severity: error|warning`, `-- tags: a, b`. Views: `metadata_columns` (model and source columns, native types per target), `metadata_models`, `metadata_sources`, `metadata_upstream`, `metadata_lineage`, `metadata_native_types`, `metadata_indexes`, `metadata_loads`, `metadata_hooks`, `metadata_index_advice`, `metadata_current` (the raw JSON documents). Run `test --format json`; a failing error-severity rule is DDB-601, a rule that cannot run DDB-602. Do not weaken or delete a rule to make a model pass without asking the person.
 
 ## Writing a model
 

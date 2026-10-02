@@ -332,6 +332,20 @@ public static class DiagnosticCatalog
         $"Run the backfill (`{ProductInfo.Cli} plan --backfill <model>=<operation>`), or accept the situation with `{ProductInfo.Cli} ack history <model>.<column> --reason ...`.",
         "The warning is information, not a block: the operator decides what is a continuing concern. An acknowledgement is recorded with who made it and why, changes no data, and is tied to the one plan whose decision it is about.");
 
+    // 6xx: project tests (`test`)
+    public static readonly DiagnosticDescriptor TestFailed = E("601", "A project test failed",
+        "a test that returns no violations: a metadata rule (`tests/metadata/<name>.sql`) whose SELECT returns no rows",
+        $"Read the violating rows (shown with the finding and in `{ProductInfo.Cli} test --format json`) and fix the models, or change the rule. A rule that should only advise says `-- severity: warning` at the top of the file.",
+        "A metadata rule is a DuckDB SELECT over the metadata views (`metadata_columns`, `metadata_models`, `metadata_sources`, `metadata_lineage`, `metadata_indexes`, `metadata_loads`, `metadata_hooks`, `metadata_native_types`, `metadata_index_advice`, `metadata_upstream`, `metadata_current`) that returns the violations. Each returned row is one violation. An `error` rule makes `test` exit non-zero; a `warning` rule is reported with this code at warning severity and does not, unless `--strict` is given.");
+    public static readonly DiagnosticDescriptor TestCouldNotRun = E("602", "A project test could not run",
+        "a rule whose SQL DuckDB can run over the metadata views",
+        "Fix the SQL (the message is DuckDB's). Run `dbdatabuild test --format json` to see it, and query the views by hand with `dbdatabuild metadata --format json` for the documents they are built from.",
+        "A rule that fails to run is an error whatever its severity: a rule nobody can run protects nothing. The metadata views are built from the same documents `metadata` prints, in an in-memory DuckDB with file and network access off.");
+    public static readonly DiagnosticDescriptor TestNotASelect = E("603", "A project test is not a single SELECT",
+        "one SELECT (or WITH ... SELECT) statement",
+        "Make the file one query that returns the violating rows.",
+        "A rule only reads: it is one SELECT statement. Several statements, DDL, DML and files with only comments are refused before anything runs.");
+
     // 5xx: state and safety (logins, the mutation gate, tracking tables)
     public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
         "A connection string in the environment variable named in the message, for the login this command needs.",
@@ -369,6 +383,7 @@ public static class DiagnosticCatalog
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, HistoryInconsistent, DefinitionFileChanged, DefinitionNotEditable,
+        TestFailed, TestCouldNotRun, TestNotASelect,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];

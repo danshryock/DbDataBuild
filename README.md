@@ -30,6 +30,7 @@ dbdatabuild sample marts.fct_orders       # run a model on generated sample data
 dbdatabuild render --write                # write the committed load scripts
 dbdatabuild plan --target postgres        # read the target, write a plan file
 dbdatabuild apply plans/postgres/<id>.plan.yml --dry-run
+dbdatabuild test                          # run the project's tests (metadata rules in tests/metadata/)
 dbdatabuild tui                           # the same, interactively
 ```
 

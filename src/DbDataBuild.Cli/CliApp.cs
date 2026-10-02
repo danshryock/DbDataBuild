@@ -189,6 +189,15 @@ public static class CliApp
                     cmd.Arguments.Add(impTables); cmd.Options.Add(impProject); cmd.Options.Add(impTarget); cmd.Options.Add(impWrite); cmd.Options.Add(impCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ImportSourcesCommand.Run(spec, pr.GetValue(impProject)!.FullName, pr.GetValue(impTarget), pr.GetValue(impTables) ?? [], pr.GetValue(impWrite), pr.GetValue(impCheck), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "test":
+                    var testNames = new Argument<string[]>("tests") { Description = "Test names (tests/metadata/naming/x.sql is naming.x) or files (default: every test)", Arity = ArgumentArity.ZeroOrMore };
+                    var testProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var testTag = new Option<string[]>("--tag") { Description = "Run only tests with this tag (repeat for several: any of them)", AllowMultipleArgumentsPerToken = true };
+                    var testLimit = new Option<int>("--limit") { Description = "How many violating rows to show per test", DefaultValueFactory = _ => 10 };
+                    var testStrict = new Option<bool>("--strict") { Description = "Fail on warning-severity tests too" };
+                    cmd.Arguments.Add(testNames); cmd.Options.Add(testProject); cmd.Options.Add(testTag); cmd.Options.Add(testLimit); cmd.Options.Add(testStrict);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => TestCommand.Run(spec, pr.GetValue(testProject)!.FullName, pr.GetValue(testNames) ?? [], pr.GetValue(testTag) ?? [], pr.GetValue(testLimit), pr.GetValue(testStrict), o, e)));
+                    break;
                 case "metadata":
                     var metaModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var metaProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };

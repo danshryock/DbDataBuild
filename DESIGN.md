@@ -556,6 +556,8 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild matrix` | Offline only | Print matrix and portability report |
 | `dbdatabuild explain <code>` | Offline only | Long-form diagnostic explanation |
 | `dbdatabuild define <path>` | Repo files only (no target connection) | Generate or update model definition files (YAML) from the query plus a guided walkthrough (section 6.5). `--check` writes nothing |
+| `dbdatabuild import-sources [<schema.table>...]` | Target read-only (writes `sources/` files only with `--write`) | Export tables and views from the target as source descriptors; refresh the project's descriptors; `--check` for CI (section 6.5.1) |
+| `dbdatabuild test [<test>...]` | Offline only | Run the project's tests: metadata rules in `tests/metadata/` (section 9.8). In-memory DuckDB; no target, nothing written |
 | `dbdatabuild check` | Target read-only | Preflight findings: drift, blocks, history report inputs |
 | `dbdatabuild plan` | Target read-only (writes plan files locally) | Guided planning: discover, ask, generate plan |
 | `dbdatabuild report` | Target read-only | History consistency, drift, run and DDL history |
@@ -636,6 +638,27 @@ Keys: Enter opens, Tab moves, Esc closes a screen, F1 help, F2 models, F3 plans,
 ### 9.7 AI agents (as built)
 
 An AI coding agent works through the CLI with `--format json` (the machine interface of section 9.5); an HTTP service is not wanted (a daemon, authentication and a network surface for no new capability), and an MCP server over the same command layer is a possible convenience, not built (`docs/agents.md` has the reasoning and a permissions example that follows the effect classes). What an agent cannot guess is shipped with the tool: `dbdatabuild agent-kit` lists, and `--write` installs, a skill (`SKILL.md`: the rules that are never negotiable, the effect of every command, the loop for a model change, how to write a model, what cannot be written and why, how to read a plan) and the JSON Schemas, embedded in the executable so they match its version. `--check` fails when an installed copy differs. Tests keep the skill true: every command, option, diagnostic code and schema it names must exist, its example model must load, and the schemas it ships must be the repository's. The repository's own `CLAUDE.md` is the equivalent for someone changing the tool.
+
+### 9.8 Project tests (`dbdatabuild test`)
+
+Projects can test themselves. **Metadata rules are built; model data tests are designed and not built.** The language for a test is DuckDB SQL, and the configuration is YAML; nothing else is introduced until a need for it arises.
+
+**Metadata rules** (`tests/metadata/<name>.sql`, as built). A rule is one DuckDB `SELECT` over the metadata views that returns the *violations*; no rows means it passes. The name is the path under `tests/metadata/` with `/` as `.` (`naming/no_max.sql` is `naming.no_max`). Settings are `-- key: value` comments at the top of the file (the comments before the first line of SQL; a comment that is not `word: value` is prose and is ignored; an unknown key, a repeated key or a bad value is a diagnostic with a line number):
+
+```sql
+-- description: Output columns declare a length
+-- severity: warning        -- error (the default) | warning
+-- tags: naming, schema     -- groups: lowercase letters, digits, - and _
+SELECT model, column_name FROM metadata_columns WHERE kind = 'model' AND logical_type = 'VARCHAR'
+```
+
+**The views.** The metadata documents (the project, every source, every model: what `metadata --format json` prints and `publish-metadata` stores) are loaded into an in-memory DuckDB with file and network access off, and flattened into views. `metadata_current` (`kind`, `subject`, `document` JSON, `document_hash`, `tool_version`) and `metadata_columns` (`model`, `column_name`, `logical_type`, `nullable`, `collation`, `sqlserver_type`, `postgres_type`, `fabric_type`, `inferred_nullability`, `upstream`, `kind`: one row per model **or source** column) have the names and columns of the views `init` creates in a target, so a rule means the same thing against published metadata. The rest flatten the documents: `metadata_models` (kind, unique key, time column, lookback, grain, targets, files, hash, column count), `metadata_sources` (grain, file, hash, consumers), `metadata_upstream` (model, upstream, `model` or `source`), `metadata_lineage` (one row per column and upstream column, with the transform), `metadata_native_types` (one row per column and target, with collation or the mapping error), `metadata_indexes`, `metadata_loads` (target, operation, strategy, matrix status, findings, script hash), `metadata_hooks` and `metadata_index_advice`. Lists are DuckDB lists (`len(grain)`, `list_contains(targets, 'postgres')`). The documents themselves are always there in `metadata_current.document` for anything the views leave out. The views are built from the published documents, so a rule sees exactly what is published; they are not yet created in the target (a later step).
+
+**Running.** `dbdatabuild test [names or files] [--tag t ...] [--limit n] [--strict]`, effect class offline only. A rule is parsed by DuckDB first and must be exactly one `SELECT` (DDB-603); one that DuckDB cannot run is DDB-602 whatever its severity. A rule that returns rows is DDB-601: error severity makes the run exit 1, warning severity is reported (as a warning-severity diagnostic) and exits 0 unless `--strict`. `--tag` runs the tests that have any of the given tags; a damaged file is its own finding and never stops the others. The result is one document (`data.counts`, `data.tests[]` with status `pass`, `fail`, `warn` or `error`, the violating rows up to `--limit`, and the columns).
+
+**Gating (not built, designed for).** `plan`, `apply` and `run` do not run tests today; CI runs `dbdatabuild test`. The owner wants gating later, and by **group**: for example `plan` refusing when tests tagged `critical` fail while a `naming` group only advises. Tags exist for that: a gate will be a project setting that names groups (and their severity floor), `plan` will run those tests, a failure will be a block recorded in the plan, and the plan hash will cover what was run. Nothing about the file format has to change for it.
+
+**Model data tests (designed, not built).** `tests/models/<model>.yml` with cases of `given` rows per upstream table, and `expect` rows or an `assert` query over a table named `result` (violations, like a rule). The tool builds the empty DuckDB schema from declared columns (as `define` and `sample` do), inserts the `given` rows typed by the declarations, runs the model's query as written, casts `expect` to the declared output types and compares with `EXCEPT` both ways (unordered unless `ordered: true`). A column left out of a row is NULL; leaving out a NOT NULL column is an error in the file. They test the model's logic in DuckDB; the lowering is tested against real engines, and running tests on a target would be a separate opt-in effect class. Settings (`severity`, `tags`, a description) will be `#` comments at the top of the YAML file, as for rules; the owner expects most model YAML settings to be allowed that way in a future version.
 
 ## 10. Planning and applying
 

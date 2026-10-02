@@ -58,7 +58,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "pattern": "^DDB-[1-59][0-9][0-9]$"
+            "pattern": "^DDB-[1-69][0-9][0-9]$"
           },
           "severity": {
             "enum": [
@@ -456,6 +456,25 @@
         "properties": {
           "data": {
             "$ref": "#/$defs/data_import_sources"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "test"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_test"
           }
         }
       }
@@ -2140,6 +2159,119 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "data_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "passed": {
+              "type": "integer"
+            },
+            "failed": {
+              "type": "integer"
+            },
+            "warned": {
+              "type": "integer"
+            },
+            "errored": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "passed",
+            "failed",
+            "warned",
+            "errored"
+          ]
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "metadata"
+                ]
+              },
+              "file": {
+                "type": "string"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "warn",
+                  "error"
+                ]
+              },
+              "violations": {
+                "type": "integer"
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "The first violating rows (--limit), each an object of the rule's columns."
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "file",
+              "severity",
+              "tags",
+              "status",
+              "violations",
+              "columns",
+              "rows"
+            ]
           }
         }
       }
