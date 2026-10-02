@@ -31,7 +31,7 @@ internal static class PublishMetadataCommand
         }
 
         var (commit, _) = GitInfo.Read(root);
-        var documents = MetadataPublisher.Collect(ctx, selected.Select(m => m.Source.Definition.Name).ToList(), plan: null);
+        var documents = MetadataPublisher.Collect(ctx, models.Length == 0 ? null : selected.Select(m => m.Source.Definition.Name).ToList(), plan: null);   // no models named: everything, sources no model reads included
         MetadataPublisher.Result result;
         try { result = Task.Run(() => MetadataPublisher.PublishAsync(documents, target, ctx.Config.TrackingSchema, read, write, spec.Name, root, null, commit)).GetAwaiter().GetResult(); }
         catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }

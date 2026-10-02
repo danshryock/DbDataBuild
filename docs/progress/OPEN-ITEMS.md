@@ -69,6 +69,11 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - Predicate pushdown and runtime parameters are no longer open questions; what remains: a first-class **custom slicing operation** (author-written filter with a declared parameter; allowed today by writing it in the query and using `full_replace` or a key load, but not modelled), **seeded parameter values for `sample`** so the strategies can be previewed, and a check that a parameter's type is one of date, timestamp, integer or short text (everything is logged).
 - The slice lint follows plain column lineage; it does not judge sargability of an expression slice column (`CAST(ts AS DATE)`) or whether the slice column is indexed on the source.
 
+## I. Sources and metadata (2026-10-02)
+
+- **`import-sources`** (entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: unlimited text (`text`, `varchar(max)`) has no logical type, so the column is left out; a per-project default length (or a `--text-length`) would let it be imported, but a guessed length flows into every model that selects the column, so it was not built; collation is not exported; indexes and foreign keys of sources are not exported; a refresh rewrites a descriptor without its comments; `--check` needs a database login in CI.
+- **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import-sources --format json` has them), and the tool's own tracking tables.
+
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 
 - **DuckDB 2.0 adoption** (see `docs/research/duckdb-2.0/README.md`): lowering work is done (all unit and real-engine tests pass on the alpha). Open: it depends on the deprecated `delim_join_as_cte` setting (if it is removed, write the inverse decorrelation: 16 forms); wait for a DuckDB.NET release built for 2.0; then regenerate committed lowered artifacts (their headers carry the DuckDB version) and make 2.0 the default. A CI job running `scripts/test-duckdb-preview.sh` weekly would show convergence.

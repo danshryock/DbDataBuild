@@ -696,14 +696,14 @@ public partial class ApplyConformanceTests
             // the operator's choice of when to store: nothing is stored until asked
             Assert.Equal(0, await CountAsync(run, meta("metadata_document")));
             var first = Json(run.Cli("publish-metadata", "--format", "json"));
-            Assert.Equal(3, first["data"]!["written"]!.AsArray().Count);              // the project, and the two models
+            Assert.Equal(4, first["data"]!["written"]!.AsArray().Count);              // the project, the source and the two models
             Assert.Empty(first["data"]!["unchanged"]!.AsArray());
-            Assert.Equal(3, await CountAsync(run, meta("metadata_document")));
+            Assert.Equal(4, await CountAsync(run, meta("metadata_document")));
 
             // unchanged documents are not written again
             var second = Json(run.Cli("publish-metadata", "--format", "json"));
             Assert.Empty(second["data"]!["written"]!.AsArray());
-            Assert.Equal(3, await CountAsync(run, meta("metadata_document")));
+            Assert.Equal(4, await CountAsync(run, meta("metadata_document")));
 
             // introspection with SQL: the stored document is the one `metadata` prints, and the column view unpacks it
             var printed = Json(run.Cli("metadata", "--format", "json"))["data"]!["models"]!.AsArray().Single(m => (string?)m!["name"] == "marts.fct_orders")!;
@@ -719,13 +719,114 @@ public partial class ApplyConformanceTests
             run.Write("models/marts/v_orders.sql", "SELECT order_id FROM marts.fct_orders WHERE order_id > 0\n");
             var third = Json(run.Cli("publish-metadata", "--format", "json"));
             Assert.Equal(["marts.v_orders", "project"], third["data"]!["written"]!.AsArray().Select(d => (string)d!["subject"]!).Order().ToArray());
-            Assert.Equal(5, await CountAsync(run, meta("metadata_document")));      // history is kept; metadata_current shows the latest
-            Assert.Equal(3, await CountAsync(run, meta("metadata_current")));
+            Assert.Equal(6, await CountAsync(run, meta("metadata_document")));      // history is kept; metadata_current shows the latest
+            Assert.Equal(4, await CountAsync(run, meta("metadata_current")));
 
             // only the models named are stored
             run.Write("models/marts/fct_orders.sql", "SELECT o.order_id, o.amount FROM staging.orders o WHERE 1 = 1\n");
             var only = Json(run.Cli("publish-metadata", "marts.fct_orders", "--format", "json"));
             Assert.Equal(["marts.fct_orders", "project"], only["data"]!["written"]!.AsArray().Select(d => (string)d!["subject"]!).Order().ToArray());
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Sources_are_exported_from_the_target_refreshed_checked_and_published(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            System.Text.Json.Nodes.JsonNode Json((int Exit, string Out, string Err) r, int expectedExit = 0)
+            {
+                Assert.True(r.Exit == expectedExit, $"exit {r.Exit}, expected {expectedExit}:\n{r.Out}\n{r.Err}");
+                return System.Text.Json.Nodes.JsonNode.Parse(r.Out)!;
+            }
+            var file = (string rel) => Path.Combine(run.Dir, rel);
+            var codes = (System.Text.Json.Nodes.JsonNode d) => d["diagnostics"]!.AsArray().Select(x => (string)x!["code"]!).ToList();
+            var pg = name == "postgres";
+
+            // a table with a primary key, a spread of types, and two columns no logical type can describe honestly
+            await engine.ExecAsync(pg
+                ? "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty integer NOT NULL, price numeric(12,3), ratio double precision, flag boolean, born date, seen timestamp(6), code varchar(20), notes text, tiny smallint, ref uuid, blobby bytea, j jsonb)"
+                : "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty int NOT NULL, price decimal(12,3), ratio float, flag bit, born date, seen datetime2(6), code nvarchar(20), notes nvarchar(max), tiny tinyint, ref uniqueidentifier, blobby varbinary(max), j xml)");
+
+            // the preview shows the diff and writes nothing
+            var preview = Json(run.Cli("import-sources", "staging.imp", "--format", "json"));
+            var imp = preview["data"]!["sources"]!.AsArray().Single()!;
+            Assert.Equal(("staging.imp", "table", "new", "sources/staging/imp.yml", "preview"), ((string)imp["name"]!, (string)imp["kind"]!, (string)imp["status"]!, (string)imp["file"]!, (string)preview["data"]!["mode"]!));
+            Assert.Equal(["id"], imp["grain"]!.AsArray().Select(x => (string)x!));
+            Assert.False(File.Exists(file("sources/staging/imp.yml")));
+            Assert.Equal(["DDB-226", "DDB-226"], codes(preview));                                       // notes and j
+            var tiny = imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "tiny")!;
+            Assert.Equal(pg ? "exact" : "widened", (string?)tiny["fit"]);
+
+            // writing it
+            var written = Json(run.Cli("import-sources", "staging.imp", "--write", "--format", "json"));
+            Assert.Equal(["sources/staging/imp.yml"], written["data"]!["written"]!.AsArray().Select(x => (string)x!));
+            Assert.Equal(
+                "name: staging.imp\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
+                "  - name: ratio\n    type: DOUBLE\n  - name: flag\n    type: BOOLEAN\n  - name: born\n    type: DATE\n  - name: seen\n    type: TIMESTAMP\n  - name: code\n    type: VARCHAR(20)\n" +
+                "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n",
+                File.ReadAllText(file("sources/staging/imp.yml")));
+            Ok(run.Cli("validate"), "the exported descriptor is valid");
+            var again = Json(run.Cli("import-sources", "staging.imp", "--check", "--format", "json"));
+            Assert.Equal("unchanged", (string?)again["data"]!["sources"]![0]!["status"]);
+
+            // the table changes: --check fails for CI, the preview shows the change, a refresh without arguments takes it
+            await engine.ExecAsync(pg ? "ALTER TABLE staging.imp ADD extra integer" : "ALTER TABLE staging.imp ADD extra int");
+            var stale = Json(run.Cli("import-sources", "--check", "--format", "json"), expectedExit: 1);
+            Assert.Contains("DDB-227", codes(stale));
+            var changed = stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.imp")!;
+            Assert.Equal("changed", (string?)changed["status"]);
+            Assert.Equal(("columnadded", "extra"), ((string)changed["changes"]![0]!["kind"]!, (string)changed["changes"]![0]!["column"]!));
+            Assert.Equal("unchanged", (string?)stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.orders")!["status"]);   // the hand-written descriptor already matched
+
+            // human knowledge survives: a grain, and a type for a column the catalog cannot type
+            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") + "  - {name: notes, type: VARCHAR(500)}\n";
+            run.Write("sources/staging/imp.yml", text);
+            var refreshed = Json(run.Cli("import-sources", "--write", "--format", "json"));
+            Assert.Equal(["sources/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
+            var after = File.ReadAllText(file("sources/staging/imp.yml"));
+            Assert.Contains("grain: [id, code]", after);
+            Assert.Contains("  - name: extra\n    type: INTEGER\n", after);
+            Assert.Contains("  - name: notes\n    type: VARCHAR(500)\n", after);
+            Assert.DoesNotContain("name: j", after);
+            Ok(run.Cli("validate"), "the refreshed descriptor is valid");
+
+            // a view is a source too; a pattern takes both; the tool's own schema and a damaged file are never touched
+            await engine.ExecAsync($"CREATE VIEW staging.imp_view AS SELECT id, qty FROM staging.imp");
+            Ok(run.Cli("init", "--apply"), "init");
+            run.Write("sources/staging/broken.yml", "name: staging.broken\ncolumns: nope\n");
+            await engine.ExecAsync("CREATE TABLE staging.broken (id bigint)");
+            var all = Json(run.Cli("import-sources", "staging.*", "dbdatabuild.*", "--write", "--format", "json"));
+            var byName = all["data"]!["sources"]!.AsArray().ToDictionary(x => (string)x!["name"]!, x => x!);
+            Assert.Equal(("view", "new"), ((string)byName["staging.imp_view"]["kind"]!, (string)byName["staging.imp_view"]["status"]!));
+            Assert.Equal("invalid", (string?)byName["staging.broken"]["status"]);
+            Assert.Equal("name: staging.broken\ncolumns: nope\n", File.ReadAllText(file("sources/staging/broken.yml")));
+            Assert.Contains(all["data"]!["skipped"]!.AsArray(), x => (string?)x!["object"] == "dbdatabuild");
+            Assert.True(File.Exists(file("sources/staging/imp_view.yml")));
+            File.Delete(file("sources/staging/broken.yml"));
+
+            // a descriptor whose table is gone is reported and kept
+            run.Write("sources/staging/ghost.yml", "name: staging.ghost\ncolumns:\n  - {name: id, type: BIGINT}\n");
+            var ghost = Json(run.Cli("import-sources", "--format", "json"));
+            Assert.Equal("stale", (string?)ghost["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.ghost")!["status"]);
+            Assert.Contains("DDB-228", codes(ghost));
+            Assert.True(File.Exists(file("sources/staging/ghost.yml")));
+            File.Delete(file("sources/staging/ghost.yml"));
+
+            // published with the rest of the metadata, and queryable next to the models' columns
+            Ok(run.Cli("render", "--write"), "render");
+            var published = Json(run.Cli("publish-metadata", "--format", "json"));
+            Assert.Contains(published["data"]!["written"]!.AsArray(), d => (string?)d!["kind"] == "source" && (string?)d["subject"] == "staging.imp");
+            var meta = (string table) => $"{run.Q("dbdatabuild")}.{run.Q(table)}";
+            Assert.Equal(["order_id"], await engine.RowsAsync($"SELECT {run.Q("column_name")} FROM {meta("metadata_columns")} WHERE {run.Q("kind")} = 'source' AND model = 'staging.orders' AND {run.Q("column_name")} = 'order_id'"));
+            Assert.Equal("BIGINT", (await engine.RowsAsync($"SELECT {run.Q("logical_type")} FROM {meta("metadata_columns")} WHERE {run.Q("kind")} = 'source' AND model = 'staging.imp' AND {run.Q("column_name")} = 'id'")).Single());
+            var consumers = (string?)await engine.ScalarAsync(pg
+                ? $"SELECT document -> 'consumers' ->> 0 FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'"
+                : $"SELECT JSON_VALUE(document, '$.consumers[0]') FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'");
+            Assert.Equal("marts.fct_orders", consumers);
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
@@ -750,7 +851,7 @@ public partial class ApplyConformanceTests
             Refused(old, "DDB-505", "planning against an older layout");
             Assert.Contains("layout version 1", old.Err);
             Ok(run.Cli("init", "--apply"), "init upgrades");
-            Assert.Equal(["1", "2"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
+            Assert.Equal(["1", "3"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
             Ok(run.Cli("plan"), "plan after the upgrade");
 
             // metadata.store_on_apply: a successful apply also stores the project, the models it touched and the plan
@@ -759,8 +860,8 @@ public partial class ApplyConformanceTests
             Ok(plan, "plan");
             var applied = run.Cli("apply", run.PlanFile(plan.Out));
             Ok(applied, "apply");
-            Assert.Contains("Metadata stored: 4 document(s) written", applied.Out);       // project, two models, the plan
-            Assert.Equal(["model", "model", "plan", "project"], await engine.RowsAsync($"SELECT kind FROM {T("metadata_document")}"));
+            Assert.Contains("Metadata stored: 5 document(s) written", applied.Out);       // project, two models, the source they read, the plan
+            Assert.Equal(["model", "model", "plan", "project", "source"], (await engine.RowsAsync($"SELECT kind FROM {T("metadata_document")}")).Order().ToArray());
             var planId = PlanDocument.Parse(File.ReadAllText(run.PlanFile(plan.Out)), "p", new List<Diagnostic>())!.Id;
             Assert.Equal(1, await CountAsync(run, T("metadata_document"), $"kind = 'plan' AND subject = '{planId}'"));
         }

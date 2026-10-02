@@ -46,3 +46,30 @@ public static class SourceDescriptorLoader
         }
     }
 }
+
+/// <summary>Writes a source descriptor in canonical formatting: name, grain, columns; <c>nullable</c> only when false (the same style as definitions).</summary>
+public static class SourceDescriptorWriter
+{
+    public static string Yaml(SourceDescriptor d)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("name: ").Append(YamlText.Scalar(d.Name)).Append('\n');
+        if (d.Grain.Count > 0) sb.Append("grain: ").Append(YamlText.FlowList(d.Grain)).Append('\n');
+        sb.Append("columns:\n");
+        foreach (var c in d.Columns)
+        {
+            sb.Append("  - name: ").Append(YamlText.Scalar(c.Name)).Append('\n');
+            sb.Append("    type: ").Append(YamlText.Scalar(c.Type)).Append('\n');
+            if (!c.Nullable) sb.Append("    nullable: false\n");
+            if (c.Collation != null) sb.Append("    collation: ").Append(YamlText.Scalar(c.Collation)).Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `sources/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema or table name).</summary>
+    public static string? PathFor(string schema, string table)
+    {
+        static bool Bad(string s) => s.Length == 0 || s.AsSpan().IndexOfAny('.', '/', '\\') >= 0 || s.Trim() != s;
+        return Bad(schema) || Bad(table) ? null : $"{ProjectValidator.SourcesDir}/{schema}/{table}.yml";
+    }
+}

@@ -2,10 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:dbdatabuild:schemas:metadata",
   "title": "DbDataBuild metadata documents",
-  "description": "The two kinds of metadata document: one per project (`dbdatabuild.project/1`) and one per model (`dbdatabuild.model/1`). The same documents are printed by `validate` and `metadata` with `--format json`, and stored in the target's tracking schema (`publish-metadata`, views `metadata_current` and `metadata_columns`). Null values are omitted, never written as null. A new optional key is not a version change; a removed or retyped key is.",
+  "description": "The kinds of metadata document: one per project (`dbdatabuild.project/1`), one per source table the project reads but does not build (`dbdatabuild.source/1`), and one per model (`dbdatabuild.model/1`). The same documents are printed by `validate` and `metadata` with `--format json`, and stored in the target's tracking schema (`publish-metadata`, views `metadata_current` and `metadata_columns`). Null values are omitted, never written as null. A new optional key is not a version change; a removed or retyped key is.",
   "oneOf": [
     {
       "$ref": "#/$defs/project"
+    },
+    {
+      "$ref": "#/$defs/source"
     },
     {
       "$ref": "#/$defs/model"
@@ -153,6 +156,30 @@
             }
           }
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "definition_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "name",
+              "file",
+              "definition_hash"
+            ]
+          }
+        },
         "models": {
           "type": "array",
           "items": {
@@ -188,6 +215,7 @@
         "tool_version",
         "matrix_version",
         "config",
+        "sources",
         "models"
       ]
     },
@@ -699,6 +727,73 @@
         "loads",
         "indexes",
         "hooks"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "dbdatabuild.source/1"
+        },
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "definition_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "grain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "logical_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "collation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "logical_type",
+              "nullable"
+            ]
+          }
+        },
+        "consumers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Models whose query reads this table, across the whole project."
+        }
+      },
+      "required": [
+        "schema",
+        "name",
+        "file",
+        "definition_hash",
+        "grain",
+        "columns",
+        "consumers"
       ]
     }
   }

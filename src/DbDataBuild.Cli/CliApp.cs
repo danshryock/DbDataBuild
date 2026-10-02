@@ -180,6 +180,15 @@ public static class CliApp
                     cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "import-sources":
+                    var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
+                    var impProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var impTarget = new Option<string?>("--target") { Description = "Target to read (default: the project's only default target)" };
+                    var impWrite = new Option<bool>("--write") { Description = "Write the new and changed descriptors under sources/ (without it the command only shows the diff)" };
+                    var impCheck = new Option<bool>("--check") { Description = "CI: fail if a descriptor differs from the table it describes; writes nothing" };
+                    cmd.Arguments.Add(impTables); cmd.Options.Add(impProject); cmd.Options.Add(impTarget); cmd.Options.Add(impWrite); cmd.Options.Add(impCheck);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ImportSourcesCommand.Run(spec, pr.GetValue(impProject)!.FullName, pr.GetValue(impTarget), pr.GetValue(impTables) ?? [], pr.GetValue(impWrite), pr.GetValue(impCheck), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "metadata":
                     var metaModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var metaProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
@@ -242,6 +251,7 @@ public static class CliApp
         {
             var ctx = ProjectContext.Load(projectRoot);
             output.Payload("project", MetadataBuilder.Project(ctx));
+            output.Payload("sources", MetadataBuilder.Sources(ctx, null));
             output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(projectRoot, s.QueryFile)))).ToList());
         }
         output.WriteLine(errors == 0

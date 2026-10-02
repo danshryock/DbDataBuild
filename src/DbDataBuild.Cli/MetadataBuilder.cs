@@ -19,6 +19,7 @@ internal static class MetadataBuilder
 {
     public const string ModelSchema = "dbdatabuild.model/1";
     public const string ProjectSchema = "dbdatabuild.project/1";
+    public const string SourceSchema = "dbdatabuild.source/1";
 
     private static readonly JsonSerializerOptions Compact = new(CommandReport.Json) { WriteIndented = false };
 
@@ -48,6 +49,12 @@ internal static class MetadataBuilder
                 policy = cfg.Policy.ToDictionary(p => p.Key, p => p.Value.ToString().ToLowerInvariant()),
                 hook_groups = cfg.HookGroups.ToDictionary(g => g.Key, g => g.Value.Select(HookJson).ToList()),
             },
+            sources = ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => new
+            {
+                name = d.Name,
+                file = SourceFile(d.Name),
+                definition_hash = Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d)),
+            }).ToList(),
             models = ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => new
             {
                 name = s.Definition.Name,
@@ -62,6 +69,58 @@ internal static class MetadataBuilder
         ? new { use = h.Use }
         : new { name = h.Name, @event = h.Event, script = (object?)h.Script ?? h.ScriptByTarget, targets = h.Targets, effect = h.Effect, risk = h.Risk };
 
+    private static List<SchemaTableSpec> UpstreamSpecs(ProjectContext ctx, string modelName)
+    {
+        var upstream = ctx.Project.Models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns))
+            .Concat(ctx.Project.Descriptors.Select(d => (d.Name, d.Columns))).ToList();
+        return upstream.Select(u =>
+        {
+            var i = u.Name.LastIndexOf('.');
+            return new SchemaTableSpec(i < 0 ? null : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new SchemaColumnSpec(c.Name, c.Type, c.Nullable)).ToList());
+        }).ToList();
+    }
+
+    /// <summary>The source descriptors a model's query reads, by name.</summary>
+    public static IReadOnlyList<string> SourcesRead(ProjectContext ctx, string modelName, string sql)
+    {
+        var (facts, _) = QueryAnalyzer.Analyze(sql, UpstreamSpecs(ctx, modelName));
+        var names = ctx.Project.Descriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return facts?.BaseTables.Select(b => b.QualifiedName).Where(names.Contains).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).ToList() ?? [];
+    }
+
+    /// <summary>Which models read each source, across the whole project (so a source's document does not change with the models selected for a run).</summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> Consumers(ProjectContext ctx)
+    {
+        var result = ctx.Project.Descriptors.ToDictionary(d => d.Name, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var m in ctx.Project.Sources.OrderBy(m => m.Definition.Name, StringComparer.Ordinal))
+            foreach (var n in SourcesRead(ctx, m.Definition.Name, File.ReadAllText(Path.Combine(ctx.Root, m.QueryFile)))) result[n].Add(m.Definition.Name);
+        return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The path of a source descriptor: `staging.orders` is `sources/staging/orders.yml`.</summary>
+    public static string SourceFile(string name) => $"{ProjectValidator.SourcesDir}/{name.Replace('.', '/')}.yml";
+
+    /// <summary>The metadata document of a source descriptor: what the project declares about a table it reads but does not build, and which models read it.</summary>
+    public static object Source(SourceDescriptor d, IReadOnlyList<string> consumers) => new
+    {
+        schema = SourceSchema,
+        name = d.Name,
+        file = SourceFile(d.Name),
+        definition_hash = Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d)),
+        grain = d.Grain,
+        columns = d.Columns.Select(c => new { name = c.Name, logical_type = c.Type, nullable = c.Nullable, collation = c.Collation }).ToList(),
+        consumers,
+    };
+
+    public static List<object> Sources(ProjectContext ctx, IEnumerable<string>? selectedModels)
+    {
+        var consumers = Consumers(ctx);
+        var wanted = selectedModels?.ToHashSet(StringComparer.Ordinal);
+        return ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal)
+            .Where(d => wanted == null || consumers[d.Name].Any(wanted.Contains))
+            .Select(d => Source(d, consumers[d.Name])).ToList();
+    }
+
     public static object Model(ProjectContext ctx, ModelSource source, string sql)
     {
         var def = source.Definition;
@@ -69,13 +128,7 @@ internal static class MetadataBuilder
         var (hash, _) = AstHasher.Hash(sql);
 
         // lineage and inferred nullability, against the declared columns of everything upstream
-        var upstream = ctx.Project.Models.Where(m => m.Name != def.Name).Select(m => (m.Name, m.Columns))
-            .Concat(ctx.Project.Descriptors.Select(d => (d.Name, d.Columns))).ToList();
-        var specs = upstream.Select(u =>
-        {
-            var i = u.Name.LastIndexOf('.');
-            return new SchemaTableSpec(i < 0 ? null : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new SchemaColumnSpec(c.Name, c.Type, c.Nullable)).ToList());
-        }).ToList();
+        var specs = UpstreamSpecs(ctx, def.Name);
         var (facts, _) = QueryAnalyzer.Analyze(sql, specs);
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = ctx.Project.Descriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);

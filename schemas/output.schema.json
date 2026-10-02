@@ -440,6 +440,25 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "import-sources"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_import_sources"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -865,6 +884,12 @@
         "project": {
           "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+          }
+        },
         "models": {
           "type": "array",
           "items": {
@@ -879,6 +904,12 @@
       "properties": {
         "project": {
           "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+          }
         },
         "models": {
           "type": "array",
@@ -1942,6 +1973,173 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/docRow"
+          }
+        }
+      }
+    },
+    "data_import_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "preview",
+            "check",
+            "write"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "table",
+                  "view",
+                  "unknown"
+                ]
+              },
+              "file": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "new",
+                  "changed",
+                  "unchanged",
+                  "stale",
+                  "invalid"
+                ]
+              },
+              "grain": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "new",
+                        "columnadded",
+                        "columnremoved",
+                        "typechanged",
+                        "nullabilitychanged",
+                        "grainadded"
+                      ]
+                    },
+                    "column": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "detail"
+                  ]
+                }
+              },
+              "columns": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "native_type": {
+                      "type": "string"
+                    },
+                    "logical_type": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "fit": {
+                      "enum": [
+                        "exact",
+                        "widened",
+                        "lossy",
+                        "none"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "nullable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "native_type",
+                    "fit",
+                    "nullable"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "status",
+              "grain",
+              "changes"
+            ]
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "reason"
+            ]
+          }
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }

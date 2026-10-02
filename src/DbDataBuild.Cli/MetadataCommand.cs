@@ -3,7 +3,7 @@ using DbDataBuild.Core;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild metadata` (effect: offline only): everything the tool knows about the project and its models, as data. `--format json` prints the documents; the text form
+/// `dbdatabuild metadata` (effect: offline only): everything the tool knows about the project, its source tables and its models, as data. `--format json` prints the documents; the text form
 /// is a summary table. The same documents can be stored in a target for introspection with `publish-metadata`.
 /// </summary>
 internal static class MetadataCommand
@@ -25,6 +25,7 @@ internal static class MetadataCommand
 
         var documents = selected.Select(m => MetadataBuilder.Model(ctx, m.Source, m.Sql)).ToList();
         output.Payload("project", MetadataBuilder.Project(ctx));
+        output.Payload("sources", MetadataBuilder.Sources(ctx, models.Length == 0 ? null : selected.Select(m => m.Source.Definition.Name)));
         output.Payload("models", documents);
 
         output.WriteLine($"{"model",-32} {"kind",-26} {"targets",-22} columns  definition hash");

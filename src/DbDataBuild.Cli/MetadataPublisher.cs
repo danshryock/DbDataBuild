@@ -18,13 +18,20 @@ internal static class MetadataPublisher
         return new Document(kind, subject, json, Hashing.ScriptHash(json));
     }
 
-    /// <summary>The project document and the documents of the named models (all when null).</summary>
+    /// <summary>The project document, the documents of the named models (all when null), and the documents of the sources those models read (every source when null).</summary>
     public static List<Document> Collect(ProjectContext ctx, IEnumerable<string>? models, Plan? plan)
     {
         var docs = new List<Document> { Make("project", "project", MetadataBuilder.Project(ctx)) };
         var wanted = models?.ToHashSet(StringComparer.Ordinal);
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? sourceConsumers = null;
         foreach (var s in ctx.Project.Sources.Where(s => wanted == null || wanted.Contains(s.Definition.Name)).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
             docs.Add(Make("model", s.Definition.Name, MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(ctx.Root, s.QueryFile)))));
+        foreach (var d in ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal))
+        {
+            // computed once for the whole project, so a source's document is the same whichever models are published
+            sourceConsumers ??= MetadataBuilder.Consumers(ctx);
+            if (wanted == null || sourceConsumers[d.Name].Any(wanted.Contains)) docs.Add(Make("source", d.Name, MetadataBuilder.Source(d, sourceConsumers[d.Name])));
+        }
         if (plan != null) docs.Add(Make("plan", plan.Id, plan));
         return docs;
     }

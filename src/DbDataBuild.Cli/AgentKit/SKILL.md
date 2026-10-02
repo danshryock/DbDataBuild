@@ -27,6 +27,7 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `metadata`, `loads`, `matrix`, `explain <code>` | offline | what the tool knows: types per target, load operations, what differs per engine, a code's meaning |
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |
+| `import-sources [schema.table ...] [--write \| --check]` | database, read-only (files only with `--write`) | export tables and views from the target as `sources/` descriptors; with no arguments refresh the existing ones; the default shows a diff and writes nothing |
 | `check`, `plan`, `report` | database, read-only | drift and blocks; write a plan file; history |
 | `apply <plan>`, `run`, `ack`, `init --apply`, `publish-metadata` | **changes the database** | only with the person's go-ahead; `apply --dry-run` changes nothing |
 
@@ -57,7 +58,7 @@ indexes:                               # only what you declare is created; never
   - {name: ux_fct_orders_order_id, columns: [order_id], unique: true}
 ```
 
-- **Sources** (tables the tool does not build) are described in `sources/<schema>/<table>.yml` with `name`, `columns`, optional `grain`. A query can only read declared sources and other models (DDB-218 otherwise).
+- **Sources** (tables the tool does not build) are described in `sources/<schema>/<table>.yml` with `name`, `columns`, optional `grain`. A query can only read declared sources and other models (DDB-218 otherwise). Do not type descriptors out by hand when the table exists: `import-sources` exports the real columns, types and nullability with the read login (preview first, then `--write`), keeps a `grain` you wrote, and leaves out a column with no honest logical type (DDB-226; declare it yourself). `import-sources --check` finds descriptors that have gone stale (DDB-227).
 - **Kinds**: `view` is DDL only; `full` reloads everything; `incremental_by_unique_key` upserts by key; `incremental_by_time_range` loads slices after `MAX(time_column)` minus `lookback` (needs `time_column`, a DATE or TIMESTAMP). Other load shapes (a backfill, a merge) are named operations under `loads:`; see `schemas/model.schema.json` next to this file.
 - **Types**: declare exact types. Types with no faithful equivalent are refused (HUGEINT, unsigned integers, structs, lists, VARCHAR without a length). `sum(int)` is HUGEINT in DuckDB, so write `CAST(sum(x) AS BIGINT)`.
 - **Strings** follow the project's profile (`string_semantics` in `dbdatabuild.yml`): by default case-insensitive, accent-sensitive, trailing spaces ignored. Every engine in use needs a collation in config (DDB-312). Do not rely on a comparison that the profile does not promise.

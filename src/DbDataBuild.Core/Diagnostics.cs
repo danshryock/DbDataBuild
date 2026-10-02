@@ -129,6 +129,18 @@ public static class DiagnosticCatalog
         "a slice column that is a plain column of the query, a grouping key of its aggregate, and the partition key of its windows, in a query without LIMIT or DISTINCT ON",
         "Slice by a column that is a grouping or partition key, or choose a strategy that does not slice the finished result (for example filter the source inside the query yourself and reload with full_replace or a key-based load). If the cost is acceptable, silence it with `lint_ignore: [DDB-225]` in the model (or `lint: { slices: false }` in dbdatabuild.yml).",
         "`watermark_append` and `delete_insert_by_range` select from the finished query where the slice column is at or after the start: SELECT ... FROM (<your query>) WHERE slice_column >= @watermark. That is always correct, and it is cheap when the engine can apply the filter before the expensive part of the query. It cannot when the column is the result of an aggregate or a window function, when a window is not partitioned by it, or when the query has a LIMIT or DISTINCT ON (applying it early would change the rows), so every load does the work for the whole history and keeps a few rows. The tool does not rewrite your query to avoid this; it tells you, so you can pick a different column or strategy, or accept the cost.");
+    public static readonly DiagnosticDescriptor SourceColumnNoLogicalType = W("226", "A source column has no logical type",
+        "a column whose native type maps to a logical type: integers, DECIMAL(p, s), DOUBLE and FLOAT, BOOLEAN, DATE, TIME, TIMESTAMP, TIMESTAMP WITH TIME ZONE, UUID, BLOB, and text with a declared length (VARCHAR(n))",
+        "Declare the column by hand in the source descriptor with a type you choose (for unlimited text, a `VARCHAR(n)` that fits the data), and `import-sources` keeps it. Or leave it out if no model reads it.",
+        "A source descriptor describes a table to DuckDB so models over it can be bound offline. A column whose native type has no honest logical type (unlimited text, xml, JSON, geography, arrays, user types) is left out of the generated descriptor rather than guessed at: a wrong length or type would flow into every model that selects it. A column you declared yourself in the descriptor is kept as written.");
+    public static readonly DiagnosticDescriptor SourceOutOfSync = W("227", "A source descriptor differs from the table it describes",
+        "a committed `sources/<schema>/<table>.yml` with the columns, types and nullability the table has now",
+        $"Run `{ProductInfo.Cli} import-sources --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} define --check` to see which models are affected.",
+        "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `import-sources --check` makes the difference a finding for CI; it needs the read login.");
+    public static readonly DiagnosticDescriptor SourceNotImportable = W("228", "A table cannot be imported as a source",
+        "a table or view whose schema and table names can be a path (`sources/<schema>/<table>.yml`), or a descriptor whose table exists",
+        "Rename the object, or write the descriptor by hand under a name the project can use. If a descriptor names a table that no longer exists, delete the descriptor or restore the table.",
+        "A descriptor's name is its path under `sources/` with `/` replaced by `.`, so a dot, slash or backslash in a schema or table name cannot be represented. A committed descriptor whose table is not found in its schema is reported and left alone: the tool never deletes a file you may still need.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -351,7 +363,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, ApplyStopped,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,

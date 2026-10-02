@@ -15,8 +15,8 @@ public sealed record TrackingTable(string Name, string Purpose, IReadOnlyList<Tr
 /// </summary>
 public static class TrackingSchema
 {
-    /// <summary>Layout version. 2 added `metadata_document` and its views; `init` upgrades an older layout by creating what is missing.</summary>
-    public const int Version = 2;
+    /// <summary>Layout version. 2 added `metadata_document` and its views; 3 made `metadata_columns` cover source descriptors too (a `kind` column); `init` upgrades an older layout by creating what is missing.</summary>
+    public const int Version = 3;
 
     private static TrackingColumn C(string n, TrackingType t, bool nullable = false) => new(n, t, nullable);
 
@@ -62,7 +62,7 @@ public static class TrackingSchema
             C("applied_by", TrackingType.Name), C("applied_utc", TrackingType.TimestampUtc), C("hash_before", TrackingType.Hash, true), C("hash_after", TrackingType.Hash, true),
             C("status", TrackingType.Short),
         ], ["plan_id", "applied_utc"]),
-        new("metadata_document", "Project, model and plan metadata as JSON documents, for introspection with SQL. Append-only; the views metadata_current and metadata_columns show the latest.",
+        new("metadata_document", "Project, source, model and plan metadata as JSON documents, for introspection with SQL. Append-only; the views metadata_current and metadata_columns show the latest.",
         [
             C("kind", TrackingType.Short), C("subject", TrackingType.Name), C("document", TrackingType.Json), C("document_hash", TrackingType.Hash),
             C("recorded_utc", TrackingType.TimestampUtc), C("tool_version", TrackingType.Short), C("plan_id", TrackingType.Short, true), C("git_commit", TrackingType.Short, true),
