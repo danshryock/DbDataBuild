@@ -187,7 +187,7 @@ public static class Planner
         try { native = c.Ddl.MapAll(def); }
         catch (DdlUnsupportedException ex) { blocks.Add(ex.Diagnostic); return false; }
 
-        var (outcome, body) = Polyglot.TranspileOne(c.Model.BodySql, Dialects.Canonical, TargetRegistry.Get(c.Input.Target).Dialect);
+        var (outcome, body) = Polyglot.TranspileOne(DbDataBuild.Targets.Rules.TargetRules.Apply(c.Model.BodySql, c.Input.Target).Sql, Dialects.Canonical, TargetRegistry.Get(c.Input.Target).Dialect);
         if (body == null)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: the transpiler reported: {outcome.Error}."));

@@ -858,4 +858,65 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+    // what DuckDB returns for the same rows and the same query (checked with DuckDB 1.5.4); the engines must agree, not just run
+    private static readonly string[] ProbeExpected =
+    [
+        "1|0|∅|∅|∅|2.5|3|0", "2|4|12|12|12|0.28|0|0", "3|3|∅|∅|∅|1|1|0", "4|2|5|5|5|-2.5|-3|0", "5|11|∅|∅|99999999999|2.68|3|0", "6|5|6|1.56|1.555|1234.57|1235|1200",
+        "7|2|-7|-7|-7|0.13|0|0", "8|4|∅|∅|∅|∅|∅|∅", "9|∅|∅|∅|∅|0|0|0", "10|3|1|100|100|-0.4|0|0", "11|4|2|0.5|0.5|1E+20|1E+20|1E+20",
+    ];
+
+    private static string Normalize(string row) => string.Join("|", row.Split('|').Select(f => f == "∅" ? f : decimal.TryParse(f, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d.ToString("0.#########", System.Globalization.CultureInfo.InvariantCulture) : f)
+        .Select(f => f == "-0" ? "0" : f));
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Target_rules_make_length_try_cast_and_round_compute_what_DuckDB_computes(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("sources/staging/probe.yml", "name: staging.probe\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n  - {name: t, type: VARCHAR(40)}\n  - {name: x, type: DOUBLE}\n");
+            run.Write("models/marts/fct_probe.yml", "name: marts.fct_probe\nkind: {type: full}\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: len, type: BIGINT}\n  - {name: i, type: INTEGER}\n  - {name: d, type: \"DECIMAL(10, 2)\"}\n  - {name: f, type: DOUBLE}\n  - {name: r2, type: DOUBLE}\n  - {name: r0, type: DOUBLE}\n  - {name: rm, type: DOUBLE}\n");
+            run.Write("models/marts/fct_probe.sql", "SELECT id, length(s) AS len, TRY_CAST(t AS INTEGER) AS i, TRY_CAST(s AS DECIMAL(10, 2)) AS d, TRY_CAST(s AS DOUBLE) AS f, round(x, 2) AS r2, round(x) AS r0, round(x, -2) AS rm FROM staging.probe\n");
+            var dbl = name == "postgres" ? "DOUBLE PRECISION" : "FLOAT";
+            var vc = engine.ColumnType("VARCHAR(40)");
+            await engine.ExecAsync($"CREATE TABLE staging.probe (id BIGINT NOT NULL, s {vc} NULL, t {vc} NULL, x {dbl} NULL)");
+            await engine.ExecAsync("INSERT INTO staging.probe VALUES (1, '', '', 2.5), (2, ' 12 ', ' 12 ', 0.285), (3, 'abc', 'abc', 1.005), (4, '+5', '+5', -2.5), (5, '99999999999', '99999999999', 2.675), " +
+                "(6, '1.555', '6', 1234.5678), (7, '-7', '-7', 0.125), (8, 'ab  ', 'x', NULL), (9, NULL, NULL, 0.0), (10, '100', '1', -0.4), (11, ' .5 ', '2', 1e20)");
+
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var script = File.ReadAllText(Directory.GetFiles(Path.Combine(run.Dir, "rendered", name), "load.*.sql", SearchOption.AllDirectories).First(f => f.Contains("fct_probe")));
+            Assert.Contains("target rules:", script);
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+            var rows = await engine.RowsAsync("SELECT id, len, i, d, f, r2, r0, rm FROM marts.fct_probe ORDER BY id");
+            Assert.Equal(ProbeExpected.Select(Normalize).Order().ToList(), rows.Select(Normalize).Order().ToList());
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Sums_of_integers_do_not_overflow_on_either_engine(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("sources/staging/big.yml", "name: staging.big\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: n, type: INTEGER}\n  - {name: b, type: BIGINT}\n");
+            run.Write("models/marts/fct_big.yml", "name: marts.fct_big\nkind: {type: full}\ncolumns:\n  - {name: sn, type: BIGINT}\n  - {name: sb, type: \"DECIMAL(38, 0)\"}\n");
+            // DuckDB sums into a HUGEINT: three INTs near 2^31 and two BIGINTs near 2^63 are over what SQL Server's own SUM holds
+            run.Write("models/marts/fct_big.sql", "SELECT CAST(sum(n) AS BIGINT) AS sn, CAST(sum(b) AS DECIMAL(38, 0)) AS sb FROM staging.big\n");
+            await engine.ExecAsync("CREATE TABLE staging.big (id BIGINT NOT NULL, n INTEGER NULL, b BIGINT NULL)");
+            await engine.ExecAsync("INSERT INTO staging.big VALUES (1, 2147483647, 9000000000000000000), (2, 2147483647, 9000000000000000000), (3, 2147483647, NULL)");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            Assert.Equal(["6442450941|18000000000000000000"], await engine.RowsAsync("SELECT sn, sb FROM marts.fct_big"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

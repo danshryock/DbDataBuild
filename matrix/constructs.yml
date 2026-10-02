@@ -23,16 +23,16 @@
 - id: fn.length
   detect: node:length
   duckdb: native
-  sqlserver: { status: approximated, test: spike/length_fn, note: "LEN() ignores trailing spaces; DuckDB length() counts them (str.len)." }
+  sqlserver: { status: approximated, test: spike/length_fn, note: "LEN() ignores trailing spaces; DuckDB length() counts them (str.len). A query that went through lowering is rewritten by the target rule length-trailing-spaces (LEN(s + 'x') - 1) and no longer reports this; a query that is not lowered still does." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres: { status: native }
 
 - id: fn.try_cast
   detect: node:try_cast
   duckdb: native
-  sqlserver: { status: approximated, test: spike/try_cast, note: "TRY_CAST('' AS INT) is 0 on T-SQL, NULL in DuckDB." }
+  sqlserver: { status: approximated, test: spike/try_cast, note: "TRY_CAST('' AS INT) is 0 on T-SQL, NULL in DuckDB. Lowered string-to-number and string-to-date casts are rewritten by the target rule try-cast-parse (blank becomes NULL) and no longer report this. Still differs: a string DuckDB reads as a number the engine refuses ('12.7' as INTEGER is 13, '1e3' as INTEGER is 1000; NULL on SQL Server)." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
-  postgres: { status: unsupported, test: spike/try_cast, note: "No native try-cast: polyglot emits CAST, which raises an error on bad data." }
+  postgres: { status: unsupported, test: spike/try_cast, note: "No native try-cast: polyglot emits CAST, which raises an error on bad data. Lowered string-to-integer, -decimal and -double casts are rewritten by the target rule try-cast-parse (a CASE that tests the text and the range first) and no longer report this; a string-to-date cast, and any other TRY_CAST, still does. The same '12.7' and '1e3' differences as SQL Server apply." }
 
 - id: type.cast_varchar_length
   detect: detector:cast_varchar_length

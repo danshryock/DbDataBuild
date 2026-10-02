@@ -34,7 +34,8 @@ internal static class ProjectChecks
                 body = lowered.Sql;
                 bodyFile = $"rendered/{lowered.ArtifactPath}";
             }
-            diagnostics.AddRange(linter.Lint(body, bodyFile ?? source.QueryFile, targets, config));
+            // each target is linted on the query it will actually get: the lowered one with that target's rules applied
+            foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, t).Sql, bodyFile ?? source.QueryFile, [t], config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
             diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts

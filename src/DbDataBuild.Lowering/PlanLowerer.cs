@@ -205,7 +205,14 @@ public sealed class PlanLowerer
             if (lit == "VARCHAR" && to is "DATE" or "TIMESTAMP" or "TIME") return $"{to} {Literal(v)}";
         }
         var fn = e.TryGetProperty("try_cast", out var tc) && tc.ValueKind == JsonValueKind.True ? "TRY_CAST" : "CAST";
-        return $"{fn}({Expr(child, outs)} AS {TypeName(e.GetProperty("return_type"))})";
+        var inner = Expr(child, outs);
+        // RULE try-cast-parse: parsing a string differs per engine ('' is NULL here, 0 on SQL Server, an error on PostgreSQL). The explicit VARCHAR cast marks the string source for the target step.
+        if (fn == "TRY_CAST" && TypeId(child) == "VARCHAR" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT" or "DECIMAL" or "DOUBLE" or "FLOAT" or "DATE" or "TIMESTAMP")
+        {
+            inner = $"CAST({inner} AS VARCHAR)";
+            rules.Add("try-cast-parse");
+        }
+        return $"{fn}({inner} AS {TypeName(e.GetProperty("return_type"))})";
     }
 
     private string Function(JsonElement e, IReadOnlyList<string> outs)
@@ -224,6 +231,12 @@ public sealed class PlanLowerer
         if (name is "list_value" or "struct_pack" or "map") throw new LoweringException($"the nested-type function {name}");
         var a = children.Select(c => Expr(c, outs)).ToList();
         var returns = TypeId(e);
+        // RULE round-double: DuckDB rounds the scaled double half away from zero; the engines do something else. The explicit DOUBLE cast marks it for the target step.
+        if (name == "round" && a.Count is 1 or 2 && TypeId(children[0]) == "DOUBLE" && (a.Count == 1 || children[1].GetProperty("type").GetString() == "VALUE_CONSTANT"))
+        {
+            a[0] = $"CAST({a[0]} AS DOUBLE)";
+            rules.Add("round-double");
+        }
         var anyDate = children.Any(c => TypeId(c) == "DATE");
         string text;
         if (LikeFunctions.TryGetValue(name, out var like) && a.Count == 2) return $"({a[0]} {like} {a[1]})";
@@ -239,6 +252,8 @@ public sealed class PlanLowerer
         return text;
     }
 
+    private static string? SumWidening(string? type) => type switch { "TINYINT" or "SMALLINT" or "INTEGER" => "BIGINT", "BIGINT" => "DECIMAL(38, 0)", _ => null };
+
     private string Aggregate(JsonElement e, IReadOnlyList<string> outs)
     {
         var name = Str(e, "name")!;
@@ -249,6 +264,12 @@ public sealed class PlanLowerer
         {
             a[0] = $"CAST({a[0]} AS DOUBLE)";
             rules.Add("avg-double");
+        }
+        // RULE sum-widen: DuckDB sums integers into a HUGEINT; SQL Server's SUM of an INT is an INT and raises an overflow error past 2^31 (a BIGINT's past 2^63). Widen the argument.
+        if (name == "sum" && children.Count == 1 && SumWidening(TypeId(children[0])) is { } widened)
+        {
+            a[0] = $"CAST({a[0]} AS {widened})";
+            rules.Add("sum-widen");
         }
         var shown = AggregateNames.GetValueOrDefault(name, name);
         var body = name == "count_star" ? "*" : (Str(e, "aggregate_type") == "DISTINCT" ? "DISTINCT " : "") + string.Join(", ", a);
@@ -272,6 +293,11 @@ public sealed class PlanLowerer
         } ?? throw new LoweringException($"the window function {type}");
         var windowChildren = Arr(e, "children").ToList();
         var args = windowChildren.Select(c => Expr(c, outs)).ToList();
+        if (type == "WINDOW_AGGREGATE" && name == "sum" && windowChildren.Count == 1 && SumWidening(TypeId(windowChildren[0])) is { } widened)
+        {
+            args[0] = $"CAST({args[0]} AS {widened})";
+            rules.Add("sum-widen");
+        }
         // RULE avg-double also applies to avg(x) OVER (...)
         if (type == "WINDOW_AGGREGATE" && name == "avg" && TypeId(e) == "DOUBLE" && windowChildren.Count > 0 && TypeId(windowChildren[0]) != "DOUBLE")
         {

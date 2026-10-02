@@ -108,3 +108,7 @@ Known cosmetic difference: the author's table aliases (`o`, `p`) are not in Duck
 
 `generate_series` and `range` over integer constants now lower to the engines' own `GENERATE_SERIES` (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 23). SQL Server 2022 needs version 16 or later and does not accept a column list after the function, so the renderer drops it for T-SQL; this is recorded in the matrix as a new row. Date series, `UNNEST`, list and struct constructors, and `USING SAMPLE` stay refused (DDB-324). The agreed order is finished. Unit tests 956, real-engine tests 75.
 
+## Update (2026-10-02): target rules
+
+New step between the lowered query and the transpile (DESIGN.md 7.6.1, `docs/progress/state-and-apply.md` entry 24). `length` on SQL Server, `round` of a double on SQL Server and PostgreSQL, and `TRY_CAST` of a string on all three now compute what DuckDB computes; I checked 11 rows by 8 columns against DuckDB on both engines. `sum` of integers is widened in the lowered query so SQL Server cannot overflow. The rules recognise explicit casts the lowerer writes as marks, because the AST has no types. Left as they were: `TRY_CAST` to a date on PostgreSQL, and strings DuckDB reads as numbers that the engines refuse (`'12.7'` as INTEGER). Unit tests 970, real-engine tests 79. Order from here, as you set it: hardening, then the lower-priority items, then Fabric last.
+

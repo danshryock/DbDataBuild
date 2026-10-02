@@ -493,6 +493,22 @@ Every model query is bound by DuckDB and **lowered** to one explicit query befor
 - Metadata (`metadata`, `publish-metadata`) records each column's resolved DuckDB type, the lowered artifact's hash and the rules fired.
 - Still open: target-specific string-comparison, `LIKE`, `REPLACE` and `LENGTH` rules through identity marker macros, `sum` widening, decimal precision pinning, and lowering for the constructs above. SQL Server rejects an aggregate over a subquery (`sum((SELECT ...))`), which lowering faithfully preserves; that is a matrix finding, not a lowering gap.
 
+
+#### 7.6.1 Target rules (as built)
+
+The lowered query is in DuckDB's dialect and identical for every target. A few functions behave differently on an engine, and polyglot can only translate the name, so a **target rule** step (`DbDataBuild.Targets/Rules/TargetRules.cs`) sits between the lowered query and the transpile. It parses the DuckDB-dialect query, rewrites the recognised shapes into equivalent DuckDB-dialect expressions built from functions that translate cleanly, and hands the result to the transpile. The rewritten text appears only in the rendered scripts under `rendered/<target>/`, which name the rules that fired in a `-- target rules:` header line; `rendered/lowered/` stays target-neutral. A query no rule applies to is passed through byte for byte. The matrix lint and `validate` run on the rewritten query, per target.
+
+The step does not guess types. The lowerer, which has them, **marks** the expressions that need a rule by writing an explicit cast the engines would not need, and the rule removes the mark:
+
+| Rule | Mark in the lowered query | Targets | What it does |
+|---|---|---|---|
+| `length-trailing-spaces` | none (`length(x)`) | SQL Server, Fabric | `LEN` ignores trailing spaces, DuckDB counts them: `length(x \|\| 'x') - 1` |
+| `round-double` | `round(CAST(x AS DOUBLE), n)` with constant `n` (`\|n\| <= 15`) | SQL Server, PostgreSQL | DuckDB rounds the scaled double half away from zero (`round(2.675, 2)` is 2.68, `round(0.285, 2)` is 0.28); SQL Server rounds the decimal text (2.67) and PostgreSQL has no `round(double precision, integer)`: `sign(x*p) * floor(abs(x*p) + 0.5) / p` |
+| `try-cast-parse` | `TRY_CAST(CAST(s AS VARCHAR) AS <integer, decimal, double, date, timestamp>)` | SQL Server, Fabric, PostgreSQL | `''` is NULL in DuckDB, 0 on SQL Server, an error on PostgreSQL. SQL Server: `TRY_CAST(NULLIF(TRIM(s), '') AS ...)`. PostgreSQL: a `CASE` that tests the text with a regular expression and the range before casting (integers, decimals and doubles; dates cannot be tested without raising, so they are left as they are and still reported) |
+| `sum-widen` | `sum(CAST(x AS BIGINT))` (or `DECIMAL(38, 0)` for a BIGINT) | all | not a target rule but a lowering rule: DuckDB sums integers into a HUGEINT, SQL Server's `SUM` of an `INT` raises an overflow error past 2^31. Written into the lowered query itself, so it is visible in the committed artifact |
+
+Known differences the rules do not remove: a string DuckDB reads as a number that an engine refuses (`'12.7'` as INTEGER is 13 and `'1e3'` is 1000 in DuckDB, NULL on the engines); a PostgreSQL `TRY_CAST` of a string longer than 38 digits raises; `round` of a double beyond 1e15 digits or scaled past the double range. A column declared HUGEINT is still refused, so a model writes `CAST(sum(n) AS BIGINT)`.
+
 ## 8. Targets
 
 ```csharp

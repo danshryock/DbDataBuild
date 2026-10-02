@@ -171,7 +171,7 @@ public class PlanLowererTests
     {
         using var c = Open();
         var sql = Lower(c, "SELECT t.id, u.b AS ub, sum(t.x) AS sx FROM t JOIN u ON t.a = u.a WHERE t.b > 1 GROUP BY t.id, u.b HAVING sum(t.x) > 1 ORDER BY sx DESC LIMIT 3");
-        Assert.Equal("SELECT t.id, u.b AS ub, sum(t.x) AS sx\nFROM t\nJOIN u\n  ON (t.a = u.a)\nWHERE (t.b > 1)\nGROUP BY t.id, u.b\nHAVING (sum(t.x) > 1)\nORDER BY sum(t.x) DESC NULLS LAST\nLIMIT 3", sql);
+        Assert.Equal("SELECT t.id, u.b AS ub, sum(CAST(t.x AS BIGINT)) AS sx\nFROM t\nJOIN u\n  ON (t.a = u.a)\nWHERE (t.b > 1)\nGROUP BY t.id, u.b\nHAVING (sum(CAST(t.x AS BIGINT)) > 1)\nORDER BY sum(CAST(t.x AS BIGINT)) DESC NULLS LAST\nLIMIT 3", sql);
         Assert.Equal(Rows(c, "SELECT t.id, u.b AS ub, sum(t.x) AS sx FROM t JOIN u ON t.a = u.a WHERE t.b > 1 GROUP BY t.id, u.b HAVING sum(t.x) > 1 ORDER BY sx DESC, t.id LIMIT 3", true).Count, Rows(c, sql, true).Count);
     }
 

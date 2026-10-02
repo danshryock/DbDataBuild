@@ -11,17 +11,13 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 | 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
 | 7 | Incremental kinds, loads, `run` | Done |
 | 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
-| 9 | Hardening | **Not started**: fuzzing, error-scrub tests beyond the one guard test, single-file publish, docs generation, SQL Agent guide |
+| 9 | Hardening | **Next, with the target rules done**: fuzzing, error-scrub tests beyond the one guard test, single-file publish, docs generation, SQL Agent guide |
 | extra | Plan lowering | Built (section 7.6) |
 
 ## A. Lowering: open items (the ones you asked to have written down)
 
-1. **Target-specific rules.** Lowering produces one DuckDB-dialect query; some behaviors differ per engine and need target-specific syntax, so they belong in a step *between the lowered query and the transpile* that I have not designed. Known cases:
-   - `LENGTH`/`LEN` ignores trailing spaces on SQL Server, counts them on DuckDB and PostgreSQL.
-   - `TRY_CAST`: PostgreSQL has none; needs an emulation or a refusal.
-   - `ROUND(double, n)`: rounds differently on PostgreSQL (it has no `ROUND(double precision, int)`) and can differ in half-way cases.
-   - Design question to settle first: does the step rewrite the lowered AST per target (readable, testable, but the committed artifact is then no longer the whole truth), or does the lowerer emit target-neutral forms that every transpile handles?
-2. **`sum` widening and decimal pinning.** DuckDB widens `sum` of integers to HUGEINT and of decimals to DECIMAL(38, s); SQL Server and PostgreSQL widen differently, so overflow and result scale can differ. The lowered header already records DuckDB's output types; the rule would add explicit casts, as `avg` has.
+1. **Target-specific rules: built** (DESIGN.md 7.6.1, entry 24): `length`, `round` of a double, `TRY_CAST` of a string. Remaining: no rule yet for `TRY_CAST` to a date on PostgreSQL, and for the `'12.7'`/`'1e3'` string-to-integer differences; other behavior differences will be found by more probes (for example string functions on non-BMP characters, `substr` negative positions, `%` on negatives, division by zero).
+2. **`sum` widening: built** (lowering rule `sum-widen`). `sum` of DECIMAL needs no rule on SQL Server (both give DECIMAL(38, s)); PostgreSQL gives NUMERIC without a scale limit, which a declared column then constrains. Not yet probed: `avg` and `sum` over very large DECIMALs.
 3. **`x op ANY/ALL (subquery)` and row-value `IN`.** Refused today. Both can be written with `EXISTS`/`NOT EXISTS` plus null handling; the risk is three-valued logic, so each needs differential tests including NULLs.
 4. **Correlated subquery over `UNION`/`INTERSECT`/`EXCEPT`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset.** Refused; no plan to build unless a real model needs them.
 5. **Author table aliases are lost** (DuckDB's plan does not carry them), so lowered sources are named after their tables (`orders`, `orders_2`). Cosmetic, but it makes lowered queries less similar to the source than you asked for. Possible fix: recover aliases by matching the source text to the plan, or rename on a per-query basis from the parsed AST.
@@ -58,6 +54,6 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 ## E. Suggested order (for you to change)
 
 1. Target-specific rules and `sum` widening (they change query results, so they matter most for correctness), starting with the design question in A1.
-2. Fabric verification, if a Fabric instance is available; otherwise decide whether Fabric stays "unverified by design" for the first release.
-3. Milestone 9 hardening: error-scrub fuzzing, single-file publish on linux and Windows, operations guide.
-4. `ANY`/`ALL`, row-value `IN`, index lint/generation, per-command JSON Schemas, as demand appears.
+2. Milestone 9 hardening: error-scrub fuzzing, single-file publish on linux and Windows, operations guide.
+3. `ANY`/`ALL`, row-value `IN`, index lint/generation, per-command JSON Schemas, as demand appears.
+4. Fabric verification (moved to the back by your decision, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
