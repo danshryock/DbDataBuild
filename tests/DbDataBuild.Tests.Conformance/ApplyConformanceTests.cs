@@ -553,4 +553,50 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_history_warning_can_be_accepted_without_touching_data(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // a `full` model, so adding a column needs no definition acknowledgement
+            run.Write("models/marts/fct_orders.yml", FctYaml.Replace("kind: {type: incremental_by_unique_key, unique_key: [order_id]}", "kind: {type: full}").Replace("grain: [order_id]\n", ""));
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+
+            run.Write("models/marts/fct_orders.yml", FctYaml2.Replace("kind: {type: incremental_by_unique_key, unique_key: [order_id]}", "kind: {type: full}").Replace("grain: [order_id]\n", ""));
+            run.Write("models/marts/fct_orders.sql", FctSql2);
+            Ok(run.Cli("render", "--write"), "render");
+            run.Write("answers.yml", "answers:\n  - {id: Q-history-marts.fct_orders.discount_code, choice: backfill_later}\n");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan", "--answers", Path.Combine(run.Dir, "answers.yml")).Out)), "apply the new column");
+            var rowsBefore = await run.Engine.RowsAsync("SELECT order_id FROM marts.fct_orders");
+
+            // the report warns and exits non-zero, saying how to deal with it
+            var warn = run.Cli("report");
+            Refused(warn, "backfill was requested and none", "report with an unfulfilled backfill request");
+            Assert.Contains("ack history marts.fct_orders.discount_code", warn.Out);
+
+            // the operator accepts it: a reason is required, nothing in the data changes, and the report keeps the facts
+            Refused(run.Cli("ack", "history", "marts.fct_orders.discount_code"), "--reason", "an acknowledgement without a reason");
+            Refused(run.Cli("ack", "history", "marts.fct_orders.nothing_here", "--reason", "x"), "nothing to acknowledge", "acknowledging something that is not there");
+            var ack = run.Cli("ack", "history", "marts.fct_orders.discount_code", "--reason", "The source never had this column; NULL is correct.");
+            Ok(ack, "ack history");
+            Assert.Equal(rowsBefore, await run.Engine.RowsAsync("SELECT order_id FROM marts.fct_orders"));
+
+            var calm = run.Cli("report");
+            Ok(calm, "report after the acknowledgement");
+            Assert.Contains("Acknowledged by", calm.Out);
+            Assert.Contains("The source never had this column; NULL is correct.", calm.Out);
+            Assert.Contains("A backfill was requested and none has been recorded.", calm.Out);
+            Assert.Contains("nothing", calm.Out.Split("Needs attention")[1]);
+
+            // repeating it is a no-op
+            Assert.Contains("already acknowledged", run.Cli("ack", "history", "marts.fct_orders.discount_code", "--reason", "again").Err);
+            Assert.Equal(1, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("block_log"), "code = 'DDB-443'"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

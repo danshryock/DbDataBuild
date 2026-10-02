@@ -62,4 +62,38 @@ public class ColumnHistoryTests
         var entry = Assert.Single(ColumnHistory.Build([Plan("p2", T0, History("not_backfilled"))], [], []));
         Assert.Contains("no recorded shape for this plan", entry.Text);
     }
+
+    [Fact]
+    public void An_acknowledged_inconsistency_stays_in_the_report_but_stops_needing_attention()
+    {
+        var plans = new[] { Plan("p2", T0, History("backfill_later")) };
+        var shapes = new[] { Shape("p2", T0) };
+        var open = Assert.Single(ColumnHistory.Build(plans, shapes, []));
+        Assert.True(open.NeedsAttention);
+        Assert.Equal("DDB-443|marts.fct.discount_code|p2", open.AckKey);
+
+        var ack = new HistoryAck(open.AckKey!, "bob", "Source has no history for this column; accepted.", T0.AddDays(2));
+        var accepted = Assert.Single(ColumnHistory.Build(plans, shapes, [], [ack]));
+        Assert.False(accepted.NeedsAttention);
+        Assert.Equal(ack, accepted.Acknowledgement);
+        Assert.Contains("Acknowledged by bob on 2026-10-03 09:00:00 UTC: \"Source has no history for this column; accepted.\"", accepted.Text);
+        Assert.Contains("A backfill was requested and none has been recorded.", accepted.Text);        // the facts are still there
+
+        // an acknowledgement is about one plan's decision: it does not cover the same column decided again by a later plan
+        var later = new[] { Plan("p2", T0, History("backfill_later")), Plan("p3", T0.AddDays(5), History("backfill_later")) };
+        var both = ColumnHistory.Build(later, [Shape("p2", T0), Shape("p3", T0.AddDays(5))], [], [ack]);
+        Assert.Equal([false, true], both.Select(e => e.NeedsAttention));
+
+        // and other keys never match
+        var wrong = new HistoryAck("DDB-443|marts.other.col|p2", "bob", "x", T0);
+        Assert.True(Assert.Single(ColumnHistory.Build(plans, shapes, [], [wrong])).NeedsAttention);
+    }
+
+    [Fact]
+    public void A_not_backfilled_decision_has_nothing_to_acknowledge()
+    {
+        var entry = Assert.Single(ColumnHistory.Build([Plan("p2", T0, History("not_backfilled"))], [Shape("p2", T0)], []));
+        Assert.Null(entry.AckKey);
+        Assert.False(entry.NeedsAttention);
+    }
 }

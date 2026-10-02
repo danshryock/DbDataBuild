@@ -18,7 +18,7 @@ internal static class AckCommand
         var ctx = ProjectContext.Load(root);
         var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
         if (target == null) return CliApp.ExitUsage;
-        if (kind is not ("drift" or "definition")) { error.WriteLine($"Unknown acknowledgement `{kind}`. One of: drift, definition."); return CliApp.ExitUsage; }
+        if (kind is not ("drift" or "definition" or "history")) { error.WriteLine($"Unknown acknowledgement `{kind}`. One of: drift, definition, history."); return CliApp.ExitUsage; }
         if (string.IsNullOrWhiteSpace(reason)) { error.WriteLine("--reason is required: an acknowledgement is recorded with who made it and why."); return CliApp.ExitUsage; }
 
         var (read, readMissing) = LoginSettings.FromEnvironment(target, Login.Read, env);
@@ -29,12 +29,36 @@ internal static class AckCommand
 
         string code, detail;
         var schema = ctx.Config.TrackingSchema;
-        var (objSchema, _) = DdlGenerator.Split(name);
+        var (objSchema, _) = DdlGenerator.Split(kind == "history" ? name[..Math.Max(name.LastIndexOf('.'), 0)] : name);
         return Task.Run(async () =>
         {
             await using var reader = await ReadSession.OpenAsync(read);
             var status = await TrackingStore.StatusAsync(reader, target, schema);
             if (status.AsDiagnostic(schema) is { } notReady) { error.Write(DiagnosticFormatter.Format(notReady)); return CliApp.ExitFindings; }
+
+            if (kind == "history")
+            {
+                // `model.column`: accept the recorded history as it is, without changing data
+                var (entries, _) = await HistoryReader.ReadAsync(reader, target, schema);
+                var open = entries.Where(e => $"{e.Model}.{e.Column}" == name && e.AckKey != null && e.Acknowledgement == null).ToList();
+                if (open.Count == 0)
+                {
+                    error.WriteLine(entries.Any(e => $"{e.Model}.{e.Column}" == name && e.Acknowledgement != null)
+                        ? $"`{name}` is already acknowledged. Nothing was recorded."
+                        : $"`{name}` has no unacknowledged history inconsistency: there is nothing to acknowledge.");
+                    return entries.Any(e => $"{e.Model}.{e.Column}" == name && e.Acknowledgement != null) ? CliApp.ExitOk : CliApp.ExitFindings;
+                }
+                var historyRun = Guid.NewGuid();
+                using var historyLog = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), spec.Name, historyRun);
+                await using var historyGate = await MutationGate.OpenAsync(write, spec.Name, StatementKind.Tracking, historyLog, historyRun);
+                foreach (var e in open)
+                {
+                    var parts = e.AckKey!.Split('|');
+                    await AuditLog.AcknowledgeAsync(historyGate, target, schema, "ack", parts[1], parts[0], parts[2], write.User ?? Environment.UserName, reason!);
+                }
+                output.WriteLine($"Recorded: {open.Count} acknowledgement(s) for {name} by {write.User ?? Environment.UserName}. The report still shows the history, marked as accepted, and no longer lists it as needing attention.");
+                return CliApp.ExitOk;
+            }
 
             if (kind == "drift")
             {

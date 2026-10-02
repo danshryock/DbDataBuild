@@ -294,6 +294,11 @@ public static class DiagnosticCatalog
         "Commit or stash the changes, or pass `--allow-dirty` to apply anyway (the dirty flag is recorded).",
         "Applies record the git commit; from a dirty tree that commit would not describe the code and plan that were used (DESIGN.md 10.3).");
 
+    public static readonly DiagnosticDescriptor HistoryInconsistent = W("443", "A column's recorded history contradicts what was decided",
+        "A recorded backfill after a `backfill_later` decision, or an operator's acknowledgement that none is wanted.",
+        $"Run the backfill (`{ProductInfo.Cli} plan --backfill <model>=<operation>`), or accept the situation with `{ProductInfo.Cli} ack history <model>.<column> --reason ...`.",
+        "The warning is information, not a block: the operator decides what is a continuing concern. An acknowledgement is recorded with who made it and why, changes no data, and is tied to the one plan whose decision it is about.");
+
     // 5xx: state and safety (logins, the mutation gate, tracking tables)
     public static readonly DiagnosticDescriptor LoginNotConfigured = E("501", "Login not configured",
         "A connection string in the environment variable named in the message, for the login this command needs.",
@@ -330,7 +335,7 @@ public static class DiagnosticCatalog
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, HistoryInconsistent, DefinitionFileChanged, DefinitionNotEditable,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,
     ];

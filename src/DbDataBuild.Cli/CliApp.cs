@@ -116,7 +116,7 @@ public static class CliApp
                         pr.GetValue(applyResume), pr.GetValue(applyDirty), output, error, environment ?? Environment.GetEnvironmentVariable));
                     break;
                 case "ack":
-                    var ackKind = new Argument<string>("kind") { Description = "drift (an object changed outside the tool) or definition (an incremental model's query changed)" };
+                    var ackKind = new Argument<string>("kind") { Description = "drift (an object changed outside the tool), definition (an incremental model's query changed), or history (a recorded backfill that never happened; name is model.column)" };
                     var ackName = new Argument<string>("name") { Description = "The object (marts.fct) or model name" };
                     var ackReason = new Option<string?>("--reason") { Description = "Why the change is accepted (required; recorded with your login)" };
                     var ackTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
