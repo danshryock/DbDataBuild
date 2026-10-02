@@ -71,3 +71,40 @@ jobs:
         run: |
           prerelease=""; case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes $prerelease
+
+  scoop:
+    # Keeps bucket/dbdatabuild.json (the Scoop manifest) on the newest full release. Pre-releases are skipped.
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Update the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --pattern SHA256SUMS --dir .
+          python3 - <<'PY'
+          import json, os, re
+          tag = os.environ["TAG"]; version = tag.lstrip("v")
+          name = f"dbdatabuild-{tag}-win-x64"
+          sums = {l.split()[1]: l.split()[0] for l in open("SHA256SUMS") if l.strip()}
+          path = "bucket/dbdatabuild.json"
+          m = json.load(open(path))
+          arch = m["architecture"]["64bit"]
+          m["version"] = version
+          arch["url"] = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{name}.zip"
+          arch["hash"] = sums[f"{name}.zip"]
+          arch["extract_dir"] = name
+          open(path, "w", newline="\n").write(json.dumps(m, indent=4) + "\n")
+          PY
+          rm SHA256SUMS
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/dbdatabuild.json
+          git diff --cached --quiet || { git commit -m "scoop: $TAG"; git push origin HEAD:main; }

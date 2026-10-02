@@ -11,6 +11,17 @@ It is explicit, offline-first and plan-then-apply:
 
 > **Status.** Pre-1.0 and not yet used in production. SQL Server 2022 and PostgreSQL 17 are verified by a real-engine test suite. **Fabric has never been run against a real engine**; its support is marked `unverified` throughout.
 
+## Install
+
+Releases carry a single self-contained executable for **Windows** (x64) and **Linux** (x64, glibc 2.34+), with a `SHA256SUMS` file: <https://github.com/danshryock/DbDataBuild/releases>.
+
+Windows, with [Scoop](https://scoop.sh) (this repository is its own bucket, and a release updates the manifest):
+
+```
+scoop bucket add dbdatabuild https://github.com/danshryock/DbDataBuild
+scoop install dbdatabuild
+```
+
 ## A first look
 
 ```
