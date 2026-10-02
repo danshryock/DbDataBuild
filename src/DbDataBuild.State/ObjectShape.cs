@@ -33,3 +33,10 @@ public static class Drift
         : live.ShapeHash == recordedShapeHash ? ObjectState.InSync
         : ObjectState.OutOfBand;
 }
+
+/// <summary>The engine-neutral text of an index's definition: uniqueness, key columns in order (`desc` when descending) and included columns. Used to compare a declared index with a live one.</summary>
+public static class IndexText
+{
+    public static string Canonical(bool unique, IEnumerable<string> keys, IEnumerable<string> include) =>
+        $"unique={(unique ? 1 : 0)};keys={string.Join(",", keys)};include={string.Join(",", include)}";
+}

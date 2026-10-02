@@ -213,6 +213,11 @@ public static class ApplyEngine
                     return new Diagnostic(DiagnosticCatalog.StepResultDiffers, new($"step:{step.Id}", 0, 0),
                         $"After step {step.Id} ({step.Description}) `{step.Object}` has shape {after?.ShapeHash[..12] ?? "missing"}, but the plan promised {step.HashAfter[..12]}. Nothing after this step ran.");
                 }
+                if (step.Expect != null && IndexMismatch(step.Expect, after) is { } mismatch)
+                {
+                    await AuditLog.FinishDdlAsync(gate, target, schema, step.Id + ":log", ddlId, "mismatch", after?.ShapeHash, ct);
+                    return new Diagnostic(DiagnosticCatalog.StepResultDiffers, new($"step:{step.Id}", 0, 0), $"After step {step.Id} ({step.Description}) {mismatch}. Nothing after this step ran.");
+                }
                 await AuditLog.FinishDdlAsync(gate, target, schema, step.Id + ":log", ddlId, "ok", after?.ShapeHash, ct);
                 if (after != null)
                     await TrackingStore.RecordSchemaVersionAsync(gate, target, schema, step.Id + ":version", step.Object, after.ShapeHash, after.PhysicalHash, "tool", plan.Id, o.GitCommit, ct);
@@ -260,6 +265,17 @@ public static class ApplyEngine
             default:
                 throw new InvalidOperationException($"Step type {step.Type} cannot be applied yet.");
         }
+    }
+
+    /// <summary>Checks an index step's post-condition (`index:&lt;name&gt;=&lt;canonical&gt;`) against the live object. Returns what is wrong, or null.</summary>
+    private static string? IndexMismatch(string expect, ObjectShape? live)
+    {
+        var body = expect["index:".Length..];
+        var eq = body.IndexOf('=');
+        var (name, canonical) = (body[..eq], body[(eq + 1)..]);
+        var found = live?.Physical.FirstOrDefault(p => p.Kind == "index" && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (found == null) return $"index `{name}` does not exist on `{live?.QualifiedName ?? "the object"}`";
+        return string.Equals(found.Definition, canonical, StringComparison.OrdinalIgnoreCase) ? null : $"index `{name}` is `{found.Definition}`, but the plan promised `{canonical}`";
     }
 
     /// <summary>A plan parameter as a bound value: the plan holds invariant-culture text, the driver gets a typed value.</summary>

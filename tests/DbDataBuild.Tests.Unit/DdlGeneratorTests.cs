@@ -108,6 +108,9 @@ public class DdlGeneratorTests
             g.CreateSchema("marts"), g.CreateTable("marts", "fct", cols), g.AddColumn("marts", "fct", cols[1]), g.DropColumn("marts", "fct", "label"),
             g.RenameColumn("marts", "fct", "a", "b"), g.AlterColumn("marts", "fct", cols[1]), g.DropTable("marts", "fct"),
             g.CreateOrReplaceView("marts", "v", cols, "SELECT 1 AS id"),
+            g.CreateIndex("marts", "fct", new IndexDefinition("ix", ["id", "at"], false, [], null)),
+            g.CreateIndex("marts", "fct", new IndexDefinition("uq", ["id"], true, ["amount"], null)),
+            g.DropIndex("marts", "fct", "ix"),
         };
         foreach (var s in statements) Assert.Empty(t.Validate(s, "ddl"));
     }
@@ -128,6 +131,18 @@ public class DdlGeneratorTests
             Gen("sqlserver").CreateTable("marts", "fct", cols.Select(c => Gen("sqlserver").Map("marts.fct", c)).ToList()));
         Assert.Equal("CREATE TABLE \"marts\".\"fct\" (\n  \"id\" bigint NOT NULL,\n  \"label\" varchar(20) COLLATE \"en_US.utf8\" NULL\n);",
             Gen("postgres").CreateTable("marts", "fct", cols.Select(c => Gen("postgres").Map("marts.fct", c)).ToList()));
+    }
+
+    [Fact]
+    public void Index_statements_are_exact_and_quote_their_identifiers()
+    {
+        var unique = new IndexDefinition("uq", ["id", "at"], true, ["amount"], null);
+        Assert.Equal("CREATE UNIQUE INDEX [uq] ON [marts].[fct] ([id], [at]) INCLUDE ([amount]);", Gen("sqlserver").CreateIndex("marts", "fct", unique));
+        Assert.Equal("CREATE UNIQUE INDEX \"uq\" ON \"marts\".\"fct\" (\"id\", \"at\") INCLUDE (\"amount\");", Gen("postgres").CreateIndex("marts", "fct", unique));
+        Assert.Equal("CREATE INDEX [ix] ON [marts].[fct] ([id]);", Gen("sqlserver").CreateIndex("marts", "fct", new IndexDefinition("ix", ["id"], false, [], null)));
+        Assert.Equal("DROP INDEX [ix] ON [marts].[fct];", Gen("sqlserver").DropIndex("marts", "fct", "ix"));
+        Assert.Equal("DROP INDEX \"marts\".\"ix\";", Gen("postgres").DropIndex("marts", "fct", "ix"));      // PostgreSQL index names live in the schema
+        Assert.Contains("[we]]ird]", Gen("sqlserver").CreateIndex("s", "t", new IndexDefinition("we]ird", ["c"], false, [], null)));
     }
 
     private static ColumnShape S(string type, int? len = null, int? p = null, int? s = null) => new("c", type, len, p, s, true, null);

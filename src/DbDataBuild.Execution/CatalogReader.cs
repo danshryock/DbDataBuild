@@ -18,10 +18,14 @@ LEFT JOIN sys.computed_columns cc ON cc.object_id = c.object_id AND cc.column_id
 WHERE o.type IN ('U', 'V') AND s.name = @schema
 ORDER BY o.name, c.column_id";
 
+    // One row per index: its table, name, whether it backs a PRIMARY KEY or UNIQUE constraint, uniqueness, key columns in order (with `desc` when descending) and included columns.
+    // The canonical definition built from these is engine-neutral, so a declared index can be compared with a live one.
     private const string SqlServerIndexes = @"
-SELECT o.name, i.name, i.type_desc, i.is_unique,
-  (SELECT STRING_AGG(CONCAT(col.name, CASE WHEN ic.is_descending_key = 1 THEN ' desc' ELSE ' asc' END, CASE WHEN ic.is_included_column = 1 THEN ' include' ELSE '' END), ', ') WITHIN GROUP (ORDER BY ic.is_included_column, ic.key_ordinal, ic.index_column_id)
-   FROM sys.index_columns ic JOIN sys.columns col ON col.object_id = ic.object_id AND col.column_id = ic.column_id WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id),
+SELECT o.name, i.name, CASE WHEN i.is_primary_key = 1 OR i.is_unique_constraint = 1 THEN 1 ELSE 0 END, i.is_unique,
+  (SELECT STRING_AGG(CONCAT(col.name, CASE WHEN ic.is_descending_key = 1 THEN ' desc' ELSE '' END), ',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+   FROM sys.index_columns ic JOIN sys.columns col ON col.object_id = ic.object_id AND col.column_id = ic.column_id WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0),
+  (SELECT STRING_AGG(col.name, ',') WITHIN GROUP (ORDER BY ic.index_column_id)
+   FROM sys.index_columns ic JOIN sys.columns col ON col.object_id = ic.object_id AND col.column_id = ic.column_id WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1),
   (SELECT MIN(p.data_compression_desc) FROM sys.partitions p WHERE p.object_id = i.object_id AND p.index_id = i.index_id),
   (SELECT COUNT(*) FROM sys.partitions p WHERE p.object_id = i.object_id AND p.index_id = i.index_id)
 FROM sys.indexes i
@@ -38,7 +42,18 @@ JOIN information_schema.columns c ON c.table_schema = t.table_schema AND c.table
 WHERE t.table_schema = @schema AND t.table_type IN ('BASE TABLE', 'VIEW')
 ORDER BY t.table_name, c.ordinal_position";
 
-    private const string PostgresIndexes = "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = @schema ORDER BY tablename, indexname";
+    private const string PostgresIndexes = @"
+SELECT t.relname, ic.relname, CASE WHEN EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid) THEN 1 ELSE 0 END, CASE WHEN i.indisunique THEN 1 ELSE 0 END,
+  (SELECT string_agg(COALESCE(a.attname, '<expression>') || CASE WHEN (i.indoption[k.ord - 1] & 1) = 1 THEN ' desc' ELSE '' END, ',' ORDER BY k.ord)
+   FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum WHERE k.ord <= i.indnkeyatts),
+  (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+   FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum WHERE k.ord > i.indnkeyatts)
+FROM pg_index i
+JOIN pg_class ic ON ic.oid = i.indexrelid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = @schema AND t.relkind = 'r'
+ORDER BY t.relname, ic.relname";
 
     public static async Task<IReadOnlyDictionary<string, ObjectShape>> ReadSchemaAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
     {
@@ -58,12 +73,10 @@ ORDER BY t.table_name, c.ordinal_position";
         {
             var table = (string)r[0]!;
             if (!objects.TryGetValue(table, out var o)) continue;
-            if (postgres) o.Physical.Add(new("index", (string)r[1]!, (string)r[2]!));
-            else
-            {
-                o.Physical.Add(new("index", (string)r[1]!, $"{r[2]}{((Convert.ToInt32(r[3], CultureInfo.InvariantCulture) == 1) ? " unique" : "")} ({r[4]})"));
-                o.Physical.Add(new("compression", $"{(string)r[1]!}", $"{r[5]} partitions={r[6]}"));
-            }
+            var backsConstraint = Convert.ToInt32(r[2], CultureInfo.InvariantCulture) == 1;
+            var unique = Convert.ToInt32(r[3], CultureInfo.InvariantCulture) == 1;
+            o.Physical.Add(new(backsConstraint ? "constraint_index" : "index", (string)r[1]!, IndexText.Canonical(unique, (r[4] as string ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries), (r[5] as string ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))));
+            if (!postgres) o.Physical.Add(new("compression", (string)r[1]!, $"{r[6]} partitions={r[7]}"));
         }
         return objects.ToDictionary(kv => $"{schema}.{kv.Key}", kv => new ObjectShape(schema, kv.Key, kv.Value.Kind, kv.Value.Columns, kv.Value.Physical));
     }

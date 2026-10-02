@@ -404,4 +404,61 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Declared_indexes_are_planned_verified_and_never_dropped(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply the tables");
+
+            // an index and a unique index, declared by the operator; the model's unique_key alone never created a constraint
+            run.Write("models/marts/fct_orders.yml", FctYaml + "indexes:\n  - {name: ix_amount, columns: [amount]}\n  - {name: uq_order, columns: [order_id], unique: true}\n");
+            Ok(run.Cli("render", "--check"), "render --check (indexes do not change rendered loads)");
+            var plan = run.Cli("plan");
+            Ok(plan, "plan with indexes");
+            var p = PlanDocument.Parse(File.ReadAllText(run.PlanFile(plan.Out)), "p", new List<Diagnostic>())!;
+            Assert.Equal(["create index ix_amount", "create index uq_order", "load marts.fct_orders (default)"], p.Steps.Select(s => s.Description));
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply the indexes");
+
+            await using var read = await ReadSession.OpenAsync(LoginSettings.FromEnvironment(name, DbDataBuild.Execution.Login.Read, _ => engine.ConnectionString).Settings!);
+            async Task<IReadOnlyList<DbDataBuild.State.PhysicalItem>> Physical() => (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct_orders"].Physical;
+            var physical = await Physical();
+            Assert.Contains(physical, i => i is { Kind: "index", Name: "ix_amount", Definition: "unique=0;keys=amount;include=" });
+            Assert.Contains(physical, i => i is { Kind: "index", Name: "uq_order", Definition: "unique=1;keys=order_id;include=" });
+            await Assert.ThrowsAnyAsync<Exception>(() => engine.ExecAsync("INSERT INTO marts.fct_orders (order_id, amount) VALUES (1, 1.00)"));   // the unique index is enforced by the engine
+
+            // in sync now: the next plan is the routine load only
+            Assert.Contains("1 step(s)", run.Cli("plan").Out);
+
+            // changing a declared index rebuilds it (risky); the plan shows drop and create together
+            run.Write("models/marts/fct_orders.yml", FctYaml + "indexes:\n  - {name: ix_amount, columns: [amount], include: [order_id]}\n  - {name: uq_order, columns: [order_id], unique: true}\n");
+            var rebuild = run.Cli("plan");
+            Ok(rebuild, "plan with a changed index");
+            var rebuildFile = run.PlanFile(rebuild.Out);
+            Refused(run.Cli("apply", rebuildFile), "DDB-436", "a rebuild without --allow-risky");
+            Ok(run.Cli("apply", rebuildFile, "--allow-risky"), "apply the rebuild");
+            Assert.Contains(await Physical(), i => i is { Kind: "index", Name: "ix_amount", Definition: "unique=0;keys=amount;include=order_id" });
+
+            // an index someone else added is left alone and mentioned; removing a declaration does not drop the index either
+            await engine.ExecAsync($"CREATE INDEX dba_extra ON marts.fct_orders ({run.Q("order_id")}, {run.Q("amount")})");
+            run.Write("models/marts/fct_orders.yml", FctYaml);
+            var left = run.Cli("plan");
+            Ok(left, "plan after removing the declarations");
+            Assert.DoesNotContain("drop", PlanDocument.Parse(File.ReadAllText(run.PlanFile(left.Out)), "p", new List<Diagnostic>())!.Steps.Select(s => s.Description.ToLowerInvariant()).Aggregate("", (a, b) => a + b));
+            Assert.Contains("`dba_extra`", File.ReadAllText(run.PlanFile(left.Out).Replace(".plan.yml", ".plan.md")));
+            Ok(run.Cli("apply", run.PlanFile(left.Out)), "apply (loads only)");
+            var after = await Physical();
+            Assert.Contains(after, i => i.Name == "dba_extra");
+            Assert.Contains(after, i => i.Name == "ix_amount");
+
+            // physical changes are not drift: the shape is what blocks
+            Ok(run.Cli("check"), "check with extra indexes on the target");
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

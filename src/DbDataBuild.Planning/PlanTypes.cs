@@ -18,11 +18,12 @@ public sealed record PlanParameter(string Name, string Type, string Source, stri
 /// <param name="ResolverText">The committed resolver of a load, so apply can re-run it and refuse a stale value.</param>
 /// <param name="ResolverResult">What the resolver returned at plan time (null for SQL NULL). Compared again at apply.</param>
 /// <param name="FileHash">Hash of the committed rendered file a load step runs.</param>
+/// <param name="Expect">For an index step: what the catalog must report afterwards, `index:&lt;name&gt;=&lt;canonical definition&gt;` (index steps leave the shape hash alone, so this is their post-check).</param>
 /// <param name="DefinitionHash">For a load: the hash of the model query it was planned from, recorded in `run_log` so a later plan can see the query changed.</param>
 public sealed record PlanStep(
     string Id, StepType Type, string Object, string Description, string Text, RiskClass Risk, IReadOnlyList<string> Reasons,
     string? HashAfter, IReadOnlyList<PlanParameter> Parameters, string? ResolverText = null, string? ResolverResult = null, bool HasResolver = false,
-    string? FileHash = null, string? Operation = null, string? ShapeSource = null, string? DefinitionHash = null);
+    string? FileHash = null, string? Operation = null, string? ShapeSource = null, string? DefinitionHash = null, string? Expect = null);
 
 /// <summary>What the plan assumed about an object, verified against the live target at apply (a mismatch is a stale plan).</summary>
 public sealed record ObjectBase(string Object, ObjectState State, string? LiveShapeHash, string? RecordedShapeHash);

@@ -78,6 +78,12 @@ public abstract partial class DdlGenerator(string target, ProjectConfig config)
     public abstract string AlterColumn(string schema, string name, NativeColumn column);
     public abstract string DropTable(string schema, string name);
 
+    public string CreateIndex(string schema, string name, IndexDefinition index) =>
+        $"CREATE {(index.Unique ? "UNIQUE " : "")}INDEX {Quote(index.Name)} ON {Qualified(schema, name)} ({string.Join(", ", index.Columns.Select(Quote))})" +
+        $"{(index.Include.Count > 0 ? $" INCLUDE ({string.Join(", ", index.Include.Select(Quote))})" : "")};";
+
+    public abstract string DropIndex(string schema, string table, string indexName);
+
     /// <param name="bodySql">The model body transpiled to this engine.</param>
     public abstract string CreateOrReplaceView(string schema, string name, IReadOnlyList<NativeColumn> columns, string bodySql);
 
@@ -149,6 +155,7 @@ public sealed partial class TSqlDdl(string target, ProjectConfig config) : DdlGe
         $"EXEC sp_rename {Lit($"{Quote(schema)}.{Quote(name)}.{Quote(from)}")}, {Lit(to)}, N'COLUMN';";
     public override string AlterColumn(string schema, string name, NativeColumn c) => $"ALTER TABLE {Qualified(schema, name)} ALTER COLUMN {ColumnText(c)};";
     public override string DropTable(string schema, string name) => $"DROP TABLE {Qualified(schema, name)};";
+    public override string DropIndex(string schema, string table, string indexName) => $"DROP INDEX {Quote(indexName)} ON {Qualified(schema, table)};";
 
     public override string CreateOrReplaceView(string schema, string name, IReadOnlyList<NativeColumn> columns, string bodySql) =>
         $"CREATE OR ALTER VIEW {Qualified(schema, name)} ({string.Join(", ", columns.Select(c => Quote(c.Name)))}) AS\n{bodySql.Trim().TrimEnd(';')};";
@@ -206,6 +213,7 @@ public sealed partial class PostgresDdl(ProjectConfig config) : DdlGenerator("po
     }
 
     public override string DropTable(string schema, string name) => $"DROP TABLE {Qualified(schema, name)};";
+    public override string DropIndex(string schema, string table, string indexName) => $"DROP INDEX {Qualified(schema, indexName)};"; // PostgreSQL index names are schema-scoped
 
     // PostgreSQL's CREATE OR REPLACE VIEW cannot change or reorder existing columns, so a changed view is dropped and created in one statement batch (one implicit transaction)
     public override string CreateOrReplaceView(string schema, string name, IReadOnlyList<NativeColumn> columns, string bodySql) =>

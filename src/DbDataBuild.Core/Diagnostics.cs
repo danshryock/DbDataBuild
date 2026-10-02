@@ -190,6 +190,11 @@ public static class DiagnosticCatalog
         "Declare a supported type for the column (a cast in the query, then `define`), or remove the target from the model.",
         "DDL needs an exact native type for every declared column. Types without a faithful equivalent (unsigned integers, HUGEINT, structs, lists, a VARCHAR without a length) are refused rather than guessed.");
 
+    public static readonly DiagnosticDescriptor IndexNotSupported = E("322", "Index not supported on a target",
+        "Declared indexes only for targets that create them: SQL Server and PostgreSQL.",
+        "Remove the index, restrict it with `targets: [...]`, or remove the target from the model.",
+        "Fabric Warehouse has no CREATE INDEX (its constraints are metadata only), so a declared index there is refused rather than skipped. Indexed views are out of scope.");
+
     // 4xx: planning / questions
     public static readonly DiagnosticDescriptor AnswerForUnknownQuestion = W("410", "Answer for a question that was not asked",
         "Answers whose id matches a question asked in this run.",
@@ -317,7 +322,7 @@ public static class DiagnosticCatalog
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
-        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, DefinitionFileChanged, DefinitionNotEditable,

@@ -55,6 +55,7 @@ public static class ModelDefinitionLoader
             var loads = ReadLoads(top, kindType?.Value, uniqueKey, timeColumn, columns);
             var renames = ReadRenames(top);
             var indexes = ReadIndexes(top, columns, targets?.Select(t => t.Value).ToList());
+            if (kindType?.Value == ModelKinds.View && indexes.Count > 0) Add(DiagnosticCatalog.InvalidValue, top.Get("indexes")!, "A view cannot have indexes (indexed views are out of scope).");
             var hooks = top.Get("hooks") is { } hn ? HookReader.ReadList(hn, allowUse: true, "`hooks`", (d, n, f) => Add(d, n, f)) : [];
 
             // semantic checks

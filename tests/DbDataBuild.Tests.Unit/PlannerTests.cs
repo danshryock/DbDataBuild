@@ -336,6 +336,76 @@ public class PlannerTests
         Assert.Single(Planner.Plan(changed, []).Steps);
     }
 
+    // ----- indexes -----------------------------------------------------------------------------------------------------------------------
+
+    private static IndexDefinition Ix(string name, string[] columns, bool unique = false, string[]? include = null, string[]? targets = null) => new(name, columns, unique, include ?? [], targets);
+
+    [Fact]
+    public void Declared_indexes_are_created_changed_and_never_dropped()
+    {
+        var def = Table("marts.fct", ModelKinds.Full, Basic) with { DeclaredIndexes = [Ix("ix_label", ["label"]), Ix("uq_id", ["id"], unique: true, include: ["label"])] };
+        var m = Model(def);
+
+        // a new table: the indexes follow the create, in declared order, with the catalog text they must show afterwards
+        var fresh = Planner.Plan(Empty(m), []);
+        Assert.Equal(["create schema marts", "create table marts.fct", "create index ix_label", "create index uq_id"], fresh.Steps.Select(s => s.Description));
+        Assert.Equal(("index.added", RiskClass.Safe, "index:uq_id=unique=1;keys=id;include=label"), (fresh.Steps[3].Reasons[0], fresh.Steps[3].Risk, fresh.Steps[3].Expect!));
+        Assert.Contains("CREATE UNIQUE INDEX [uq_id] ON [marts].[fct] ([id]) INCLUDE ([label]);", fresh.Steps[3].Text);
+        Assert.Null(fresh.Steps[3].HashAfter);                                     // an index leaves the shape hash alone
+
+        // an existing table with one of them: only the missing one is planned
+        var live = LiveOf(def) with { Physical = [new PhysicalItem("index", "ix_label", "unique=0;keys=label;include=")] };
+        Assert.Equal(["create index uq_id"], Planner.Plan(Existing(m, live), []).Steps.Select(s => s.Description));
+
+        // a declared index whose definition differs live is rebuilt (drop and create in one step), risky
+        var different = LiveOf(def) with { Physical = [new PhysicalItem("index", "ix_label", "unique=1;keys=label;include="), new PhysicalItem("index", "uq_id", "unique=1;keys=id;include=label")] };
+        var rebuild = Assert.Single(Planner.Plan(Existing(m, different), []).Steps);
+        Assert.Equal(("rebuild index ix_label", RiskClass.Risky, "index.changed"), (rebuild.Description, rebuild.Risk, rebuild.Reasons[0]));
+        Assert.StartsWith("DROP INDEX [ix_label] ON [marts].[fct];\nCREATE INDEX [ix_label]", rebuild.Text);
+
+        // in sync (names compared without regard to case on the declared side): nothing to do. An undeclared live index is left alone and reported
+        var same = LiveOf(def) with { Physical = [new PhysicalItem("index", "IX_LABEL", "UNIQUE=0;KEYS=LABEL;INCLUDE="), new PhysicalItem("index", "uq_id", "unique=1;keys=id;include=label"), new PhysicalItem("index", "dba_added", "unique=0;keys=id;include="), new PhysicalItem("constraint_index", "pk_fct", "unique=1;keys=id;include=")] };
+        var done = Planner.Plan(Existing(m, same), []);
+        Assert.Empty(done.Steps);
+        var note = Assert.Single(done.Noticed);
+        Assert.Contains("`dba_added`", note);
+        Assert.Contains("left alone", note);                                       // constraint-backed indexes are not noticed at all
+
+        // an index removed from the model is not dropped either
+        var without = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var kept = Planner.Plan(Existing(without, same), []);
+        Assert.Empty(kept.Steps);
+        Assert.Equal(3, kept.Noticed.Count);                                       // IX_LABEL, uq_id and dba_added are all undeclared now
+    }
+
+    [Fact]
+    public void Indexes_for_another_target_are_ignored()
+    {
+        var def = Table("marts.fct", ModelKinds.Full, Basic) with { DeclaredIndexes = [Ix("ix_label", ["label"], targets: ["postgres"])] };
+        Assert.DoesNotContain(Planner.Plan(Empty(Model(def)), []).Steps, s => s.Description.StartsWith("create index"));
+    }
+
+    [Fact]
+    public void An_index_on_fabric_is_refused()
+    {
+        var def = Table("marts.fct", ModelKinds.Full, Basic) with { DeclaredIndexes = [Ix("ix_label", ["label"])] };
+        var r = Planner.Plan(Empty(Model(def)) with { Target = "fabric" }, []);
+        var block = Assert.Single(r.Blocks);
+        Assert.Equal("DDB-322", block.Code);
+        Assert.Contains("index.unsupported", block.Found);
+        Assert.DoesNotContain(r.Steps, s => s.Object == "marts.fct" && s.Type == StepType.Ddl && s.Description.StartsWith("create index"));
+    }
+
+    [Fact]
+    public void A_declared_index_cannot_take_a_constraints_name()
+    {
+        var def = Table("marts.fct", ModelKinds.Full, Basic) with { DeclaredIndexes = [Ix("pk_fct", ["id"])] };
+        var live = LiveOf(def) with { Physical = [new PhysicalItem("constraint_index", "pk_fct", "unique=1;keys=id;include=")] };
+        var block = Assert.Single(Planner.Plan(Existing(Model(def), live), []).Blocks);
+        Assert.Equal("DDB-434", block.Code);
+        Assert.Contains("index.constraint_name", block.Found);
+    }
+
     // ----- loads -----------------------------------------------------------------------------------------------------------------------
 
     private static RenderedLoad Load(string operation = "default", IReadOnlyList<RenderedParameter>? parameters = null, string? resolver = null, WatermarkSpec? watermark = null) =>

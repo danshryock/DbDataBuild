@@ -244,9 +244,49 @@ public static class Planner
             waiting = !Diff(c, live!, native, local, blocks);
             if (blocks.Count > before) return false;
         }
+        if (!PlanIndexes(c, live, local, blocks)) return false;
         ddlSteps.AddRange(local);
 
         return PlanLoads(c, state == ObjectState.Missing, loadSteps, blocks) && !waiting;
+    }
+
+    // Declared indexes against the live ones, by name. Indexes are what the operator declared: nothing is inferred, an undeclared live index is left alone and reported.
+    private static bool PlanIndexes(ModelContext c, ObjectShape? live, List<PlanStep> steps, List<Diagnostic> blocks)
+    {
+        var def = c.Def;
+        var wanted = def.Indexes.Where(i => i.AppliesTo(c.Input.Target)).ToList();
+        if (wanted.Count == 0 && live == null) return true;
+        var (schema, name) = c.Name;
+
+        if (wanted.Count > 0 && c.Input.Target == TargetNames.Fabric)
+        {
+            blocks.Add(new Diagnostic(DiagnosticCatalog.IndexNotSupported, new(c.Model.QueryFile, 0, 0),
+                $"index.unsupported: {def.Name} declares index(es) {string.Join(", ", wanted.Select(i => $"`{i.Name}`"))}, and Fabric has no CREATE INDEX."));
+            return false;
+        }
+
+        var liveIndexes = (live?.Physical ?? []).Where(p => p.Kind is "index" or "constraint_index").ToList();
+        foreach (var index in wanted)
+        {
+            var canonical = IndexText.Canonical(index.Unique, index.Columns, index.Include);
+            var existing = liveIndexes.FirstOrDefault(p => string.Equals(p.Name, index.Name, StringComparison.OrdinalIgnoreCase));
+            var expect = $"index:{index.Name}={canonical}";
+            if (existing == null)
+                steps.Add(Step(StepType.Ddl, def.Name, $"create index {index.Name}", c.Ddl.CreateIndex(schema, name, index), RiskClass.Safe, ["index.added"]) with { Expect = expect });
+            else if (existing.Kind == "constraint_index")
+            {
+                blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0),
+                    $"index.constraint_name: {def.Name} declares index `{index.Name}`, but a PRIMARY KEY or UNIQUE constraint of that name exists on the target. Rename the index in the model."));
+                return false;
+            }
+            else if (!string.Equals(existing.Definition, canonical, StringComparison.OrdinalIgnoreCase))
+                steps.Add(Step(StepType.Ddl, def.Name, $"rebuild index {index.Name}", c.Ddl.DropIndex(schema, name, index.Name) + "\n" + c.Ddl.CreateIndex(schema, name, index), RiskClass.Risky,
+                    ["index.changed", $"live definition {existing.Definition}; declared {canonical}"]) with { Expect = expect });
+        }
+
+        foreach (var extra in liveIndexes.Where(p => p.Kind == "index" && !wanted.Any(i => string.Equals(i.Name, p.Name, StringComparison.OrdinalIgnoreCase))))
+            c.Noticed.Add($"Index `{extra.Name}` on {def.Name} exists on the target but is not declared in the model; it was left alone ({extra.Definition}).");
+        return true;
     }
 
     // Column diff of a live table against the declared columns. Returns false when a question is open.

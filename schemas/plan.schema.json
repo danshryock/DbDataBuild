@@ -68,6 +68,7 @@
           "file_hash": { "$ref": "#/$defs/hash" },
           "shape_source": { "enum": ["adopted", "out_of_band"] },
           "definition_hash": { "$ref": "#/$defs/hash" },
+          "expect": { "description": "For an index step: `index:<name>=<canonical definition>`, what the catalog must report afterwards.", "type": "string", "pattern": "^index:[A-Za-z_][A-Za-z0-9_]*=unique=[01];keys=.*;include=.*$" },
           "resolver": {
             "type": "object",
             "additionalProperties": false,

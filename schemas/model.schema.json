@@ -132,8 +132,17 @@
       },
       "then": {
         "not": {
-          "required": [
-            "loads"
+          "anyOf": [
+            {
+              "required": [
+                "loads"
+              ]
+            },
+            {
+              "required": [
+                "indexes"
+              ]
+            }
           ]
         }
       }
