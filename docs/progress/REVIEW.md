@@ -83,3 +83,17 @@ Your answers drove this round. Details and evidence are in `docs/progress/state-
 - **Plan lowering research, round 2:** a prototype lowered 81 of 93 constructs result-equal, and on real engines matched 8 more cases on SQL Server and 2 more on PostgreSQL than the original text, with no regressions. Not built into the tool. It lists three decisions for you (section 6 of that document): commit the lowered query as an artifact, hard error versus fallback for what cannot be lowered, and acceptance of the binder's normalizations.
 
 New decisions of mine to review: the planner never drops an undeclared index (a `drop`/exclusive setting is a small addition if you want it); a DDL hook that changes an object's shape is recorded as `source = hook` so it is not mistaken for outside drift (the model must then declare what the hook adds); metadata documents carry tool and matrix versions, so a tool upgrade writes new documents; history acknowledgements are tied to the one plan whose decision they are about.
+
+---
+
+## Update (2026-10-02): lowering is built
+
+You accepted the three lowering decisions (committed artifact, hard error, the binder's rewrites), so lowering is now a stage of the tool. Details: DESIGN.md section 7.6 and `docs/progress/state-and-apply.md` entry 20. Unit tests now number 873 and real-engine tests 69, all passing on SQL Server 2022 and PostgreSQL 17.
+
+- Every model query is bound by DuckDB and lowered to one explicit query before the matrix lint and the transpile. The lowered query is committed as `rendered/lowered/<model>/lowered.sql` (written by `render --write`, checked by `render --check` and `plan`), with a header recording the source hash, the DuckDB version and each output column's resolved type.
+- `GROUP BY ALL`, ordinals, `USING`, `NATURAL JOIN`, `SELECT *` and implicit casts are expanded before polyglot sees the query, so they are no longer findings. `avg` over integers and DATE-to-TIMESTAMP widening are pinned with explicit casts; null ordering is always written. An end-to-end test shows both engines now compute the 1.5 and 3.5 DuckDB computes.
+- What cannot be lowered (correlated subqueries, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, `LIMIT ... PERCENT`, list and struct constructors) is DDB-324. `lowering: { enabled: false }` in `dbdatabuild.yml` turns the stage off for a project.
+- Two bugs the real-engine tests caught in my first version, both fixed and now covered by the lowerer's differential test: the author's output aliases were lost when no projection sat at the top of the plan (the plan does not carry them), and a repeated output name needed a suffix.
+- Metadata records each column's resolved DuckDB type, the lowered artifact's hash and the rules that fired.
+
+Still open from the research: target-specific rules (`LENGTH` ignoring trailing spaces on SQL Server, `TRY_CAST` and `ROUND(double, n)` on PostgreSQL) and `sum` widening. These need target-specific syntax, so they belong in a step between the lowered query and the transpile; I have not designed that step.
