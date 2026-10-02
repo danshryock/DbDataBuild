@@ -68,3 +68,18 @@ To try it by hand: set `DBDATABUILD_SQLSERVER_READ` and `DBDATABUILD_SQLSERVER_W
 3. A JSON Schema for plan files and a machine-readable output mode for `check` and `report`.
 4. If you want the DuckDB plan-lowering idea pursued, start with enum-seeded PIVOT and macros as the research recommends.
 5. A Windows build of the FFI library and single-file publish (still open from the spike).
+
+---
+
+## Update (2026-10-01): indexes, hooks, JSON output, stored metadata, history acknowledgements, plan-lowering research
+
+Your answers drove this round. Details and evidence are in `docs/progress/state-and-apply.md` entries 14 to 19 and `docs/research/duckdb-plan-lowering/README.md` (round 2). Unit tests now number 831 and real-engine tests 67, all passing on SQL Server 2022 and PostgreSQL 17.
+
+- **Indexes (option B):** declared in the model (`indexes:`), never implied by `unique_key`. The planner creates missing ones, rebuilds changed ones (risky), and **never drops** undeclared ones (it lists them under "noticed"). Fabric refuses them (no `CREATE INDEX`).
+- **Hooks:** ordered, named, per-event, per-engine native-SQL scripts, with groups defined in `dbdatabuild.yml` and referenced with `use:`. Events are a registry (`pre_`/`post_` create, alter, load, backfill; drop is reserved) so new kinds are one row plus one planner case. Hooks are plan steps, checked offline (script exists, parses on the target, event fits the model kind), logged in `run_log`, and a safe data hook around a load does not stop `run`.
+- **JSON output:** every command takes `--format json` and writes exactly one document (`schemas/output.schema.json`) with a `data` payload, structured diagnostics, and the human text. New `metadata` command prints everything the tool knows (native types per target, lineage, rendered operations, hashes, indexes, hooks).
+- **Metadata in the target:** `publish-metadata` (and the config option `metadata.store_on_apply`) stores those documents as JSON in the tracking schema (tracking layout 2, upgraded by `init`), with views `metadata_current` and `metadata_columns` for SQL introspection. Only changed documents are written.
+- **History warnings:** `ack history <model>.<column> --reason ...` makes the warning stop needing attention without changing data; the report keeps the facts and shows who accepted it and why.
+- **Plan lowering research, round 2:** a prototype lowered 81 of 93 constructs result-equal, and on real engines matched 8 more cases on SQL Server and 2 more on PostgreSQL than the original text, with no regressions. Not built into the tool. It lists three decisions for you (section 6 of that document): commit the lowered query as an artifact, hard error versus fallback for what cannot be lowered, and acceptance of the binder's normalizations.
+
+New decisions of mine to review: the planner never drops an undeclared index (a `drop`/exclusive setting is a small addition if you want it); a DDL hook that changes an object's shape is recorded as `source = hook` so it is not mistaken for outside drift (the model must then declare what the hook adds); metadata documents carry tool and matrix versions, so a tool upgrade writes new documents; history acknowledgements are tied to the one plan whose decision they are about.
