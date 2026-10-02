@@ -231,4 +231,15 @@ public class JsonOutputTests
         Assert.Equal(2, model["rows"]![0]!.AsArray().Count);
         Assert.Equal(12, (int)tables.Single(t => (string?)t!["kind"] == "source")!["row_count"]!);
     }
+    [Fact]
+    public void Agent_kit_lists_and_installs_its_files_as_data()
+    {
+        var dir = Project();
+        var (_, listed, _, _) = Run("agent-kit", "--project", dir);
+        Assert.Equal(".claude/skills/dbdatabuild", (string?)listed["data"]!["directory"]);
+        Assert.Contains(listed["data"]!["files"]!.AsArray(), f => ((string)f!["path"]!).EndsWith("/SKILL.md"));
+        Assert.Empty(listed["data"]!["wrote"]!.AsArray());
+        var (_, written, _, _) = Run("agent-kit", "--project", dir, "--write");
+        Assert.Equal(written["data"]!["files"]!.AsArray().Count, written["data"]!["wrote"]!.AsArray().Count);
+    }
 }

@@ -122,3 +122,13 @@ Details in `docs/progress/state-and-apply.md` entry 25 and the new `docs/operati
 
 **JSON schemas** (entry 27): every command's `data` has a closed schema, and the metadata documents have their own (`schemas/metadata.schema.json`), so a pipeline or the SQL views over the stored metadata can rely on the shapes; tests fail on any drift, and the real-engine suite validates every JSON document it produces. This found two gaps, both fixed: `define` had no data at all, and `report` listed an accepted drift as needing attention. Unit tests 996, real-engine tests 83.
 
+## Update (2026-10-02): the terminal interface, sample data and agents
+
+The solution is now on **.NET 10** (Terminal.Gui 2.1+ needs it, and .NET 8 leaves support in November 2026); nothing broke. New commands:
+
+- `sample` runs models offline on generated or supplied rows and shows what they return (details: state-and-apply entry 28, DESIGN.md 15.2).
+- `tui` is the terminal interface on Terminal.Gui (DESIGN.md 9.6). It is a client of the JSON command surface, so it supports every option of every command (forms are generated from the command definitions, and a test keeps it so), asks before anything that changes something, turns the questions a plan stops on into dialogs, lets you read a plan step by step with its scripts before a dry run or apply, and browses models. I checked it by running the real app in a pseudo-terminal and reading the screen, including a walk through plan, open plan, dry-run form against PostgreSQL. Limits: no progress or cancel while a long apply runs, forms do not scroll on short terminals, only Linux tried.
+- `agent-kit` installs a skill and the JSON Schemas for AI agents (DESIGN.md 9.7, `docs/agents.md`, entry 29). My answer to your question: **the CLI with `--format json`**, not an HTTP service; an MCP wrapper is optional and not built. Yes, agent knowledge needs writing, and it is written: a skill for people using the tool, `CLAUDE.md` for people changing it, and tests that keep the skill from naming anything that does not exist. It has not yet been tried by an agent on a real task, which is the next thing to do.
+
+Unit tests 1032; real-engine tests 83 (re-run after the schema changes).
+

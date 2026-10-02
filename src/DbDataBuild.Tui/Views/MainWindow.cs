@@ -14,7 +14,7 @@ public sealed class MainWindow : Window
     private static readonly (string Group, string[] Commands)[] Groups =
     [
         ("Look at the project", ["validate", "metadata", "sample", "loads", "render", "matrix", "explain"]),
-        ("Define", ["define"]),
+        ("Define", ["define", "agent-kit"]),
         ("Plan and run", ["check", "plan", "apply", "run"]),
         ("Record and report", ["report", "ack", "init", "publish-metadata"]),
     ];

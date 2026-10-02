@@ -542,6 +542,7 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild render [<model>]` | Repo files only (no target connection) | Render load operations and resolvers per target. Prints by default; `--write` writes the committed `rendered/` files; `--check` fails if committed files differ from a fresh render and writes nothing |
 | `dbdatabuild loads` | Offline only | Print the model x target x operation pairing table with matrix status |
 | `dbdatabuild sample [<model>...]` | Offline only | Run models on generated or supplied sample data in an in-memory DuckDB and show the rows (section 15.2). Connects to nothing, writes nothing |
+| `dbdatabuild agent-kit` | Repo files only (lists unless `--write`) | Install the agent skill and JSON Schemas (section 9.7) |
 | `dbdatabuild tui` | Offline only itself; each action it runs declares its own effect | Interactive terminal interface (section 9.6) |
 | `dbdatabuild matrix` | Offline only | Print matrix and portability report |
 | `dbdatabuild explain <code>` | Offline only | Long-form diagnostic explanation |
@@ -621,6 +622,10 @@ Every command takes `--format json` and then prints exactly one JSON document on
 - **Sample data**: results of `sample` show as tables, one per model, with warnings (declared columns the query does not return) and errors.
 
 Keys: Enter opens, Tab moves, Esc closes a screen, F1 help, F2 models, F3 plans, F4 target, F5 last result, Ctrl+Q quits. `tui` refuses `--format json` and a redirected terminal. Terminal.Gui has no headless driver in its package, so the screens are checked by `scripts/tui_drive.py`, which runs the real app in a pseudo-terminal and prints the screen; the parts that decide behaviour (forms, results, questions, plans) are unit tested without a terminal.
+
+### 9.7 AI agents (as built)
+
+An AI coding agent works through the CLI with `--format json` (the machine interface of section 9.5); an HTTP service is not wanted (a daemon, authentication and a network surface for no new capability), and an MCP server over the same command layer is a possible convenience, not built (`docs/agents.md` has the reasoning and a permissions example that follows the effect classes). What an agent cannot guess is shipped with the tool: `dbdatabuild agent-kit` lists, and `--write` installs, a skill (`SKILL.md`: the rules that are never negotiable, the effect of every command, the loop for a model change, how to write a model, what cannot be written and why, how to read a plan) and the JSON Schemas, embedded in the executable so they match its version. `--check` fails when an installed copy differs. Tests keep the skill true: every command, option, diagnostic code and schema it names must exist, its example model must load, and the schemas it ships must be the repository's. The repository's own `CLAUDE.md` is the equivalent for someone changing the tool.
 
 ## 10. Planning and applying
 

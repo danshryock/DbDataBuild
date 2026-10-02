@@ -39,6 +39,7 @@ public static class CommandSpecs
         new("loads", EffectClass.OfflineOnly, "Print the model x target x operation pairing table", true),
         new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
+        new("agent-kit", EffectClass.RepoFilesOnly, "Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write)", true),
         new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
         new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
         new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),

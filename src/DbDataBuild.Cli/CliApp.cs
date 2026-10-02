@@ -79,6 +79,14 @@ public static class CliApp
                     cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), o, e)));
                     break;
+                case "agent-kit":
+                    var kitProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var kitDir = new Option<string?>("--dir") { Description = "Where to install the kit, relative to the project (default: .claude/skills/dbdatabuild)" };
+                    var kitWrite = new Option<bool>("--write") { Description = "Install the files (default: list them and write nothing)" };
+                    var kitCheck = new Option<bool>("--check") { Description = "CI: fail if the installed kit differs from this version's; writes nothing" };
+                    cmd.Options.Add(kitProject); cmd.Options.Add(kitDir); cmd.Options.Add(kitWrite); cmd.Options.Add(kitCheck);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => AgentKitCommand.Run(spec, pr.GetValue(kitProject)!.FullName, pr.GetValue(kitDir), pr.GetValue(kitWrite), pr.GetValue(kitCheck), o, e)));
+                    break;
                 case "tui":
                     var tuiProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var tuiTarget = new Option<string?>("--target") { Description = "Target to work on (default: the project's only default target)" };

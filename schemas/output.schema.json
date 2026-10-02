@@ -388,6 +388,25 @@
       "if": {
         "properties": {
           "command": {
+            "const": "agent-kit"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_agent_kit"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
             "const": "ack"
           }
         },
@@ -1841,6 +1860,30 @@
               "rows",
               "warnings"
             ]
+          }
+        }
+      }
+    },
+    "data_agent_kit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string"
+        },
+        "files": {
+          "$ref": "#/$defs/filesHashed"
+        },
+        "wrote": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "out_of_date": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }

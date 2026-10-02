@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="AgentKit\SKILL.md" LogicalName="agentkit/SKILL.md" />
+    <EmbeddedResource Include="..\..\schemas\*.json" LogicalName="agentkit/schemas/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="DbDataBuild.Tests.Unit" />
   </ItemGroup>
 
