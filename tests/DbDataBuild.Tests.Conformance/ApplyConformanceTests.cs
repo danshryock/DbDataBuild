@@ -400,6 +400,18 @@ public partial class ApplyConformanceTests
             Assert.Equal(1, await CountAsync(run, T("operation_interval"), "operation = 'backfill' AND range_start = '2024-01-01 00:00:00' AND range_end = '2024-01-04 00:00:00'"));
             Assert.Equal(1, await CountAsync(run, T("run_log"), "operation = 'reload' AND status = 'ok'"));
 
+            // --param answers the same questions without a file; a range the table's data does not overlap is noticed in the plan (not refused), a backwards one is refused
+            string[] Range(string a, string b) => ["--backfill", "marts.fct_events=reload", "--param", $"marts.fct_events.reload.start={a}", "--param", $"marts.fct_events.reload.end={b}"];
+            var far = run.Cli(["plan", .. Range("2030-01-01 00:00:00", "2030-01-04 00:00:00"), "--format", "json"]);
+            Ok(far, "plan with --param far from the data");
+            var notices = System.Text.Json.Nodes.JsonNode.Parse(far.Out)!["data"]!["noticed"]!.AsArray().Select(n => (string)n!).ToList();
+            Assert.Contains(notices, n => n.Contains("does not overlap") && n.Contains("2024-01-05"));          // the table holds rows up to 2024-01-05 10:00
+            var near = run.Cli(["plan", .. Range("2024-01-02 00:00:00", "2024-01-04 00:00:00"), "--format", "json"]);
+            Ok(near, "plan with --param over the data");
+            Assert.DoesNotContain(System.Text.Json.Nodes.JsonNode.Parse(near.Out)!["data"]!["noticed"]!.AsArray(), n => ((string)n!).Contains("does not overlap"));
+            Refused(run.Cli(["plan", .. Range("2024-01-04 00:00:00", "2024-01-02 00:00:00")]), "DDB-412", "a backwards range");
+            Assert.Equal(CliApp.ExitUsage, run.Cli("plan", "--param", "nonsense").Exit);
+
             // the report mentions the backfill's load
             Assert.Contains("reload", run.Cli("report").Out);
         }

@@ -496,6 +496,54 @@ public class PlannerTests
     }
 
     [Fact]
+    public void A_range_that_is_empty_or_backwards_is_refused_without_needing_a_span_limit()
+    {
+        var m = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var input = WithLoad(Existing(m), "marts.fct", Load("r", [Start, new("end", "TIMESTAMP", "runtime", null)]));      // no max_span at all
+        foreach (var (start, end) in new[] { ("2024-01-05 00:00:00", "2024-01-01 00:00:00"), ("2024-01-05 00:00:00", "2024-01-05 00:00:00") })
+        {
+            var r = Planner.Plan(input, [Ans("Q-param-marts.fct-r-start", "provide", start), Ans("Q-param-marts.fct-r-end", "provide", end)]);
+            var block = Assert.Single(r.Blocks);
+            Assert.Equal("DDB-412", block.Code);
+            Assert.Contains("empty or backwards", block.Found);
+            Assert.Empty(r.Steps.Where(s => s.Type == StepType.Load));
+        }
+    }
+
+    [Theory]
+    [InlineData("2024-01-01 00:00:00", "2024-01-05 00:00:00", false)]       // inside what the target holds
+    [InlineData("2023-12-20 00:00:00", "2024-01-05 00:00:00", false)]       // overlaps the start of it
+    [InlineData("2025-01-01 00:00:00", "2025-01-05 00:00:00", true)]        // a year after: probably a typo
+    [InlineData("2023-01-01 00:00:00", "2023-01-05 00:00:00", true)]        // before it
+    public void A_range_the_target_data_does_not_overlap_is_noticed_in_the_plan_but_not_refused(string start, string end, bool noticed)
+    {
+        var m = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var input = WithLoad(Existing(m), "marts.fct", Load("r", [Start, new("end", "TIMESTAMP", "runtime", null)])) with
+        {
+            RangeBounds = new Dictionary<string, ColumnBounds> { ["marts.fct|r"] = new("2024-01-01 00:00:00", "2024-03-10 00:00:00", null) },
+        };
+        var r = Planner.Plan(input, [Ans("Q-param-marts.fct-r-start", "provide", start), Ans("Q-param-marts.fct-r-end", "provide", end)]);
+        Assert.Empty(r.Blocks);
+        Assert.Single(r.Steps, s => s.Type == StepType.Load);
+        var notice = r.Noticed.SingleOrDefault(n => n.Contains("does not overlap"));
+        Assert.Equal(noticed, notice != null);
+        if (noticed) Assert.Contains("the target holds rows from 2024-01-01 00:00:00 to 2024-03-10 00:00:00", notice);
+    }
+
+    [Fact]
+    public void A_range_load_into_an_empty_table_says_it_is_a_first_load_and_an_unreadable_bound_says_nothing()
+    {
+        var m = Model(Table("marts.fct", ModelKinds.Full, Basic));
+        var input = WithLoad(Existing(m), "marts.fct", Load("r", [Start, new("end", "TIMESTAMP", "runtime", null)]));
+        var answers = new[] { Ans("Q-param-marts.fct-r-start", "provide", "2024-01-01 00:00:00"), Ans("Q-param-marts.fct-r-end", "provide", "2024-01-05 00:00:00") };
+        var empty = Planner.Plan(input with { RangeBounds = new Dictionary<string, ColumnBounds> { ["marts.fct|r"] = new(null, null, null) } }, answers);
+        Assert.Contains(empty.Noticed, n => n.Contains("holds no rows") && n.Contains("first time"));
+        var failed = Planner.Plan(input with { RangeBounds = new Dictionary<string, ColumnBounds> { ["marts.fct|r"] = new(null, null, "failed to run (SqlException)") } }, answers);
+        Assert.DoesNotContain(failed.Noticed, n => n.Contains("holds no rows"));
+        Assert.DoesNotContain(Planner.Plan(input, answers).Noticed, n => n.Contains("holds no rows"));          // no bounds were read: nothing is claimed
+    }
+
+    [Fact]
     public void A_requested_backfill_is_a_risky_backfill_step_of_the_named_operation()
     {
         var m = Model(Table("marts.fct", ModelKinds.Full, Basic));

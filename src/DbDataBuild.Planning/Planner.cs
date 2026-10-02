@@ -43,9 +43,23 @@ public sealed record PlanInput(
     IReadOnlyDictionary<string, IReadOnlyList<RenderedLoad>> Loads,
     IReadOnlyDictionary<string, ResolverOutcome> Resolved,
     IReadOnlyDictionary<string, string>? OperationChoice = null,
-    IReadOnlySet<string>? Backfills = null)
+    IReadOnlySet<string>? Backfills = null,
+    IReadOnlyDictionary<string, ColumnBounds>? RangeBounds = null)
 {
     public static string ResolverKey(string model, string operation) => $"{model}|{operation}";
+}
+
+/// <summary>The smallest and largest value of a range load's column on the target, read at plan time so a range can be compared with what the table holds.</summary>
+public sealed record ColumnBounds(string? Min, string? Max, string? Error);
+
+public static class RangeLoads
+{
+    /// <summary>The column a `delete_insert_by_range` operation deletes and loads by (its own, else the kind's time column); null when the operation is not a range load.</summary>
+    public static string? ColumnOf(ModelDefinition def, string target, string operation)
+    {
+        var op = LoadPlan.For(def, target).FirstOrDefault(o => o.Name == operation);
+        return op is { Strategy: LoadStrategies.DeleteInsertByRange } ? op.Column ?? def.TimeColumn : null;
+    }
 }
 
 /// <param name="Questions">Open decisions. While any remain, no plan may be generated.</param>
@@ -487,6 +501,7 @@ public static class Planner
         }
         if (open) return true;
         if (!SpanFits(c, load, parameters, blocks)) return false;
+        RangeNotice(c, load, parameters);
 
         var loadStep = new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
             backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
@@ -508,8 +523,14 @@ public static class Planner
         var endDef = load.Parameters.FirstOrDefault(p => p.Name == "end" && p.Constraint?.StartsWith("max_span ", StringComparison.Ordinal) == true);
         var start = parameters.FirstOrDefault(p => p.Name == "start")?.Value;
         var end = parameters.FirstOrDefault(p => p.Name == "end")?.Value;
-        if (endDef == null || start == null || end == null || LoadDuration.TryParse(endDef.Constraint![9..]) is not { } span) return true;
+        if (start == null || end == null) return true;
         if (!DateTime.TryParse(start, CultureInfo.InvariantCulture, DateTimeStyles.None, out var s) || !DateTime.TryParse(end, CultureInfo.InvariantCulture, DateTimeStyles.None, out var e)) return true;
+        if (e <= s)
+        {
+            blocks.Add(new Diagnostic(DiagnosticCatalog.AnswerValueMismatch, new(c.Def.Name, 0, 0), $"{c.Def.Name} / {load.Operation}: the range {start} to {end} is empty or backwards (the end is exclusive and must be after the start)."));
+            return false;
+        }
+        if (endDef == null || LoadDuration.TryParse(endDef.Constraint![9..]) is not { } span) return true;
         var limit = span.Unit switch
         {
             DurationUnit.Minute => s.AddMinutes(span.Amount),
@@ -521,6 +542,28 @@ public static class Planner
         if (e <= limit) return true;
         blocks.Add(new Diagnostic(DiagnosticCatalog.AnswerValueMismatch, new(c.Def.Name, 0, 0), $"{c.Def.Name} / {load.Operation}: the range {start} to {end} is longer than the operation's max_span of {span}."));
         return false;
+    }
+
+    /// <summary>
+    /// A reload range that the target's data does not overlap is legal (a first load of a period, a gap being filled) but easy to get wrong by a year or a unit, so the plan says what
+    /// the target holds and what the range will therefore do.
+    /// </summary>
+    private static void RangeNotice(ModelContext c, RenderedLoad load, List<PlanParameter> parameters)
+    {
+        var bounds = c.Input.RangeBounds?.GetValueOrDefault(PlanInput.ResolverKey(c.Def.Name, load.Operation));
+        var start = parameters.FirstOrDefault(p => p.Name == "start")?.Value;
+        var end = parameters.FirstOrDefault(p => p.Name == "end")?.Value;
+        if (bounds == null || bounds.Error != null || start == null || end == null) return;
+        var who = $"{c.Def.Name} / {load.Operation}";
+        if (bounds.Min == null || bounds.Max == null)
+        {
+            c.Noticed.Add($"{who}: the target table holds no rows, so the DELETE for {start} to {end} removes nothing and the load fills that range for the first time.");
+            return;
+        }
+        if (!DateTime.TryParse(start, CultureInfo.InvariantCulture, DateTimeStyles.None, out var s) || !DateTime.TryParse(end, CultureInfo.InvariantCulture, DateTimeStyles.None, out var e) ||
+            !DateTime.TryParse(bounds.Min, CultureInfo.InvariantCulture, DateTimeStyles.None, out var min) || !DateTime.TryParse(bounds.Max, CultureInfo.InvariantCulture, DateTimeStyles.None, out var max)) return;
+        if (e <= min || s > max)
+            c.Noticed.Add($"{who}: the target holds rows from {bounds.Min} to {bounds.Max}; the range {start} to {end} does not overlap them, so the DELETE removes nothing and the load adds that period ({(s > max ? "after" : "before")} what is there). Check the dates if that is not what you meant.");
     }
 
     private static Question ParamQuestion(string model, RenderedLoad load, RenderedParameter p, string why) =>

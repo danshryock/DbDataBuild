@@ -17,7 +17,7 @@ internal static class PlanCommand
     public const string PlansDir = "plans";
     private const int MaxRounds = 12;
 
-    public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir, string[] ops, string[] backfillArgs,
+    public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir, string[] ops, string[] backfillArgs, string[] paramArgs,
         TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?> env)
     {
         // ---- answers file first: a bad file is a usage problem and must not need a database ----
@@ -33,7 +33,10 @@ internal static class PlanCommand
                 return CliApp.ExitFindings;
             }
         }
-        if (answersFile == null && !interactive && !acceptInferred)
+        // --param model.operation.parameter=value is the answer to that parameter's question, so a scheduled backfill needs no file
+        if (!ParseParams(paramArgs, file, error, out var paramAnswers)) return CliApp.ExitUsage;
+        if (paramAnswers.Count > 0) { file = new AnswerFile([.. file?.Answers ?? [], .. paramAnswers]); if (answersFile == null) answersPath = "--param"; }
+        if (answersFile == null && paramAnswers.Count == 0 && !interactive && !acceptInferred)
             output.WriteLine("note: not interactive and no --answers file: any open question will be listed and nothing will be planned.");
 
         if (!ParseOps(ops, "--op", error, out var operations) || !ParseOps(backfillArgs, "--backfill", error, out var backfillOps)) return CliApp.ExitUsage;
@@ -113,6 +116,30 @@ internal static class PlanCommand
     }
 
     /// <summary>`model=operation` pairs. A model may be named once.</summary>
+    /// <summary>`model.operation.parameter=value`: the model name has dots of its own, the operation and parameter names do not, so the last two parts before `=` are those.</summary>
+    internal static bool ParseParams(string[] args, AnswerFile? file, TextWriter error, out List<Answer> answers)
+    {
+        answers = [];
+        foreach (var a in args)
+        {
+            var eq = a.IndexOf('=');
+            var parts = eq <= 0 ? [] : a[..eq].Split('.');
+            if (parts.Length < 3 || parts.Any(p => p.Length == 0) || eq == a.Length - 1)
+            {
+                error.WriteLine($"--param takes model.operation.parameter=value (for example marts.fct_events.reload_period.start=2024-01-01), not `{a}`.");
+                return false;
+            }
+            var id = QuestionIds.Param(string.Join('.', parts[..^2]), parts[^2], parts[^1]);
+            if (answers.Any(x => x.QuestionId == id) || file?.Answers.Any(x => x.QuestionId == id) == true)
+            {
+                error.WriteLine($"The parameter in `{a}` is answered more than once (--param and the answers file both name {id}).");
+                return false;
+            }
+            answers.Add(new Answer(id, "provide", a[(eq + 1)..], null, false, new SourceLocation("--param", 0, 0)));
+        }
+        return true;
+    }
+
     private static bool ParseOps(string[] args, string flag, TextWriter error, out Dictionary<string, string> result)
     {
         result = new Dictionary<string, string>(StringComparer.Ordinal);

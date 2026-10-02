@@ -125,10 +125,11 @@ internal sealed class PlanningSession
 
         TargetSnapshot snapshot;
         var resolved = new Dictionary<string, ResolverOutcome>();
+        var rangeBounds = new Dictionary<string, ColumnBounds>();
         try
         {
             using var cts = new CancellationTokenSource();
-            (snapshot, resolved) = Task.Run(async () =>
+            (snapshot, resolved, rangeBounds) = Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
                 var status = await TrackingStore.StatusAsync(read, target, ctx.Config.TrackingSchema);
@@ -141,7 +142,17 @@ internal sealed class PlanningSession
                     var r = await TargetSnapshotReader.RunResolverAsync(read, op.Resolver!, type);
                     results[PlanInput.ResolverKey(op.Model, op.Operation)] = new ResolverOutcome(r.Value, r.Error);
                 }
-                return (snap, results);
+                // what the target holds in the column a chosen range load works on, so the plan can say whether the range overlaps it
+                var bounds = new Dictionary<string, ColumnBounds>();
+                foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && snap.Live.ContainsKey(o.Model)))
+                {
+                    var def = planned.First(p => p.Definition.Name == op.Model).Definition;
+                    if (RangeLoads.ColumnOf(def, target, op.Operation) is not { } column) continue;
+                    var type = def.Columns.FirstOrDefault(c => string.Equals(c.Name, column, StringComparison.OrdinalIgnoreCase))?.Type ?? "TIMESTAMP";
+                    var (min, max, err) = await TargetSnapshotReader.ColumnBoundsAsync(read, target, op.Model, column, type);
+                    bounds[PlanInput.ResolverKey(op.Model, op.Operation)] = new ColumnBounds(min, max, err);
+                }
+                return (snap, results, bounds);
             }).GetAwaiter().GetResult();
         }
         catch (GateRefusedException ex)
@@ -153,7 +164,7 @@ internal sealed class PlanningSession
         var loads = renderedOps.GroupBy(o => o.Model).ToDictionary(g => g.Key, g => (IReadOnlyList<RenderedLoad>)g
             .Select(o => new RenderedLoad(o.Operation, o.IsDefault, o.Script, DbDataBuild.State.Hashing.ScriptHash(o.Script), o.Resolver, o.Parameters, o.Watermark)).ToList());
         var input = new PlanInput(target, ctx.Config, planned, snapshot.Live, snapshot.Schemas, snapshot.RecordedShapeHashes, snapshot.LastViewStatementHashes,
-            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills);
+            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills, rangeBounds);
         return (new PlanningSession { Root = root, Target = target, Context = ctx, Input = input, Warnings = distinct.Where(d => d.Severity != Severity.Error).ToList() }, CliApp.ExitOk);
     }
 

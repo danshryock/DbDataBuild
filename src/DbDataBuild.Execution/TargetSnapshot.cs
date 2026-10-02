@@ -52,6 +52,18 @@ public static class TargetSnapshotReader
     }
 
     /// <summary>Runs a committed resolver on the read login. Exactly one row and one column is required; anything else is reported, never guessed at.</summary>
+    /// <summary>`MIN` and `MAX` of one column of one table, as plan-time text (a single read-only SELECT through the read session). Names are quoted for the target.</summary>
+    public static async Task<(string? Min, string? Max, string? Error)> ColumnBoundsAsync(ReadSession read, string target, string objectName, string column, string parameterType, CancellationToken ct = default)
+    {
+        var ddl = TrackingDdl.For(target);
+        var dot = objectName.LastIndexOf('.');
+        var table = dot < 0 ? ddl.Quote(objectName) : $"{ddl.Quote(objectName[..dot])}.{ddl.Quote(objectName[(dot + 1)..])}";
+        var c = ddl.Quote(column);
+        var min = await RunResolverAsync(read, $"SELECT MIN({c}) FROM {table}", parameterType, ct);
+        var max = await RunResolverAsync(read, $"SELECT MAX({c}) FROM {table}", parameterType, ct);
+        return (min.Value, max.Value, min.Error ?? max.Error);
+    }
+
     public static async Task<ResolverValue> RunResolverAsync(ReadSession read, string resolverText, string parameterType, CancellationToken ct = default)
     {
         IReadOnlyList<IReadOnlyList<object?>> rows;
