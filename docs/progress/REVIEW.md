@@ -97,3 +97,9 @@ You accepted the three lowering decisions (committed artifact, hard error, the b
 - Metadata records each column's resolved DuckDB type, the lowered artifact's hash and the rules that fired.
 
 Still open from the research: target-specific rules (`LENGTH` ignoring trailing spaces on SQL Server, `TRY_CAST` and `ROUND(double, n)` on PostgreSQL) and `sum` widening. These need target-specific syntax, so they belong in a step between the lowered query and the transpile; I have not designed that step.
+
+## Update (2026-10-02): subqueries
+
+Correlated and uncorrelated subqueries now lower (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 21): `EXISTS`, `NOT EXISTS`, `IN`, `NOT IN`, scalar subqueries with aggregates, `LATERAL`, correlated `LIMIT`, nesting, and subqueries anywhere in the query. 53 forms were checked against DuckDB and on SQL Server and PostgreSQL (51 and 52 match; the two differences are an engine limit and the spike database's collation), and an end-to-end model runs on both engines. Refused by name: `ANY`/`ALL`, row-value `IN`, a correlated subquery over `UNION`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset. Unit tests 928, real-engine tests 71.
+
+Known cosmetic difference: the author's table aliases (`o`, `p`) are not in DuckDB's plan, so sources in the lowered query are named after their tables (`orders`, `orders_2`). Next in the agreed order: `DISTINCT ON` with a total order, then `generate_series` and `UNNEST` for the engines that have them.
