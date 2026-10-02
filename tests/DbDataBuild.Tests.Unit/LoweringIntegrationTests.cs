@@ -138,6 +138,23 @@ public class LoweringIntegrationTests
     }
 
     [Fact]
+    public void DISTINCT_ON_is_lowered_when_the_ordering_includes_the_declared_grain_and_refused_otherwise()
+    {
+        // staging.orders declares grain [order_id]
+        var ok = Project("SELECT DISTINCT ON (customer_id) customer_id, order_id AS n FROM staging.orders ORDER BY customer_id, amount DESC, order_id\n");
+        var (exit, _, err) = Run("render", "--project", ok, "--write");
+        Assert.True(exit == 0, err);
+        Assert.Contains("row_number() OVER (PARTITION BY customer_id ORDER BY amount DESC NULLS LAST, order_id NULLS LAST)", File.ReadAllText(Path.Combine(ok, "rendered/lowered/marts.fct/lowered.sql")));
+
+        var ties = Project("SELECT DISTINCT ON (customer_id) customer_id, order_id AS n FROM staging.orders ORDER BY customer_id, amount DESC\n");
+        var refused = Run("render", "--project", ties, "--write");
+        Assert.Equal(1, refused.Exit);
+        Assert.Contains("DDB-324", refused.Err);
+        Assert.Contains("add the grain column(s) `order_id` of `staging.orders` to its ORDER BY", refused.Err);
+        Assert.False(Directory.Exists(Path.Combine(ties, "rendered")));
+    }
+
+    [Fact]
     public void Metadata_carries_the_types_the_plan_resolved_and_the_rules_that_changed_the_text()
     {
         var dir = Project("SELECT customer_id, AVG(amount) AS n FROM staging.orders GROUP BY ALL\n");

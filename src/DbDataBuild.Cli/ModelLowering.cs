@@ -23,6 +23,11 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
 
     public bool Enabled => config.LoweringEnabled;
 
+    /// <summary>The declared grain of a model or source, by the name a query uses for it.</summary>
+    private IReadOnlyList<string> GrainOf(string table) =>
+        models.FirstOrDefault(m => string.Equals(m.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain
+        ?? descriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain ?? [];
+
     public static string ArtifactPathFor(string model) => $"lowered/{model}/lowered.sql";
 
     public (LoweredModel? Model, Diagnostic? Error) Lower(ModelSource source, string authorSql)
@@ -52,7 +57,7 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
             PlanLowerer.ThrowIfError(json);                                        // DuckDB's own parse and bind errors first
             var described = QueryDescriber.Describe(upstream, authorSql);
             if (!described.Ok) return (null, Fail(described.Error ?? "DuckDB could not describe the query"));
-            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList());
+            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf);
         }
         catch (LoweringException ex) when (ex.Kind == "parser") { return (null, new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(source.QueryFile, 0, 0), $"The DuckDB parser reported: {ex.Message}")); }
         catch (LoweringException ex) when (ex.Kind is "binder" or "catalog" && ex.Message.StartsWith("Table with name", StringComparison.Ordinal))

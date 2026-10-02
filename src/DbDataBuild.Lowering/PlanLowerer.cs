@@ -42,6 +42,8 @@ public sealed class PlanLowerer
     };
     private static readonly HashSet<string> IntegerTypes = ["TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT"];
 
+    private Func<string, IReadOnlyList<string>>? grainOf;
+    private readonly Dictionary<string, string> aliasTables = new(StringComparer.Ordinal);
     private int aliasCounter;
     private readonly Dictionary<string, int> uses = [];
     private readonly Dictionary<int, (string Name, Rel Definition)> ctes = [];
@@ -60,7 +62,11 @@ public sealed class PlanLowerer
             throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
     }
 
-    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null)
+    /// <param name="grainOf">
+    /// The columns that identify one row of a table (its declared grain), by the name the query uses (`staging.orders`). `DISTINCT ON` keeps one arbitrary row per key unless its
+    /// ordering decides which, so it is lowered only when the ordering includes the grain of every table it reads; an unknown or empty grain means "cannot prove it".
+    /// </param>
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null)
     {
         using var doc = JsonDocument.Parse(planJson);
         var root = doc.RootElement;
@@ -68,10 +74,12 @@ public sealed class PlanLowerer
             throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
-        var lowerer = new PlanLowerer();
+        var lowerer = new PlanLowerer { grainOf = grainOf };
         var rel = lowerer.Node(plans[0]);
         if (outputNames != null && rel.SetOp == null)
         {
+            // DuckDB appends hidden columns (a DISTINCT ON key, an ORDER BY key) after the visible ones and drops them from the result: the first N are the query's columns
+            if (outputNames.Count < rel.Sel.Count) rel.Sel = rel.Sel.Take(outputNames.Count).ToList();
             if (outputNames.Count != rel.Sel.Count) throw new LoweringException($"the plan has {rel.Sel.Count} output columns, but DuckDB describes {outputNames.Count}");
             rel.Sel = rel.Sel.Select((s, i) => s with { Alias = outputNames[i] }).ToList();
         }
@@ -445,6 +453,7 @@ public sealed class PlanLowerer
                 uses[baseName] = uses.GetValueOrDefault(baseName) + 1;
                 var alias = uses[baseName] == 1 ? baseName : $"{baseName}_{uses[baseName]}";
                 var schema = Str(fd, "schema");
+                aliasTables[alias] = schema is null or "main" ? baseName : $"{schema}.{baseName}";
                 var rel = new Rel
                 {
                     Frm = (schema is null or "main" ? baseName : $"{schema}.{baseName}") + (alias == baseName ? "" : $" AS {alias}"),
@@ -527,7 +536,8 @@ public sealed class PlanLowerer
             case "LOGICAL_DISTINCT":
             {
                 var c = Node(kids[0]);
-                if (Str(p, "distinct_type") != "DISTINCT") throw new LoweringException("DISTINCT ON");
+                if (Str(p, "distinct_type") == "DISTINCT_ON") return DistinctOn(p, c);
+                if (Str(p, "distinct_type") != "DISTINCT") throw new LoweringException($"the DISTINCT form {Str(p, "distinct_type")}");
                 if (c.SetOp != null && c.SetOpDistinct) return c; // a set operation without ALL is already distinct
                 if (!c.Mergeable() || c.HasWindow) c = Wrap(c);
                 c.Distinct = true;
@@ -780,6 +790,44 @@ public sealed class PlanLowerer
         other.Sel = sel;
         other.Plain = false;
         return other;
+    }
+
+    /// <summary>
+    /// `DISTINCT ON (k) ... ORDER BY k, o` is `row_number() OVER (PARTITION BY k ORDER BY o) = 1` over the same rows. DuckDB picks an arbitrary row when the ordering leaves ties,
+    /// and so would a window, so the result would differ between engines: it is lowered only when the ordering provably decides the row.
+    /// </summary>
+    private Rel DistinctOn(JsonElement p, Rel c)
+    {
+        if (!p.TryGetProperty("order_by", out var orderBy) || !orderBy.TryGetProperty("orders", out var ordersElement)) throw new LoweringException("DISTINCT ON without an ORDER BY (the row kept would be arbitrary)");
+        if (c.SetOp != null) throw new LoweringException("DISTINCT ON over a set operation");
+        if (!c.Mergeable() || c.HasWindow || c.HasAgg) throw new LoweringException("DISTINCT ON over a query that groups, limits or has windows of its own");
+        var outs = c.Outs();
+        var partitions = Arr(p, "distinct_targets").Select(e => Expr(e, outs)).ToList();
+        var orders = ordersElement.EnumerateArray().ToList();
+        var orderKeys = orders.Select(o => Expr(o.GetProperty("expression"), outs)).ToList();
+        var remaining = orders.Where((o, i) => !partitions.Contains(orderKeys[i])).ToList();
+        if (remaining.Count == 0) throw new LoweringException("DISTINCT ON whose ORDER BY only names the ON columns (the row kept would be arbitrary)");
+
+        // the ordering must identify one row of every table the query reads
+        var named = partitions.Concat(orderKeys).Select(t => Regex.Match(t, "^\0([^\u0001\0]*)\u0001([^\0]*)\0$")).Where(m => m.Success).Select(m => (Alias: m.Groups[1].Value, Column: m.Groups[2].Value)).ToList();
+        foreach (var source in c.Sources)
+        {
+            var table = aliasTables.GetValueOrDefault(source);
+            var grain = table == null || grainOf == null ? [] : grainOf(table);
+            if (grain.Count == 0)
+                throw new LoweringException($"DISTINCT ON over {(table == null ? "a derived table" : $"`{table}`, which has no declared grain")}: its ORDER BY cannot be shown to decide the row (declare a grain, or order by a unique key)");
+            var missing = grain.Where(g => !named.Any(n => n.Alias == source && string.Equals(n.Column, g, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (missing.Count > 0)
+                throw new LoweringException($"DISTINCT ON keeps an arbitrary row among ties: add the grain column(s) {string.Join(", ", missing.Select(m => $"`{m}`"))} of `{table}` to its ORDER BY");
+        }
+
+        var rowNumber = $"row_number() OVER (PARTITION BY {string.Join(", ", partitions)} ORDER BY {string.Join(", ", remaining.Select(o => OrderItem(o, outs)))})";
+        c.Sel = c.Sel.Append(new Item(rowNumber, "rn", "BIGINT")).ToList();
+        c.HasWindow = true;
+        c.Plain = false;
+        var wrapped = Wrap(c);
+        wrapped.Where.Add($"({wrapped.Sel[^1].Sql} = 1)");
+        return wrapped;
     }
 
     private static bool IsConstantRow(Rel r) => r.Frm.Length == 0 && r.Sources.Count == 0 && !r.IsDelim && r.SetOp == null && r.Where.Count == 0 && r.Group.Count == 0;

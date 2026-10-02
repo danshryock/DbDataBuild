@@ -58,6 +58,10 @@ public class PlanLowererTests
 
     private static string Lower(DuckDBConnection c, string sql) => PlanLowerer.Lower(PlanOf(c, sql), NamesOf(c, sql)).Sql;
 
+    // the declared grains of the seeded tables: t is identified by id, u by (a, b)
+    private static IReadOnlyList<string> Grain(string table) => table switch { "t" => ["id"], "u" => ["a", "b"], _ => [] };
+    private static string LowerWithGrain(DuckDBConnection c, string sql) => PlanLowerer.Lower(PlanOf(c, sql), NamesOf(c, sql), Grain).Sql;
+
     private static List<(string Id, string Sql)> Corpus()
     {
         var diags = new List<Diagnostic>();
@@ -178,6 +182,55 @@ public class PlanLowererTests
         Assert.Equal("SELECT a\nFROM t\nWHERE (s = 'it''s')", Lower(c, "SELECT a FROM t WHERE s = 'it''s'"));
     }
 
+    [Theory]
+    [InlineData("SELECT DISTINCT ON (a) a, b, x FROM t ORDER BY a, b DESC, id")]
+    [InlineData("SELECT DISTINCT ON (a) id, b FROM t ORDER BY a, id")]
+    [InlineData("SELECT DISTINCT ON (a) id, b FROM t ORDER BY a DESC, id DESC")]
+    [InlineData("SELECT DISTINCT ON (a, b) id, s FROM t ORDER BY a, b, id")]
+    [InlineData("SELECT DISTINCT ON (t.a) t.id, u.b FROM t JOIN u ON t.a = u.a ORDER BY t.a, t.id, u.a, u.b")]
+    [InlineData("SELECT DISTINCT ON (a) id, b FROM t WHERE x > 1 ORDER BY a, b NULLS FIRST, id")]
+    public void DISTINCT_ON_with_an_ordering_that_decides_the_row_lowers_to_row_number_and_keeps_the_same_rows(string source)
+    {
+        using var c = Open();
+        var lowered = LowerWithGrain(c, source);
+        Assert.Contains("row_number() OVER (PARTITION BY", lowered);
+        Assert.Contains("= 1", lowered);
+        Assert.DoesNotContain("DISTINCT ON", lowered);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+    }
+
+    [Fact]
+    public void Hidden_trailing_columns_DuckDB_adds_for_its_own_use_are_not_part_of_the_lowered_output()
+    {
+        using var c = Open();
+        const string source = "SELECT DISTINCT ON (a) a, id FROM t ORDER BY a, id";
+        var lowered = LowerWithGrain(c, source);
+        Assert.Equal(ResultNames(c, source), ResultNames(c, lowered));
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+    }
+
+    [Fact]
+    public void DISTINCT_ON_reads_as_a_partitioned_row_number_filtered_to_one()
+    {
+        using var c = Open();
+        Assert.Equal("SELECT a, b\nFROM (\n  SELECT a, b, id, row_number() OVER (PARTITION BY a ORDER BY b DESC NULLS LAST, id NULLS LAST) AS rn\n  FROM t\n) AS s1\nWHERE (rn = 1)\nORDER BY a NULLS LAST, b DESC NULLS LAST, id NULLS LAST",
+            LowerWithGrain(c, "SELECT DISTINCT ON (a) a, b FROM t ORDER BY a, b DESC, id"));
+    }
+
+    [Theory]
+    [InlineData("SELECT DISTINCT ON (a) a, b FROM t", "ORDER BY")]
+    [InlineData("SELECT DISTINCT ON (a) a, b FROM t ORDER BY a", "only names the ON columns")]
+    [InlineData("SELECT DISTINCT ON (a) a, b FROM t ORDER BY a, b", "`id`")]
+    [InlineData("SELECT DISTINCT ON (t.a) t.id, u.b FROM t JOIN u ON t.a = u.a ORDER BY t.a, t.id", "`u`")]
+    [InlineData("SELECT DISTINCT ON (a) a, b FROM (SELECT a, b, id FROM t WHERE x > 0 LIMIT 5) q ORDER BY a, id", "derived table")]
+    public void DISTINCT_ON_that_could_pick_among_ties_is_refused_and_says_what_to_add(string source, string mention)
+    {
+        using var c = Open();
+        var ex = Assert.Throws<LoweringException>(() => LowerWithGrain(c, source));
+        Assert.Contains(mention, ex.Message);
+        Assert.Contains("DISTINCT ON", ex.Message);
+    }
+
     [Fact]
     public void A_cte_is_kept_as_a_cte_in_dependency_order()
     {
@@ -292,7 +345,7 @@ public class PlanLowererTests
     [Theory]
     [InlineData("SELECT * FROM unnest([1, 2])", "table function")]
     [InlineData("SELECT a FROM t USING SAMPLE 3 ROWS", "SAMPLE")]
-    [InlineData("SELECT DISTINCT ON (a) a, b FROM t", "DISTINCT ON")]
+    [InlineData("SELECT DISTINCT ON (a) a, b FROM t ORDER BY a, b", "DISTINCT ON")]
     [InlineData("SELECT [1, 2] AS l", "list_value")]
     [InlineData("SELECT a FROM t LIMIT 10 PERCENT", "percentage")]
     public void What_has_no_lowering_is_refused_by_name_never_guessed(string source, string mention)

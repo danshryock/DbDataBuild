@@ -810,4 +810,32 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task DISTINCT_ON_with_a_deciding_order_gives_the_same_rows_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("models/marts/fct_first.yml", "name: marts.fct_first\nkind: {type: full}\ncolumns:\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: order_id, type: BIGINT}\n");
+            // the first order per amount; order_id (the source's declared grain) is in the ORDER BY, so the row kept is decided, not arbitrary. NULL is a group of its own.
+            run.Write("models/marts/fct_first.sql", "SELECT DISTINCT ON (o.amount) o.amount, o.order_id FROM staging.orders o ORDER BY o.amount, o.order_id\n");
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00), (5, 40.00), (6, NULL)");
+
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Assert.Contains("row_number() OVER (PARTITION BY amount ORDER BY order_id NULLS LAST)", File.ReadAllText(Path.Combine(run.Dir, "rendered/lowered/marts.fct_first/lowered.sql")));
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+            Assert.Equal(new List<string> { "10|1", "20.5|2", "40|4", "∅|3" }, await engine.RowsAsync("SELECT amount, order_id FROM marts.fct_first"));
+
+            // an ordering that leaves ties is refused before anything is planned, and says what to add
+            run.Write("models/marts/fct_first.sql", "SELECT DISTINCT ON (o.amount) o.amount, o.order_id FROM staging.orders o ORDER BY o.amount\n");
+            var ties = run.Cli("render", "--write");
+            Assert.Contains("DDB-324", ties.Err);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }
