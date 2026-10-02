@@ -39,7 +39,7 @@ internal static class RenderCommand
         foreach (var m in selected)
         {
             var modelTargets = ctx.TargetsOf(m.Source.Definition).Where(t => targets.Length == 0 || targets.Contains(t)).ToList();
-            var result = ctx.Renderer.Render(m.Source.Definition, m.Sql, m.Source.QueryFile, modelTargets);
+            var (result, _) = ctx.RenderModel(m.Source, m.Sql, modelTargets);
             files.AddRange(result.Files);
             diags.AddRange(result.Diagnostics);
         }
@@ -85,8 +85,11 @@ internal static class RenderCommand
         foreach (var f in files) scope.Add(string.Join('/', f.Path.Split('/').Take(2)));
         // directories of selected models that rendered nothing this time (an operation was removed) are in scope too
         foreach (var m in selected)
+        {
             foreach (var t in TargetNames.All.Where(t => targets.Length == 0 || targets.Contains(t)))
                 scope.Add($"{t}/{m.Source.Definition.Name}");
+            scope.Add($"lowered/{m.Source.Definition.Name}");
+        }
         if (whole && Directory.Exists(renderedRoot))
             foreach (var targetDir in Directory.EnumerateDirectories(renderedRoot))
                 foreach (var modelDir in Directory.EnumerateDirectories(targetDir))
@@ -94,7 +97,7 @@ internal static class RenderCommand
         return scope;
     }
 
-    private static bool IsGenerated(string fileName) => fileName == "manifest.yml" || (fileName.StartsWith("load.", StringComparison.Ordinal) && fileName.EndsWith(".sql", StringComparison.Ordinal));
+    private static bool IsGenerated(string fileName) => fileName is "manifest.yml" or "lowered.sql" || (fileName.StartsWith("load.", StringComparison.Ordinal) && fileName.EndsWith(".sql", StringComparison.Ordinal));
 
     private static (List<string> Wrote, List<string> Removed) Write(string root, IReadOnlyList<RenderedFile> files, HashSet<string> scopeDirs)
     {
@@ -183,7 +186,7 @@ internal static class RenderCommand
                 rows.Add([def.Name, string.Join(", ", targets), "-", "-", "-", "view: DDL only"]);
                 continue;
             }
-            var result = ctx.Renderer.Render(def, m.Sql, m.Source.QueryFile, targets);
+            var (result, _) = ctx.RenderModel(m.Source, m.Sql, targets);
             diags.AddRange(result.Diagnostics);
             foreach (var o in result.Operations.OrderBy(o => o.Target, StringComparer.Ordinal).ThenBy(o => o.Operation, StringComparer.Ordinal))
                 rows.Add([o.Model, o.Target, o.Operation, o.Strategy, o.IsDefault ? "default" : "", o.Status + (o.Findings.Count > 0 ? $" ({string.Join(", ", o.Findings)})" : "")]);

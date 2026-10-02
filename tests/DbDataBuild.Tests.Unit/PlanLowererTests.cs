@@ -38,7 +38,25 @@ public class PlanLowererTests
         return rows;
     }
 
-    private static string Lower(DuckDBConnection c, string sql) => PlanLowerer.Lower(PlanOf(c, sql)).Sql;
+    private static List<string> NamesOf(DuckDBConnection c, string sql)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DESCRIBE " + sql;
+        using var r = cmd.ExecuteReader();
+        var names = new List<string>();
+        while (r.Read()) names.Add(r.GetString(0));
+        return names;
+    }
+
+    private static List<string> ResultNames(DuckDBConnection c, string sql)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = sql;
+        using var r = cmd.ExecuteReader();
+        return Enumerable.Range(0, r.FieldCount).Select(r.GetName).ToList();
+    }
+
+    private static string Lower(DuckDBConnection c, string sql) => PlanLowerer.Lower(PlanOf(c, sql), NamesOf(c, sql)).Sql;
 
     private static List<(string Id, string Sql)> Corpus()
     {
@@ -66,6 +84,10 @@ public class PlanLowererTests
             try { a = Rows(c, sql, false); } catch (DuckDBException ex) { ea = ex.Message; }
             try { b = Rows(c, lowered, false); } catch (DuckDBException ex) { eb = ex.Message; }
             if (ea != null || eb != null) { if (ea == null || eb == null) different.Add($"{id}: one side failed ({ea ?? eb})"); else equal++; continue; }
+            // output names are kept; a name DuckDB repeats (a join of two tables with a column b) gets a suffix, because a table cannot have two columns of one name
+            var expectedNames = new List<string>();
+            foreach (var n in ResultNames(c, sql)) { var name = n; var k = 1; while (expectedNames.Contains(name)) name = $"{n}_{++k}"; expectedNames.Add(name); }
+            if (!expectedNames.SequenceEqual(ResultNames(c, lowered))) { different.Add($"{id}: column names {string.Join(",", expectedNames)} vs {string.Join(",", ResultNames(c, lowered))}"); continue; }
             if (a!.SequenceEqual(b!)) equal++; else different.Add($"{id}: {string.Join(",", a!.Take(3))} vs {string.Join(",", b!.Take(3))}\n  {lowered}");
         }
         Assert.Empty(different);
@@ -87,6 +109,18 @@ public class PlanLowererTests
     {
         using var c = Open();
         Assert.Equal(expected, Lower(c, source));
+    }
+
+    [Fact]
+    public void The_authors_output_names_survive_even_when_the_plan_has_no_projection_to_carry_them()
+    {
+        using var c = Open();
+        const string source = "SELECT CASE WHEN a > 2 THEN 'big' ELSE 'small' END AS size, COUNT(*) AS n, AVG(a) AS mean FROM t GROUP BY ALL";
+        var lowered = Lower(c, source);
+        Assert.Equal(["size", "n", "mean"], ResultNames(c, lowered));
+        Assert.Equal(ResultNames(c, source), ResultNames(c, lowered));
+        // an unaliased expression keeps the name DuckDB gives it, which is explicit in the lowered text
+        Assert.Contains("AS \"count_star()\"", Lower(c, "SELECT a, COUNT(*) FROM t GROUP BY ALL"));
     }
 
     [Fact]
@@ -185,6 +219,7 @@ public class PlanLowererTests
         var json = "{\"error\":true,\"error_type\":\"binder\",\"error_message\":\"Table with name nope does not exist!\"}";
         var ex = Assert.Throws<LoweringException>(() => PlanLowerer.Lower(json));
         Assert.Contains("Table with name nope does not exist", ex.Message);
+        Assert.Equal("binder", ex.Kind);
     }
 
     [Fact]

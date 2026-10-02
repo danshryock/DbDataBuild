@@ -35,7 +35,8 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
     private const string LoadersBodyName = Loaders.LoaderBase.BodyName;
     private readonly string matrixVersion = MatrixLoader.EmbeddedVersion();
 
-    public RenderResult Render(ModelDefinition def, string bodySql, string queryFile, IReadOnlyList<string> targets)
+    /// <param name="bodyFile">Where <paramref name="bodySql"/> is committed when it is not the author's file (the lowered query), so findings point at what was checked.</param>
+    public RenderResult Render(ModelDefinition def, string bodySql, string queryFile, IReadOnlyList<string> targets, string? bodyFile = null)
     {
         var files = new List<RenderedFile>();
         var reports = new List<OperationReport>();
@@ -53,7 +54,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         foreach (var targetName in targets.Distinct().Order(StringComparer.Ordinal))
         {
             var target = TargetRegistry.Get(targetName);
-            var lint = linter.Lint(bodySql, queryFile, [targetName], config);
+            var lint = linter.Lint(bodySql, bodyFile ?? queryFile, [targetName], config);
             var manifestOps = new List<ManifestOperation>();
 
             foreach (var op in LoadPlan.For(def, targetName))

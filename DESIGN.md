@@ -477,6 +477,19 @@ A target whose configured collation cannot satisfy the project's declared profil
 
 The synthetic-data edge-case pack (section 15.2) includes every value these cases need.
 
+### 7.6 Lowering (as built)
+
+Every model query is bound by DuckDB and **lowered** to one explicit query before the matrix lint and the transpile (research: `docs/research/duckdb-plan-lowering/README.md`).
+
+- **Flow**: author's SQL, then DuckDB's bound, unoptimized plan (against an empty schema built from the declared columns of every other model and source), then one readable query in DuckDB's dialect with `*`, `USING`, `NATURAL JOIN`, `GROUP BY ALL` and ordinals, macros and implicit casts expanded, then lint and polyglot. The lint and the loads see the lowered query; findings point at its committed artifact.
+- **Committed artifact**: `rendered/lowered/<model>/lowered.sql`, with a header naming the model, the source file and its hash, the DuckDB version, the tool version, the output columns with their resolved DuckDB types and the type rules that changed the text. It is written by `render --write`, checked by `render --check` and by `plan` (a stale or missing file is DDB-424), so a reviewer sees exactly what runs, a DuckDB upgrade shows up as a diff, and the pinned engine version is visible.
+- **A query that cannot be lowered is an error** (DDB-324), not a fallback: correlated subqueries, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, `LIMIT ... PERCENT`, list and struct constructors. A DuckDB parse error is still DDB-306 and an undeclared upstream table DDB-218.
+- **Type rules** (so far): `avg` of a non-DOUBLE argument is written `avg(CAST(x AS DOUBLE))`, and a DATE widened to TIMESTAMP by `date_trunc` or interval arithmetic is written with an explicit cast. Division needs none: the binder already casts both operands to DOUBLE. Null ordering is always written explicitly. Output column names are applied from `DESCRIBE` by position, and a name DuckDB repeats gets a `_2` suffix.
+- **Binder rewrites are accepted** in the lowered query: `BETWEEN` becomes two comparisons, `NOT (a > 1)` becomes `a <= 1`, `NULLIF` becomes `CASE`, constants are folded, an unused non-materialized CTE is inlined.
+- `lowering: { enabled: false }` in `dbdatabuild.yml` turns the stage off for a project (the author's text goes straight to the lint and transpile, as before). There is no per-model fallback.
+- Metadata (`metadata`, `publish-metadata`) records each column's resolved DuckDB type, the lowered artifact's hash and the rules fired.
+- Still open: target-specific string-comparison, `LIKE`, `REPLACE` and `LENGTH` rules through identity marker macros, `sum` widening, decimal precision pinning, and lowering for the constructs above.
+
 ## 8. Targets
 
 ```csharp

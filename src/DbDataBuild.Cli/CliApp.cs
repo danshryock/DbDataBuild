@@ -202,7 +202,7 @@ public static class CliApp
         var configured = File.Exists(Path.Combine(projectRoot, ProductInfo.ConfigFile)) && !diagnostics.Any(d => d.Severity == Severity.Error && d.Location.File == ProductInfo.ConfigFile);
         output.WriteLine($"Config: {(configured ? ProductInfo.ConfigFile : "built-in defaults")}");
         output.WriteLine($"Effective: {config.Describe()}");
-        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot));
+        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.Descriptors, config)));
 
         foreach (var d in diagnostics) error.Diag(d);
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);

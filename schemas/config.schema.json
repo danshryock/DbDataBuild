@@ -140,6 +140,26 @@
           ]
         }
       }
+    },
+    "lowering": {
+      "description": "Model queries are bound by DuckDB and lowered to one explicit query before they are checked and transpiled (committed under rendered/lowered/). `enabled: false` turns that stage off and transpiles the author's SQL directly, as before; there is no per-model fallback. Default true.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "$defs": {

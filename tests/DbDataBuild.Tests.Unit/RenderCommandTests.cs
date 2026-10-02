@@ -157,8 +157,8 @@ public class RenderCommandTests
     [Fact]
     public void Write_with_errors_writes_nothing()
     {
-        var dir = Project();
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT COUNT(*) AS a, o.order_id FROM staging.orders o GROUP BY 2");
+        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         Model(dir, "marts.fct_orders", FctYaml, FctSql);
         var before = Snapshot(dir);
         var (exit, output, err) = Render(dir, "--write");
@@ -264,8 +264,8 @@ public class RenderCommandTests
     [Fact]
     public void Loads_shows_unsupported_pairs_and_fails()
     {
-        var dir = Project();
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT COUNT(*) AS a, o.order_id FROM staging.orders o GROUP BY 2");
+        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, output, err) = Run("loads", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Matches(@"marts\.bad\s+sqlserver\s+default\s+full_replace\s+default\s+unsupported", output);
@@ -287,8 +287,8 @@ public class RenderCommandTests
     [Fact]
     public void Validate_reports_a_pair_that_cannot_render_by_name()
     {
-        var dir = Project();
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT COUNT(*) AS a, o.order_id FROM staging.orders o GROUP BY 2");
+        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, _, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-317", err);

@@ -105,7 +105,8 @@ internal static class MetadataBuilder
             catch (DdlUnsupportedException ex) { shapeHashes[t] = new { error = ex.Diagnostic.Code }; }
         }
 
-        var render = ctx.Renderer.Render(def, sql, source.QueryFile, targets);
+        var (render, _) = ctx.RenderModel(source, sql, targets);
+        var lowered = ctx.Lowering.Enabled ? ctx.Lowering.Lower(source, sql).Model : null;
         var rendered = render.Operations.OrderBy(o => o.Target, StringComparer.Ordinal).ThenBy(o => o.Operation, StringComparer.Ordinal).Select(o =>
         {
             var op = render.Loads.FirstOrDefault(l => l.Target == o.Target && l.Operation == o.Operation);
@@ -139,7 +140,16 @@ internal static class MetadataBuilder
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             definition_hash = hash,
             upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
-            columns = def.Columns.Select(c => new { name = c.Name, logical_type = c.Type, nullable = c.Nullable, collation = c.Collation, native = Native(c), lineage = Lineage(c) }).ToList(),
+            lowered = lowered == null ? null : new
+            {
+                file = $"rendered/{lowered.ArtifactPath}", hash = lowered.Hash, rules = lowered.Query.Rules,
+                output = lowered.Query.Columns.Select(c => new { name = c.Name, duckdb_type = c.DuckDbType }).ToList(),
+            },
+            columns = def.Columns.Select(c => new
+            {
+                name = c.Name, logical_type = c.Type, duckdb_type = lowered?.Query.Columns.FirstOrDefault(x => string.Equals(x.Name, c.Name, StringComparison.OrdinalIgnoreCase))?.DuckDbType,
+                nullable = c.Nullable, collation = c.Collation, native = Native(c), lineage = Lineage(c),
+            }).ToList(),
             expected_shape_hash = shapeHashes,
             renames = def.Renames.Select(r => new { from = r.From, to = r.To }).ToList(),
             loads = rendered,

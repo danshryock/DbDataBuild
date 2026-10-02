@@ -69,7 +69,7 @@ public class JsonOutputTests
     public void Findings_are_structured_diagnostics_with_the_same_exit_code_as_text_mode()
     {
         var dir = Project();
-        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, o.amount FROM staging.orders o GROUP BY ALL\n");
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, [1, 2] AS l FROM staging.orders o\n");
         var (exit, doc, _, err) = Run("validate", "--project", dir);
         Assert.Equal(1, exit);
         Assert.Equal("", err);
@@ -97,7 +97,7 @@ public class JsonOutputTests
 
         var render = Run("render", "--project", dir);
         Assert.Equal(0, render.Exit);
-        Assert.Equal(["rendered/sqlserver/marts.fct_orders/load.default.sql", "rendered/sqlserver/marts.fct_orders/manifest.yml"], render.Doc["data"]!["files"]!.AsArray().Select(f => f!["path"]!.GetValue<string>()));
+        Assert.Equal(["rendered/lowered/marts.fct_orders/lowered.sql", "rendered/sqlserver/marts.fct_orders/load.default.sql", "rendered/sqlserver/marts.fct_orders/manifest.yml"], render.Doc["data"]!["files"]!.AsArray().Select(f => f!["path"]!.GetValue<string>()));
         var write = Run("render", "--project", dir, "--write");
         Assert.Equal(0, write.Exit);
         Assert.NotEmpty(write.Doc["data"]!["wrote"]!.AsArray());

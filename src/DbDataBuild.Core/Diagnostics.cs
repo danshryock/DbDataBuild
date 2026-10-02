@@ -200,6 +200,11 @@ public static class DiagnosticCatalog
         "Create or correct the script named in the message, or change the hook's event or targets.",
         "Hooks are native SQL run exactly as committed, so each script is read and parsed with the target's offline validator before anything is planned. A view has no load or backfill, so it has no hooks for them.");
 
+    public static readonly DiagnosticDescriptor QueryNotLowerable = E("324", "Model query cannot be lowered",
+        "A query whose bound plan the lowerer knows: tables and views, joins, filters, aggregates, windows, set operations, CTEs, and the expressions in docs/research/duckdb-plan-lowering.",
+        "Rewrite the construct the message names, or turn lowering off with `lowering: { enabled: false }` in dbdatabuild.yml.",
+        "Every model query is bound by DuckDB and lowered to one explicit query (star, USING, GROUP BY ALL, macros and implicit casts expanded) before it is checked against the support matrix and transpiled. A construct with no lowering yet (correlated subqueries, UNNEST, sampling, DISTINCT ON, nested types) is an error, not a silent fallback.");
+
     // 4xx: planning / questions
     public static readonly DiagnosticDescriptor AnswerForUnknownQuestion = W("410", "Answer for a question that was not asked",
         "Answers whose id matches a question asked in this run.",
@@ -332,7 +337,7 @@ public static class DiagnosticCatalog
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
-        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid,
+        SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
         DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, HistoryInconsistent, DefinitionFileChanged, DefinitionNotEditable,

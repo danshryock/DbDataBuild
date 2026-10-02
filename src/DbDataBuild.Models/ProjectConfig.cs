@@ -36,7 +36,8 @@ public sealed record ProjectConfig(
     IReadOnlyDictionary<string, Severity> Policy,
     IReadOnlyDictionary<string, int>? SourceLines = null,
     IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>>? DeclaredHookGroups = null,
-    bool StoreMetadataOnApply = false)
+    bool StoreMetadataOnApply = false,
+    bool LoweringEnabled = true)
 {
     /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();

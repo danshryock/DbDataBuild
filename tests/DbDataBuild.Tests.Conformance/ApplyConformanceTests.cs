@@ -753,4 +753,32 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Lowering_makes_what_the_engines_compute_match_what_DuckDB_computes(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // two constructs that went wrong when the author's text was transpiled directly: GROUP BY ALL, and AVG over integers (T-SQL and PostgreSQL truncate or widen differently)
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("models/marts/fct_stats.yml", "name: marts.fct_stats\nkind: {type: full}\ncolumns:\n  - {name: size, type: \"VARCHAR(5)\"}\n  - {name: n, type: BIGINT}\n  - {name: mean_id, type: DOUBLE}\n");
+            run.Write("models/marts/fct_stats.sql", "SELECT CASE WHEN o.order_id > 2 THEN 'big' ELSE 'small' END AS size, COUNT(*) AS n, AVG(o.order_id) AS mean_id FROM staging.orders o GROUP BY ALL\n");
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00)");
+
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var lowered = File.ReadAllText(Path.Combine(run.Dir, "rendered/lowered/marts.fct_stats/lowered.sql"));
+            Assert.Contains("avg(CAST(order_id AS DOUBLE))", lowered);                 // the plan said DOUBLE, so the query says so
+            Assert.Contains("-- type rules:   avg-double", lowered);
+            Assert.DoesNotContain("GROUP BY ALL", lowered);
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+
+            // DuckDB's answer is 1.5 and 3.5; an engine that averages integers as integers would say 1 and 3
+            Assert.Equal(new List<string> { "big|2|3.5", "small|2|1.5" }, await engine.RowsAsync("SELECT size, n, mean_id FROM marts.fct_stats"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

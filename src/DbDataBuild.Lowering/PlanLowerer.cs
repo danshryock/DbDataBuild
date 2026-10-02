@@ -13,7 +13,11 @@ public sealed record LoweredColumn(string Name, string DuckDbType);
 public sealed record LoweredQuery(string Sql, IReadOnlyList<LoweredColumn> Columns, IReadOnlyList<string> Rules);
 
 /// <summary>The query cannot be lowered. The message says what in the plan has no lowering yet; nothing is guessed (DESIGN.md: no silent fallbacks).</summary>
-public sealed class LoweringException(string reason) : Exception(reason);
+public sealed class LoweringException(string reason, string kind = "unsupported") : Exception(reason)
+{
+    /// <summary>`parser`, `binder` or `catalog` (or another DuckDB error type) when DuckDB itself rejected the query (its message is in the text), otherwise `unsupported`.</summary>
+    public string Kind { get; } = kind;
+}
 
 /// <summary>
 /// Turns DuckDB's bound, unoptimized logical plan into one readable SELECT in DuckDB's dialect (docs/research/duckdb-plan-lowering). Every plan operator becomes a
@@ -43,16 +47,34 @@ public sealed class PlanLowerer
     private readonly Dictionary<int, (string Name, Rel Definition)> ctes = [];
     private readonly List<string> rules = [];
 
-    public static LoweredQuery Lower(string planJson)
+    /// <param name="outputNames">
+    /// The names DuckDB gives the query's output columns (from `DESCRIBE`). The plan does not always carry them: when no projection sits at the top (a bare aggregate, for example)
+    /// the author's aliases exist only in DuckDB's binder state, so they are applied to the lowered query by position.
+    /// </param>
+    /// <summary>Throws the <see cref="LoweringException"/> for a plan document that is DuckDB's own error (a parse or bind failure), so callers can classify it before doing anything else.</summary>
+    public static void ThrowIfError(string planJson)
     {
         using var doc = JsonDocument.Parse(planJson);
         var root = doc.RootElement;
         if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.True)
-            throw new LoweringException("DuckDB could not bind the query: " + (root.TryGetProperty("error_message", out var m) ? m.GetString() : "unknown error"));
+            throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
+    }
+
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null)
+    {
+        using var doc = JsonDocument.Parse(planJson);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.True)
+            throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
         var lowerer = new PlanLowerer();
         var rel = lowerer.Node(plans[0]);
+        if (outputNames != null && rel.SetOp == null)
+        {
+            if (outputNames.Count != rel.Sel.Count) throw new LoweringException($"the plan has {rel.Sel.Count} output columns, but DuckDB describes {outputNames.Count}");
+            rel.Sel = rel.Sel.Select((s, i) => s with { Alias = outputNames[i] }).ToList();
+        }
         var sql = rel.Cte(lowerer.ctesInOrder) + rel.Sql();
         var names = rel.SetOp != null ? rel.SetOpNames! : rel.Aliases();
         var columns = names.Select((n, i) => new LoweredColumn(n, rel.Sel.Count > i ? rel.Sel[i].Type ?? "UNKNOWN" : "UNKNOWN")).ToList();

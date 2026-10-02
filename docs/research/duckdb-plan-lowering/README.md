@@ -119,7 +119,7 @@ The lowered form of each of the 81 cases was executed through the spike runner (
 
 **Recommendation: A, introduced as C.** Concretely:
 1. Make lowering a stage **before** the matrix lint and polyglot: author's SQL, then bound plan, then core SQL (DuckDB dialect, explicit columns, explicit casts), then lint and transpile. Anything the unparser cannot lower is `DDB-3xx`, "cannot be lowered", and the matrix says what to rewrite. Nothing falls back silently (consistent with "no silent defaults").
-2. Keep the lowered query as an artifact you can read: render it next to the loads (`rendered/lowered/<model>.sql`, committed, checked by `render --check`), so a reviewer sees exactly what runs and a diff shows what the binder changed.
+2. Keep the lowered query as an artifact you can read: render it next to the loads (`rendered/lowered/<model>/lowered.sql`, committed, checked by `render --check`), so a reviewer sees exactly what runs and a diff shows what the binder changed.
 3. **Marker macros for target-specific rules.** The plan tells us exactly where a string comparison, `LIKE`, `REPLACE` or `LENGTH` over VARCHAR is. The lowering stage can wrap those operands in identity macros defined in DuckDB (`ddb_cs(x)` means `x`), so the canonical query still runs unchanged in DuckDB for the differential tests, and the target stage replaces each marker with the engine's own form (`x COLLATE Latin1_General_100_CS_AS`, `LEN(x + 'x') - 1`). Type-pinning rules (avg, date to timestamp, sum widening, decimal precision) need no markers because they are plain casts. This is a proposal; it is not built or tested here.
 4. Use the plan for **metadata** regardless: output column types (including HUGEINT for `sum`, DECIMAL width and scale), inferred nullability stays with the analyzer, and typed operands for the lint.
 5. Seed values for dynamic `PIVOT` and project macro files, as round 1 recommended, come after the unparser exists.
@@ -150,3 +150,14 @@ python3 make_lowered_corpus.py <dir>   # writes <dir>/spike/constructs.yml of th
 SPIKE_MSSQL_PASSWORD=... SPIKE_PG_PASSWORD=... dotnet run --project spike/DbDataBuild.Spike -- diff <dir> <mssql host:port> <pg host:port> > lowered.md
 python3 compare_runs.py spike/results.sqlserver2022.generated.md lowered.md
 ```
+
+---
+
+# Status (2026-10-02): built
+
+The operator accepted the three decisions of section 6 (the lowered query is a committed artifact, "cannot be lowered" is a hard error, and the binder's rewrites are acceptable). Lowering is now a stage of the tool; see `docs/progress/state-and-apply.md` entry 20 and DESIGN.md section 7.6. Differences from the prototype that building it settled:
+
+- After fixing a limit-parsing slip in the prototype (`OFFSET` unset was read as a non-constant limit), 83 of the 93 spike constructs lower result-equal and 9 are refused (list and struct constructors, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, correlated subqueries, and one case my extraction mangled). The C# lowerer is tested against the same corpus, and also compares output column names.
+- **Output names come from `DESCRIBE`, not the plan**: a query whose plan has no projection at the top (a bare aggregate) loses its author's aliases in the plan, which the end-to-end test caught (`AS size` became `col1`). Names are applied to the lowered query by position.
+- **Null ordering is always written** in `ORDER BY` and window ordering (`x NULLS LAST`), because DuckDB, SQL Server and PostgreSQL disagree about where NULLs sort and the plan states it explicitly.
+- The string-collation marker macros of section 4 are still a proposal, not built.

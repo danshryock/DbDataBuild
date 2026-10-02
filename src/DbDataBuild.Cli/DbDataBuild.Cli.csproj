@@ -10,6 +10,8 @@
     <ProjectReference Include="..\DbDataBuild.Execution\DbDataBuild.Execution.csproj" />
     <ProjectReference Include="..\DbDataBuild.Planning\DbDataBuild.Planning.csproj" />
     <ProjectReference Include="..\DbDataBuild.Apply\DbDataBuild.Apply.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Lowering\DbDataBuild.Lowering.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Targets.DuckDb\DbDataBuild.Targets.DuckDb.csproj" />
   </ItemGroup>
 
   <ItemGroup>

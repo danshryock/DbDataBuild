@@ -85,7 +85,7 @@ internal sealed class PlanningSession
         // ---- offline preflight: nothing is planned from a project that does not validate (DESIGN.md 11) ----
         var findings = new List<Diagnostic>(ctx.Diagnostics.Where(d => d.Code != DiagnosticCatalog.OrphanFile.Code));
         var sources = mine.Select(m => m.Source).ToList();
-        findings.AddRange(ProjectChecks.Run(sources, ctx.Config, [target], root));
+        findings.AddRange(ProjectChecks.Run(sources, ctx.Config, [target], root, ctx.Lowering));
         var defineTargets = mine.Select(m => new DefineTarget(m.Source.Definition.Name, m.Source.DefinitionFile, m.Source.QueryFile, m.Sql,
             File.ReadAllText(Path.Combine(root, m.Source.DefinitionFile)), m.Source.Definition, [])).ToList();
         var graph = new ModelGraph(ctx.Project.Models, ctx.Project.Descriptors);
@@ -94,7 +94,7 @@ internal sealed class PlanningSession
         var renderedOps = new List<RenderedOperation>();
         foreach (var m in mine)
         {
-            var result = ctx.Renderer.Render(m.Source.Definition, m.Sql, m.Source.QueryFile, [target]);
+            var (result, _) = ctx.RenderModel(m.Source, m.Sql, [target]);
             renderedOps.AddRange(result.Loads);
             foreach (var file in result.Files)
             {
@@ -118,7 +118,9 @@ internal sealed class PlanningSession
         {
             var hash = AstHasher.Hash(m.Sql).Hash ?? "";
             var bases = QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
-            return new PlannedModel(m.Source.Definition, m.Sql, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()));
+            // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
+            var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql).Model is { } lowered ? lowered.Sql : m.Sql;
+            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()));
         }).ToList();
 
         TargetSnapshot snapshot;

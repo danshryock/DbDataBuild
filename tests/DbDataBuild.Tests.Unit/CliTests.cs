@@ -73,6 +73,8 @@ public class CliTests
     {
         var dir = NewProjectDir();
         if (config != null) File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
+        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
+        File.WriteAllText(Path.Combine(dir, "sources/staging/t.yml"), "name: staging.t\ncolumns:\n  - {name: a, type: INTEGER}\n  - {name: b, type: INTEGER}\n  - {name: s, type: VARCHAR(20)}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]", $"targets: {targets}"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), sql);
         return dir;
@@ -81,12 +83,12 @@ public class CliTests
     [Fact]
     public void Validate_runs_the_matrix_linter_per_declared_target_and_fails_on_unsupported_constructs()
     {
-        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1");
+        var dir = ProjectWith("SELECT a FROM staging.t WHERE REGEXP_MATCHES(s, 'a')", config: "targets:\n  sqlserver: { version: 16 }\n");
         var before = Snapshot(dir);
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
-        Assert.Contains("error DDB-301  models/marts/fct_orders.sql", err);
-        Assert.Contains("on sqlserver", err);
+        Assert.Contains("error DDB-301  rendered/lowered/marts.fct_orders/lowered.sql:", err);   // findings point at the lowered query that is checked
+        Assert.Contains("sqlserver version 17 or later", err);
         Assert.Contains("warning DDB-304", err);                 // fabric: unverified, not an error
         Assert.Contains("DDB-317", err);                              // the model x target x operation pair is named
         Assert.Contains("FAILED: 2 error(s)", output);
@@ -96,7 +98,7 @@ public class CliTests
     [Fact]
     public void Validate_passes_with_warnings_and_notes_when_nothing_is_unsupported()
     {
-        var dir = ProjectWith("SELECT a / b AS x FROM t ORDER BY a", "[sqlserver]");
+        var dir = ProjectWith("SELECT a / b AS x FROM staging.t ORDER BY a", "[sqlserver]");
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-302", err);
@@ -117,15 +119,16 @@ public class CliTests
     [Fact]
     public void Validate_uses_default_targets_from_the_config_for_models_without_targets()
     {
+        const string regexpSql = "SELECT s FROM staging.t WHERE REGEXP_MATCHES(s, 'a')";
         const string postgresConfig = "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: en_US.utf8 }\n";
-        var dir = ProjectWith("SELECT a, COUNT(*) AS n FROM t GROUP BY 1", config: postgresConfig);
+        var dir = ProjectWith(regexpSql, config: postgresConfig);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("targets: [sqlserver, fabric]\n", ""));
         var (exit, output, err) = Run("validate", "--project", dir);
-        Assert.Equal(CliApp.ExitOk, exit);                     // GROUP BY 1 is native on postgres
+        Assert.Equal(CliApp.ExitOk, exit);                     // REGEXP_MATCHES is native on postgres
         Assert.Contains("default targets: postgres", output);
         Assert.DoesNotContain("DDB-301", err);
 
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
         Assert.Equal(CliApp.ExitFindings, Run("validate", "--project", dir).Exit);
     }
 
@@ -140,7 +143,7 @@ public class CliTests
     [Fact]
     public void Configured_target_version_resolves_min_version_rows()
     {
-        const string regexp = "SELECT s FROM t WHERE REGEXP_MATCHES(s, 'a')";
+        const string regexp = "SELECT s FROM staging.t WHERE REGEXP_MATCHES(s, 'a')";
         var warn = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "default_targets: [sqlserver]\n"));
         Assert.Equal(CliApp.ExitOk, warn.Exit);
         Assert.Contains("no version is configured", warn.Err);
@@ -158,7 +161,7 @@ public class CliTests
     [Fact]
     public void Policy_severity_can_turn_a_warning_into_a_failure_but_not_hide_a_finding()
     {
-        const string sql = "SELECT a / b AS x FROM t";
+        const string sql = "SELECT a / b AS x FROM staging.t";
         var plain = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "default_targets: [sqlserver]\n"));
         Assert.Equal(CliApp.ExitOk, plain.Exit);
         Assert.Contains("warning DDB-302", plain.Err);
