@@ -570,4 +570,18 @@ public class DefineEngineTests
             return new PromptResult(q.Proposal!.OptionKey, q.Proposal.Value, null, AcceptedProposal: true);
         }
     }
+    [Theory]
+    [InlineData("NULL")]
+    [InlineData("\"NULL\"")]       // how DESCRIBE prints it on DuckDB 2.0
+    [InlineData("SQLNULL")]
+    public void An_untyped_NULL_column_fits_any_declared_type_and_cannot_be_proposed_as_one(string resolved)
+    {
+        Assert.True(LogicalTypes.IsUntypedNull(resolved));
+        Assert.True(LogicalTypes.Equivalent("INTEGER", resolved));
+        Assert.True(LogicalTypes.Equivalent("VARCHAR(20)", resolved));
+        var proposal = LogicalTypes.FromDuckDb(resolved);
+        Assert.False(proposal.HasProposal);
+        Assert.Contains("CAST(NULL AS <type>)", proposal.Reason);
+        Assert.False(LogicalTypes.IsUntypedNull("INTEGER"));
+    }
 }

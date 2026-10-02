@@ -13,6 +13,7 @@ dotnet test tests/DbDataBuild.Tests.Conformance   # real engines, about 3 minute
 scripts/test-engines.sh down
 UPDATE_GOLDEN=1 dotnet test tests/DbDataBuild.Tests.Unit   # rewrites golden files; review the diff
 scripts/publish.sh linux-x64                   # one self-contained executable
+scripts/test-duckdb-preview.sh                 # the unit tests against DuckDB's preview library (2.0 alpha); see docs/research/duckdb-2.0
 ```
 
 ## Rules the tests enforce (read before you add code)

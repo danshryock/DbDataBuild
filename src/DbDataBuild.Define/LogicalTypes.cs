@@ -44,9 +44,16 @@ public static partial class LogicalTypes
     [GeneratedRegex(@"^(?:TEXT|VARCHAR)\((\d+)\)$", RegexOptions.IgnoreCase)]
     private static partial Regex SizedTextPattern();
 
+    /// <summary>
+    /// DuckDB 2.0 types a bare `SELECT NULL` as the NULL type (DESCRIBE prints it as "NULL"); 1.x called it INTEGER. It is a column with no type of its own, so it
+    /// fits whatever type the definition declares, and it cannot be proposed as one.
+    /// </summary>
+    public static bool IsUntypedNull(string duckType) => duckType.Trim().Trim('"').Equals("NULL", StringComparison.OrdinalIgnoreCase) || duckType.Trim().Trim('"').Equals("SQLNULL", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The proposal for a type DuckDB reported, with no lineage information.</summary>
     public static TypeProposal FromDuckDb(string duckType)
     {
+        if (IsUntypedNull(duckType)) return new(null, null, "DuckDB reports an untyped NULL (the query selects NULL without a cast); give the column a type with CAST(NULL AS <type>)");
         var t = duckType.Trim().ToUpperInvariant();
         if (DecimalPattern().Match(t) is { Success: true } d)
             return new($"DECIMAL({d.Groups[1].Value}, {d.Groups[2].Value})", ProposalCertainty.High, $"DuckDB resolves {t}");
@@ -110,6 +117,7 @@ public static partial class LogicalTypes
     /// </summary>
     public static bool Equivalent(string declared, string resolved)
     {
+        if (IsUntypedNull(resolved)) return true;
         if (Shape(declared) is not { } d || Shape(resolved) is not { } r) return Normalize(declared) == Normalize(resolved);
         if (d.Base == "DECIMAL") d = d.P == null ? ("DECIMAL", "18", "3") : (d.Base, d.P, d.S ?? "0");
         if (r.Base == "DECIMAL") r = r.P == null ? ("DECIMAL", "18", "3") : (r.Base, r.P, r.S ?? "0");

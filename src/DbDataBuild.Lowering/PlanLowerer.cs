@@ -68,7 +68,7 @@ public sealed class PlanLowerer
     /// </param>
     public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null)
     {
-        using var doc = JsonDocument.Parse(planJson);
+        using var doc = JsonDocument.Parse(PlanNormalizer.Normalize(planJson));
         var root = doc.RootElement;
         if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.True)
             throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
@@ -813,15 +813,54 @@ public sealed class PlanLowerer
     }
 
     /// <summary>`x IN (SELECT y ...)` with no correlation: a MARK join of the outer relation with the subquery.</summary>
+    /// <summary>
+    /// A MARK join that is not wrapped in a delim join: how DuckDB 2.0 hands over EXISTS and IN. Its decorrelation has already happened, so the correlated predicates are join
+    /// conditions between the outer (left) and the subquery (right) side. An EQUAL condition is the comparison of an IN; the other conditions are the correlation and go back into
+    /// the subquery's WHERE as predicates on the outer columns. The null-safe equality (NOT DISTINCT FROM) DuckDB uses for a correlated `=` is written as `=` again when the
+    /// subquery side already filters that column to not NULL, which is exactly what makes the two the same.
+    /// </summary>
     private Rel MarkJoin(JsonElement p, List<JsonElement> kids)
     {
         var left = Node(kids[0]);
+        if (!left.Mergeable() || left.HasWindow) left = Wrap(left);
         var right = Node(kids[1]);
-        var conditions = Arr(p, "conditions").ToList();
-        if (conditions.Count != 1 || Str(conditions[0], "comparison") != "COMPARE_EQUAL") throw new LoweringException("a subquery comparison other than IN and EXISTS");
-        var x = Expr(conditions[0].GetProperty("left"), left.Outs());
-        var y = Expr(conditions[0].GetProperty("right"), right.Outs());
-        left.Sel = left.Sel.Append(new Item($"({x} IN (\n{SubqueryWith(right, y)}\n))", null, "BOOLEAN")).ToList();
+        if (right.SetOp != null) throw new LoweringException("a correlated subquery over a set operation (UNION, INTERSECT, EXCEPT)");
+        var lo = left.Outs();
+        var ro = right.Outs();
+
+        string? inLeft = null, inRight = null;
+        var correlated = new List<string>();
+        foreach (var c in Arr(p, "conditions"))
+        {
+            var op = Str(c, "comparison")!;
+            var l = Expr(c.GetProperty("left"), lo);
+            var r = Expr(c.GetProperty("right"), ro);
+            if (op == "COMPARE_EQUAL")
+            {
+                if (inLeft != null) throw new LoweringException("a subquery comparison other than IN and EXISTS");
+                (inLeft, inRight) = (l, r);
+                continue;
+            }
+            if (right.HasAgg || right.HasWindow || !right.Mergeable()) throw new LoweringException("a correlated predicate over an aggregate");
+            var text = Comparisons.TryGetValue(op, out var sym) ? sym : throw new LoweringException("a subquery comparison other than IN and EXISTS");
+            if (op == "COMPARE_NOT_DISTINCT_FROM")
+            {
+                var guard = $"({r} IS NOT NULL)";
+                if (right.Where.Remove(guard)) text = "=";
+                else text = "IS NOT DISTINCT FROM";
+            }
+            // written the way a subquery is usually written, its own column first: `u.a = t.a`, `u.b < t.b`
+            var flipped = text switch { "<" => ">", ">" => "<", "<=" => ">=", ">=" => "<=", _ => text };
+            correlated.Add($"({r} {flipped} {Requalify(l)})");
+        }
+        if (correlated.Count > 0)
+        {
+            right = right.Clone();
+            right.Where.AddRange(correlated);
+        }
+
+        var mark = inLeft == null ? $"EXISTS (\n{SubqueryWith(right, "1")}\n)" : $"({inLeft} IN (\n{SubqueryWith(right, inRight!)}\n))";
+        left.Sel = left.Sel.Append(new Item(mark, null, "BOOLEAN")).ToList();
         left.Plain = false;
         return left;
     }

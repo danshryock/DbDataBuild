@@ -13,5 +13,6 @@
     <Authors>Dan Shryock</Authors>
     <Copyright>Copyright (c) 2026 Dan Shryock</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/danshryock/DbDataBuild</RepositoryUrl>
   </PropertyGroup>
 </Project>

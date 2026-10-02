@@ -69,3 +69,8 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - Predicate pushdown and runtime parameters are no longer open questions; what remains: a first-class **custom slicing operation** (author-written filter with a declared parameter; allowed today by writing it in the query and using `full_replace` or a key load, but not modelled), **seeded parameter values for `sample`** so the strategies can be previewed, and a check that a parameter's type is one of date, timestamp, integer or short text (everything is logged).
 - The slice lint follows plain column lineage; it does not judge sargability of an expression slice column (`CAST(ts AS DATE)`) or whether the slice column is indexed on the source.
 
+## H. DuckDB 2.0 and the repository (2026-10-02)
+
+- **DuckDB 2.0 adoption** (see `docs/research/duckdb-2.0/README.md`): open: lower correlated scalar subqueries that return an aggregate from the 2.0 plan shape (17 test forms fail on the alpha); re-run the real-engine suite with the preview library; wait for a DuckDB.NET release built for 2.0; then regenerate committed lowered artifacts (their headers carry the DuckDB version). A CI job running `scripts/test-duckdb-preview.sh` weekly would show convergence.
+- **GitHub**: the repository is private; no CI workflow yet (a workflow needs the polyglot library: building it takes a Rust toolchain and a few minutes, so cache `native/`); no branch protection, issue templates or release process; commit author is `dlshryoc` with no address (commits will not link to the GitHub account until the author identity is set for future commits).
+
