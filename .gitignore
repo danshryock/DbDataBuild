@@ -6,3 +6,4 @@ TestResults/
 .build/
 native/
 .dbdatabuild/
+publish/

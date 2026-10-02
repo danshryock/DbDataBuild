@@ -919,4 +919,38 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_data_bearing_engine_error_never_reaches_output_files_or_tracking_tables(string name)
+    {
+        // DESIGN.md 14.2: SQL Server and PostgreSQL quote the offending value in conversion errors
+        const string secret = "SECRET-VALUE-4711";
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
+            run.Write("sources/staging/raw.yml", "name: staging.raw\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n");
+            run.Write("models/marts/fct_num.yml", "name: marts.fct_num\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: n, type: INTEGER}\n");
+            run.Write("models/marts/fct_num.sql", "SELECT id, CAST(s AS INTEGER) AS n FROM staging.raw\n");
+            await engine.ExecAsync($"CREATE TABLE staging.raw (id BIGINT NOT NULL, s {engine.ColumnType("VARCHAR(40)")} NULL)");
+            await engine.ExecAsync($"INSERT INTO staging.raw VALUES (1, '12'), (2, '{secret}')");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            var planFile = run.PlanFile(plan.Out);
+
+            var text = run.Cli("apply", planFile);
+            var json = run.Cli("apply", planFile, "--format", "json");
+            Assert.NotEqual(0, text.Exit);
+            Assert.Contains("DDB-", text.Err);
+            foreach (var shown in new[] { text.Out, text.Err, json.Out, json.Err }) Assert.DoesNotContain(secret, shown);
+
+            // nothing the tool wrote locally, and nothing in the tracking tables
+            foreach (var file in Directory.EnumerateFiles(run.Dir, "*", SearchOption.AllDirectories)) Assert.DoesNotContain(secret, File.ReadAllText(file));
+            foreach (var table in new[] { "tracking_version", "schema_version", "ddl_log", "run_log", "operation_interval", "block_log", "migration_log", "metadata_document" })
+                foreach (var row in await engine.RowsAsync($"SELECT * FROM {run.Q("dbdatabuild")}.{run.Q(table)}")) Assert.DoesNotContain(secret, row);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

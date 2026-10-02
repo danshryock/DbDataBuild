@@ -11,7 +11,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 | 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
 | 7 | Incremental kinds, loads, `run` | Done |
 | 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
-| 9 | Hardening | **Next, with the target rules done**: fuzzing, error-scrub tests beyond the one guard test, single-file publish, docs generation, SQL Agent guide |
+| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). Open: Windows publish, fuzzing of the interactive question flow and of hook scripts, docs generation, pre-1.0 polyglot upgrade policy |
 | extra | Plan lowering | Built (section 7.6) |
 
 ## A. Lowering: open items (the ones you asked to have written down)
@@ -40,15 +40,15 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. The draft upstream issue notes exist but you have not decided to submit them.
 - **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, but only on single local containers: no concurrency between two real `apply` processes under load, no network failures mid-step.
 - **Native dependency**: polyglot-sql 0.13.1 is pinned and built from source by `scripts/build-polyglot.sh`; pre-1.0 API churn, a Windows build and a distribution plan are open (section 17).
-- **Windows**: nothing has been built or run on Windows (single-file publish for win-x64 is a stated requirement).
+- **Windows**: nothing has been built or run on Windows. Linux single-file publish works (`scripts/publish.sh`); win-x64 needs the polyglot library built for Windows first.
 - **Licenses** of native and managed dependencies not audited.
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
-- **Error scrubbing**: one guard test shows exception messages are not echoed; there is no broader fuzz of config, YAML and plan files for unhandled exceptions.
+- **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Not covered: fuzzing the interactive answer flow, hook scripts' content, and the resolver query results.
 
 ## D. Documentation debt
 
 - DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.
-- Not written: operations guide (SQL Server Audit for out-of-band DDL, SQL Agent invocation, PostgreSQL and Fabric equivalents), user-facing docs, a generated command reference.
+- Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Not written: user-facing getting-started docs, a generated command reference.
 - REVIEW.md accumulates dated updates; it needs a consolidated rewrite before anyone else reads it.
 
 ## E. Suggested order (for you to change)

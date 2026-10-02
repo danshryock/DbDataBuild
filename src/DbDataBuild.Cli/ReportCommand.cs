@@ -10,7 +10,7 @@ namespace DbDataBuild.Cli;
 /// <summary>
 /// `dbdatabuild report` (DESIGN.md 9.1, 12.3). Effect class: target read-only. Shows what the tracking tables say happened: applied plans, DDL, loads, each object's
 /// recorded shapes, anything that started and never finished, and objects whose live shape no longer matches the last recorded one. The per-column history
-/// consistency report of DESIGN.md 12.3 is not built yet.
+/// consistency report of DESIGN.md 12.3 is part of it (HistoryReader).
 /// </summary>
 internal static class ReportCommand
 {

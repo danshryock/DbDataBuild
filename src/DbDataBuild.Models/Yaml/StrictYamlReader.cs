@@ -34,9 +34,9 @@ public static class StrictYamlReader
             diagnostics.Add(new Diagnostic(DiagnosticCatalog.YamlSyntax, At(file, ex.Start), ex.Message));
             return null;
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or EndOfStreamException)
         {
-            // YamlDotNet's scanner can throw this (not YamlException) on some malformed input. Position is best effort.
+            // YamlDotNet's scanner can throw these (not YamlException) on some malformed input; a truncated file reaches the end of the event stream. Position is best effort.
             var m = parser.Current?.Start ?? new Mark(0, 1, 1);
             diagnostics.Add(new Diagnostic(DiagnosticCatalog.YamlSyntax, At(file, m),
                 "The YAML scanner could not make sense of this region (malformed flow collection or scalar)."));
