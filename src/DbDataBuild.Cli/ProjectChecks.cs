@@ -37,6 +37,7 @@ internal static class ProjectChecks
             // each target is linted on the query it will actually get: the lowered one with that target's rules applied
             foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, t).Sql, bodyFile ?? source.QueryFile, [t], config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
+            if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, targets, body));
             diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
@@ -69,6 +70,34 @@ internal static class ProjectChecks
                 : $"Add under `indexes:` in {source.DefinitionFile}:  {Models.IndexAdvisor.Yaml(a)}";
             yield return new Diagnostic(a.Severity == Severity.Warning ? DiagnosticCatalog.MergeKeyNotIndexed : DiagnosticCatalog.LoadColumnNotIndexed, new(source.DefinitionFile, 0, 0), found, Fix: fix);
         }
+    }
+
+    /// <summary>
+    /// Slice lint (DDB-225): for each load that selects its slice from the finished query, whether the filter can be applied below the query's aggregates and windows. Advice only;
+    /// the query is never rewritten. A model silences it with `lint_ignore`.
+    /// </summary>
+    internal static IEnumerable<Diagnostic> SliceAdvice(ModelSource source, IReadOnlyList<string> targets, string body)
+    {
+        var def = source.Definition;
+        if (def.LintIgnore.Contains(DiagnosticCatalog.LoadSliceNotPushable.Code)) yield break;
+        var done = new HashSet<(string Operation, string Column)>();
+        foreach (var target in targets)
+            foreach (var op in LoadPlan.For(def, target))
+            {
+                var (column, what) = op.Strategy switch
+                {
+                    LoadStrategies.WatermarkAppend when op.Watermark?.Column is { } w => (w, "loads rows at or after its watermark"),
+                    LoadStrategies.DeleteInsertByRange => (op.Column ?? def.TimeColumn, "reloads a range"),
+                    _ => (null, ""),
+                };
+                if (column == null || !done.Add((op.Name, column))) continue;
+                var blockers = DbDataBuild.Sql.Analysis.SliceAnalyzer.Analyze(body, column);
+                if (blockers.Count == 0) continue;
+                yield return new Diagnostic(DiagnosticCatalog.LoadSliceNotPushable, new(source.DefinitionFile, 0, 0),
+                    $"{def.Name} / {op.Name} {what} by `{column}`, which is applied to the finished query, but {string.Join("; and ", blockers.Select(b => b.Detail))}. " +
+                    "Every load therefore does the work for the whole history and keeps only the slice.",
+                    Fix: "Slice by a grouping or partition column, or use a strategy that does not slice the finished result (for example filter the source inside the query yourself and use full_replace or a key-based load). Silence this with `lint_ignore: [DDB-225]` if the cost is acceptable.");
+            }
     }
 }
 

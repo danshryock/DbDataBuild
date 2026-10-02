@@ -125,6 +125,10 @@ public static class DiagnosticCatalog
         "an index whose first column is the load's watermark, time or range column, or (for a key) a unique one",
         "Declare the index shown, or silence the advice with `lint_ignore: [DDB-224]` in the model (or `lint: { indexes: false }` in dbdatabuild.yml).",
         "Loads that read MAX(watermark column) or delete a time range, and key loads whose key is indexed but not declared unique, are served better by an index that leads with that column. Nothing is created for you; this is advice only.");
+    public static readonly DiagnosticDescriptor LoadSliceNotPushable = W("225", "A load's slice cannot be applied below part of the query",
+        "a slice column that is a plain column of the query, a grouping key of its aggregate, and the partition key of its windows, in a query without LIMIT or DISTINCT ON",
+        "Slice by a column that is a grouping or partition key, or choose a strategy that does not slice the finished result (for example filter the source inside the query yourself and reload with full_replace or a key-based load). If the cost is acceptable, silence it with `lint_ignore: [DDB-225]` in the model (or `lint: { slices: false }` in dbdatabuild.yml).",
+        "`watermark_append` and `delete_insert_by_range` select from the finished query where the slice column is at or after the start: SELECT ... FROM (<your query>) WHERE slice_column >= @watermark. That is always correct, and it is cheap when the engine can apply the filter before the expensive part of the query. It cannot when the column is the result of an aggregate or a window function, when a window is not partitioned by it, or when the query has a LIMIT or DISTINCT ON (applying it early would change the rows), so every load does the work for the whole history and keeps a few rows. The tool does not rewrite your query to avoid this; it tells you, so you can pick a different column or strategy, or accept the cost.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -343,7 +347,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,

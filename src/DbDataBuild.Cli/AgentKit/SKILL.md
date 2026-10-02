@@ -33,11 +33,11 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 ## The loop for a model change
 
 1. Edit `models/<schema>/<name>.sql` (and `.yml`). The model name is the path: `models/marts/fct_orders.sql` is `marts.fct_orders`.
-2. `validate` until it is clean. Read warnings too: DDB-302 (approximated on an engine), DDB-304 (unverified, Fabric), DDB-223 (a key-based load has no index on its key).
+2. `validate` until it is clean. Read warnings too: DDB-302 (approximated on an engine), DDB-304 (unverified, Fabric), DDB-223 (a key-based load has no index on its key), DDB-225 (a load slices by a column the engine cannot filter early: an aggregate or window output, a LIMIT). DDB-225 is advice about cost: tell the person and let them choose another column or strategy; do not rewrite their query to make it go away, and do not silence it yourself.
 3. `sample <model>` and look at the rows. This is the fastest way to check logic; it runs in DuckDB only.
 4. `define --check`; if the declared columns are out of sync (DDB-420), `define --write` with answers, or edit the `columns:` by hand.
 5. `render --write`, then commit `rendered/`.
-6. `plan --format json`. If it has `open_questions`, stop and ask. Otherwise give the person the plan path and a summary of the steps (`data.plan.steps`: type, risk, description). Risky and destructive steps need their own flags at apply time, and that is the person's call.
+6. `plan --format json`. If it has `open_questions`, stop and ask (a parameter of a reload or backfill can be given as `--param model.operation.parameter=value` once the person has chosen the value). Otherwise give the person the plan path and a summary of the steps (`data.plan.steps`: type, risk, description). Risky and destructive steps need their own flags at apply time, and that is the person's call.
 
 ## Writing a model
 

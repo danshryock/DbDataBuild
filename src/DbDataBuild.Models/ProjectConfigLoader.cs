@@ -52,17 +52,17 @@ public static class ProjectConfigLoader
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top), ReadMetadata(top), ReadLowering(top), ReadLintIndexes(top));
+            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"));
         }
 
-        private bool ReadLintIndexes(YamlMapping top)
+        private bool ReadLint(YamlMapping top, string key)
         {
             if (top.Get("lint") is not { } node) return true;
-            if (node is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, node, "`lint` must be a mapping."); return true; }
-            CheckKeys(m, ["indexes"], "`lint`");
-            if (m.Get("indexes") is not { } v) return true;
+            if (node is not YamlMapping m) { if (key == "indexes") Add(DiagnosticCatalog.InvalidValue, node, "`lint` must be a mapping."); return true; }
+            if (key == "indexes") CheckKeys(m, ["indexes", "slices"], "`lint`");
+            if (m.Get(key) is not { } v) return true;
             if (v is YamlScalar s && s.Value is "true" or "false") return s.Value == "true";
-            Add(DiagnosticCatalog.InvalidValue, v, "`lint.indexes` must be true or false (lowercase).");
+            Add(DiagnosticCatalog.InvalidValue, v, $"`lint.{key}` must be true or false (lowercase).");
             return true;
         }
 
