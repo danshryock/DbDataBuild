@@ -13,4 +13,4 @@ for pair in linux-x64:libpolyglot_sql_ffi.so win-x64:polyglot_sql_ffi.dll; do
   cp "$ROOT/native/$rid/$lib" "$STAGE/$rid-$lib"
 done
 ( cd "$STAGE" && sha256sum * > SHA256SUMS && cat SHA256SUMS )
-gh release create "$TAG" "$STAGE"/* --repo "$REPO" --title "polyglot-sql-ffi @ ${PIN:0:8}" --notes "Prebuilt polyglot-sql-ffi (tobilg/polyglot @ $PIN, features: function-catalog-duckdb, profile ffi_release) for scripts/fetch-native.sh. linux-x64 needs glibc 2.34 or newer; win-x64 is a MinGW build that imports only Windows system DLLs. MIT licensed (see THIRD-PARTY-NOTICES.md)."
+gh release create "$TAG" "$STAGE"/* --repo "$REPO" --latest=false --title "polyglot-sql-ffi @ ${PIN:0:8}" --notes "Prebuilt polyglot-sql-ffi (tobilg/polyglot @ $PIN, features: function-catalog-duckdb, profile ffi_release) for scripts/fetch-native.sh. linux-x64 needs glibc 2.34 or newer; win-x64 is a MinGW build that imports only Windows system DLLs. MIT licensed (see THIRD-PARTY-NOTICES.md)."
