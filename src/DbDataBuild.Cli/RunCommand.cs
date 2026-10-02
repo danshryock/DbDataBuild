@@ -26,7 +26,7 @@ internal static class RunCommand
         if (notLoads.Count > 0) reasons.Add($"{notLoads.Count} step(s) that are not routine loads ({string.Join("; ", notLoads.Take(3).Select(s => $"{s.Type.ToString().ToLowerInvariant()}: {s.Description}"))}{(notLoads.Count > 3 ? "; ..." : "")})");
         if (reasons.Count > 0)
         {
-            foreach (var d in result.Blocks.Concat(result.Skipped)) error.Write(DiagnosticFormatter.Format(d));
+            foreach (var d in result.Blocks.Concat(result.Skipped)) error.Diag(d);
             output.WriteLine($"`{ProductInfo.Cli} {spec.Name}` only runs routine loads, and this is not one: {string.Join("; ", reasons)}.");
             output.WriteLine($"Nothing was executed. Use `{ProductInfo.Cli} plan` to review and decide, then `{ProductInfo.Cli} apply`.");
             return CliApp.ExitFindings;

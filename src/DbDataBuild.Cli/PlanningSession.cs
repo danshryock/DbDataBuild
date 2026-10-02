@@ -70,8 +70,10 @@ internal sealed class PlanningSession
 
         var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.Payload("effect", spec.Effect.Describe());
+        output.Payload("login", login?.Describe());
         output.WriteLine($"Effective: {ctx.Config.Describe()}");
-        if (missing != null) { error.Write(DiagnosticFormatter.Format(missing)); return (null, CliApp.ExitFindings); }
+        if (missing != null) { error.Diag(missing); return (null, CliApp.ExitFindings); }
 
         var selected = ctx.Select(models, error);
         if (selected == null) return (null, CliApp.ExitUsage);
@@ -102,11 +104,11 @@ internal sealed class PlanningSession
             }
         }
         var distinct = findings.DistinctBy(d => (d.Code, d.Location, d.Found)).ToList();
-        foreach (var d in distinct.Where(d => d.Severity != Severity.Error)) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in distinct.Where(d => d.Severity != Severity.Error)) error.Diag(d);
         var errors = distinct.Where(d => d.Severity == Severity.Error).ToList();
         if (errors.Count > 0)
         {
-            foreach (var d in errors) error.WriteLine(DiagnosticFormatter.Format(d));
+            foreach (var d in errors) error.Diag(d);
             output.WriteLine($"Nothing was planned: {errors.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} validate`, `{ProductInfo.Cli} define --check`, `{ProductInfo.Cli} render --check` show them).");
             return (null, CliApp.ExitFindings);
         }
@@ -142,7 +144,7 @@ internal sealed class PlanningSession
         }
         catch (GateRefusedException ex)
         {
-            error.Write(DiagnosticFormatter.Format(ex.Diagnostic));
+            error.Diag(ex.Diagnostic);
             return (null, CliApp.ExitFindings);
         }
 

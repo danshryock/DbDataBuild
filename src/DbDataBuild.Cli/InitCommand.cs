@@ -17,7 +17,7 @@ internal static class InitCommand
     {
         var diags = new List<Diagnostic>();
         var config = ProjectConfigLoader.LoadFromProject(projectRoot, diags);
-        foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (diags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
         var target = CommandTargets.Resolve(config, targetArg, error);
@@ -30,7 +30,7 @@ internal static class InitCommand
             if (missing != null)
             {
                 output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: none");
-                error.Write(DiagnosticFormatter.Format(missing));
+                error.Diag(missing);
                 return CliApp.ExitFindings;
             }
             write = settings;
@@ -42,6 +42,12 @@ internal static class InitCommand
         output.WriteLine($"Tracking schema: {config.TrackingSchema}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
+        output.Payload("target", target);
+        output.Payload("tracking_schema", config.TrackingSchema);
+        output.Payload("layout_version", DbDataBuild.State.TrackingSchema.Version);
+        output.Payload("unverified", ddl.Unverified);
+        output.Payload("applied", apply);
+        output.Payload("statements", script.Select(s => new { id = s.Id, description = s.Description, text = s.Text }).ToList());
         if (!apply)
         {
             output.WriteLine();
@@ -61,7 +67,7 @@ internal static class InitCommand
         }
         catch (GateRefusedException ex)
         {
-            error.Write(DiagnosticFormatter.Format(ex.Diagnostic));
+            error.Diag(ex.Diagnostic);
             return CliApp.ExitFindings;
         }
         output.WriteLine($"Applied {script.Count} statements. The tracking tables are ready.");

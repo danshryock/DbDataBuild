@@ -22,7 +22,7 @@ internal static class ReportCommand
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
         var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
-        if (missing != null) { error.Write(DiagnosticFormatter.Format(missing)); return CliApp.ExitFindings; }
+        if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var schema = config.TrackingSchema;
         var ddl = TrackingDdl.For(target);
@@ -34,13 +34,14 @@ internal static class ReportCommand
         {
             await using var read = await ReadSession.OpenAsync(login!);
             var status = await TrackingStore.StatusAsync(read, target, schema);
-            if (status.AsDiagnostic(schema) is { } notReady) { error.Write(DiagnosticFormatter.Format(notReady)); return CliApp.ExitFindings; }
+            if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             string Cell(object? v) => v switch { null => "", DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), string s => s.Trim(), _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" };
             string Short(object? v) => Cell(v) is { Length: > 12 } s ? s[..12] : Cell(v);
-            void Table(string title, string[] header, IEnumerable<string[]> rows)
+            void Table(string key, string title, string[] header, IEnumerable<string[]> rows)
             {
                 var list = rows.ToList();
+                output.Payload(key, list.Select(r => header.Zip(r).ToDictionary(p => System.Text.RegularExpressions.Regex.Replace(p.First.ToLowerInvariant(), "[^a-z0-9]+", "_").Trim('_'), p => p.Second)).ToList());
                 output.WriteLine();
                 output.WriteLine($"{title} ({list.Count})");
                 if (list.Count == 0) { output.WriteLine("  none"); return; }
@@ -50,13 +51,13 @@ internal static class ReportCommand
             }
 
             var migrations = await read.QueryAsync(Top($"{C("applied_utc")}, {C("plan_id")}, {C("status")}, {C("applied_by")}, {C("git_commit")}", T("migration_log"), $"{C("applied_utc")} DESC"));
-            Table("Applied plans (newest first)", ["when (UTC)", "plan", "status", "by", "commit"], migrations.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
+            Table("applied_plans", "Applied plans (newest first)", ["when (UTC)", "plan", "status", "by", "commit"], migrations.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
 
             var ddlRows = await read.QueryAsync(Top($"{C("executed_utc")}, {C("object_name")}, {C("status")}, {C("plan_id")}, {C("statement_hash")}", T("ddl_log"), $"{C("executed_utc")} DESC"));
-            Table("DDL (newest first)", ["when (UTC)", "object", "status", "plan", "statement"], ddlRows.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
+            Table("ddl", "DDL (newest first)", ["when (UTC)", "object", "status", "plan", "statement"], ddlRows.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
 
             var runs = await read.QueryAsync(Top($"{C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("plan_id")}", T("run_log"), $"{C("started_utc")} DESC"));
-            Table("Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
+            Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
 
             var versions = await read.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} GROUP BY {C("object_name")} ORDER BY {C("object_name")}");
             var recorded = await TrackingStore.LatestShapeHashesAsync(read, target, schema);
@@ -64,7 +65,7 @@ internal static class ReportCommand
             var live = new Dictionary<string, ObjectShape>();
             foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, target, s)) live[k] = v;
             var drifted = new List<string>();
-            Table("Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
+            Table("objects", "Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
             {
                 var name = Cell(r[0]);
                 var state = Drift.Classify(live.GetValueOrDefault(name), recorded.GetValueOrDefault(name));
@@ -75,6 +76,7 @@ internal static class ReportCommand
             // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----
             var (history, unreadable) = await HistoryReader.ReadAsync(read, target, schema);
             output.WriteLine();
+            output.Payload("column_history", history.Select(h => new { model = h.Model, column = h.Column, decision = h.Disposition, text = h.Text, needs_attention = h.NeedsAttention, acknowledgement = h.Acknowledgement == null ? null : new { by = h.Acknowledgement.By, reason = h.Acknowledgement.Reason, utc = h.Acknowledgement.Utc } }).ToList());
             output.WriteLine($"Column history ({history.Count})");
             if (history.Count == 0) output.WriteLine("  none: no applied plan added a column");
             foreach (var h in history) output.WriteLine($"  - {h.Text}");
@@ -90,6 +92,8 @@ internal static class ReportCommand
                 open.Add($"load of {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
             foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} ack drift {d} --reason ...`, or restore it)");
             output.WriteLine();
+            output.Payload("needs_attention", open);
+            output.Payload("target", target);
             output.WriteLine($"Needs attention ({open.Count})");
             foreach (var o in open) output.WriteLine("  - " + o);
             if (open.Count == 0) output.WriteLine("  nothing");

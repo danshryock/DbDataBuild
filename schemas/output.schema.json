@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output.schema.json",
+  "title": "DbDataBuild command output (--format json)",
+  "description": "The one JSON document a command writes to standard output with `--format json`. `data` holds what the command found or did (its keys are documented in docs/progress and covered by tests); `diagnostics` are the structured form of what text mode prints on standard error; `messages` and `errors` keep the human text so nothing is lost. Exit codes are the same as in text mode: 0 ok, 1 findings, 2 usage, 3 not implemented, 70 internal error.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "command", "tool_version", "exit_code", "ok", "data", "diagnostics", "messages", "errors"],
+  "properties": {
+    "schema": { "const": "dbdatabuild.output/1" },
+    "command": { "type": "string" },
+    "tool_version": { "type": "string" },
+    "exit_code": { "enum": [0, 1, 2, 3, 70] },
+    "ok": { "type": "boolean" },
+    "data": { "type": "object" },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "title", "location", "found", "supported", "fix"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^DDB-[1-59][0-9][0-9]$" },
+          "severity": { "enum": ["error", "warning", "note"] },
+          "title": { "type": "string" },
+          "location": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "line", "column"],
+            "properties": { "file": { "type": "string" }, "line": { "type": "integer", "minimum": 0 }, "column": { "type": "integer", "minimum": 0 } }
+          },
+          "found": { "type": "string" },
+          "supported": { "type": "string" },
+          "fix": { "type": "string" }
+        }
+      }
+    },
+    "messages": { "type": "array", "items": { "type": "string" } },
+    "errors": { "type": "array", "items": { "type": "string" } }
+  }
+}

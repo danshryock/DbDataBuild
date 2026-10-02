@@ -21,19 +21,23 @@ internal static class ApplyCommand
         var plan = PlanDocument.Parse(planText, Path.GetFileName(planPath), diags);
         if (plan == null)
         {
-            foreach (var d in diags) error.Write(DiagnosticFormatter.Format(d));
+            foreach (var d in diags) error.Diag(d);
             return CliApp.ExitFindings;
         }
 
         var configDiags = new List<Diagnostic>();
         var config = ProjectConfigLoader.LoadFromProject(root, configDiags);
-        foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Write(DiagnosticFormatter.Format(d));
+        foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (configDiags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
         var (read, readMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Write, env);
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  target: {plan.Target}  |  login: {logins}");
+        output.Payload("effect", spec.Effect.Describe());
+        output.Payload("target", plan.Target);
+        output.Payload("dry_run", dryRun);
+        output.Payload("plan_id", plan.Id);
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
@@ -44,13 +48,13 @@ internal static class ApplyCommand
         if (dirty && !allowDirty)
         {
             var dirtyDiag = new Diagnostic(DiagnosticCatalog.DirtyWorkingTree, new("git", 0, 0), $"The working tree at `{root}` has uncommitted changes (commit {commit?[..Math.Min(12, commit.Length)]}).");
-            if (dryRun) error.Write(DiagnosticFormatter.Format(dirtyDiag with { SeverityOverride = Severity.Warning })); else offline.Add(dirtyDiag);
+            if (dryRun) error.Diag(dirtyDiag with { SeverityOverride = Severity.Warning }); else offline.Add(dirtyDiag);
         }
         if (readMissing != null) offline.Add(readMissing);
         if (!dryRun && writeMissing != null) offline.Add(writeMissing);
         if (offline.Count > 0)
         {
-            foreach (var d in offline) error.Write(DiagnosticFormatter.Format(d));
+            foreach (var d in offline) error.Diag(d);
             output.WriteLine("Nothing was executed.");
             return CliApp.ExitFindings;
         }
@@ -73,7 +77,11 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
-        foreach (var d in result.Refusals) error.Write(DiagnosticFormatter.Format(d));
+        output.Payload("outcomes", result.Outcomes.Select(o => new { step = o.StepId, description = o.Description, status = o.Status, detail = o.Detail }).ToList());
+        output.Payload("statement_log", logPath?.Replace('\\', '/'));
+        output.Payload("success", result.Success);
+        if (dryRun) output.Payload("statements", plan.Steps.Where(s => s.Type != StepType.Track).Select(s => new { step = s.Id, type = s.Type, risk = s.Risk, text = s.Text, parameters = s.Parameters }).ToList());
+        foreach (var d in result.Refusals) error.Diag(d);
         output.WriteLine();
         foreach (var o in result.Outcomes) output.WriteLine($"  step {o.StepId}: {o.Status}{(o.Detail != null && o.Status != "ok" ? " (" + o.Detail + ")" : "")}  {o.Description}");
         if (result.Success)

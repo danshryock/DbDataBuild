@@ -39,6 +39,7 @@ public static class CommandSpecs
         new("loads", EffectClass.OfflineOnly, "Print the model x target x operation pairing table", true),
         new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
+        new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),
         new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),
         new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", true),

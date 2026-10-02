@@ -14,10 +14,10 @@ public static class CliApp
     /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
     /// <param name="environment">Where logins are read from (connection strings in environment variables). Defaults to the process environment.</param>
     public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
-        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }));
+        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }), output);
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
-    public static int Guarded(string[] args, TextWriter error, Func<int> body)
+    public static int Guarded(string[] args, TextWriter error, Func<int> body, TextWriter? output = null)
     {
         try
         {
@@ -26,8 +26,10 @@ public static class CliApp
         catch (Exception ex)
         {
             // Never a stack trace as primary output (DESIGN.md 14.2). Full detail would go to a scrubbed log file.
-            error.Write(DiagnosticFormatter.Format(new Diagnostic(DiagnosticCatalog.InternalError, new("<internal>", 0, 0),
-                $"The tool failed with {ex.GetType().Name} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.")));
+            var text = $"The tool failed with {ex.GetType().Name} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.";
+            var json = output != null && (args.Zip(args.Skip(1)).Any(p => p is ("--format", "json")) || args.Contains("--format=json"));
+            if (json) output!.WriteLine(CommandReport.InternalError(args.FirstOrDefault(a => !a.StartsWith('-')) ?? "", text));
+            else error.Diag(new Diagnostic(DiagnosticCatalog.InternalError, new("<internal>", 0, 0), text));
             return ExitInternal;
         }
     }
@@ -35,6 +37,16 @@ public static class CliApp
     public static RootCommand Build(TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?>? environment = null)
     {
         var root = new RootCommand($"{ProductInfo.Name}: explicit SQL transformation tool. Every command declares an effect class.");
+        var format = new Option<string>("--format") { Description = "text (default) or json: one JSON document on standard output with the data, the diagnostics and the human text", Recursive = true, DefaultValueFactory = _ => "text" };
+        format.AcceptOnlyFromAmong("text", "json");
+        root.Options.Add(format);
+
+        // every command's work runs against a report: text goes where it always did, or into one JSON document
+        int Reported(ParseResult pr, CommandSpec spec, Func<TextWriter, TextWriter, int> body)
+        {
+            var report = CommandReport.Create(pr.GetValue(format) == "json", spec.Name, output, error);
+            return report.Finish(body(report.Output, report.Error));
+        }
 
         foreach (var spec in CommandSpecs.All)
         {
@@ -44,7 +56,7 @@ public static class CliApp
                 case "validate":
                     var project = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Options.Add(project);
-                    cmd.SetAction(pr => Validate(spec, pr.GetValue(project)!.FullName, output, error));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Validate(spec, pr.GetValue(project)!.FullName, o, e)));
                     break;
                 case "define":
                     var paths = new Argument<string[]>("paths") { Description = "Model .sql or .yml files, or directories under models/ (default: every model)", Arity = ArgumentArity.ZeroOrMore };
@@ -55,7 +67,7 @@ public static class CliApp
                     var accept = new Option<bool>("--accept-inferred") { Description = "Accept inferred proposals marked high certainty (names from paths, types from DuckDB, nullability from lineage)" };
                     cmd.Arguments.Add(paths);
                     cmd.Options.Add(defineProject); cmd.Options.Add(answers); cmd.Options.Add(write); cmd.Options.Add(check); cmd.Options.Add(accept);
-                    cmd.SetAction(pr => DefineCommand.Run(spec, pr.GetValue(defineProject)!.FullName, pr.GetValue(paths) ?? [], pr.GetValue(answers), pr.GetValue(write), pr.GetValue(check), pr.GetValue(accept), output, error, input, interactive));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => DefineCommand.Run(spec, pr.GetValue(defineProject)!.FullName, pr.GetValue(paths) ?? [], pr.GetValue(answers), pr.GetValue(write), pr.GetValue(check), pr.GetValue(accept), o, e, input, interactive && !o.IsJson())));
                     break;
                 case "render":
                     var renderModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
@@ -65,19 +77,19 @@ public static class CliApp
                     var renderCheck = new Option<bool>("--check") { Description = "CI: fail if the committed rendered/ files differ from a fresh render; writes nothing" };
                     cmd.Arguments.Add(renderModels);
                     cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
-                    cmd.SetAction(pr => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), output, error));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), o, e)));
                     break;
                 case "loads":
                     var loadsProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Options.Add(loadsProject);
-                    cmd.SetAction(pr => RenderCommand.Loads(spec, pr.GetValue(loadsProject)!.FullName, output, error));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Loads(spec, pr.GetValue(loadsProject)!.FullName, o, e)));
                     break;
                 case "init":
                     var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var initTarget = new Option<string?>("--target") { Description = "Target to initialize (default: the project's only default target)" };
                     var initApply = new Option<bool>("--apply") { Description = "Run the script on the write login (default: print it for review and connect to nothing)" };
                     cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply);
-                    cmd.SetAction(pr => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "plan":
                     var planModels = new Argument<string[]>("models") { Description = "Model names, files or directories to plan (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
@@ -91,8 +103,8 @@ public static class CliApp
                     cmd.Options.Add(planOp); cmd.Options.Add(planBackfill);
                     cmd.Arguments.Add(planModels);
                     cmd.Options.Add(planProject); cmd.Options.Add(planTarget); cmd.Options.Add(planAnswers); cmd.Options.Add(planAccept); cmd.Options.Add(planOut);
-                    cmd.SetAction(pr => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut), pr.GetValue(planOp) ?? [], pr.GetValue(planBackfill) ?? [],
-                        output, error, input, interactive, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut), pr.GetValue(planOp) ?? [], pr.GetValue(planBackfill) ?? [],
+                        o, e, input, interactive && !o.IsJson(), environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "check":
                     var checkModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
@@ -100,7 +112,7 @@ public static class CliApp
                     var checkTarget = new Option<string?>("--target") { Description = "Target to check (default: the project's only default target)" };
                     cmd.Arguments.Add(checkModels);
                     cmd.Options.Add(checkProject); cmd.Options.Add(checkTarget);
-                    cmd.SetAction(pr => PlanCommand.Check(spec, pr.GetValue(checkProject)!.FullName, pr.GetValue(checkTarget), pr.GetValue(checkModels) ?? [], output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Check(spec, pr.GetValue(checkProject)!.FullName, pr.GetValue(checkTarget), pr.GetValue(checkModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "apply":
                     var applyPlan = new Argument<FileInfo>("plan") { Description = "Plan file written by `plan` (plans/<target>/<id>.plan.yml)" };
@@ -112,8 +124,8 @@ public static class CliApp
                     var applyDirty = new Option<bool>("--allow-dirty") { Description = "Apply from a working tree with uncommitted changes (recorded)" };
                     cmd.Arguments.Add(applyPlan);
                     cmd.Options.Add(applyProject); cmd.Options.Add(applyDry); cmd.Options.Add(applyRisky); cmd.Options.Add(applyDestructive); cmd.Options.Add(applyResume); cmd.Options.Add(applyDirty);
-                    cmd.SetAction(pr => ApplyCommand.Run(spec, pr.GetValue(applyPlan)!.FullName, pr.GetValue(applyProject)!.FullName, pr.GetValue(applyDry), pr.GetValue(applyRisky), pr.GetValue(applyDestructive) ?? [],
-                        pr.GetValue(applyResume), pr.GetValue(applyDirty), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ApplyCommand.Run(spec, pr.GetValue(applyPlan)!.FullName, pr.GetValue(applyProject)!.FullName, pr.GetValue(applyDry), pr.GetValue(applyRisky), pr.GetValue(applyDestructive) ?? [],
+                        pr.GetValue(applyResume), pr.GetValue(applyDirty), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "ack":
                     var ackKind = new Argument<string>("kind") { Description = "drift (an object changed outside the tool), definition (an incremental model's query changed), or history (a recorded backfill that never happened; name is model.column)" };
@@ -123,7 +135,7 @@ public static class CliApp
                     var ackProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Arguments.Add(ackKind); cmd.Arguments.Add(ackName);
                     cmd.Options.Add(ackReason); cmd.Options.Add(ackTarget); cmd.Options.Add(ackProject);
-                    cmd.SetAction(pr => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "run":
                     var runModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
@@ -132,22 +144,28 @@ public static class CliApp
                     var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
                     cmd.Arguments.Add(runModels);
                     cmd.Options.Add(runProject); cmd.Options.Add(runTarget); cmd.Options.Add(runDirty);
-                    cmd.SetAction(pr => RunCommand.Run(spec, pr.GetValue(runProject)!.FullName, pr.GetValue(runTarget), pr.GetValue(runModels) ?? [], pr.GetValue(runDirty), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RunCommand.Run(spec, pr.GetValue(runProject)!.FullName, pr.GetValue(runTarget), pr.GetValue(runModels) ?? [], pr.GetValue(runDirty), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "report":
                     var reportProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var reportTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
                     var reportLast = new Option<int>("--last") { Description = "How many recent rows of each history to show", DefaultValueFactory = _ => 10 };
                     cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
-                    cmd.SetAction(pr => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), output, error, environment ?? Environment.GetEnvironmentVariable));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
+                case "metadata":
+                    var metaModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var metaProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    cmd.Arguments.Add(metaModels); cmd.Options.Add(metaProject);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => MetadataCommand.Run(spec, pr.GetValue(metaProject)!.FullName, pr.GetValue(metaModels) ?? [], o, e)));
                     break;
                 case "matrix":
-                    cmd.SetAction(_ => PrintMatrix(spec, output, error));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PrintMatrix(spec, o, e)));
                     break;
                 case "explain":
                     var code = new Argument<string>("code") { Description = "Diagnostic code, e.g. DDB-214" };
                     cmd.Arguments.Add(code);
-                    cmd.SetAction(pr => Explain(spec, pr.GetValue(code)!, output, error));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Explain(spec, pr.GetValue(code)!, o, e)));
                     break;
                 default:
                     cmd.SetAction(_ =>
@@ -179,11 +197,19 @@ public static class CliApp
         output.WriteLine($"Effective: {config.Describe()}");
         diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot));
 
-        foreach (var d in diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in diagnostics) error.Diag(d);
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);
         var warnings = diagnostics.Count(d => d.Severity == Severity.Warning);
         var notes = diagnostics.Count(d => d.Severity == Severity.Note);
         var tail = $"{warnings} warning(s), {notes} note(s).";
+        output.Payload("counts", new { models = result.Sources.Count, errors, warnings, notes });
+        output.Payload("config", new { file = configured ? ProductInfo.ConfigFile : null, effective = config.Describe() });
+        if (output.IsJson() && errors == 0)
+        {
+            var ctx = ProjectContext.Load(projectRoot);
+            output.Payload("project", MetadataBuilder.Project(ctx));
+            output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(projectRoot, s.QueryFile)))).ToList());
+        }
         output.WriteLine(errors == 0
             ? $"OK: {result.Sources.Count} model(s) valid. {tail}"
             : $"FAILED: {errors} error(s), {tail}");
@@ -197,7 +223,7 @@ public static class CliApp
         var matrix = MatrixLoader.LoadEmbedded(diags);
         if (diags.Count > 0)
         {
-            foreach (var d in diags) error.WriteLine(DiagnosticFormatter.Format(d));
+            foreach (var d in diags) error.Diag(d);
             return ExitFindings;
         }
         output.WriteLine($"{"construct",-26} {"sqlserver",-13} {"fabric",-13} {"postgres",-13}");
@@ -208,6 +234,13 @@ public static class CliApp
             foreach (var t in SupportMatrix.Targets.Where(t => row.Targets[t].Note is { Length: > 0 }))
                 output.WriteLine($"    {t}: {row.Targets[t].Note}");
         }
+        output.Payload("version", MatrixLoader.EmbeddedVersion());
+        output.Payload("constructs", matrix.Rows.Select(r => new
+        {
+            id = r.Id,
+            targets = r.Targets.ToDictionary(t => t.Key, t => new { status = t.Value.Status.ToString().ToLowerInvariant(), min_version = t.Value.MinVersion, note = t.Value.Note }),
+        }).ToList());
+        output.Payload("covered_entries", matrix.Covered.Count);
         output.WriteLine($"\n{matrix.Rows.Count} construct row(s); {matrix.Covered.Count} verified node/function/type entries (anything else is reported as DDB-305).");
         return ExitOk;
     }
@@ -220,6 +253,7 @@ public static class CliApp
             error.WriteLine($"Unknown diagnostic code `{code}`. Known codes: {string.Join(", ", DiagnosticCatalog.All.Select(x => x.Code))}.");
             return ExitUsage;
         }
+        output.Payload("code", new { code = d.Code, title = d.Title, default_severity = d.DefaultSeverity.ToString().ToLowerInvariant(), supported = d.Supported, fix = d.Fix, explanation = d.Explanation });
         output.Write(DiagnosticFormatter.Explain(d));
         return ExitOk;
     }

@@ -599,4 +599,68 @@ public partial class ApplyConformanceTests
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task The_database_commands_speak_json_with_their_data(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            System.Text.Json.Nodes.JsonNode Json((int Exit, string Out, string Err) r, int expectedExit = 0)
+            {
+                Assert.Equal(expectedExit, r.Exit);
+                var doc = System.Text.Json.Nodes.JsonNode.Parse(r.Out)!;                            // standard output is exactly one document
+                Assert.Equal("dbdatabuild.output/1", (string?)doc["schema"]);
+                Assert.Equal(r.Exit, (int)doc["exit_code"]!);
+                Assert.Equal("", r.Err);
+                return doc;
+            }
+            var init = Json(run.Cli("init", "--apply", "--format", "json"));
+            Assert.True((bool)init["data"]!["applied"]!);
+            Json(run.Cli("render", "--write", "--format", "json"));
+
+            var check = Json(run.Cli("check", "--format", "json"));
+            Assert.Equal(["missing", "missing"], check["data"]!["objects"]!.AsArray().Select(o => (string)o!["state"]!).ToArray());
+            Assert.Equal(4, (int)check["data"]!["preview"]!["steps"]!);
+
+            // JSON mode never prompts: an open question is data, with its options, and the exit code says findings
+            run.Write("models/marts/fct_orders.yml", FctYaml);
+            var plan = Json(run.Cli("plan", "--format", "json"));
+            Assert.Equal(4, plan["data"]!["plan"]!["steps"]!.AsArray().Count);
+            Assert.Equal("ddl", (string?)plan["data"]!["plan"]!["steps"]![0]!["type"]);
+            Assert.Equal("obj.missing.table", (string?)plan["data"]!["plan"]!["steps"]![1]!["reasons"]![0]);
+            var planFile = Path.Combine(run.Dir, (string)plan["data"]!["files"]!["plan"]!);
+            Assert.True(File.Exists(planFile));
+
+            var dry = Json(run.Cli("apply", planFile, "--dry-run", "--format", "json"));
+            Assert.True((bool)dry["data"]!["dry_run"]!);
+            Assert.Contains("CREATE TABLE", (string)dry["data"]!["statements"]![1]!["text"]!);
+
+            var applied = Json(run.Cli("apply", planFile, "--format", "json"));
+            Assert.True((bool)applied["data"]!["success"]!);
+            Assert.All(applied["data"]!["outcomes"]!.AsArray(), o => Assert.Equal("ok", (string?)o!["status"]));
+            Assert.EndsWith(".jsonl", (string)applied["data"]!["statement_log"]!);
+
+            var refused = Json(run.Cli("apply", planFile, "--format", "json"), expectedExit: 1);   // a plan is applied once
+            Assert.Equal("DDB-438", (string?)refused["diagnostics"]![0]!["code"]);
+
+            // a model change that needs an answer: an open question as data
+            run.Write("models/marts/fct_orders.yml", FctYaml2);
+            run.Write("models/marts/fct_orders.sql", FctSql2);
+            Json(run.Cli("render", "--write", "--format", "json"));
+            Json(run.Cli("ack", "definition", "marts.fct_orders", "--reason", "added a column", "--format", "json"));
+            var asked = Json(run.Cli("plan", "--format", "json"), expectedExit: 1);
+            var question = asked["data"]!["open_questions"]![0]!;
+            Assert.Equal("Q-history-marts.fct_orders.discount_code", (string?)question["id"]);
+            Assert.Equal(["not_backfilled", "backfill_later"], question["options"]!.AsArray().Select(o => (string)o!["key"]!).ToArray());
+            Assert.Contains(asked["diagnostics"]!.AsArray(), d => (string?)d!["code"] == "DDB-414");
+
+            var report = Json(run.Cli("report", "--format", "json"));
+            Assert.Equal("completed", (string?)report["data"]!["applied_plans"]![0]!["status"]);
+            Assert.Contains(report["data"]!["objects"]!.AsArray(), o => (string?)o!["object"] == "marts.fct_orders" && (string?)o["now"] == "in sync");
+            Assert.Empty(report["data"]!["needs_attention"]!.AsArray());
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 }

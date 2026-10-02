@@ -29,7 +29,7 @@ internal static class PlanCommand
             file = AnswerFileLoader.Load(File.ReadAllText(answersFile.FullName), answersFile.Name, fileDiags);
             if (file == null)
             {
-                foreach (var d in fileDiags) error.Write(DiagnosticFormatter.Format(d));
+                foreach (var d in fileDiags) error.Diag(d);
                 return CliApp.ExitFindings;
             }
         }
@@ -56,9 +56,10 @@ internal static class PlanCommand
             if (++round > MaxRounds) throw new InvalidOperationException("Planning did not settle: questions keep changing between rounds. This is a tool bug.");
             var fresh = result.Questions.Where(q => !answers.Any(a => a.QuestionId == q.Id)).ToList();
             var resolution = QuestionResolver.Resolve(fresh, file, answersPath, prompter, new ResolveOptions(acceptInferred, WarnOnUnknownAnswers: false));
-            foreach (var d in resolution.Diagnostics) error.Write(DiagnosticFormatter.Format(d));
+            foreach (var d in resolution.Diagnostics) error.Diag(d);
             if (!resolution.Complete)
             {
+                output.Payload("open_questions", resolution.Unanswered.Select(QuestionJson).ToList());
                 output.WriteLine($"Nothing was planned: {resolution.Unanswered.Count} question(s) are open.");
                 return CliApp.ExitFindings;
             }
@@ -67,10 +68,10 @@ internal static class PlanCommand
         }
         if (file != null)
             foreach (var a in file.Answers.Where(a => !result.UsedAnswers.Any(u => u.QuestionId == a.QuestionId)))
-                error.Write(DiagnosticFormatter.Format(new Diagnostic(DiagnosticCatalog.AnswerForUnknownQuestion, a.Location, $"The answers file has an answer for `{a.QuestionId}`, which was not asked in this run.")));
+                error.Diag(new Diagnostic(DiagnosticCatalog.AnswerForUnknownQuestion, a.Location, $"The answers file has an answer for `{a.QuestionId}`, which was not asked in this run."));
 
-        foreach (var d in result.Skipped) error.Write(DiagnosticFormatter.Format(d));
-        foreach (var d in result.Blocks) error.Write(DiagnosticFormatter.Format(d));
+        foreach (var d in result.Skipped) error.Diag(d);
+        foreach (var d in result.Blocks) error.Diag(d);
 
         if (result.Steps.Count == 0)
         {
@@ -79,6 +80,13 @@ internal static class PlanCommand
                 : "Nothing to do: every model matches its target and no load applies.");
             return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
         }
+
+        output.Payload("target", session.Target);
+        output.Payload("questions_asked", asked.Count);
+        output.Payload("answers", result.UsedAnswers);
+        output.Payload("noticed", result.Noticed);
+        output.Payload("blocked", result.Blocks.Select(b => b.Code).ToList());
+        output.Payload("skipped", result.Skipped.Select(b => b.Code).ToList());
 
         // ---- build, write ----
         var (commit, dirty) = GitInfo.Read(root);
@@ -93,6 +101,8 @@ internal static class PlanCommand
 
         var risky = plan.Steps.Count(s => s.Risk == RiskClass.Risky);
         var destructive = plan.Steps.Count(s => s.Risk == RiskClass.Destructive);
+        output.Payload("plan", plan);
+        output.Payload("files", new { plan = Path.GetRelativePath(root, yamlPath).Replace('\\', '/'), report = Path.GetRelativePath(root, mdPath).Replace('\\', '/') });
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Backfill)} backfill, {plan.Steps.Count(s => s.Type == StepType.Hook)} hook, {plan.Steps.Count(s => s.Type == StepType.Track)} track); {risky} risky, {destructive} destructive.");
         output.WriteLine($"  report: {Path.GetRelativePath(root, mdPath)}");
         output.WriteLine($"  plan:   {Path.GetRelativePath(root, yamlPath)}");
@@ -121,7 +131,7 @@ internal static class PlanCommand
         var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env);
         if (session == null) return exit;
         var result = Planner.Plan(session.Input, []);
-        foreach (var d in result.Blocks.Concat(result.Skipped)) error.Write(DiagnosticFormatter.Format(d));
+        foreach (var d in result.Blocks.Concat(result.Skipped)) error.Diag(d);
 
         // the string profile, against what the catalog says (DESIGN.md 9.4)
         var liveCollation = new List<Diagnostic>();
@@ -129,7 +139,17 @@ internal static class PlanCommand
             if (session.Input.Live.TryGetValue(m.Definition.Name, out var shape))
                 liveCollation.AddRange(CollationChecker.CheckLive(session.Context.Config, session.Target, m.Definition,
                     shape.Columns.Where(c => c.Type is "nvarchar" or "varchar" or "character varying" or "char").Select(c => (c.Name, c.Collation))));
-        foreach (var d in liveCollation) error.Write(DiagnosticFormatter.Format(d));
+        foreach (var d in liveCollation) error.Diag(d);
+
+        var stepsNow = result.Steps;
+        output.Payload("target", session.Target);
+        output.Payload("objects", result.Bases.OrderBy(b => b.Object, StringComparer.Ordinal).Select(b => new { name = b.Object, state = b.State, live_shape_hash = b.LiveShapeHash, recorded_shape_hash = b.RecordedShapeHash }).ToList());
+        output.Payload("preview", new
+        {
+            steps = stepsNow.Count, risky = stepsNow.Count(s => s.Risk == RiskClass.Risky), destructive = stepsNow.Count(s => s.Risk == RiskClass.Destructive),
+            questions = result.Questions.Select(QuestionJson).ToList(), blocked = result.Blocks.Select(b => b.Code).ToList(), skipped = result.Skipped.Select(b => b.Code).ToList(),
+        });
+        output.Payload("noticed", result.Noticed);
 
         var width = Math.Max(6, result.Bases.Count == 0 ? 0 : result.Bases.Max(b => b.Object.Length));
         output.WriteLine($"{"object".PadRight(width)}  state");
@@ -140,6 +160,13 @@ internal static class PlanCommand
         output.WriteLine($"A plan now would have {steps.Count} step(s) ({steps.Count(s => s.Risk == RiskClass.Risky)} risky, {steps.Count(s => s.Risk == RiskClass.Destructive)} destructive) and ask {result.Questions.Count} question(s) first; {result.Blocks.Count} blocked, {result.Skipped.Count} skipped.");
         return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) ? CliApp.ExitFindings : CliApp.ExitOk;
     }
+
+    internal static object QuestionJson(Question q) => new
+    {
+        id = q.Id, prompt = q.Prompt, context = q.Context,
+        options = q.Options.Select(o => new { key = o.Key, description = o.Description, consequence = o.Consequence, takes_value = o.TakesValue, value_hint = o.ValueHint }).ToList(),
+        proposal = q.Proposal == null ? null : new { option = q.Proposal.OptionKey, value = q.Proposal.Value, certainty = q.Proposal.Certainty.ToString().ToLowerInvariant(), evidence = q.Proposal.Evidence },
+    };
 
     internal static void WriteAtomic(string path, string content)
     {

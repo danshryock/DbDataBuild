@@ -90,7 +90,7 @@ internal static class DefineCommand
         {
             var found = new List<Diagnostic>(shown);
             found.AddRange(engine.Check(targets));
-            foreach (var d in found) error.WriteLine(DiagnosticFormatter.Format(d));
+            foreach (var d in found) error.Diag(d);
             var errors = found.Count(d => d.Severity == Severity.Error);
             output.WriteLine(errors == 0
                 ? $"OK: {targets.Count} definition(s) in sync with their queries."
@@ -106,7 +106,7 @@ internal static class DefineCommand
             answers = AnswerFileLoader.Load(File.ReadAllText(answersFile.FullName), answersFile.Name, answerDiags);
             if (answers == null)
             {
-                foreach (var d in answerDiags) error.WriteLine(DiagnosticFormatter.Format(d));
+                foreach (var d in answerDiags) error.Diag(d);
                 return CliApp.ExitFindings;
             }
         }
@@ -114,7 +114,7 @@ internal static class DefineCommand
         // ---- ask and generate ----
         IPrompter? prompter = write ? null : new ConsolePrompter(input, output);
         var run = engine.Run(targets, answers, answersFile?.Name ?? QuestionResolver.NoAnswersFile, prompter, acceptInferred);
-        foreach (var d in shown.Concat(run.Diagnostics)) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in shown.Concat(run.Diagnostics)) error.Diag(d);
 
         foreach (var o in run.Outcomes)
         {
@@ -123,7 +123,7 @@ internal static class DefineCommand
             foreach (var note in o.Notes) output.WriteLine($"  {note}");
             foreach (var a in o.Answers.Where(a => a.Source == AnswerSource.AcceptedProposalByFlag))
                 output.WriteLine($"  accepted inferred (--accept-inferred): {a.QuestionId} = {a.Choice}{(a.Value != null ? " " + a.Value : "")}");
-            foreach (var d in o.Diagnostics) error.WriteLine(DiagnosticFormatter.Format(d));
+            foreach (var d in o.Diagnostics) error.Diag(d);
             if (o.Changed) output.Write(UnifiedDiff.Create(o.Target.ExistingText, o.NewText!, o.Target.DefinitionFile));
         }
 
@@ -160,7 +160,7 @@ internal static class DefineCommand
         {
             var path = Path.Combine(projectRoot, o.Target.DefinitionFile);
             var problem = DefinitionFile.WriteIfUnchanged(path, o.Target.DefinitionFile, hashes[o.Target.DefinitionFile], o.NewText!);
-            if (problem != null) { error.WriteLine(DiagnosticFormatter.Format(problem)); failed = true; }
+            if (problem != null) { error.Diag(problem); failed = true; }
             else output.WriteLine($"wrote {o.Target.DefinitionFile}");
         }
 

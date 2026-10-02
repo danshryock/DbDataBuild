@@ -24,7 +24,7 @@ internal static class AckCommand
         var (read, readMissing) = LoginSettings.FromEnvironment(target, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(target, Login.Write, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
-        foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Write(DiagnosticFormatter.Format(m));
+        foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
         if (read == null || write == null) return CliApp.ExitFindings;
 
         string code, detail;
@@ -34,7 +34,7 @@ internal static class AckCommand
         {
             await using var reader = await ReadSession.OpenAsync(read);
             var status = await TrackingStore.StatusAsync(reader, target, schema);
-            if (status.AsDiagnostic(schema) is { } notReady) { error.Write(DiagnosticFormatter.Format(notReady)); return CliApp.ExitFindings; }
+            if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             if (kind == "history")
             {
@@ -56,6 +56,7 @@ internal static class AckCommand
                     var parts = e.AckKey!.Split('|');
                     await AuditLog.AcknowledgeAsync(historyGate, target, schema, "ack", parts[1], parts[0], parts[2], write.User ?? Environment.UserName, reason!);
                 }
+                output.Payload("acknowledged", open.Select(e => new { kind = "history", subject = name, key = e.AckKey, by = write.User ?? Environment.UserName, reason }).ToList());
                 output.WriteLine($"Recorded: {open.Count} acknowledgement(s) for {name} by {write.User ?? Environment.UserName}. The report still shows the history, marked as accepted, and no longer lists it as needing attention.");
                 return CliApp.ExitOk;
             }
@@ -97,6 +98,7 @@ internal static class AckCommand
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), spec.Name, runId);
             await using var gate = await MutationGate.OpenAsync(write, spec.Name, StatementKind.Tracking, log, runId);
             await AuditLog.AcknowledgeAsync(gate, target, schema, "ack", name, code, detail, write.User ?? Environment.UserName, reason!);
+            output.Payload("acknowledged", new[] { new { kind, subject = name, key = $"{code}|{name}|{detail}", by = write.User ?? Environment.UserName, reason } });
             output.WriteLine($"Recorded: {code} on {name} for hash {detail[..Math.Min(12, detail.Length)]} acknowledged by {write.User ?? Environment.UserName}. The next plan will accept exactly this change.");
             return CliApp.ExitOk;
         }).GetAwaiter().GetResult();

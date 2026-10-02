@@ -43,7 +43,7 @@ internal static class RenderCommand
             files.AddRange(result.Files);
             diags.AddRange(result.Diagnostics);
         }
-        foreach (var d in diags.DistinctBy(d => (d.Code, d.Location, d.Found))) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in diags.DistinctBy(d => (d.Code, d.Location, d.Found))) error.Diag(d);
         var errors = diags.Count(d => d.Severity == Severity.Error);
 
         var root = Path.Combine(projectRoot, RenderedDir);
@@ -57,11 +57,16 @@ internal static class RenderCommand
                 return CliApp.ExitFindings;
             }
             var (wrote, removed) = Write(root, files, scopeDirs: Scope(files, selected, targets, wholeProject, root));
+            output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content) }).ToList());
+            output.Payload("wrote", wrote); output.Payload("removed", removed);
             foreach (var f in wrote) output.WriteLine($"wrote {RenderedDir}/{f}");
             foreach (var f in removed) output.WriteLine($"removed {RenderedDir}/{f}");
             output.WriteLine(wrote.Count == 0 && removed.Count == 0 ? $"{files.Count} rendered file(s) already up to date." : $"{files.Count} rendered file(s); {wrote.Count} written, {removed.Count} removed.");
             return CliApp.ExitOk;
         }
+
+        output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content) }).ToList());
+        output.Payload("operations", files.Count);
 
         // default: print
         foreach (var f in files)
@@ -149,7 +154,9 @@ internal static class RenderCommand
                 if (!desired.ContainsKey(rel)) differences.Add(Out(rel, $"`{RenderedDir}/{rel}` is committed but is no longer rendered."));
             }
         }
-        foreach (var d in differences) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in differences) error.Diag(d);
+        output.Payload("files", desired.Select(d => new { path = $"{RenderedDir}/{d.Key}", hash = DbDataBuild.State.Hashing.ScriptHash(d.Value) }).ToList());
+        output.Payload("out_of_date", differences.Select(d => d.Location.File).ToList());
         if (differences.Count == 0 && renderErrors == 0)
         {
             output.WriteLine($"OK: {desired.Count} rendered file(s) match a fresh render.");
@@ -181,11 +188,12 @@ internal static class RenderCommand
             foreach (var o in result.Operations.OrderBy(o => o.Target, StringComparer.Ordinal).ThenBy(o => o.Operation, StringComparer.Ordinal))
                 rows.Add([o.Model, o.Target, o.Operation, o.Strategy, o.IsDefault ? "default" : "", o.Status + (o.Findings.Count > 0 ? $" ({string.Join(", ", o.Findings)})" : "")]);
         }
-        foreach (var d in diags.DistinctBy(d => (d.Code, d.Found))) error.WriteLine(DiagnosticFormatter.Format(d));
+        foreach (var d in diags.DistinctBy(d => (d.Code, d.Found))) error.Diag(d);
 
         string[] header = ["model", "target", "operation", "strategy", "default", "matrix status"];
         var widths = Enumerable.Range(0, header.Length).Select(i => Math.Max(header[i].Length, rows.Count == 0 ? 0 : rows.Max(r => r[i].Length))).ToArray();
         string Line(string[] cells) => string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))).TrimEnd();
+        output.Payload("operations", rows.Select(r => new { model = r[0], target = r[1], operation = r[2], strategy = r[3], is_default = r[4] == "default", matrix_status = r[5] }).ToList());
         output.WriteLine(Line(header));
         foreach (var r in rows) output.WriteLine(Line(r));
         var unsupported = rows.Count(r => r[5].StartsWith("unsupported", StringComparison.Ordinal));
