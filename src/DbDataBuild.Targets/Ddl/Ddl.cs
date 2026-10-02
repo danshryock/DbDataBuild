@@ -47,7 +47,7 @@ public abstract partial class DdlGenerator(string target, ProjectConfig config)
         var m = MapType(LogicalTypes.Canonical(column.Type)) ?? throw new DdlUnsupportedException(new Diagnostic(DiagnosticCatalog.TypeNotMappable, new(model, column.Line, 0),
             $"Column `{column.Name}` of {model} is declared {column.Type}, which has no native {target} type."));
         string? collation = null;
-        if (m.CatalogType is "nvarchar" or "varchar" or "character varying" or "char")
+        if (m.CatalogType is "nvarchar" or "varchar" or "character varying" or "char" or "text")
         {
             var logical = column.Collation ?? "default";
             collation = config.StringSemantics.Collations.TryGetValue(logical, out var byEngine) && byEngine.TryGetValue(target, out var name) ? name
@@ -97,6 +97,7 @@ public abstract partial class DdlGenerator(string target, ProjectConfig config)
             if (from.Length != to.Length && from.Precision == to.Precision && from.Scale == to.Scale && Wider(from.Length, to.Length)) return TypeChange.Widening;
             if (from.Length == to.Length && from.Scale == to.Scale && from.Precision != null && to.Precision > from.Precision) return TypeChange.Widening;
         }
+        if (from.Type == "character varying" && to.Type == "text" && from.Collation == to.Collation) return TypeChange.Widening;   // varchar(n) to unlimited text holds every value
         var rank = new Dictionary<string, int> { ["smallint"] = 1, ["int"] = 2, ["integer"] = 2, ["bigint"] = 3 };
         if (rank.TryGetValue(from.Type, out var fr) && rank.TryGetValue(to.Type, out var tr) && tr > fr) return TypeChange.Widening;
         return TypeChange.Other;
@@ -142,6 +143,7 @@ public sealed partial class TSqlDdl(string target, ProjectConfig config) : DdlGe
             "TIMESTAMP WITH TIME ZONE" => ("datetimeoffset(6)", "datetimeoffset", null, null, 6),
             "UUID" => ("uniqueidentifier", "uniqueidentifier", null, null, null),
             "BLOB" => ("varbinary(max)", "varbinary", -1, null, null),
+            "VARCHAR" => fabric ? ("varchar(max)", "varchar", -1, null, null) : ("nvarchar(max)", "nvarchar", -1, null, null),   // unlimited text
             "DECIMAL" => ("decimal(18, 3)", "decimal", null, 18, 3), // DuckDB's bare DECIMAL
             _ => null,
         };
@@ -195,6 +197,7 @@ public sealed partial class PostgresDdl(ProjectConfig config) : DdlGenerator("po
             "TIMESTAMP WITH TIME ZONE" => ("timestamp(6) with time zone", "timestamp with time zone", null, null, 6),
             "UUID" => ("uuid", "uuid", null, null, null),
             "BLOB" => ("bytea", "bytea", null, null, null),
+            "VARCHAR" => ("text", "text", null, null, null),   // unlimited text
             "DECIMAL" => ("numeric(18, 3)", "numeric", null, 18, 3),
             _ => null,
         };

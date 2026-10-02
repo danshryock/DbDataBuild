@@ -29,7 +29,7 @@ public class LogicalTypesTests
         new("TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITH TIME ZONE", ProposalCertainty.Normal),
         new("BLOB", "BLOB", ProposalCertainty.Normal),
         new("UUID", "UUID", ProposalCertainty.Normal),
-        new("VARCHAR", null, null),
+        new("VARCHAR", "VARCHAR", ProposalCertainty.High),      // unlimited text stays unlimited
         new("HUGEINT", null, null),
         new("INTERVAL", null, null),
         new("JSON", null, null),

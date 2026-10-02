@@ -201,13 +201,18 @@ public class DefineEngineTests
     }
 
     [Fact]
-    public void A_computed_text_column_needs_a_type_a_person_gives()
+    public void A_computed_text_column_is_unlimited_unless_a_person_limits_it()
     {
         var m = "marts.tagged";
         const string sql = "SELECT o.order_id, o.code || '-x' AS tagged FROM staging.orders o";
         var q = One(Run(Engine(), [Target(m, sql)])).Unanswered.Single(x => x.Id == Id(m, "columns.tagged.type"));
-        Assert.Null(q.Proposal);
-        Assert.Contains("without a length", string.Join(" ", q.Context));
+        Assert.Equal("VARCHAR", q.Proposal!.Value);                 // no length declared or written: the proposal is unlimited text
+        Assert.Contains("unlimited", string.Join(" ", q.Context));
+
+        var unlimited = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "targets")), Accept(Id(m, "columns.tagged.type")) };
+        unlimited.AddRange(Columns(m, ["order_id"]));
+        unlimited.Add(Choice(Id(m, "columns.tagged.nullable"), "nullable"));
+        Assert.Contains("  - name: tagged\n    type: VARCHAR\n", One(Run(Engine(), [Target(m, sql)], unlimited.ToArray())).NewText);
 
         var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "targets")), Choice(Id(m, "columns.tagged.type"), "use_type", "varchar(30)") };
         answers.AddRange(Columns(m, ["order_id"]));

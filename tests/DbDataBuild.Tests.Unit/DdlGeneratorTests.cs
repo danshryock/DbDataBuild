@@ -45,6 +45,8 @@ public class DdlGeneratorTests
         { "DECIMAL", "decimal(18, 3)", "decimal(18, 3)", "numeric(18, 3)" },
         { "VARCHAR(20)", "nvarchar(20)", "varchar(20)", "varchar(20)" },
         { "TEXT(20)", "nvarchar(20)", "varchar(20)", "varchar(20)" },
+        { "VARCHAR", "nvarchar(max)", "varchar(max)", "text" },
+        { "TEXT", "nvarchar(max)", "varchar(max)", "text" },
         { "VARCHAR(5000)", "nvarchar(max)", "varchar(5000)", "varchar(5000)" },
         { "VARCHAR(9000)", "nvarchar(max)", "varchar(max)", "varchar(9000)" },
     };
@@ -58,7 +60,7 @@ public class DdlGeneratorTests
     }
 
     [Theory]
-    [InlineData("UBIGINT"), InlineData("HUGEINT"), InlineData("VARCHAR"), InlineData("VARCHAR(0)"), InlineData("DECIMAL(40, 2)"), InlineData("DECIMAL(5, 6)"), InlineData("STRUCT(a INTEGER)"), InlineData("INTEGER[]"), InlineData("JSON")]
+    [InlineData("UBIGINT"), InlineData("HUGEINT"), InlineData("VARCHAR(0)"), InlineData("DECIMAL(40, 2)"), InlineData("DECIMAL(5, 6)"), InlineData("STRUCT(a INTEGER)"), InlineData("INTEGER[]"), InlineData("JSON")]
     public void Types_without_a_faithful_native_form_are_refused_not_guessed(string logical)
     {
         foreach (var target in new[] { "sqlserver", "fabric", "postgres" })

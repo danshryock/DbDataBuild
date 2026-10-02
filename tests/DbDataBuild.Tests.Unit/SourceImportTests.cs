@@ -38,11 +38,12 @@ public class SourceImportTests
     [InlineData("sqlserver", "nvarchar", 50, null, null, "VARCHAR(50)", "Exact")]
     [InlineData("sqlserver", "varchar", 20, null, null, "VARCHAR(20)", "Exact")]
     [InlineData("sqlserver", "char", 3, null, null, "VARCHAR(3)", "Widened")]
-    [InlineData("sqlserver", "nvarchar", -1, null, null, "", "None")]
-    [InlineData("sqlserver", "varchar", -1, null, null, "", "None")]
-    [InlineData("sqlserver", "text", null, null, null, "", "None")]
+    [InlineData("sqlserver", "nvarchar", -1, null, null, "VARCHAR", "Exact")]
+    [InlineData("sqlserver", "varchar", -1, null, null, "VARCHAR", "Exact")]
+    [InlineData("sqlserver", "text", null, null, null, "VARCHAR", "Exact")]
+    [InlineData("sqlserver", "ntext", null, null, null, "VARCHAR", "Exact")]
     [InlineData("sqlserver", "varbinary", -1, null, null, "BLOB", "Widened")]
-    [InlineData("sqlserver", "xml", null, null, null, "", "None")]
+    [InlineData("sqlserver", "xml", null, null, null, "VARCHAR", "Lossy")]
     [InlineData("sqlserver", "geography", null, null, null, "", "None")]
     [InlineData("sqlserver", "rowversion", null, null, null, "", "None")]
     [InlineData("postgres", "bigint", null, null, null, "BIGINT", "Exact")]
@@ -60,10 +61,11 @@ public class SourceImportTests
     [InlineData("postgres", "uuid", null, null, null, "UUID", "Exact")]
     [InlineData("postgres", "bytea", null, null, null, "BLOB", "Exact")]
     [InlineData("postgres", "character varying", 40, null, null, "VARCHAR(40)", "Exact")]
-    [InlineData("postgres", "character varying", null, null, null, "", "None")]
+    [InlineData("postgres", "character varying", null, null, null, "VARCHAR", "Exact")]
     [InlineData("postgres", "character", 2, null, null, "VARCHAR(2)", "Widened")]
-    [InlineData("postgres", "text", null, null, null, "", "None")]
-    [InlineData("postgres", "jsonb", null, null, null, "", "None")]
+    [InlineData("postgres", "text", null, null, null, "VARCHAR", "Exact")]
+    [InlineData("postgres", "jsonb", null, null, null, "VARCHAR", "Lossy")]
+    [InlineData("postgres", "json", null, null, null, "VARCHAR", "Lossy")]
     [InlineData("postgres", "interval", null, null, null, "", "None")]
     [InlineData("postgres", "ARRAY", null, null, null, "", "None")]
     public void Native_types_map_to_logical_types_with_their_fit(string target, string type, int? length, int? precision, int? scale, string logical, string fit)
@@ -94,7 +96,7 @@ public class SourceImportTests
         var d = SourceImport.ToDescriptor(live, null);
         Assert.Equal("staging.orders", d.Name);
         Assert.Equal(["order_id"], d.Grain);
-        Assert.Equal([("order_id", "BIGINT", false), ("amount", "DECIMAL(14, 2)", true)], d.Columns.Select(c => (c.Name, c.Type, c.Nullable)));   // `notes` has no logical type: left out
+        Assert.Equal([("order_id", "BIGINT", false), ("amount", "DECIMAL(14, 2)", true), ("notes", "VARCHAR", true)], d.Columns.Select(c => (c.Name, c.Type, c.Nullable)));   // `text` is unlimited text: a bare VARCHAR
         Assert.Equal([SourceChangeKind.New], SourceImport.Compare(null, d).Select(c => c.Kind));
     }
 
@@ -117,21 +119,22 @@ public class SourceImportTests
     {
         var committed = new SourceDescriptor("staging.orders", [
             new ColumnDefinition("order_id", "INTEGER", true),         // the table says BIGINT NOT NULL now
-            new ColumnDefinition("notes", "VARCHAR(500)", true),       // typed by hand: the catalog says text
+            new ColumnDefinition("notes", "VARCHAR(500)", true),       // a length a person put on unlimited text: the same type, so kept as written
+            new ColumnDefinition("shape", "VARCHAR(40)", true),        // typed by hand: the catalog cannot type a geography column
             new ColumnDefinition("legacy", "INTEGER", true),           // gone from the table
         ], ["order_id", "notes"]);
-        var shape = Shape("staging", "orders", Col("bigint", nullable: false, name: "order_id"), Col("text", name: "notes"), Col("date", name: "placed"));
+        var shape = Shape("staging", "orders", Col("bigint", nullable: false, name: "order_id"), Col("text", name: "notes"), Col("date", name: "placed"), Col("geography", name: "shape"));
         var live = SourceImport.Describe("sqlserver", shape, ["order_id"]);
         var d = SourceImport.ToDescriptor(live, committed);
 
         Assert.Equal(["order_id", "notes"], d.Grain);                                                  // human knowledge wins over the primary key
-        Assert.Equal([("order_id", "BIGINT", false), ("notes", "VARCHAR(500)", true), ("placed", "DATE", true)], d.Columns.Select(c => (c.Name, c.Type, c.Nullable)));
+        Assert.Equal([("order_id", "BIGINT", false), ("notes", "VARCHAR(500)", true), ("placed", "DATE", true), ("shape", "VARCHAR(40)", true)], d.Columns.Select(c => (c.Name, c.Type, c.Nullable)));
         var changes = SourceImport.Compare(committed, d).Select(c => (c.Kind, c.Column)).ToList();
         Assert.Contains((SourceChangeKind.TypeChanged, "order_id"), changes);
         Assert.Contains((SourceChangeKind.NullabilityChanged, "order_id"), changes);
         Assert.Contains((SourceChangeKind.ColumnAdded, "placed"), changes);
         Assert.Contains((SourceChangeKind.ColumnRemoved, "legacy"), changes);
-        Assert.DoesNotContain(changes, c => c.Column == "notes");
+        Assert.DoesNotContain(changes, c => c.Column is "notes" or "shape");
         Assert.Empty(SourceImport.Compare(d, d));
     }
 

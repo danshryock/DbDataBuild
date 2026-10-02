@@ -59,8 +59,8 @@ public static partial class LogicalTypes
             return new($"DECIMAL({d.Groups[1].Value}, {d.Groups[2].Value})", ProposalCertainty.High, $"DuckDB resolves {t}");
         if (ExactMapping.TryGetValue(t, out var certainty))
             return new(t, certainty, certainty == ProposalCertainty.High ? $"DuckDB resolves {t}" : $"DuckDB resolves {t}, which is lossy for some targets");
-        if (t == "VARCHAR")
-            return new(null, null, "DuckDB reports VARCHAR without a length and the targets need one");
+        if (t == "VARCHAR")   // no length declared upstream and none written in the query: the column is unlimited text, and stays so
+            return new("VARCHAR", ProposalCertainty.High, "DuckDB reports VARCHAR: no length is declared upstream or written in the query, so the column is unlimited text");
         return new(null, null, $"DuckDB reports {t}, which has no direct logical type");
     }
 

@@ -746,10 +746,10 @@ public partial class ApplyConformanceTests
             var codes = (System.Text.Json.Nodes.JsonNode d) => d["diagnostics"]!.AsArray().Select(x => (string)x!["code"]!).ToList();
             var pg = name == "postgres";
 
-            // a table with a primary key, a spread of types, and two columns no logical type can describe honestly
+            // a table with a primary key, a spread of types (unlimited text and json/xml among them), and one column no logical type can describe
             await engine.ExecAsync(pg
-                ? "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty integer NOT NULL, price numeric(12,3), ratio double precision, flag boolean, born date, seen timestamp(6), code varchar(20), notes text, tiny smallint, ref uuid, blobby bytea, j jsonb)"
-                : "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty int NOT NULL, price decimal(12,3), ratio float, flag bit, born date, seen datetime2(6), code nvarchar(20), notes nvarchar(max), tiny tinyint, ref uniqueidentifier, blobby varbinary(max), j xml)");
+                ? "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty integer NOT NULL, price numeric(12,3), ratio double precision, flag boolean, born date, seen timestamp(6), code varchar(20), notes text, tiny smallint, ref uuid, blobby bytea, j jsonb, odd interval)"
+                : "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty int NOT NULL, price decimal(12,3), ratio float, flag bit, born date, seen datetime2(6), code nvarchar(20), notes nvarchar(max), tiny tinyint, ref uniqueidentifier, blobby varbinary(max), j xml, odd geography)");
 
             // the preview shows the diff and writes nothing
             var preview = Json(run.Cli("import-sources", "staging.imp", "--format", "json"));
@@ -757,17 +757,19 @@ public partial class ApplyConformanceTests
             Assert.Equal(("staging.imp", "table", "new", "sources/staging/imp.yml", "preview"), ((string)imp["name"]!, (string)imp["kind"]!, (string)imp["status"]!, (string)imp["file"]!, (string)preview["data"]!["mode"]!));
             Assert.Equal(["id"], imp["grain"]!.AsArray().Select(x => (string)x!));
             Assert.False(File.Exists(file("sources/staging/imp.yml")));
-            Assert.Equal(["DDB-226", "DDB-226"], codes(preview));                                       // notes and j
+            Assert.Equal(["DDB-226"], codes(preview));                                                   // only `odd`: unlimited text and xml/json are text
             var tiny = imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "tiny")!;
             Assert.Equal(pg ? "exact" : "widened", (string?)tiny["fit"]);
+            Assert.Equal(("VARCHAR", "exact"), (imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "notes")!["logical_type"]!.ToString(), (string)imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "notes")!["fit"]!));
+            Assert.Equal(("VARCHAR", "lossy"), ((string)imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "j")!["logical_type"]!, (string)imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "j")!["fit"]!));
 
             // writing it
             var written = Json(run.Cli("import-sources", "staging.imp", "--write", "--format", "json"));
             Assert.Equal(["sources/staging/imp.yml"], written["data"]!["written"]!.AsArray().Select(x => (string)x!));
             Assert.Equal(
                 "name: staging.imp\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
-                "  - name: ratio\n    type: DOUBLE\n  - name: flag\n    type: BOOLEAN\n  - name: born\n    type: DATE\n  - name: seen\n    type: TIMESTAMP\n  - name: code\n    type: VARCHAR(20)\n" +
-                "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n",
+                "  - name: ratio\n    type: DOUBLE\n  - name: flag\n    type: BOOLEAN\n  - name: born\n    type: DATE\n  - name: seen\n    type: TIMESTAMP\n  - name: code\n    type: VARCHAR(20)\n  - name: notes\n    type: VARCHAR\n" +
+                "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n  - name: j\n    type: VARCHAR\n",
                 File.ReadAllText(file("sources/staging/imp.yml")));
             Ok(run.Cli("validate"), "the exported descriptor is valid");
             var again = Json(run.Cli("import-sources", "staging.imp", "--check", "--format", "json"));
@@ -782,16 +784,16 @@ public partial class ApplyConformanceTests
             Assert.Equal(("columnadded", "extra"), ((string)changed["changes"]![0]!["kind"]!, (string)changed["changes"]![0]!["column"]!));
             Assert.Equal("unchanged", (string?)stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.orders")!["status"]);   // the hand-written descriptor already matched
 
-            // human knowledge survives: a grain, and a type for a column the catalog cannot type
-            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") + "  - {name: notes, type: VARCHAR(500)}\n";
+            // human knowledge survives: a grain, a length put on unlimited text, and a type for a column the catalog cannot type
+            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n") + "  - {name: odd, type: VARCHAR(40)}\n";
             run.Write("sources/staging/imp.yml", text);
             var refreshed = Json(run.Cli("import-sources", "--write", "--format", "json"));
             Assert.Equal(["sources/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
             var after = File.ReadAllText(file("sources/staging/imp.yml"));
             Assert.Contains("grain: [id, code]", after);
             Assert.Contains("  - name: extra\n    type: INTEGER\n", after);
-            Assert.Contains("  - name: notes\n    type: VARCHAR(500)\n", after);
-            Assert.DoesNotContain("name: j", after);
+            Assert.Contains("  - name: notes\n    type: VARCHAR(500)\n", after);   // the same type as the live unlimited text, so not churned
+            Assert.Contains("  - name: odd\n    type: VARCHAR(40)\n", after);
             Ok(run.Cli("validate"), "the refreshed descriptor is valid");
 
             // a view is a source too; a pattern takes both; the tool's own schema and a damaged file are never touched
@@ -827,6 +829,53 @@ public partial class ApplyConformanceTests
                 ? $"SELECT document -> 'consumers' ->> 0 FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'"
                 : $"SELECT JSON_VALUE(document, '$.consumers[0]') FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'");
             Assert.Equal("marts.fct_orders", consumers);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Unlimited_text_stays_unlimited_from_the_source_through_the_model_to_the_target(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            await engine.ExecAsync(pg
+                ? "CREATE TABLE staging.docs (id bigint NOT NULL, body text, tag varchar(10))"
+                : "CREATE TABLE staging.docs (id bigint NOT NULL, body nvarchar(max), tag varchar(10))");
+            await engine.ExecAsync(pg
+                ? "INSERT INTO staging.docs VALUES (1, repeat('x', 6000), 'ab')"
+                : "INSERT INTO staging.docs VALUES (1, REPLICATE(CAST(N'x' AS nvarchar(max)), 6000), 'ab')");
+
+            // exported as the source says it is: no length on the unlimited column
+            Ok(run.Cli("import-sources", "staging.docs", "--write"), "import");
+            Assert.Equal("name: staging.docs\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: body\n    type: VARCHAR\n  - name: tag\n    type: VARCHAR(10)\n", File.ReadAllText(Path.Combine(run.Dir, "sources/staging/docs.yml")));
+
+            // a model that passes it through and computes from it declares no length either, and `define` agrees with that
+            run.Write("models/marts/docs_out.yml", "name: marts.docs_out\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: body, type: VARCHAR}\n  - {name: body2, type: VARCHAR}\n  - {name: tag_up, type: VARCHAR(10)}\n");
+            run.Write("models/marts/docs_out.sql", "SELECT d.id, d.body, d.body || '!' AS body2, upper(d.tag) AS tag_up FROM staging.docs d\n");
+            Ok(run.Cli("define", "--check"), "define agrees with the declared types");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+
+            // the engine's own unlimited type, and nothing was cut at 4000 (nvarchar) or anywhere else
+            var typeOf = (string column) => $"SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'marts' AND TABLE_NAME = 'docs_out' AND COLUMN_NAME = '{column}'";
+            Assert.Equal([pg ? "text|∅" : "nvarchar|-1"], await engine.RowsAsync(typeOf("body")));
+            Assert.Equal([pg ? "text|∅" : "nvarchar|-1"], await engine.RowsAsync(typeOf("body2")));
+            Assert.Equal([pg ? "character varying|10" : "nvarchar|10"], await engine.RowsAsync(typeOf("tag_up")));
+            Assert.Equal(["1|6000|6001|AB"], await engine.RowsAsync(pg
+                ? "SELECT id, length(body), length(body2), tag_up FROM marts.docs_out"
+                : "SELECT id, LEN(body), LEN(body2), tag_up FROM marts.docs_out"));
+
+            // and the tool recognizes what it made: in sync, nothing to plan
+            var report = System.Text.Json.Nodes.JsonNode.Parse(run.Cli("report", "--format", "json").Out)!;
+            Assert.Contains(report["data"]!["objects"]!.AsArray(), o => (string?)o!["object"] == "marts.docs_out" && (string?)o["now"] == "in sync");
+            var again = run.Cli("plan");
+            Ok(again, "plan again");
+            Assert.DoesNotContain("CREATE TABLE", again.Out);              // loads run again; no DDL is planned for a table that is what the model declares
+            Assert.DoesNotContain("ALTER TABLE", again.Out);
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }

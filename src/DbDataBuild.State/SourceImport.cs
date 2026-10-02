@@ -18,8 +18,8 @@ public sealed record SourceChange(SourceChangeKind Kind, string? Column, string 
 
 /// <summary>
 /// Source descriptors from live tables (DESIGN.md 6.5.1). Pure: the catalog is read elsewhere. A descriptor is an export, so the live table wins for columns, types and
-/// nullability, with two exceptions that are human knowledge: a committed grain is kept (a primary key only seeds a new descriptor), and a committed column whose native
-/// type has no logical type is kept as written, because a person supplied the type the catalog cannot.
+/// nullability, with two exceptions that are human knowledge: a committed grain is kept (a primary key only seeds a new descriptor), and a committed type that means the same as the live one (INT for
+/// INTEGER, or a length a person put on unlimited text) and a committed column whose native type has no logical type are kept as written, because a person supplied them.
 /// </summary>
 public static class SourceImport
 {
@@ -39,9 +39,12 @@ public static class SourceImport
         var columns = new List<ColumnDefinition>();
         foreach (var c in live.Columns)
         {
-            if (c.LogicalType != null) { columns.Add(new ColumnDefinition(c.Name, c.LogicalType, c.Nullable)); continue; }
-            if (committed?.Columns.FirstOrDefault(x => string.Equals(x.Name, c.Name, StringComparison.OrdinalIgnoreCase)) is { } kept)
-                columns.Add(kept with { Nullable = c.Nullable, Line = 0, CollationLine = 0 });
+            var declared = committed?.Columns.FirstOrDefault(x => string.Equals(x.Name, c.Name, StringComparison.OrdinalIgnoreCase));
+            // a committed type that means the same as the live one is kept as written (INT for INTEGER, or a length a person put on unlimited text), so a refresh does not churn it
+            if (declared != null && (c.LogicalType == null || Define.LogicalTypes.Equivalent(declared.Type, c.LogicalType)))
+                columns.Add(declared with { Nullable = c.Nullable, Line = 0, CollationLine = 0 });
+            else if (c.LogicalType != null)
+                columns.Add(new ColumnDefinition(c.Name, c.LogicalType, c.Nullable));
         }
         var kept2 = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<string> grain = committed != null && committed.Grain.Count > 0 ? committed.Grain

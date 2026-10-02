@@ -38,13 +38,15 @@ public static class SourceTypes
 
     private static string Dec(int? p, int? s) => string.Create(CultureInfo.InvariantCulture, $"DECIMAL({p}, {s ?? 0})");
 
+    /// <summary>Text with a declared length is VARCHAR(n); text with none (varchar(max), text) is unlimited, which is a bare VARCHAR: DuckDB's own spelling, and one the target mappings turn back into the engine's unlimited type.</summary>
     private static SourceType Text(ColumnShape c, bool fixedLength, string nativeName)
     {
-        // -1 is MAX in T-SQL; PostgreSQL has no length for text or an unconstrained varchar. The targets need a length, so there is nothing true to write.
-        if (c.Length is null or < 1) return No($"{nativeName} has no declared length, and a logical VARCHAR needs one");
+        if (c.Length is null or < 1) return Exact("VARCHAR");
         var logical = string.Create(CultureInfo.InvariantCulture, $"VARCHAR({c.Length})");
         return fixedLength ? Widened(logical, $"{nativeName}({c.Length}) is fixed length; trailing padding is not part of the logical type") : Exact(logical);
     }
+
+    private static SourceType AsText(string nativeName) => Lossy("VARCHAR", $"{nativeName} is read as text; a model that selects it casts it explicitly if the engine needs that");
 
     private static SourceType TSql(ColumnShape c) => c.Type switch
     {
@@ -70,7 +72,8 @@ public static class SourceTypes
         "char" => Text(c, true, "char"),
         "nchar" => Text(c, true, "nchar"),
         "binary" or "varbinary" or "image" => Widened("BLOB", $"{c.Type} is bytes of a declared length; BLOB has none"),
-        "text" or "ntext" => No($"{c.Type} has no declared length, and a logical VARCHAR needs one"),
+        "text" or "ntext" => Exact("VARCHAR"),
+        "xml" => AsText("xml"),
         _ => No($"{c.Type} has no logical type"),
     };
 
@@ -91,7 +94,8 @@ public static class SourceTypes
         "bytea" => Exact("BLOB"),
         "character varying" => Text(c, false, "varchar"),
         "character" => Text(c, true, "char"),
-        "text" => No("text has no declared length, and a logical VARCHAR needs one"),
+        "text" => Exact("VARCHAR"),
+        "json" or "jsonb" or "xml" => AsText(c.Type),
         _ => No($"{c.Type} has no logical type"),
     };
 }

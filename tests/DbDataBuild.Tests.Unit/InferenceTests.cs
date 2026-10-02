@@ -41,14 +41,14 @@ public class InferenceTests
     }
 
     [Fact]
-    public void Computed_columns_get_duckdbs_type_and_ask_when_it_is_not_knowable()
+    public void Computed_columns_get_duckdbs_type_and_unlimited_text_stays_unlimited()
     {
         var i = Infer("SELECT o.order_id + 1 AS next_id, o.amount * 2 AS double_amt, COUNT(*) AS n, o.code || '-x' AS tagged, o.order_date + INTERVAL 1 DAY AS shifted FROM staging.orders o GROUP BY ALL");
         Assert.Equal(("BIGINT", ProposalCertainty.High), (Col(i, "next_id").Type.LogicalType, Col(i, "next_id").Type.Certainty));
         Assert.Equal("DECIMAL(18, 2)", Col(i, "double_amt").Type.LogicalType);
         Assert.Equal(("BIGINT", false), (Col(i, "n").Type.LogicalType, Col(i, "n").Nullability.Nullable));
-        Assert.Null(Col(i, "tagged").Type.LogicalType);                          // VARCHAR without a length: a person decides
-        Assert.Contains("without a length", Col(i, "tagged").Type.Reason);
+        Assert.Equal(("VARCHAR", ProposalCertainty.High), (Col(i, "tagged").Type.LogicalType, Col(i, "tagged").Type.Certainty));   // no length declared or written: unlimited stays unlimited
+        Assert.Contains("unlimited", Col(i, "tagged").Type.Reason);
         Assert.Equal("TIMESTAMP", Col(i, "shifted").Type.LogicalType);           // DuckDB widens DATE + INTERVAL to TIMESTAMP
         Assert.Null(Col(i, "double_amt").Nullability.Nullable);                  // conservative: lineage cannot prove it either way
     }
