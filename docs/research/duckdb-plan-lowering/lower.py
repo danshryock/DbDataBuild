@@ -298,7 +298,7 @@ def node(p):
         if c.limit is not None or c.offset is not None: c = wrap(c)
         def val(k):
             v = p.get(k)
-            if v is None: return None
+            if v is None or v.get('type') == 'UNSET': return None
             if v.get('type') == 'CONSTANT_VALUE' and v.get('constant_percentage', -1) == -1: return v['constant_integer']
             raise Unsupported('limit that is not a constant')
         c.limit = val('limit_val')

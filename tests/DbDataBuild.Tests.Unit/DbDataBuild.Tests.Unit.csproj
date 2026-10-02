@@ -35,6 +35,7 @@
     <ProjectReference Include="..\..\src\DbDataBuild.Execution\DbDataBuild.Execution.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Planning\DbDataBuild.Planning.csproj" />
     <ProjectReference Include="..\..\src\DbDataBuild.Apply\DbDataBuild.Apply.csproj" />
+    <ProjectReference Include="..\..\src\DbDataBuild.Lowering\DbDataBuild.Lowering.csproj" />
   </ItemGroup>
 
 </Project>

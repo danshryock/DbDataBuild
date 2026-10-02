@@ -121,11 +121,11 @@
  },
  {
   "id": "limit",
-  "status": "unsupported",
-  "note": "limit that is not a constant",
+  "status": "equal",
+  "note": "",
   "source": "SELECT * FROM t ORDER BY a LIMIT 10",
-  "lowered": null,
-  "similarity": null
+  "lowered": "SELECT id, a, b, s, d, ts, d1, d2, x\nFROM t\nORDER BY a\nLIMIT 10",
+  "similarity": 0.47058823529411764
  },
  {
   "id": "limit_offset",
@@ -137,11 +137,11 @@
  },
  {
   "id": "limit_no_order",
-  "status": "unsupported",
-  "note": "limit that is not a constant",
+  "status": "equal",
+  "note": "",
   "source": "SELECT * FROM t LIMIT 10",
-  "lowered": null,
-  "similarity": null
+  "lowered": "SELECT id, a, b, s, d, ts, d1, d2, x\nFROM t\nLIMIT 10",
+  "similarity": 0.35714285714285715
  },
  {
   "id": "qualify",
@@ -194,7 +194,7 @@
  {
   "id": "current_ts",
   "status": "DIFFERENT",
-  "note": "2026-10-01 17:54:45.486576-07 | 2026-10-01 17:54:45.500179-07",
+  "note": "2026-10-01 18:21:37.936359-07 | 2026-10-01 18:21:37.949504-07",
   "source": "SELECT CURRENT_TIMESTAMP AS x",
   "lowered": "SELECT get_current_timestamp() AS x",
   "similarity": 0.6666666666666666
