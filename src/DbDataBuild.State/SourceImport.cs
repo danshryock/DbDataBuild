@@ -6,12 +6,17 @@ namespace DbDataBuild.State;
 public sealed record ImportedColumn(string Name, string NativeType, string? LogicalType, SourceTypeFit Fit, string Reason, bool Nullable);
 
 /// <summary>A live table or view, described for a source descriptor. <c>File</c> is null when the object's name cannot be a path.</summary>
-public sealed record ImportedObject(string Schema, string Name, ObjectKind Kind, string? File, IReadOnlyList<ImportedColumn> Columns, IReadOnlyList<string> PrimaryKey)
+/// <summary>A foreign key as the catalog reports it.</summary>
+public sealed record ForeignKeyShape(string Name, IReadOnlyList<string> Columns, string ReferencedSchema, string ReferencedTable, IReadOnlyList<string> ReferencedColumns);
+
+/// <param name="Notes">What was left out of the descriptor, and why (an expression index, an index on a column that has no logical type).</param>
+public sealed record ImportedObject(string Schema, string Name, ObjectKind Kind, string? File, IReadOnlyList<ImportedColumn> Columns, IReadOnlyList<string> PrimaryKey,
+    IReadOnlyList<IndexDefinition>? Indexes = null, IReadOnlyList<SourceForeignKey>? ForeignKeys = null, IReadOnlyList<string>? Notes = null)
 {
     public string QualifiedName => $"{Schema}.{Name}";
 }
 
-public enum SourceChangeKind { New, ColumnAdded, ColumnRemoved, TypeChanged, NullabilityChanged, GrainAdded }
+public enum SourceChangeKind { New, ColumnAdded, ColumnRemoved, TypeChanged, NullabilityChanged, GrainAdded, IndexAdded, IndexRemoved, IndexChanged, ForeignKeyAdded, ForeignKeyRemoved, ForeignKeyChanged }
 
 /// <summary>One difference between a committed descriptor and the live table.</summary>
 public sealed record SourceChange(SourceChangeKind Kind, string? Column, string Detail);
@@ -23,14 +28,33 @@ public sealed record SourceChange(SourceChangeKind Kind, string? Column, string 
 /// </summary>
 public static class SourceImport
 {
-    public static ImportedObject Describe(string target, ObjectShape shape, IReadOnlyList<string>? primaryKey)
+    public static ImportedObject Describe(string target, ObjectShape shape, IReadOnlyList<string>? primaryKey, IReadOnlyList<ForeignKeyShape>? foreignKeys = null)
     {
         var columns = shape.Columns.Select(c =>
         {
             var t = SourceTypes.From(target, c);
             return new ImportedColumn(c.Name, NativeText(c), t.LogicalType, t.Fit, t.Reason, c.Nullable);
         }).ToList();
-        return new ImportedObject(shape.Schema, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.Schema, shape.Name), columns, primaryKey ?? []);
+        // an index or foreign key is exported only if every column it names is a column of the descriptor; the primary key's own index is the grain
+        var typed = columns.Where(c => c.LogicalType != null).Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var notes = new List<string>();
+        var indexes = new List<IndexDefinition>();
+        foreach (var p in shape.Physical.Where(p => p.Kind is "index" or "constraint_index").OrderBy(p => p.Name, StringComparer.Ordinal))
+        {
+            var (unique, rawKeys, include) = IndexText.Parse(p.Definition);
+            var keys = rawKeys.Select(k => k.EndsWith(" desc", StringComparison.Ordinal) ? k[..^5] : k).ToList();
+            if (keys.Any(k => k == "<expression>")) { notes.Add($"index {p.Name} is on an expression and was not exported"); continue; }
+            if (primaryKey is { Count: > 0 } pk && keys.SequenceEqual(pk, StringComparer.OrdinalIgnoreCase) && unique) continue;
+            if (keys.Concat(include).Any(c => !typed.Contains(c))) { notes.Add($"index {p.Name} names a column that has no logical type and was not exported"); continue; }
+            indexes.Add(new IndexDefinition(p.Name, keys, unique, include, null));
+        }
+        var fks = new List<SourceForeignKey>();
+        foreach (var f in (foreignKeys ?? []).OrderBy(f => f.Name, StringComparer.Ordinal))
+        {
+            if (f.Columns.Any(c => !typed.Contains(c))) { notes.Add($"foreign key {f.Name} names a column that has no logical type and was not exported"); continue; }
+            fks.Add(new SourceForeignKey(f.Name, f.Columns, $"{f.ReferencedSchema}.{f.ReferencedTable}", f.ReferencedColumns));
+        }
+        return new ImportedObject(shape.Schema, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.Schema, shape.Name), columns, primaryKey ?? [], indexes, fks, notes);
     }
 
     /// <summary>The descriptor for a live object, merged with the committed one (null for a new descriptor). Columns with no logical type and no committed declaration are left out.</summary>
@@ -49,7 +73,7 @@ public static class SourceImport
         var kept2 = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<string> grain = committed != null && committed.Grain.Count > 0 ? committed.Grain
             : live.PrimaryKey.Count > 0 && live.PrimaryKey.All(kept2.Contains) ? live.PrimaryKey : [];
-        return new SourceDescriptor(live.QualifiedName, columns, grain);
+        return new SourceDescriptor(live.QualifiedName, columns, grain, live.Indexes ?? [], live.ForeignKeys ?? []);
     }
 
     /// <summary>What differs between a committed descriptor (null: none yet) and the one the live object produces. Empty means in sync. Column order is not compared.</summary>
@@ -67,6 +91,26 @@ public static class SourceImport
         var now = live.Columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         changes.AddRange(committed.Columns.Where(c => !now.Contains(c.Name)).Select(c => new SourceChange(SourceChangeKind.ColumnRemoved, c.Name, c.Type)));
         if (committed.Grain.Count == 0 && live.Grain.Count > 0) changes.Add(new(SourceChangeKind.GrainAdded, null, string.Join(", ", live.Grain)));
+
+        static string Text(IndexDefinition i) => $"({string.Join(", ", i.Columns)}){(i.Unique ? " unique" : "")}{(i.Include.Count > 0 ? $" include ({string.Join(", ", i.Include)})" : "")}";
+        var oldIndexes = committed.Indexes.ToDictionary(i => i.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var i in live.Indexes)
+        {
+            if (!oldIndexes.TryGetValue(i.Name, out var o)) changes.Add(new(SourceChangeKind.IndexAdded, i.Name, Text(i)));
+            else if (Text(o).ToLowerInvariant() != Text(i).ToLowerInvariant()) changes.Add(new(SourceChangeKind.IndexChanged, i.Name, $"{Text(o)} to {Text(i)}"));
+        }
+        var nowIndexes = live.Indexes.Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        changes.AddRange(committed.Indexes.Where(i => !nowIndexes.Contains(i.Name)).Select(i => new SourceChange(SourceChangeKind.IndexRemoved, i.Name, Text(i))));
+
+        static string FkText(SourceForeignKey f) => $"({string.Join(", ", f.Columns)}) to {f.Table} ({string.Join(", ", f.ReferencedColumns)})";
+        var oldKeys = committed.ForeignKeys.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var f in live.ForeignKeys)
+        {
+            if (!oldKeys.TryGetValue(f.Name, out var o)) changes.Add(new(SourceChangeKind.ForeignKeyAdded, f.Name, FkText(f)));
+            else if (FkText(o).ToLowerInvariant() != FkText(f).ToLowerInvariant()) changes.Add(new(SourceChangeKind.ForeignKeyChanged, f.Name, $"{FkText(o)} to {FkText(f)}"));
+        }
+        var nowKeys = live.ForeignKeys.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        changes.AddRange(committed.ForeignKeys.Where(f => !nowKeys.Contains(f.Name)).Select(f => new SourceChange(SourceChangeKind.ForeignKeyRemoved, f.Name, FkText(f))));
         return changes;
     }
 

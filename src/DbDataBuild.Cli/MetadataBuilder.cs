@@ -109,6 +109,8 @@ internal static class MetadataBuilder
         definition_hash = Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d)),
         grain = d.Grain,
         columns = d.Columns.Select(c => new { name = c.Name, logical_type = c.Type, nullable = c.Nullable, collation = c.Collation }).ToList(),
+        indexes = d.Indexes.Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include }).ToList(),
+        foreign_keys = d.ForeignKeys.Select(f => new { name = f.Name, columns = f.Columns, references = new { table = f.Table, columns = f.ReferencedColumns } }).ToList(),
         consumers,
     };
 

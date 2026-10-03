@@ -71,7 +71,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 ## I. Sources and metadata (2026-10-02)
 
-- **`import-sources`** (entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported; indexes and foreign keys of sources are not exported; a refresh rewrites a descriptor without its comments; `--check` needs a database login in CI.
+- **`import-sources`** (entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported (a native collation has no honest logical name: the logical names are the project's own profile); a refresh rewrites a descriptor without its comments; nothing reads a source's indexes yet (the obvious use: a load that slices by a source column no index leads, the open half of DDB-225); `--check` needs a database login in CI.
 - **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import-sources --format json` has them), and the tool's own tracking tables.
 
 ## J. Project tests (2026-10-02)

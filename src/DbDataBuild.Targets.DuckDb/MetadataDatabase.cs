@@ -65,6 +65,14 @@ SELECT m.subject AS model, i->>'name' AS index_name, CAST(i->'columns' AS VARCHA
   CAST(i->'include' AS VARCHAR[]) AS include, CAST(i->'targets' AS VARCHAR[]) AS targets
 FROM metadata_current m, unnest(CAST(m.document->'indexes' AS JSON[])) AS t(i) WHERE m.kind = 'model';
 
+CREATE VIEW metadata_source_indexes AS
+SELECT m.subject AS source, i->>'name' AS index_name, CAST(i->'columns' AS VARCHAR[]) AS columns, (i->>'unique')::BOOLEAN AS is_unique, CAST(i->'include' AS VARCHAR[]) AS include
+FROM metadata_current m, unnest(CAST(m.document->'indexes' AS JSON[])) AS t(i) WHERE m.kind = 'source';
+
+CREATE VIEW metadata_source_foreign_keys AS
+SELECT m.subject AS source, f->>'name' AS foreign_key_name, CAST(f->'columns' AS VARCHAR[]) AS columns, f->'references'->>'table' AS referenced_table, CAST(f->'references'->'columns' AS VARCHAR[]) AS referenced_columns
+FROM metadata_current m, unnest(CAST(m.document->'foreign_keys' AS JSON[])) AS t(f) WHERE m.kind = 'source';
+
 CREATE VIEW metadata_loads AS
 SELECT m.subject AS model, l->>'target' AS target, l->>'operation' AS operation, l->>'strategy' AS strategy, (l->>'is_default')::BOOLEAN AS is_default,
   l->>'matrix_status' AS matrix_status, CAST(l->'findings' AS VARCHAR[]) AS findings, l->>'script_path' AS script_path, l->>'script_hash' AS script_hash
@@ -85,7 +93,7 @@ FROM metadata_current m, unnest(CAST(m.document->'index_advice' AS JSON[])) AS t
     public static readonly IReadOnlyList<string> Names =
     [
         "metadata_current", "metadata_columns", "metadata_models", "metadata_sources", "metadata_upstream", "metadata_lineage",
-        "metadata_native_types", "metadata_indexes", "metadata_loads", "metadata_hooks", "metadata_index_advice",
+        "metadata_native_types", "metadata_indexes", "metadata_source_indexes", "metadata_source_foreign_keys", "metadata_loads", "metadata_hooks", "metadata_index_advice",
     ];
 
     private readonly DuckDBConnection db;

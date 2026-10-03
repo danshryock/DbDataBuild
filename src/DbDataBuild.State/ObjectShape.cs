@@ -39,4 +39,12 @@ public static class IndexText
 {
     public static string Canonical(bool unique, IEnumerable<string> keys, IEnumerable<string> include) =>
         $"unique={(unique ? 1 : 0)};keys={string.Join(",", keys)};include={string.Join(",", include)}";
+
+    /// <summary>The inverse of <see cref="Canonical"/>: key columns (a descending key still carries its ` desc`) and included columns.</summary>
+    public static (bool Unique, IReadOnlyList<string> Keys, IReadOnlyList<string> Include) Parse(string definition)
+    {
+        string Part(string name) => definition.Split(';').FirstOrDefault(p => p.StartsWith(name + "=", StringComparison.Ordinal))?[(name.Length + 1)..] ?? "";
+        static IReadOnlyList<string> List(string text) => text.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        return (Part("unique") == "1", List(Part("keys")), List(Part("include")));
+    }
 }

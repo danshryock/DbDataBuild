@@ -138,6 +138,55 @@ public class SourceImportTests
         Assert.Empty(SourceImport.Compare(d, d));
     }
 
+    private static ObjectShape WithIndexes(params PhysicalItem[] physical) =>
+        new("sales", "orders", ObjectKind.Table, [Col("bigint", nullable: false, name: "id"), Col("int", name: "customer_id"), Col("date", name: "placed"), Col("text", name: "notes"), Col("geography", name: "shape")], physical);
+
+    [Fact]
+    public void Indexes_and_foreign_keys_are_exported_without_the_primary_keys_own_index_or_what_cannot_be_described()
+    {
+        var shape = WithIndexes(
+            new("constraint_index", "PK_orders", IndexText.Canonical(true, ["id"], [])),
+            new("index", "IX_orders_customer", IndexText.Canonical(false, ["customer_id", "placed desc"], ["notes"])),
+            new("constraint_index", "UQ_orders_placed", IndexText.Canonical(true, ["placed"], [])),
+            new("index", "IX_lower", IndexText.Canonical(false, ["<expression>"], [])),
+            new("index", "IX_shape", IndexText.Canonical(false, ["shape"], [])),
+            new("compression", "IX_orders_customer", "NONE partitions=1"));
+        var live = SourceImport.Describe("sqlserver", shape, ["id"], [
+            new ForeignKeyShape("FK_orders_customer", ["customer_id"], "sales", "customers", ["id"]),
+            new ForeignKeyShape("FK_orders_shape", ["shape"], "sales", "shapes", ["id"]),
+        ]);
+        var d = SourceImport.ToDescriptor(live, null);
+        Assert.Equal([("IX_orders_customer", "customer_id,placed", false, "notes"), ("UQ_orders_placed", "placed", true, "")], d.Indexes.Select(i => (i.Name, string.Join(",", i.Columns), i.Unique, string.Join(",", i.Include))));
+        Assert.Equal([("FK_orders_customer", "sales.customers")], d.ForeignKeys.Select(f => (f.Name, f.Table)));
+        Assert.Equal(3, live.Notes!.Count);                                                        // the expression index, the index and the foreign key on the geography column
+        Assert.Contains(live.Notes, n => n.Contains("IX_lower") && n.Contains("expression"));
+
+        var yaml = SourceDescriptorWriter.Yaml(d);
+        Assert.EndsWith("indexes:\n  - {name: IX_orders_customer, columns: [customer_id, placed], include: [notes]}\n  - {name: UQ_orders_placed, columns: [placed], unique: true}\n" +
+                        "foreign_keys:\n  - {name: FK_orders_customer, columns: [customer_id], references: {table: sales.customers, columns: [id]}}\n", yaml);
+        var diags = new List<Diagnostic>();
+        var loaded = SourceDescriptorLoader.Load(yaml, "sources/sales/orders.yml", "sales.orders", diags)!;
+        Assert.Empty(diags);
+        Assert.Equal(d.Indexes.Select(i => (i.Name, i.Unique)), loaded.Indexes.Select(i => (i.Name, i.Unique)));
+        Assert.Equal(d.ForeignKeys.Select(f => (f.Name, f.Table)), loaded.ForeignKeys.Select(f => (f.Name, f.Table)));
+        Assert.Empty(SourceImport.Compare(loaded, d));                                              // what was written is in sync
+    }
+
+    [Fact]
+    public void A_changed_added_or_dropped_index_or_foreign_key_is_a_difference()
+    {
+        var committed = new SourceDescriptor("sales.orders", [new ColumnDefinition("a", "INTEGER"), new ColumnDefinition("b", "INTEGER")], [],
+            [new IndexDefinition("ix_a", ["a"], false, [], null), new IndexDefinition("ix_gone", ["b"], false, [], null), new IndexDefinition("ix_same", ["a", "b"], true, [], null)],
+            [new SourceForeignKey("fk_a", ["a"], "s.t", ["id"]), new SourceForeignKey("fk_gone", ["b"], "s.t", ["id"])]);
+        var live = new SourceDescriptor("sales.orders", committed.Columns, [],
+            [new IndexDefinition("ix_a", ["a"], true, [], null), new IndexDefinition("IX_SAME", ["a", "b"], true, [], null), new IndexDefinition("ix_new", ["b"], false, ["a"], null)],
+            [new SourceForeignKey("fk_a", ["a"], "s.t2", ["id"]), new SourceForeignKey("fk_new", ["b"], "s.t", ["id"])]);
+        var changes = SourceImport.Compare(committed, live).Select(c => (c.Kind, c.Column)).ToList();
+        Assert.Equal([(SourceChangeKind.IndexChanged, "ix_a"), (SourceChangeKind.IndexAdded, "ix_new"), (SourceChangeKind.IndexRemoved, "ix_gone"),
+                      (SourceChangeKind.ForeignKeyChanged, "fk_a"), (SourceChangeKind.ForeignKeyAdded, "fk_new"), (SourceChangeKind.ForeignKeyRemoved, "fk_gone")], changes);
+        Assert.Empty(SourceImport.Compare(live, live));
+    }
+
     [Fact]
     public void Synonyms_and_column_order_are_not_differences()
     {

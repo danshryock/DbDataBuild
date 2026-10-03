@@ -751,6 +751,12 @@ public partial class ApplyConformanceTests
                 ? "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty integer NOT NULL, price numeric(12,3), ratio double precision, flag boolean, born date, seen timestamp(6), code varchar(20), notes text, tiny smallint, ref uuid, blobby bytea, j jsonb, odd interval)"
                 : "CREATE TABLE staging.imp (id bigint NOT NULL PRIMARY KEY, qty int NOT NULL, price decimal(12,3), ratio float, flag bit, born date, seen datetime2(6), code nvarchar(20), notes nvarchar(max), tiny tinyint, ref uniqueidentifier, blobby varbinary(max), j xml, odd geography)");
 
+            // an index with an included column, a unique index, and a foreign key (the primary key's own index is the grain, not listed)
+            await engine.ExecAsync("CREATE TABLE staging.ref (id bigint NOT NULL PRIMARY KEY)");
+            await engine.ExecAsync("CREATE INDEX ix_imp_code ON staging.imp (code) INCLUDE (qty)");
+            await engine.ExecAsync("CREATE UNIQUE INDEX ux_imp_ref ON staging.imp (ref)");
+            await engine.ExecAsync("ALTER TABLE staging.imp ADD CONSTRAINT fk_imp_ref FOREIGN KEY (id) REFERENCES staging.ref (id)");
+
             // the preview shows the diff and writes nothing
             var preview = Json(run.Cli("import-sources", "staging.imp", "--format", "json"));
             var imp = preview["data"]!["sources"]!.AsArray().Single()!;
@@ -769,7 +775,9 @@ public partial class ApplyConformanceTests
             Assert.Equal(
                 "name: staging.imp\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
                 "  - name: ratio\n    type: DOUBLE\n  - name: flag\n    type: BOOLEAN\n  - name: born\n    type: DATE\n  - name: seen\n    type: TIMESTAMP\n  - name: code\n    type: VARCHAR(20)\n  - name: notes\n    type: VARCHAR\n" +
-                "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n  - name: j\n    type: VARCHAR\n",
+                "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n  - name: j\n    type: VARCHAR\n" +
+                "indexes:\n  - {name: ix_imp_code, columns: [code], include: [qty]}\n  - {name: ux_imp_ref, columns: [ref], unique: true}\n" +
+                "foreign_keys:\n  - {name: fk_imp_ref, columns: [id], references: {table: staging.ref, columns: [id]}}\n",
                 File.ReadAllText(file("sources/staging/imp.yml")));
             Ok(run.Cli("validate"), "the exported descriptor is valid");
             var again = Json(run.Cli("import-sources", "staging.imp", "--check", "--format", "json"));
@@ -777,21 +785,25 @@ public partial class ApplyConformanceTests
 
             // the table changes: --check fails for CI, the preview shows the change, a refresh without arguments takes it
             await engine.ExecAsync(pg ? "ALTER TABLE staging.imp ADD extra integer" : "ALTER TABLE staging.imp ADD extra int");
+            await engine.ExecAsync("CREATE INDEX ix_imp_extra ON staging.imp (extra)");
             var stale = Json(run.Cli("import-sources", "--check", "--format", "json"), expectedExit: 1);
             Assert.Contains("DDB-227", codes(stale));
             var changed = stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.imp")!;
             Assert.Equal("changed", (string?)changed["status"]);
             Assert.Equal(("columnadded", "extra"), ((string)changed["changes"]![0]!["kind"]!, (string)changed["changes"]![0]!["column"]!));
+            Assert.Contains(changed["changes"]!.AsArray(), x => (string?)x!["kind"] == "indexadded" && (string?)x["column"] == "ix_imp_extra");
             Assert.Equal("unchanged", (string?)stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.orders")!["status"]);   // the hand-written descriptor already matched
 
             // human knowledge survives: a grain, a length put on unlimited text, and a type for a column the catalog cannot type
-            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n") + "  - {name: odd, type: VARCHAR(40)}\n";
+            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n").Replace("indexes:\n", "  - {name: odd, type: VARCHAR(40)}\nindexes:\n");
             run.Write("sources/staging/imp.yml", text);
             var refreshed = Json(run.Cli("import-sources", "--write", "--format", "json"));
             Assert.Equal(["sources/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
             var after = File.ReadAllText(file("sources/staging/imp.yml"));
             Assert.Contains("grain: [id, code]", after);
             Assert.Contains("  - name: extra\n    type: INTEGER\n", after);
+            Assert.Contains("  - {name: ix_imp_extra, columns: [extra]}\n", after);
+            Assert.Contains("  - {name: fk_imp_ref, columns: [id], references: {table: staging.ref, columns: [id]}}\n", after);
             Assert.Contains("  - name: notes\n    type: VARCHAR(500)\n", after);   // the same type as the live unlimited text, so not churned
             Assert.Contains("  - name: odd\n    type: VARCHAR(40)\n", after);
             Ok(run.Cli("validate"), "the refreshed descriptor is valid");
@@ -829,6 +841,7 @@ public partial class ApplyConformanceTests
                 ? $"SELECT document -> 'consumers' ->> 0 FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'"
                 : $"SELECT JSON_VALUE(document, '$.consumers[0]') FROM {meta("metadata_current")} WHERE kind = 'source' AND subject = 'staging.orders'");
             Assert.Equal("marts.fct_orders", consumers);
+            Assert.Equal(1, await CountAsync(run, meta("metadata_current"), pg ? "kind = 'source' AND subject = 'staging.imp' AND document::text LIKE '%ix_imp_code%fk_imp_ref%'" : "kind = 'source' AND subject = 'staging.imp' AND document LIKE '%ix_imp_code%fk_imp_ref%'"));   // indexes and foreign keys are published with the source
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }

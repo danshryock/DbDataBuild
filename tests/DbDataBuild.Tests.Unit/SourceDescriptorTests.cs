@@ -29,6 +29,15 @@ public class SourceDescriptorTests
         new("name does not match path", "name: staging.other\n" + Cols, true, "DDB-107"),
         new("grain names an undeclared column", "name: staging.orders\ngrain: [ghost]\n" + Cols, true, "DDB-217"),
         new("duplicate column names", "name: staging.orders\ncolumns:\n  - {name: a, type: INT}\n  - {name: A, type: INT}\n", true, "DDB-102"),
+        new("indexes", "name: staging.orders\n" + Cols + "indexes:\n  - {name: IX_orders-amount, columns: [amount], include: [order_id]}\n  - {name: ux_orders, columns: [order_id, amount], unique: true}\n", true),
+        new("index on an undeclared column", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [ghost]}\n", true, "DDB-217"),
+        new("index without columns", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix}\n", false, "DDB-105"),
+        new("index with an unknown key", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [amount], targets: [sqlserver]}\n", false, "DDB-104"),
+        new("duplicate index names", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [amount]}\n  - {name: IX, columns: [order_id]}\n", true, "DDB-102"),
+        new("foreign keys", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk_orders_customer, columns: [order_id], references: {table: staging.customers, columns: [customer_id]}}\n", true),
+        new("foreign key without references", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk, columns: [order_id]}\n", false, "DDB-105"),
+        new("foreign key with mismatched column counts", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk, columns: [order_id, amount], references: {table: staging.c, columns: [id]}}\n", true, "DDB-106"),
+        new("foreign key on an undeclared column", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk, columns: [ghost], references: {table: staging.c, columns: [id]}}\n", true, "DDB-217"),
     ];
 
     public static TheoryData<Case> Data

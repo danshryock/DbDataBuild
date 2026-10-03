@@ -67,12 +67,13 @@ internal static class ImportSourcesCommand
                     if (string.Equals(schema, ctx.Config.TrackingSchema, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema holds the tool's own tables")); continue; }
                     var shapes = await CatalogReader.ReadSchemaAsync(read, target, schema);
                     var keys = await SourceCatalogReader.PrimaryKeysAsync(read, target, schema);
+                    var foreignKeys = await SourceCatalogReader.ForeignKeysAsync(read, target, schema);
                     foreach (var (qualified, shape) in shapes.OrderBy(k => k.Key, StringComparer.Ordinal))
                     {
                         if (!wanted.Any(w => w.Schema.IsMatch(shape.Schema) && w.Table.IsMatch(shape.Name))) continue;
                         seen.Add(qualified);
                         if (models.Contains(qualified)) { skipped.Add(new(qualified, "it is a model, not a source")); continue; }
-                        var live = SourceImport.Describe(target, shape, keys.GetValueOrDefault(shape.Name));
+                        var live = SourceImport.Describe(target, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name));
                         if (live.File == null)
                         {
                             diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under sources/."));
@@ -103,6 +104,9 @@ internal static class ImportSourcesCommand
         output.Payload("sources", rows.Select(r => new
         {
             name = r.Name, kind = r.Kind, file = r.File, status = r.Status, grain = r.Descriptor?.Grain ?? [],
+            indexes = (r.Descriptor?.Indexes ?? []).Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include }).ToList(),
+            foreign_keys = (r.Descriptor?.ForeignKeys ?? []).Select(f => new { name = f.Name, columns = f.Columns, references = new { table = f.Table, columns = f.ReferencedColumns } }).ToList(),
+            notes = r.Live?.Notes ?? [],
             changes = r.Changes.Select(c => new { kind = c.Kind.ToString().ToLowerInvariant(), column = c.Column, detail = c.Detail }).ToList(),
             columns = r.Live?.Columns.Select(c => new { name = c.Name, native_type = c.NativeType, logical_type = c.LogicalType, fit = c.Fit.ToString().ToLowerInvariant(), reason = c.Reason.Length == 0 ? null : c.Reason, nullable = c.Nullable }).ToList(),
         }).ToList());
@@ -119,6 +123,7 @@ internal static class ImportSourcesCommand
         foreach (var r in rows)
         {
             output.WriteLine($"{r.Status,-9} {r.Name}  ({r.Kind}{(r.Live != null ? $", {r.Live.Columns.Count} column(s)" : "")})");
+            foreach (var note in r.Live?.Notes ?? []) output.WriteLine($"          note: {note}");
             foreach (var c in r.Live?.Columns ?? [])
                 if (c.Fit != SourceTypeFit.Exact)
                     output.WriteLine($"          {c.Name}: {c.NativeType} -> {c.LogicalType ?? "no logical type"}{(c.Reason.Length > 0 ? " (" + c.Reason + ")" : "")}");

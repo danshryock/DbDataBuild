@@ -10,7 +10,7 @@ namespace DbDataBuild.Tests.Unit;
 /// <summary>`test`: metadata rules (DuckDB SELECTs over the metadata views, DESIGN.md 9.8).</summary>
 public class ProjectTestsTests
 {
-    private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\n";
+    private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\nindexes:\n  - {name: IX_orders_amount, columns: [amount], include: [note]}\nforeign_keys:\n  - {name: FK_orders_self, columns: [order_id], references: {table: staging.orders, columns: [order_id]}}\n";
     private const string Fct = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\ntargets: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note2, type: VARCHAR}\nindexes:\n  - {name: ux_fct_orders_order_id, columns: [order_id], unique: true}\nhooks:\n  - {name: grant, event: post_create, script: hooks/grant.sql}\n";
     private const string Config = "default_targets: [sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n";
 
@@ -115,6 +115,8 @@ public class ProjectTestsTests
         Assert.Equal(["marts.fct_orders|incremental_by_unique_key|[order_id]|[order_id]|[sqlserver]|3"], Rows("SELECT model, kind_type, unique_key, grain, targets, column_count FROM metadata_models"));
         Assert.Equal(["staging.orders|[order_id]|[marts.fct_orders]|3"], Rows("SELECT source, grain, consumers, column_count FROM metadata_sources"));
         Assert.Equal(["marts.fct_orders|staging.orders|source"], Rows("SELECT model, upstream, upstream_kind FROM metadata_upstream"));
+        Assert.Equal(["staging.orders|IX_orders_amount|[amount]|False|[note]"], Rows("SELECT source, index_name, columns, is_unique, include FROM metadata_source_indexes"));
+        Assert.Equal(["staging.orders|FK_orders_self|[order_id]|staging.orders|[order_id]"], Rows("SELECT source, foreign_key_name, columns, referenced_table, referenced_columns FROM metadata_source_foreign_keys"));
         Assert.Equal(["marts.fct_orders|note2|expression|staging.orders|note"], Rows("SELECT model, column_name, transform, upstream_table, upstream_column FROM metadata_lineage WHERE column_name = 'note2'"));
         Assert.Equal(["marts.fct_orders|ux_fct_orders_order_id|[order_id]|True"], Rows("SELECT model, index_name, columns, is_unique FROM metadata_indexes"));
         Assert.Equal(["marts.fct_orders|note2|sqlserver|nvarchar(max)"], Rows("SELECT model, column_name, target, native_type FROM metadata_native_types WHERE column_name = 'note2'"));
