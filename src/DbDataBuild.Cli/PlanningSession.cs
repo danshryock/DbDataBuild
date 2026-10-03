@@ -23,6 +23,36 @@ internal static class CommandTargets
 
 internal static class GitInfo
 {
+    /// <summary>
+    /// The files (relative to <paramref name="root"/>, with `/`) that differ from <paramref name="gitRef"/> in the working tree, committed or not, and the untracked ones. Returns the reason instead when git cannot say
+    /// (not a repository, no such ref).
+    /// </summary>
+    public static (HashSet<string>? Files, string? Error) ChangedFiles(string root, string gitRef)
+    {
+        (string? Out, string Err) Git(string args)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("git", args) { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+                using var p = Process.Start(psi);
+                if (p == null) return (null, "git could not be started");
+                var o = p.StandardOutput.ReadToEnd();
+                var e = p.StandardError.ReadToEnd();
+                p.WaitForExit();
+                return (p.ExitCode == 0 ? o : null, e.Split('\n')[0].Trim());
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return (null, "git is not available"); }
+        }
+        var diff = Git($"diff --name-only --relative {Quote(gitRef)} --");
+        if (diff.Out == null) return (null, $"git could not compare with `{gitRef}`: {(diff.Err.Length > 0 ? diff.Err : "unknown error")}");
+        var untracked = Git("ls-files --others --exclude-standard");
+        var files = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in (diff.Out + "\n" + (untracked.Out ?? "")).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) files.Add(line.Replace('\\', '/'));
+        return (files, null);
+    }
+
+    private static string Quote(string arg) => "\"" + arg.Replace("\"", "\\\"") + "\"";
+
     /// <summary>The commit and whether the working tree has uncommitted changes. Null commit when this is not a git repository or git is unavailable.</summary>
     public static (string? Commit, bool Dirty) Read(string root)
     {

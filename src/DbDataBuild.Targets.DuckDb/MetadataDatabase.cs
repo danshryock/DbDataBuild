@@ -47,6 +47,14 @@ CREATE VIEW metadata_upstream AS
 SELECT m.subject AS model, u->>'name' AS upstream, u->>'kind' AS upstream_kind
 FROM metadata_current m, unnest(CAST(m.document->'upstream' AS JSON[])) AS t(u) WHERE m.kind = 'model';
 
+CREATE VIEW metadata_ancestors AS
+WITH RECURSIVE a(model, ancestor, depth) AS (
+  SELECT model, upstream, 1 FROM metadata_upstream
+  UNION ALL
+  SELECT a.model, u.upstream, a.depth + 1 FROM a JOIN metadata_upstream u ON u.model = a.ancestor
+)
+SELECT model, ancestor, min(depth) AS depth FROM a GROUP BY model, ancestor;
+
 CREATE VIEW metadata_lineage AS
 SELECT m.subject AS model, c->>'name' AS column_name, c->'lineage'->>'transform' AS transform, c->'lineage'->>'cast_type' AS cast_type,
   u->>'table' AS upstream_table, u->>'column' AS upstream_column
@@ -92,7 +100,7 @@ FROM metadata_current m, unnest(CAST(m.document->'index_advice' AS JSON[])) AS t
     /// <summary>The names of the views, for documentation and tests.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
-        "metadata_current", "metadata_columns", "metadata_models", "metadata_sources", "metadata_upstream", "metadata_lineage",
+        "metadata_current", "metadata_columns", "metadata_models", "metadata_sources", "metadata_upstream", "metadata_ancestors", "metadata_lineage",
         "metadata_native_types", "metadata_indexes", "metadata_source_indexes", "metadata_source_foreign_keys", "metadata_loads", "metadata_hooks", "metadata_index_advice",
     ];
 

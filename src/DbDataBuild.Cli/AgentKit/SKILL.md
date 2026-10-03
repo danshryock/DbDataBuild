@@ -25,12 +25,17 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `validate` | offline | check config, models and sources; lowers every query with DuckDB, lints it per target; `data.models` has full metadata |
 | `sample [models]` | offline | run models on generated or supplied rows and see the result (`--rows --seed --limit --data <dir> --sources`) |
 | `test [names] [--tag t] [--strict]` | offline | run the project's tests: metadata rules in `tests/metadata/*.sql` (DuckDB SELECTs over the `metadata_*` views that return violations); exit 1 if an error-severity rule returns rows |
+| `graph [selectors] [--columns \| --column m.c \| --diagram dot\|mermaid]` | offline | the dependency graph and column lineage; what a change to a model or a column reaches |
 | `metadata`, `loads`, `matrix`, `explain <code>` | offline | what the tool knows: types per target, load operations, what differs per engine, a code's meaning |
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |
 | `import-sources [schema.table ...] [--write \| --check]` | database, read-only (files only with `--write`) | export tables and views from the target as `sources/` descriptors; with no arguments refresh the existing ones; the default shows a diff and writes nothing |
 | `check`, `plan`, `report` | database, read-only | drift and blocks; write a plan file; history |
 | `apply <plan>`, `run`, `ack`, `init --apply`, `publish-metadata` | **changes the database** | only with the person's go-ahead; `apply --dry-run` changes nothing |
+
+## Choosing models
+
+Every command that takes models takes selectors: `+model` (it and what it reads), `model+` (it and what depends on it), `2+model`, `@model`, `kind:full`, `target:postgres`, `path:models/marts`, `changed:origin/main` (what differs from a git ref; add `+` for what depends on it), `a,b` for an intersection, `exclude:<selector>`. `graph --column m.c` shows what a column change reaches. After editing a model, `plan changed:HEAD+` plans it and everything downstream.
 
 ## The loop for a model change
 

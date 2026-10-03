@@ -478,6 +478,25 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "graph"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_graph"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -2373,6 +2392,184 @@
               "rows"
             ]
           }
+        }
+      }
+    },
+    "data_graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "model",
+                  "source",
+                  "unknown"
+                ]
+              },
+              "level": {
+                "type": "integer"
+              },
+              "file": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "model_kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "level",
+              "targets"
+            ]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ]
+          }
+        },
+        "unknown_tables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "column_edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from_table": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "from_column": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to_model": {
+                "type": "string"
+              },
+              "to_column": {
+                "type": "string"
+              },
+              "transform": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "to_model",
+              "to_column",
+              "transform"
+            ]
+          }
+        },
+        "column_lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "type": "string"
+            },
+            "upstream": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "table": {
+                    "type": "string"
+                  },
+                  "column": {
+                    "type": "string"
+                  },
+                  "distance": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "table",
+                  "column",
+                  "distance"
+                ]
+              }
+            },
+            "downstream": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "table": {
+                    "type": "string"
+                  },
+                  "column": {
+                    "type": "string"
+                  },
+                  "distance": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "table",
+                  "column",
+                  "distance"
+                ]
+              }
+            }
+          },
+          "required": [
+            "column",
+            "upstream",
+            "downstream"
+          ]
+        },
+        "diagram": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

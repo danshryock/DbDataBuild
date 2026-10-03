@@ -69,6 +69,9 @@ internal static class MetadataBuilder
         ? new { use = h.Use }
         : new { name = h.Name, @event = h.Event, script = (object?)h.Script ?? h.ScriptByTarget, targets = h.Targets, effect = h.Effect, risk = h.Risk };
 
+    /// <summary>The declared columns of everything a model could read, for lineage and nullability.</summary>
+    public static IReadOnlyList<SchemaTableSpec> UpstreamSchema(ProjectContext ctx, string modelName) => UpstreamSpecs(ctx, modelName);
+
     private static List<SchemaTableSpec> UpstreamSpecs(ProjectContext ctx, string modelName)
     {
         var upstream = ctx.Project.Models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns))

@@ -44,6 +44,7 @@ public static class CommandSpecs
         new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
         new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),
+        new("graph", EffectClass.OfflineOnly, "Show the dependency graph (which table each model reads), column lineage, or a diagram of it; selectors pick the part to show", true),
         new("import-sources", EffectClass.TargetReadOnly, "Export tables and views from the target as source descriptors (sources/), so models over them bind offline (writes files only with --write)", true),
         new("test", EffectClass.OfflineOnly, "Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/", true),
         new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),

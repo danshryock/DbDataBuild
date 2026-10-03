@@ -26,6 +26,7 @@ scoop install https://raw.githubusercontent.com/danshryock/DbDataBuild/main/buck
 ```
 dbdatabuild validate                      # check config and models, lower and lint every query
 dbdatabuild import-sources staging.*     # export source tables from the target as sources/ descriptors (diff first; --write to save)
+dbdatabuild graph +marts.fct_orders       # what a model depends on (also: marts.fct_orders+, --column m.c, --diagram mermaid)
 dbdatabuild sample marts.fct_orders       # run a model on generated sample data, offline
 dbdatabuild render --write                # write the committed load scripts
 dbdatabuild plan --target postgres        # read the target, write a plan file

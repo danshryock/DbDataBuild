@@ -14,7 +14,7 @@ public static class CliApp
     /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
     /// <param name="environment">Where logins are read from (connection strings in environment variables). Defaults to the process environment.</param>
     public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
-        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args).Invoke(new InvocationConfiguration { Output = output, Error = error }), output);
+        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error }), output);
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body, TextWriter? output = null)
@@ -134,7 +134,7 @@ public static class CliApp
                         o, e, input, interactive && !o.IsJson(), environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "check":
-                    var checkModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var checkModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
                     var checkProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var checkTarget = new Option<string?>("--target") { Description = "Target to check (default: the project's only default target)" };
                     cmd.Arguments.Add(checkModels);
@@ -165,7 +165,7 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "run":
-                    var runModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
                     var runProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var runTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
                     var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
@@ -179,6 +179,15 @@ public static class CliApp
                     var reportLast = new Option<int>("--last") { Description = "How many recent rows of each history to show", DefaultValueFactory = _ => 10 };
                     cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
+                case "graph":
+                    var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `target:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
+                    var graphProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var graphColumns = new Option<bool>("--columns") { Description = "Also show which column of which table each output column comes from" };
+                    var graphColumn = new Option<string?>("--column") { Description = "Follow one column (model.column) up to the columns it comes from and down to the columns built from it" };
+                    var graphDiagram = new Option<string?>("--diagram") { Description = "Print a diagram instead of the list: dot (Graphviz) or mermaid" };
+                    cmd.Arguments.Add(graphModels); cmd.Options.Add(graphProject); cmd.Options.Add(graphColumns); cmd.Options.Add(graphColumn); cmd.Options.Add(graphDiagram);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => GraphCommand.Run(spec, pr.GetValue(graphProject)!.FullName, pr.GetValue(graphModels) ?? [], pr.GetValue(graphColumns), pr.GetValue(graphColumn), pr.GetValue(graphDiagram), o, e)));
                     break;
                 case "import-sources":
                     var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
@@ -200,13 +209,13 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => TestCommand.Run(spec, pr.GetValue(testProject)!.FullName, pr.GetValue(testNames) ?? [], pr.GetValue(testTag) ?? [], pr.GetValue(testKind), pr.GetValue(testLimit), pr.GetValue(testStrict), o, e)));
                     break;
                 case "metadata":
-                    var metaModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var metaModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var metaProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Arguments.Add(metaModels); cmd.Options.Add(metaProject);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => MetadataCommand.Run(spec, pr.GetValue(metaProject)!.FullName, pr.GetValue(metaModels) ?? [], o, e)));
                     break;
                 case "publish-metadata":
-                    var pubModels = new Argument<string[]>("models") { Description = "Model names, files or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var pubModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var pubProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var pubTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
                     cmd.Arguments.Add(pubModels); cmd.Options.Add(pubProject); cmd.Options.Add(pubTarget);

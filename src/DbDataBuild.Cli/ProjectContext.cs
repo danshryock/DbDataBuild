@@ -50,26 +50,87 @@ internal sealed class ProjectContext
     /// <summary>The targets a model is built for: its own `targets:`, else the project default.</summary>
     public IReadOnlyList<string> TargetsOf(ModelDefinition model) => model.Targets ?? Config.DefaultTargets;
 
+    private DependencyGraph? graph;
+
+    /// <summary>Which tables each model reads, from parsing the queries (names only; no DuckDB, no target).</summary>
+    public DependencyGraph Graph => graph ??= ProjectGraph.Build(this);
+
     /// <summary>
-    /// The models the arguments select (model names such as marts.fct_orders, or .sql/.yml paths under models/); every model when none are given.
-    /// Returns null and writes the problem when an argument selects nothing.
+    /// The models the arguments select, as selectors (DESIGN.md 9.9): a model name, a `.sql` or `.yml` path, or a directory under models/, with the graph operators `+model`, `model+`, `2+model`, `model+1`, `@model`, the filters
+    /// `kind:`, `target:`, `path:` and `changed:<git ref>`, a comma for an intersection, and `exclude:<selector>` to take models out again. Several arguments are a union; every model when none are given.
+    /// Returns null and writes the problem when a term selects nothing.
     /// </summary>
     public List<LoadedModel>? Select(IReadOnlyList<string> args, TextWriter error)
     {
         var all = Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).ToList();
-        var chosen = new List<ModelSource>();
-        if (args.Count == 0) chosen.AddRange(all);
-        foreach (var arg in args)
+        var chosen = new List<string>();
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var includes = args.Where(a => !a.StartsWith("exclude:", StringComparison.Ordinal)).ToList();
+        if (includes.Count == 0) chosen.AddRange(all.Select(s => s.Definition.Name));
+        foreach (var arg in includes)
         {
-            var normalized = arg.Replace('\\', '/');
-            var byName = all.Where(s => string.Equals(s.Definition.Name, arg, StringComparison.OrdinalIgnoreCase)).ToList();
-            var byPath = all.Where(s => normalized.EndsWith(s.QueryFile, StringComparison.Ordinal) || normalized.EndsWith(s.DefinitionFile, StringComparison.Ordinal) ||
-                                        (Path.GetFullPath(Path.Combine(Root, s.QueryFile)) == Path.GetFullPath(arg)) || (Path.GetFullPath(Path.Combine(Root, s.DefinitionFile)) == Path.GetFullPath(arg))).ToList();
-            var byDir = all.Where(s => normalized.TrimEnd('/') is var d && s.QueryFile.StartsWith(d + "/", StringComparison.Ordinal)).ToList();
-            var found = byName.Count > 0 ? byName : byPath.Count > 0 ? byPath : byDir;
-            if (found.Count == 0) { error.WriteLine($"`{arg}` does not name a valid model, a model file, or a directory containing models."); return null; }
-            chosen.AddRange(found);
+            var set = SelectTerm(arg, all, error);
+            if (set == null) return null;
+            foreach (var name in set) if (!chosen.Contains(name, StringComparer.OrdinalIgnoreCase)) chosen.Add(name);
         }
-        return chosen.DistinctBy(s => s.Definition.Name).Select(s => new LoadedModel(s, File.ReadAllText(Path.Combine(Root, s.QueryFile)))).ToList();
+        foreach (var arg in args.Where(a => a.StartsWith("exclude:", StringComparison.Ordinal)))
+        {
+            var set = SelectTerm(arg["exclude:".Length..], all, error);
+            if (set == null) return null;
+            excluded.UnionWith(set);
+        }
+        var byName = all.ToDictionary(s => s.Definition.Name, StringComparer.OrdinalIgnoreCase);
+        return chosen.Where(n => !excluded.Contains(n) && byName.ContainsKey(n)).Select(n => byName[n]).DistinctBy(s => s.Definition.Name)
+            .Select(s => new LoadedModel(s, File.ReadAllText(Path.Combine(Root, s.QueryFile)))).ToList();
     }
+
+    /// <summary>One argument: terms joined by commas are intersected, each term is an optional operator around a core.</summary>
+    private HashSet<string>? SelectTerm(string arg, List<ModelSource> all, TextWriter error)
+    {
+        HashSet<string>? result = null;
+        foreach (var part in arg.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var term = ModelSelector.Parse(part);
+            var core = ResolveCore(term.Core, all, error);
+            if (core == null) return null;
+            var set = term is { Upstream: false, Downstream: false, At: false } ? new HashSet<string>(core, StringComparer.OrdinalIgnoreCase) : ModelSelector.Expand(term, core, Graph);
+            if (result == null) result = set; else result.IntersectWith(set);
+        }
+        return result ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private List<string>? ResolveCore(string core, List<ModelSource> all, TextWriter error)
+    {
+        List<string>? Found(IEnumerable<ModelSource> models, string what)
+        {
+            var names = models.Select(s => s.Definition.Name).ToList();
+            if (names.Count == 0) { error.WriteLine($"`{core}` selects no model ({what})."); return null; }
+            return names;
+        }
+        if (core is "all" or "*") return all.Select(s => s.Definition.Name).ToList();
+        if (core.StartsWith("kind:", StringComparison.Ordinal)) { var k = core[5..]; return Found(all.Where(s => string.Equals(s.Definition.KindType, k, StringComparison.OrdinalIgnoreCase)), $"no model has the kind `{k}`"); }
+        if (core.StartsWith("target:", StringComparison.Ordinal)) { var t = core[7..]; return Found(all.Where(s => TargetsOf(s.Definition).Contains(t, StringComparer.OrdinalIgnoreCase)), $"no model is built for `{t}`"); }
+        if (core.StartsWith("path:", StringComparison.Ordinal)) { var d = core[5..].Replace('\\', '/').Trim('/'); return Found(all.Where(s => s.QueryFile.StartsWith(d + "/", StringComparison.Ordinal)), $"no model is under `{d}/`"); }
+        if (core.StartsWith("changed:", StringComparison.Ordinal))
+        {
+            var (files, problem) = GitInfo.ChangedFiles(Root, core[8..]);
+            if (files == null) { error.WriteLine(problem); return null; }
+            var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (files.Contains(ProductInfo.ConfigFile)) changed.UnionWith(all.Select(s => s.Definition.Name));                    // the project settings reach every model
+            foreach (var s in all.Where(s => files.Contains(s.QueryFile) || files.Contains(s.DefinitionFile))) changed.Add(s.Definition.Name);
+            foreach (var d in Project.Descriptors.Where(d => files.Contains(ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
+            return changed.OrderBy(n => n, StringComparer.Ordinal).ToList();                                                          // nothing changed is a valid, empty answer
+        }
+
+        var normalized = core.Replace('\\', '/');
+        var byName = all.Where(s => string.Equals(s.Definition.Name, core, StringComparison.OrdinalIgnoreCase)).ToList();
+        var byPath = all.Where(s => normalized.EndsWith(s.QueryFile, StringComparison.Ordinal) || normalized.EndsWith(s.DefinitionFile, StringComparison.Ordinal) ||
+                                    (Path.GetFullPath(Path.Combine(Root, s.QueryFile)) == Path.GetFullPath(core)) || (Path.GetFullPath(Path.Combine(Root, s.DefinitionFile)) == Path.GetFullPath(core))).ToList();
+        var byDir = all.Where(s => normalized.TrimEnd('/') is var d && s.QueryFile.StartsWith(d + "/", StringComparison.Ordinal)).ToList();
+        var found = byName.Count > 0 ? byName : byPath.Count > 0 ? byPath : byDir;
+        if (found.Count == 0) { error.WriteLine($"`{core}` does not name a valid model, a model file, or a directory containing models."); return null; }
+        return found.Select(s => s.Definition.Name).ToList();
+    }
+
+    private static string ModelSourcePath(string name) => $"{ProjectValidator.SourcesDir}/{name.Replace('.', '/')}.yml";
 }
