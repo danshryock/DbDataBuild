@@ -41,10 +41,6 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 5. `render --write`, then commit `rendered/`.
 6. `plan --format json`. If it has `open_questions`, stop and ask (a parameter of a reload or backfill can be given as `--param model.operation.parameter=value` once the person has chosen the value). Otherwise give the person the plan path and a summary of the steps (`data.plan.steps`: type, risk, description). Risky and destructive steps need their own flags at apply time, and that is the person's call.
 
-## Project tests
-
-`tests/metadata/<name>.sql` is a rule: one DuckDB SELECT over the `metadata_*` views that returns the violations (no rows = pass). Put settings in comments at the top: `-- description: ...`, `-- severity: error|warning`, `-- tags: a, b`. Views: `metadata_columns` (model and source columns, native types per target), `metadata_models`, `metadata_sources`, `metadata_upstream`, `metadata_lineage`, `metadata_native_types`, `metadata_indexes`, `metadata_loads`, `metadata_hooks`, `metadata_index_advice`, `metadata_current` (the raw JSON documents). Run `test --format json`; a failing error-severity rule is DDB-601, a rule that cannot run DDB-602. Do not weaken or delete a rule to make a model pass without asking the person.
-
 ## Writing a model
 
 A model is a single `SELECT` in DuckDB's dialect, plus a YAML definition. `columns:` is **required** and is the declared output: name, type, `nullable: false` where it can never be NULL.
@@ -71,6 +67,27 @@ indexes:                               # only what you declare is created; never
 - **The tool rewrites a few things for the engines** (`length` trailing spaces, `round` of a double, `TRY_CAST` of a string, integer `sum`): you write the DuckDB meaning and the rendered scripts compute the same. `dbdatabuild matrix` lists what still differs (for example `TRY_CAST('12.7' AS INTEGER)` is 13 in DuckDB and NULL on the engines).
 - **Indexes and keys**: a merge on a key never needs an index or constraint, but a key without an index scans the table on every load (DDB-223). Whether a key is enforced as unique is the person's choice; declare `unique: true` only if they want it. `lint_ignore: [DDB-223]` silences advice for a model.
 - **Hooks** (`hooks:` per model, `hook_groups:` in config) are native SQL files run before or after plan steps (`pre_`/`post_` `create`, `alter`, `load`, `backfill`). They run exactly as committed, so treat a new one as risky.
+
+## Project tests
+
+`tests/metadata/<name>.sql` is a rule: one DuckDB SELECT over the `metadata_*` views that returns the violations (no rows = pass). Put settings in comments at the top: `-- description: ...`, `-- severity: error|warning`, `-- tags: a, b`. Views: `metadata_columns` (model and source columns, native types per target), `metadata_models`, `metadata_sources`, `metadata_upstream`, `metadata_lineage`, `metadata_native_types`, `metadata_indexes`, `metadata_loads`, `metadata_hooks`, `metadata_index_advice`, `metadata_current` (the raw JSON documents). Run `test --format json`; a failing error-severity rule is DDB-601, a rule that cannot run DDB-602. Do not weaken or delete a rule to make a model pass without asking the person.
+
+`tests/models/<model>.yml` tests a model's logic on rows you give it (the file name is the model name; settings are `# description:`, `# severity:`, `# tags:` comments at the top):
+
+```yaml
+cases:
+  - name: keeps null amounts
+    given:
+      staging.orders:                 # each table the query reads (sources and models); unlisted tables are empty
+        - {order_id: 1, amount: 10.00}
+        - {order_id: 2, amount: null}   # a plain null is NULL; "null" in quotes is text; a column left out is NULL
+    expect:                           # rows the query must return (cast to the declared types); {rows: [...], ordered: true} to check order
+      - {order_id: 1, amount: 10.00}
+      - {order_id: 2, amount: null}
+    assert: SELECT * FROM result WHERE amount < 0    # optional: violations over the table `result`
+```
+
+`test --kind model` runs them in DuckDB (the query as written, no target). A failure shows `_diff` rows (`missing` or `unexpected`). Write the expected rows from what the model *should* do, not by copying its output: a test copied from the output cannot fail.
 
 ## Reading a plan
 

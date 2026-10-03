@@ -118,7 +118,22 @@ FROM metadata_current m, unnest(CAST(m.document->'index_advice' AS JSON[])) AS t
     }
 
     /// <summary>Runs one rule: a single SELECT, checked by DuckDB's own parser before anything runs. Reads at most <paramref name="keep"/> rows into the result and counts the rest.</summary>
-    public RuleRun Run(string sql, int keep)
+    public RuleRun Run(string sql, int keep) => DuckSelect.Run(db, sql, keep);
+
+    public void Dispose() => db.Dispose();
+
+    private static void Exec(DuckDBConnection db, string sql)
+    {
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+    }
+}
+
+/// <summary>Runs one SELECT on a DuckDB connection: parsed first (exactly one SELECT), then read; used for metadata rules and for the `assert` of model tests.</summary>
+public static class DuckSelect
+{
+    public static RuleRun Run(DuckDBConnection db, string sql, int keep)
     {
         string? serialized;
         using (var check = db.CreateCommand())
@@ -161,15 +176,6 @@ FROM metadata_current m, unnest(CAST(m.document->'index_advice' AS JSON[])) AS t
             return new RuleRun(RuleOutcome.CouldNotRun, Trim(ex.Message), [], [], 0);
         }
         return new RuleRun(RuleOutcome.Ran, null, columns, rows, count);
-    }
-
-    public void Dispose() => db.Dispose();
-
-    private static void Exec(DuckDBConnection db, string sql)
-    {
-        using var cmd = db.CreateCommand();
-        cmd.CommandText = sql;
-        cmd.ExecuteNonQuery();
     }
 
     private static string Trim(string message) => string.Join(" ", message.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Take(2));

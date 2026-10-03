@@ -51,7 +51,7 @@ public static class StrictYamlReader
             case Scalar s:
                 p.MoveNext();
                 CheckProperties(s.Anchor, s.Tag, s.Start, file, diags);
-                return new YamlScalar(s.Value, L(s.Start), C(s.Start)) { Start = (int)s.Start.Index, End = (int)s.End.Index };
+                return new YamlScalar(s.Value, L(s.Start), C(s.Start)) { Start = (int)s.Start.Index, End = (int)s.End.Index, Quoted = s.Style is not (YamlDotNet.Core.ScalarStyle.Plain or YamlDotNet.Core.ScalarStyle.Any) };
 
             case AnchorAlias a:
                 p.MoveNext();

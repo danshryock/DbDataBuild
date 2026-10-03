@@ -2206,11 +2206,24 @@
               },
               "kind": {
                 "enum": [
-                  "metadata"
+                  "metadata",
+                  "model"
                 ]
               },
               "file": {
                 "type": "string"
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "case": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "description": {
                 "type": [

@@ -9,33 +9,20 @@ namespace DbDataBuild.Models;
 /// </summary>
 public sealed record TestRule(string Name, string File, string Sql, string? Description, string Severity, IReadOnlyList<string> Tags);
 
-public static partial class TestRuleLoader
+/// <summary>
+/// The settings at the top of a test file: `-- key: value` comments in a rule, `# key: value` comments in a model test (DESIGN.md 9.8). The header is the run of comment lines before the first line
+/// of content; a comment that is not `word: value` is prose and is ignored; an unknown key, a repeated key or a bad value is a diagnostic with a line number.
+/// </summary>
+public static partial class TestHeader
 {
-    public const string Directory = "tests/metadata";
     private static readonly string[] Keys = ["description", "severity", "tags"];
-
-    [GeneratedRegex(@"^--\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$")]
-    private static partial Regex KeyLine();
 
     [GeneratedRegex(@"^[a-z0-9][a-z0-9_\-]*$")]
     private static partial Regex TagName();
 
-    /// <summary>The project-relative paths of the rule files, in order.</summary>
-    public static IReadOnlyList<string> Discover(string projectRoot)
+    public static (string? Description, string? Severity, List<string>? Tags) Parse(string[] lines, string prefix, string file, string what, List<Diagnostic> diags)
     {
-        var dir = Path.Combine(projectRoot, Directory);
-        if (!System.IO.Directory.Exists(dir)) return [];
-        return System.IO.Directory.EnumerateFiles(dir, "*.sql", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(projectRoot, f).Replace('\\', '/')).OrderBy(f => f, StringComparer.Ordinal).ToList();
-    }
-
-    /// <summary>`tests/metadata/naming/no_max.sql` is the rule `naming.no_max`.</summary>
-    public static string NameOf(string file) => file[(Directory.Length + 1)..^".sql".Length].Replace('/', '.');
-
-    public static TestRule? Load(string text, string file, List<Diagnostic> diags)
-    {
-        var before = diags.Count;
-        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var keyLine = new Regex("^" + Regex.Escape(prefix) + @"\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$");
         string? description = null, severity = null;
         List<string>? tags = null;
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -43,11 +30,11 @@ public static partial class TestRuleLoader
         {
             var line = lines[i].Trim();
             if (line.Length == 0) continue;
-            if (!line.StartsWith("--", StringComparison.Ordinal)) break;            // the header is the comments before the first line of SQL
-            if (KeyLine().Match(line) is not { Success: true } m) continue;          // prose is allowed
+            if (!line.StartsWith(prefix, StringComparison.Ordinal)) break;
+            if (keyLine.Match(line) is not { Success: true } m) continue;
             var (key, value) = (m.Groups[1].Value, m.Groups[2].Value);
             var at = new SourceLocation(file, i + 1, 1);
-            if (!Keys.Contains(key)) { diags.Add(new Diagnostic(DiagnosticCatalog.UnknownKey, at, $"`{key}` is not a setting of a metadata rule.", Fix: $"Use one of: {string.Join(", ", Keys)}. A comment that is not a setting should not start with `word:`.")); continue; }
+            if (!Keys.Contains(key)) { diags.Add(new Diagnostic(DiagnosticCatalog.UnknownKey, at, $"`{key}` is not a setting of {what}.", Fix: $"Use one of: {string.Join(", ", Keys)}. A comment that is not a setting should not start with `word:`.")); continue; }
             if (!seen.Add(key)) { diags.Add(new Diagnostic(DiagnosticCatalog.DuplicateKey, at, $"`{key}` is set more than once.")); continue; }
             switch (key)
             {
@@ -66,6 +53,31 @@ public static partial class TestRuleLoader
                     break;
             }
         }
+        return (description, severity, tags);
+    }
+}
+
+public static class TestRuleLoader
+{
+    public const string Directory = "tests/metadata";
+
+    /// <summary>The project-relative paths of the rule files, in order.</summary>
+    public static IReadOnlyList<string> Discover(string projectRoot)
+    {
+        var dir = Path.Combine(projectRoot, Directory);
+        if (!System.IO.Directory.Exists(dir)) return [];
+        return System.IO.Directory.EnumerateFiles(dir, "*.sql", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(projectRoot, f).Replace('\\', '/')).OrderBy(f => f, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>`tests/metadata/naming/no_max.sql` is the rule `naming.no_max`.</summary>
+    public static string NameOf(string file) => file[(Directory.Length + 1)..^".sql".Length].Replace('/', '.');
+
+    public static TestRule? Load(string text, string file, List<Diagnostic> diags)
+    {
+        var before = diags.Count;
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var (description, severity, tags) = TestHeader.Parse(lines, "--", file, "a metadata rule", diags);
         if (!lines.Any(l => l.Trim() is { Length: > 0 } t && !t.StartsWith("--", StringComparison.Ordinal)))
             diags.Add(new Diagnostic(DiagnosticCatalog.TestNotASelect, new(file, 1, 1), "The file has no SQL, only comments."));
         return diags.Count > before ? null : new TestRule(NameOf(file), file, text, description, severity ?? "error", tags ?? []);

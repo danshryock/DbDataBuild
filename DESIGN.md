@@ -166,7 +166,7 @@ Kinds define table semantics and supply the **default** load operation. Explicit
 
 YAML has well-known pitfalls (for example, unquoted `no`, `on`, or `2026-10-12` being coerced to booleans or dates by some parsers). The loader therefore applies a strict subset:
 
-- **All scalars are read as strings** and validated against the JSON Schemas in `schemas/`. Nothing is coerced by YAML type rules.
+- **All scalars are read as strings** and validated against the JSON Schemas in `schemas/`. Nothing is coerced by YAML type rules. (The reader notes whether a scalar was written in quotes, which only model tests use, to tell a plain `null` from the text `"null"`.)
 - **Unknown keys and duplicate keys are errors.** Anchors, aliases, merge keys, and custom tags are not allowed.
 - Enumerated values are lowercase snake_case. SQL types are written as plain strings (`DECIMAL(14, 2)`).
 - The JSON Schemas (`schemas/model.schema.json`, `schemas/config.schema.json`) are associated with the files by glob (`models/**/*.yml`, `dbdatabuild.yml`; see `.vscode/settings.json`) so editors, and Claude Code, validate definitions as they are written. The C# loaders are authoritative because they produce the diagnostics, and they also check what a schema cannot (name against path, grain against `unique_key`, column references). A conformance corpus runs through both, so the schemas and loaders cannot drift apart: structural errors must fail in both, semantic-only errors must pass the schema and fail the loader. Editors read unquoted `false` or `16` as typed values, so the schemas accept both forms where the loader reads strings. `schemas/answers.schema.json` covers answers files (section 10.1); `schemas/plan.schema.json` covers plan files (section 10.2); it cannot verify the content hash.
@@ -557,7 +557,7 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild explain <code>` | Offline only | Long-form diagnostic explanation |
 | `dbdatabuild define <path>` | Repo files only (no target connection) | Generate or update model definition files (YAML) from the query plus a guided walkthrough (section 6.5). `--check` writes nothing |
 | `dbdatabuild import-sources [<schema.table>...]` | Target read-only (writes `sources/` files only with `--write`) | Export tables and views from the target as source descriptors; refresh the project's descriptors; `--check` for CI (section 6.5.1) |
-| `dbdatabuild test [<test>...]` | Offline only | Run the project's tests: metadata rules in `tests/metadata/` (section 9.8). In-memory DuckDB; no target, nothing written |
+| `dbdatabuild test [<test>...]` | Offline only | Run the project's tests: metadata rules in `tests/metadata/` and model tests in `tests/models/` (section 9.8). In-memory DuckDB; no target, nothing written |
 | `dbdatabuild check` | Target read-only | Preflight findings: drift, blocks, history report inputs |
 | `dbdatabuild plan` | Target read-only (writes plan files locally) | Guided planning: discover, ask, generate plan |
 | `dbdatabuild report` | Target read-only | History consistency, drift, run and DDL history |
@@ -641,7 +641,7 @@ An AI coding agent works through the CLI with `--format json` (the machine inter
 
 ### 9.8 Project tests (`dbdatabuild test`)
 
-Projects can test themselves. **Metadata rules are built; model data tests are designed and not built.** The language for a test is DuckDB SQL, and the configuration is YAML; nothing else is introduced until a need for it arises.
+Projects can test themselves, with metadata rules and model tests (both built; gating on tests is designed for and not built). The language for a test is DuckDB SQL, and the configuration is YAML; nothing else is introduced until a need for it arises.
 
 **Metadata rules** (`tests/metadata/<name>.sql`, as built). A rule is one DuckDB `SELECT` over the metadata views that returns the *violations*; no rows means it passes. The name is the path under `tests/metadata/` with `/` as `.` (`naming/no_max.sql` is `naming.no_max`). Settings are `-- key: value` comments at the top of the file (the comments before the first line of SQL; a comment that is not `word: value` is prose and is ignored; an unknown key, a repeated key or a bad value is a diagnostic with a line number):
 
@@ -658,7 +658,27 @@ SELECT model, column_name FROM metadata_columns WHERE kind = 'model' AND logical
 
 **Gating (not built, designed for).** `plan`, `apply` and `run` do not run tests today; CI runs `dbdatabuild test`. The owner wants gating later, and by **group**: for example `plan` refusing when tests tagged `critical` fail while a `naming` group only advises. Tags exist for that: a gate will be a project setting that names groups (and their severity floor), `plan` will run those tests, a failure will be a block recorded in the plan, and the plan hash will cover what was run. Nothing about the file format has to change for it.
 
-**Model data tests (designed, not built).** `tests/models/<model>.yml` with cases of `given` rows per upstream table, and `expect` rows or an `assert` query over a table named `result` (violations, like a rule). The tool builds the empty DuckDB schema from declared columns (as `define` and `sample` do), inserts the `given` rows typed by the declarations, runs the model's query as written, casts `expect` to the declared output types and compares with `EXCEPT` both ways (unordered unless `ordered: true`). A column left out of a row is NULL; leaving out a NOT NULL column is an error in the file. They test the model's logic in DuckDB; the lowering is tested against real engines, and running tests on a target would be a separate opt-in effect class. Settings (`severity`, `tags`, a description) will be `#` comments at the top of the YAML file, as for rules; the owner expects most model YAML settings to be allowed that way in a future version.
+**Model tests** (`tests/models/<name>.yml`, as built). A file tests one model: `<name>` is the path under `tests/models/` with `/` as `.` and is the model's name unless `model:` says otherwise. Settings (`description`, `severity`, `tags`) are `#` comments at the top of the file, as `--` comments are in a rule; the owner expects most model YAML settings to be allowed that way in a future version. A case has a `name`, `given` rows per table the query reads, and `expect` and/or `assert`:
+
+```yaml
+# tags: critical
+cases:
+  - name: keeps null amounts
+    given:
+      staging.orders:                      # a source, or another model: its declared columns
+        - {order_id: 1, amount: 10.00}
+        - {order_id: 2, amount: null}
+    expect:                                # a list of rows, or {rows: [...], ordered: true}
+      - {order_id: 1, amount: 10.00}
+      - {order_id: 2, amount: null}
+  - name: amounts are never negative
+    given: {staging.orders: [{order_id: 1, amount: 5}]}
+    assert: SELECT * FROM result WHERE amount < 0     # violations, like a rule
+```
+
+All scalars are read as strings and cast by DuckDB to the declared type of their column (`10` is `10.00` for a `DECIMAL(14, 2)`); a plain `null`, `~` or empty value is NULL and the *quoted* text `"null"` is the string (the YAML reader records whether a scalar was quoted for exactly this). A column left out of a row is NULL; a `given` row that leaves out a NOT NULL column, names a column the table does not declare, or a `given` table the query does not read, is an error (DDB-602), as is a value that does not cast. A table the query reads that is not given is empty. The tool creates the tables in an in-memory DuckDB (external access off) from the declared columns of the sources and models the query reads, fills them with the `given` rows, runs the model's query **as written** into a table named `result`, casts it to the declared output columns and types, and compares with `expect` using `EXCEPT ALL` both ways: duplicates count and order does not matter unless `ordered: true`. A difference is a failure (DDB-601) whose rows carry `_diff` (`missing`: expected and not returned; `unexpected`: returned and not expected), or for `ordered`, the positions that differ. `assert` is a single SELECT (DDB-603 otherwise) over `result`, one violation per row. Each case is one entry of `data.tests[]` (`<name>::<case>`, kind `model`, with `model` and `case`); severity and tags are the file's.
+
+These tests check a model's **logic in DuckDB**: the lowering to each engine is tested against real engines, and running a case on a target would be a separate opt-in effect class. Not covered yet: floating-point tolerance, parameterized loads and the multi-run behaviour of incremental kinds, nested types (arrays, structs) as values.
 
 ## 10. Planning and applying
 

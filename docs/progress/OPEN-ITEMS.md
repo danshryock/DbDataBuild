@@ -76,7 +76,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 ## J. Project tests (2026-10-02)
 
-- **Built**: metadata rules (`test`, entry 37). **Not built**: model data tests (`tests/models/`, DESIGN.md 9.8); gating `plan`/`apply`/`run` on tests, including by tag group (the tags exist, nothing reads them but `test --tag`); the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML; floating-point tolerance, parameterized loads and multi-run incremental behaviour for data tests; tests on a real target.
+- **Built**: metadata rules (`test`, entry 37) and model tests (entry 38). **Not built**: gating `plan`/`apply`/`run` on tests, including by tag group (the tags exist, nothing reads them but `test --tag`); the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML (only test files have them); floating-point tolerance, parameterized loads, multi-run incremental behaviour, and array or struct values in model tests; running model tests on a real target.
 
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 

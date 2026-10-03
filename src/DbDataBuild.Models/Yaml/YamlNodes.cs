@@ -13,7 +13,11 @@ public abstract record YamlNode(int Line, int Column)
     public bool Flow { get; init; }
 }
 
-public sealed record YamlScalar(string Value, int Line, int Column) : YamlNode(Line, Column);
+public sealed record YamlScalar(string Value, int Line, int Column) : YamlNode(Line, Column)
+{
+    /// <summary>Written in quotes (or as a block scalar). Values are always read as strings; this only lets a file tell a plain `null` from the text "null".</summary>
+    public bool Quoted { get; init; }
+}
 
 public sealed record YamlSequence(IReadOnlyList<YamlNode> Items, int Line, int Column) : YamlNode(Line, Column);
 
