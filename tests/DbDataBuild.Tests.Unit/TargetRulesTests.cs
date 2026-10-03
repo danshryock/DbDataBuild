@@ -103,6 +103,32 @@ public class TargetRulesTests
         Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);
     }
 
+    [Theory]
+    [InlineData("year", "date_part('year', b) - date_part('year', a)")]
+    [InlineData("month", "(date_part('year', b) - date_part('year', a)) * 12 + (date_part('month', b) - date_part('month', a))")]
+    [InlineData("quarter", "(date_part('year', b) - date_part('year', a)) * 4 + (date_part('quarter', b) - date_part('quarter', a))")]
+    public void A_difference_in_years_months_or_quarters_counts_boundaries_on_PostgreSQL_as_DuckDB_does(string unit, string expectedPart)
+    {
+        var sql = $"SELECT date_diff('{unit}', a, b) AS x FROM t";
+        var r = TargetRules.Apply(sql, "postgres");
+        Assert.Equal([TargetRules.DateDiffBoundaries], r.Rules);
+        Assert.Contains(expectedPart, System.Text.RegularExpressions.Regex.Replace(r.Sql.ToLowerInvariant(), @"\s+", " ").Replace("( ", "(").Replace(" )", ")"));
+        Assert.Empty(TargetRules.Apply(sql, "sqlserver").Rules);                                 // DATEDIFF counts boundaries
+        Assert.Empty(TargetRules.Apply("SELECT date_diff('day', a, b) AS x FROM t", "postgres").Rules);
+    }
+
+    [Theory]
+    [InlineData("sqlserver")]
+    [InlineData("postgres")]
+    public void A_difference_in_weeks_is_the_days_between_over_seven_on_both_engines(string target)
+    {
+        const string sql = "SELECT date_diff('week', a, b) AS x FROM t";
+        var r = TargetRules.Apply(sql, target);
+        Assert.Equal([TargetRules.DateDiffWeeks], r.Rules);
+        Assert.Contains("date_diff('day'", r.Sql.ToLowerInvariant());
+        Assert.DoesNotContain("'week'", r.Sql);
+    }
+
     [Fact]
     public void Split_part_reaches_PostgreSQL_as_its_own_split_part()
     {

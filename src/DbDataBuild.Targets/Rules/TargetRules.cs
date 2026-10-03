@@ -23,6 +23,8 @@ public static class TargetRules
     public const string PadToLength = "pad-to-length";
     public const string DatePlusDays = "date-plus-days";
     public const string ConcatAsPlus = "concat-plus";
+    public const string DateDiffBoundaries = "date-diff-boundaries";
+    public const string DateDiffWeeks = "date-diff-weeks";
     public const string SplitPart = "split-part";
     public const string StringAggAsArrayToString = "string-agg-array";
 
@@ -51,8 +53,8 @@ public static class TargetRules
 
     private static HashSet<string> RulesFor(string target) => target switch
     {
-        "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus],
-        "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString],
+        "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
+        "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks],
         _ => [],
     };
 
@@ -108,6 +110,20 @@ public static class TargetRules
                 fired.Add(DoubleToInt);
                 body["this"] = Template("CASE WHEN abs(__x - floor(__x)) = 0.5 THEN 2 * round(__x * 0.5, 0) ELSE round(__x, 0) END", ("__x", number));
                 return o;
+            case "function" when rules.Contains(DateDiffBoundaries) && IsDateDiffInCalendarUnits(body, out var diffUnit, out var diffFrom, out var diffTo):
+                // DuckDB counts the boundaries crossed between two dates (2023-12-31 to 2024-01-01 is one year); PostgreSQL's age() counts whole elapsed years and months. The calendar fields give the boundaries.
+                fired.Add(DateDiffBoundaries);
+                return diffUnit switch
+                {
+                    "year" => Template("date_part('year', __b) - date_part('year', __a)", ("__a", diffFrom), ("__b", diffTo)),
+                    "quarter" => Template("(date_part('year', __b) - date_part('year', __a)) * 4 + (date_part('quarter', __b) - date_part('quarter', __a))", ("__a", diffFrom), ("__b", diffTo)),
+                    _ => Template("(date_part('year', __b) - date_part('year', __a)) * 12 + (date_part('month', __b) - date_part('month', __a))", ("__a", diffFrom), ("__b", diffTo)),
+                };
+            case "function" when rules.Contains(DateDiffWeeks) && IsDateDiffInWeeks(body, out var weekFrom, out var weekTo):
+                // DuckDB's weeks are whole periods of seven days between the two dates, counted toward zero (the days between, divided by seven). SQL Server counts week boundaries from whatever DATEFIRST says,
+                // and PostgreSQL has no week unit (and its cast to an integer rounds where DuckDB cuts).
+                fired.Add(DateDiffWeeks);
+                return Template("CAST(sign(date_diff('day', __a, __b)) * floor(abs(date_diff('day', __a, __b)) / 7.0) AS BIGINT)", ("__a", weekFrom), ("__b", weekTo));
             case "concat" when rules.Contains(ConcatAsPlus) && body["left"] is { } concatLeft && body["right"] is { } concatRight:
                 // The transpile turns `||` into `+` for SQL Server, except inside the arguments of the functions it rewrites into another shape (strpos becomes CHARINDEX with the arguments swapped, starts_with
                 // becomes LEFT ... = ...): `strpos(a || b, 'x')` came out as `CHARINDEX('x', a || b)`, which T-SQL does not parse. Writing the plus here makes every `||` come out the same. The lowered query
@@ -178,6 +194,25 @@ public static class TargetRules
         if (Type(lc) == "date" && Whole(Type(rc))) { date = lc["this"]!; days = rc["this"]!; return true; }
         if (kind == "add" && Whole(Type(lc)) && Type(rc) == "date") { date = rc["this"]!; days = lc["this"]!; return true; }
         return false;
+    }
+
+    private static bool IsDateDiffInCalendarUnits(JsonObject f, out string unit, out JsonNode from, out JsonNode to)
+    {
+        unit = ""; from = to = null!;
+        if (!string.Equals(f["name"]?.GetValue<string>(), "date_diff", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 3 } args) return false;
+        var part = args[0]?["literal"]?["value"]?.GetValue<string>()?.ToLowerInvariant();
+        if (part is not ("year" or "month" or "quarter") || args[1] is not { } a || args[2] is not { } b) return false;
+        unit = part; from = a; to = b;
+        return true;
+    }
+
+    private static bool IsDateDiffInWeeks(JsonObject f, out JsonNode from, out JsonNode to)
+    {
+        from = to = null!;
+        if (!string.Equals(f["name"]?.GetValue<string>(), "date_diff", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 3 } args) return false;
+        if (args[0]?["literal"]?["value"]?.GetValue<string>()?.ToLowerInvariant() != "week" || args[1] is not { } a || args[2] is not { } b) return false;
+        from = a; to = b;
+        return true;
     }
 
     private static bool IsWeekdayPart(JsonObject f, out bool iso, out JsonNode day)

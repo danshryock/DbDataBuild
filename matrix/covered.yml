@@ -50,6 +50,12 @@
 - { node: intersect, evidence: [intersect_except] }
 - { node: is_null, evidence: [is_null] }
 - { node: lag, evidence: [lag_lead] }
+- { node: lead, evidence: [lead_fn] }
+- { node: n_tile, evidence: [ntile_fn] }
+- { node: percent_rank, evidence: [percent_rank_fn] }
+- { node: cume_dist, evidence: [cume_dist_fn] }
+- { node: first_value, evidence: [first_last_value_fn] }
+- { node: last_value, evidence: [first_last_value_fn] }
 - { node: literal, evidence: [unicode_literal, substr_fn, coalesce] }
 - { node: lower, evidence: [lower_upper] }
 - { node: lt, evidence: [bool_and_or_not] }

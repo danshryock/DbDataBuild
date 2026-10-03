@@ -20,10 +20,12 @@ public class TemplateTests
     }
 
     [Fact]
-    public void The_distribution_carries_the_starter_and_the_retail_project()
+    public void The_distribution_carries_four_projects()
     {
         Assert.Contains(TemplateStore.All, t => t.Name == "starter");
         Assert.Contains(TemplateStore.All, t => t.Name == "retail");
+        Assert.Contains(TemplateStore.All, t => t.Name == "chinook");
+        Assert.Contains(TemplateStore.All, t => t.Name == "adventureworks");
         Assert.All(TemplateStore.All, t => Assert.NotEqual("", t.Description));
     }
 

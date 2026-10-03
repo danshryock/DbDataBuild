@@ -29,7 +29,7 @@ dbdatabuild import-sources staging.*     # export source tables from the target 
 dbdatabuild graph +marts.fct_orders       # what a model depends on (also: marts.fct_orders+, --column m.c, --diagram mermaid)
 dbdatabuild diff marts.fct_orders --against-schema dev   # compare two tables of one target (counts only; --show-values to see rows)
 dbdatabuild sample marts.fct_orders       # run a model on generated sample data, offline
-dbdatabuild new retail my-project          # a complete example project (seeds, models, tests) to explore offline
+dbdatabuild new adventureworks my-project   # a complete example project (seeds, models, tests) to explore offline; also starter, retail, chinook
 dbdatabuild render --write                # write the committed load scripts
 dbdatabuild plan --target postgres        # read the target, write a plan file
 dbdatabuild apply plans/postgres/<id>.plan.yml --dry-run

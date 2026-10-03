@@ -24,3 +24,26 @@ The older findings (from the probes, before the templates) are in `docs/research
 | C9 | `strpos(a \|\| b, 'x')`, `position(... IN a \|\| b)` | the transpile writes `+` for `\|\|` everywhere except inside the arguments of functions it rewrites into another shape (`CHARINDEX` with swapped arguments, `starts_with`): `CHARINDEX('x', a \|\| b)` is a syntax error on SQL Server | **fixed**: target rule `concat-plus` writes every `\|\|` as `+` before the transpile (the lowered query casts non-text operands itself). The upstream bug is in polyglot |
 | C10 | `CAST(x AS VARCHAR)`, `LEFT`, `REPEAT` | not in `matrix/covered.yml`, so `validate` warned (DDB-305) | **fixed**: covered with the probe cases that already compare them on both engines |
 | C11 | constants in a recursive anchor (`1 AS n`, `'a' AS s`) | the lowerer had no type for a constant, so the cast that keeps both parts the same type was missing | **fixed**: a constant's type is read from its value |
+
+## adventureworks
+
+| # | Construct | What happened | Disposition |
+|---|---|---|---|
+| A1 | `lead`, `ntile`, `percent_rank`, `cume_dist`, `first_value`, `last_value` | not in `matrix/covered.yml`, so `validate` warned (DDB-305), and no probe compared them | **fixed**: 36 window cases (frames, ties, NULL ordering, defaults) are now probes in `EngineDifferenceProbes`; every one agrees with DuckDB on both engines, and the nodes are covered |
+| A2 | `count(*) OVER (...)` | the plan has a `count` with no argument and the lowerer wrote `count() OVER ()`: SQL Server "COUNT_BIG requires 1 argument", PostgreSQL "count(*) must be used" | **fixed** (the window count is written `count(*)`) |
+| A3 | `nth_value(x, n) OVER (...)` | the lowerer does not know the window operator; SQL Server has no NTH_VALUE either | **refused** (DDB-324, "the window function WINDOW_NTH_VALUE"), listed here |
+| A4 | `median(x)`, `quantile_cont(x, q)` | the fraction lives outside the aggregate's parameters in the plan; SQL Server has only an analytic PERCENTILE_CONT with an OVER clause | **refused** (DDB-324), listed here |
+| A5 | `greatest`, `least` | not covered (DDB-305), and a SQL Server 2022 function | **fixed**: matrix row `fn.greatest_least` (SQL Server version 16; both engines skip NULLs like DuckDB, probed) |
+| A6 | `date_diff('year' \| 'month' \| 'quarter', a, b)` on PostgreSQL | polyglot writes `AGE()`, which counts whole elapsed years and months; DuckDB counts boundaries crossed (tenure of someone hired 2016-06-30, on 2025-01-01: 9 vs 8) | **fixed**: target rule `date-diff-boundaries` (the difference of the calendar fields) |
+| A7 | `date_diff('week', a, b)` | SQL Server counts week boundaries from `@@DATEFIRST`; PostgreSQL's cast to an integer rounds (8.86 weeks is 9) where DuckDB counts whole periods of seven days toward zero | **fixed** on both: target rule `date-diff-weeks` (the days between over seven, toward zero) |
+| A8 | a product of several decimals | DuckDB casts the operands to DECIMAL(38, s) when the result would be wider than 38 digits and multiplies exactly; SQL Server cuts the scale of every product to 6 and rounds there. Price times discount times exchange rate differed in the fourth decimal in about one line in a hundred | **cataloged**: matrix row `type.decimal_product_wide` (the linter notes any product with a DECIMAL(38, s) operand), a probe with a case that shows it, and the template works the chain in DOUBLE and rounds |
+| A9 | `x + 1`, `d - n` where `d` is a DATE (the previous period ends the day before the next one starts) | see C7 | **fixed** (C7) |
+| A10 | as-of lookups: a correlated `ORDER BY ... LIMIT 1` subquery, and a join on a date range | lowered and agree with DuckDB on both engines | verified, nothing to do |
+| A11 | a recursive query with decimal quantities multiplied down the levels and a path | lowered with the casts of C5; agrees on both engines | verified |
+| A12 | a backslash in a string literal (`strpos(login, '\')`) | read the same by the parser, DuckDB and both engines | verified |
+
+## Not covered by a template yet
+
+`median` and `quantile_cont` (A4), `nth_value` (A3), `split_part` on SQL Server (C4), `PIVOT` and `UNPIVOT`, `QUALIFY`, `LATERAL`, `UNNEST` and list columns, JSON, `regexp_*`: the matrix says which of these
+are refused today; a template that needs one is how it gets built.
+

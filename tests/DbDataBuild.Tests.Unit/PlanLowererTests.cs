@@ -321,6 +321,19 @@ public class PlanLowererTests
         Assert.Contains("AS DECIMAL(", sql);
     }
 
+    [Theory]
+    [InlineData("SELECT id, count(*) OVER () AS n FROM t")]
+    [InlineData("SELECT id, count(*) OVER (PARTITION BY a ORDER BY id) AS n FROM t")]
+    [InlineData("SELECT id, ntile(3) OVER (ORDER BY id) AS q, percent_rank() OVER (ORDER BY id) AS p, cume_dist() OVER (ORDER BY id) AS c FROM t")]
+    [InlineData("SELECT id, lead(a, 2, -1) OVER (ORDER BY id) AS l, first_value(a) OVER (ORDER BY id) AS f FROM t")]
+    public void Window_functions_are_lowered_with_the_same_rows(string source)
+    {
+        using var c = Open();
+        var sql = Lower(c, source);
+        Assert.DoesNotContain("count()", sql);
+        Assert.Equal(Rows(c, source, false), Rows(c, sql, false));
+    }
+
     [Fact]
     public void A_double_cast_to_a_decimal_rounds_the_scaled_value_half_away_from_zero_like_DuckDB()
     {

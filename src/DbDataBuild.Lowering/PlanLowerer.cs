@@ -405,6 +405,9 @@ public sealed class PlanLowerer
         } ?? throw new LoweringException($"the window function {type}");
         var windowChildren = Arr(e, "children").ToList();
         var args = windowChildren.Select(c => Expr(c, outs)).ToList();
+        // count(*) OVER (...) is a `count` with no argument in the plan: written as it was, `count() OVER ()` reached both engines as a call they do not have
+        if (type == "WINDOW_AGGREGATE" && (name == "count_star" || (name == "count" && windowChildren.Count == 0))) { name = "count"; args = ["*"]; }
+        else if (type == "WINDOW_AGGREGATE" && AggregateNames.TryGetValue(name, out var windowName)) name = windowName;
         if (type == "WINDOW_AGGREGATE" && name == "sum" && windowChildren.Count == 1 && SumWidening(TypeId(windowChildren[0])) is { } widened)
         {
             args[0] = $"CAST({args[0]} AS {widened})";

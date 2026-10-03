@@ -32,6 +32,8 @@ public static class Detectors
         ["join_using"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("using", out var u) && u.ValueKind == JsonValueKind.Array && u.GetArrayLength() > 0),
         ["join_natural"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("kind", out var k) && k.GetString() == "Natural"),
         ["distinct_on"] = n => Select(n) && NonNull(n, "distinct_on"),
+        // a product with a DECIMAL(38, s) operand: what DuckDB writes into the plan when a decimal product would be wider than 38 digits (it casts the operands to the widest type and multiplies exactly)
+        ["wide_decimal_product"] = n => n.Type == "mul" && (WideDecimalCast(n, "left") || WideDecimalCast(n, "right")),
         ["recursive_cte"] = n => Select(n) && n.TryGet("with", out var w) && w.ValueKind == JsonValueKind.Object && w.TryGetProperty("recursive", out var r) && r.ValueKind == JsonValueKind.True,
         ["lateral_subquery"] = n => n.Type == "subquery" && n.TryGet("lateral", out var l) && l.ValueKind == JsonValueKind.True,
         ["sample"] = n => Select(n) && NonNull(n, "sample"),
@@ -41,6 +43,11 @@ public static class Detectors
         // substr(s, -2): DuckDB counts from the end
         ["substring_negative_start"] = n => n.Type == "substring" && n.TryGet("start", out var start) && (start.ToString().Contains("\"neg\"", StringComparison.Ordinal) || LiteralValue(start)?.StartsWith('-') == true),
     };
+
+    private static bool WideDecimalCast(AstNode n, string side) =>
+        n.TryGet(side, out var s) && s.ValueKind == JsonValueKind.Object && s.TryGetProperty("cast", out var c) && c.ValueKind == JsonValueKind.Object &&
+        c.TryGetProperty("to", out var to) && to.ValueKind == JsonValueKind.Object && to.TryGetProperty("data_type", out var dt) && dt.GetString() == "decimal" &&
+        to.TryGetProperty("precision", out var precision) && precision.ValueKind == JsonValueKind.Number && precision.GetInt32() >= 37;
 
     private static string? LiteralValue(JsonElement e) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty("literal", out var l) && l.ValueKind == JsonValueKind.Object && l.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()?.ToLowerInvariant() : null;

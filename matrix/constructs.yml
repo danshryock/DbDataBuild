@@ -156,9 +156,9 @@
 - id: fn.date_diff
   detect: fn:DATE_DIFF
   duckdb: native
-  sqlserver: { status: translated, test: spike/date_diff, note: "DATEDIFF counts boundaries, as DuckDB does." }
+  sqlserver: { status: translated, test: spike/date_diff, note: "DATEDIFF counts boundaries, as DuckDB does, except for week, which counts boundaries from the first day of the week the session sets (@@DATEFIRST) where DuckDB counts whole periods of seven days: a lowered query is rewritten by the target rule date-diff-weeks (the days between, divided by seven, toward zero)." }
   fabric:    { status: unverified, note: "Same text as SQL Server; Fabric not checked." }
-  postgres:  { status: approximated, test: spike/date_diff, note: "day is exact; month and year are rewritten with AGE(), which counts whole elapsed months and years, not month or year boundaries crossed as DuckDB does (2024-01-31 to 2024-03-01 is 2 months in DuckDB, 1 on PostgreSQL)." }
+  postgres:  { status: approximated, test: spike/date_diff, note: "day is exact. A lowered query is rewritten by the target rule date-diff-boundaries for year, quarter and month (the difference of the calendar fields, which counts the boundaries crossed as DuckDB does) and no longer reports this; polyglot alone writes AGE(), which counts whole elapsed months and years (2024-01-31 to 2024-03-01 is 2 months in DuckDB, 1 on PostgreSQL). week is rewritten by the target rule date-diff-weeks (below). The time units are as probed." }
 
 - id: syntax.order_nulls
   detect: detector:order_nulls
@@ -269,6 +269,20 @@
   detect: detector:recursive_cte
   duckdb: native
   sqlserver: { status: approximated, test: spike/recursive_cte, note: "The lowerer writes WITH RECURSIVE and the transpile drops the keyword. SQL Server stops at 100 levels of recursion (error 530) where DuckDB goes on, allows only UNION ALL between the parts (error 252 otherwise) and, in the anchor and the recursive part, wants every column to have the same type: the lowerer casts text and decimal columns in both parts. OPTION (MAXRECURSION n) cannot be put in a view, so a deeper hierarchy fails loudly there." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+
+- id: fn.greatest_least
+  detect: [fn:GREATEST, fn:LEAST]
+  duckdb: native
+  sqlserver: { status: translated, min_version: 16, test: spike/greatest_least_fn, note: "GREATEST and LEAST exist from SQL Server 2022 (version 16). Both skip NULL arguments, as DuckDB does (the engine probes compare them with NULLs in the data)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+
+- id: type.decimal_product_wide
+  detect: detector:wide_decimal_product
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/decimal_product_wide, note: "A product of decimals that would be wider than 38 digits: DuckDB casts the operands to DECIMAL(38, s) and multiplies exactly (and raises an error on overflow); SQL Server cuts the scale of the result to 6 (never below) and rounds there, at every product of a chain. A chain of products with more than 6 decimals in all can differ in the last digit after the final cast (observed: a price times a discount times an exchange rate, in the fourth decimal). Keep the scales of a chain at 6 or less in all, round between the steps, or multiply as DOUBLE and round." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: native }
 

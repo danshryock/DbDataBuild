@@ -5,7 +5,7 @@
 -- target:          fabric
 -- strategy:        merge_by_key
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
@@ -26,7 +26,7 @@ COMMIT TRANSACTION;
 -- target:          fabric
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      @watermark (TIMESTAMP, resolver, overridable)
 SELECT COALESCE(DATEADD(HOUR, -6, MAX([event_ts])), CAST('2020-01-01 00:00:00' AS DATETIME2(6))) FROM [marts].[fct_events];
@@ -38,7 +38,7 @@ SELECT COALESCE(DATEADD(HOUR, -6, MAX([event_ts])), CAST('2020-01-01 00:00:00' A
 -- target:          fabric
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      @watermark (TIMESTAMP, resolver, overridable)
 SET XACT_ABORT ON;
@@ -59,7 +59,7 @@ COMMIT TRANSACTION;
 -- target:          fabric
 -- strategy:        full_replace
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
@@ -80,7 +80,7 @@ COMMIT TRANSACTION;
 -- target:          fabric
 -- strategy:        delete_insert_by_range
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      @start (TIMESTAMP, runtime), @end (TIMESTAMP, runtime, max_span 400 days)
 SET XACT_ABORT ON;
@@ -101,7 +101,7 @@ COMMIT TRANSACTION;
 -- target:          fabric
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      @watermark (BIGINT, resolver)
 SELECT MAX([seq]) FROM [marts].[fct_events];
@@ -113,7 +113,7 @@ SELECT MAX([seq]) FROM [marts].[fct_events];
 -- target:          fabric
 -- strategy:        watermark_append
 -- definition hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
--- matrix version:  848c32d6a7d4
+-- matrix version:  824ea3e733d4
 -- tool version:    0.1.0
 -- parameters:      @watermark (BIGINT, resolver)
 SET XACT_ABORT ON;
@@ -131,7 +131,7 @@ COMMIT TRANSACTION;
 model: marts.fct_events
 target: fabric
 definition_hash: f15148c08525742c57b08b6f8ac0a41c89993eeab026ec430b20f32256399de2
-matrix_version: 848c32d6a7d4
+matrix_version: 824ea3e733d4
 tool_version: 0.1.0
 sources: [staging.events]
 operations:
@@ -142,7 +142,7 @@ operations:
     matrix: unverified
     findings: []
     script: load.by_key.sql
-    script_sha256: e675f9e1d13f2f09dcf4961cad05b92c57ba8b1179ee69f9d2ba8a02a2e2c906
+    script_sha256: b824db6b3c56beedc54849ce5bd3a29a3791fefb744fb83ded377ace190ac287
     parameters: []
   - name: daily
     default: true
@@ -151,9 +151,9 @@ operations:
     matrix: unverified
     findings: []
     script: load.daily.sql
-    script_sha256: 41571a5f16ff62e78c42f5e49ab9bd7b1cef661927bfc40e25e200021b62aa90
+    script_sha256: 732d0cb1b81d8868c89fb88fecdee0b59507abd6cd97f533d1763cb9c81586b5
     resolver: load.daily.resolve.sql
-    resolver_sha256: b5b8efbd50a228260570f4557c6c7caf25690f782b9214eb7f1866fd7408dc14
+    resolver_sha256: 4f4d385d9a1dead21af9c8b2ea49b4423ba5f282700ffd0bdbe64b78b0ceeb17
     parameters:
       - name: watermark
         type: TIMESTAMP
@@ -166,7 +166,7 @@ operations:
     matrix: unverified
     findings: []
     script: load.everything.sql
-    script_sha256: 1fa12b90cd67b6176d1549143d3a29d295865343997ae8d1b30ab0db4a173f23
+    script_sha256: b10da4aa2e754afab4c1c4203866087a480530c68dad29f6d63c94588fd3f24f
     parameters: []
   - name: reload_period
     default: false
@@ -175,7 +175,7 @@ operations:
     matrix: unverified
     findings: []
     script: load.reload_period.sql
-    script_sha256: 0e421386a5931a586b37c4ffdc8bb9950793bff0dde58f8971d5694cd99a1ade
+    script_sha256: 003ced257eeca8f3016104a53a152d5ca1ade929e7ec5d0e07b54500aa6f5587
     parameters:
       - name: start
         type: TIMESTAMP
@@ -191,9 +191,9 @@ operations:
     matrix: unverified
     findings: []
     script: load.tail.sql
-    script_sha256: 063d07ec47307f1fe21acf655e77d13585fa43dd8c45e5eeda62cdfa6c11ff35
+    script_sha256: 36fbe23dcf30ca9c89165b4a33c869eb7f46b30f04aa0ff316c56facfac50d67
     resolver: load.tail.resolve.sql
-    resolver_sha256: a1046e286af4a18360062942c2c939671570706b0a879ac4b03501698f137eca
+    resolver_sha256: 61b808461a5e962f46ef63511a4bccf325c0bd9d62534c8eadbe9e7dd6d2b645
     parameters:
       - name: watermark
         type: BIGINT

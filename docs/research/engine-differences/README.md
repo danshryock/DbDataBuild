@@ -18,6 +18,16 @@ database default's. A case whose answer is DuckDB's is a regression test. A diff
 | `CAST(double AS DECIMAL(p, s))` | DuckDB scales by 10^s and rounds half away from zero (`0.285` is `0.28`, `819.025` is `819.03`); SQL Server converts the exact binary value (`819.02`), PostgreSQL the shortest text (`0.29`). Found by the template conformance test | lowered as `CAST(round(CAST(x AS DOUBLE), s) AS DECIMAL(p, s))` (rule `double-to-decimal`), the shape the `round-double` rule rewrites |
 | `A UNION B UNION C` | DuckDB flattens it into one operator with three children and the lowerer read two: the third query was silently dropped (a calendar missing days). Found by the template conformance test | every child is joined in order |
 | `JOIN ... ON a.k = b.k AND b.f IS NOT NULL` | the binder moves the one-sided predicate into a filter on that input, and the join read the input's table without its filters: the predicate vanished (rows with a NULL `f` joined). Found by the template conformance test | an input with filters is read as WHERE (inner join, or the side a left or right join keeps), as part of ON (the side that is filled in with NULLs), or a derived table (a full join, or an input with a limit, DISTINCT or window) |
+| `lpad(s, n, p)`, `rpad` | SQL Server has neither | target rule `pad-to-length` for a literal length up to 4000 and a literal pad (chinook) |
+| `split_part(s, sep, n)` | the plan's `array_extract(string_split(...))` is on neither engine | rule `split-part` on PostgreSQL; refused on SQL Server (matrix `fn.split_part`) |
+| `string_agg(x, sep ORDER BY ...)` on PostgreSQL | polyglot writes `LISTAGG` | rule `string-agg-array` (`array_to_string(array_agg(...))`) |
+| `date + 3`, `date - n` | SQL Server: operand type clash with an integer | lowering marks it, rule `date-plus-days` writes an interval of days on SQL Server |
+| `strpos(a \|\| b, x)`, `position`, `starts_with` | the transpile leaves `\|\|` inside the arguments of a function it rewrites into another shape (`CHARINDEX('x', a \|\| b)`) | rule `concat-plus` writes every `\|\|` as `+` on SQL Server |
+| `WITH RECURSIVE` | not lowered | lowered; both parts cast to one text and decimal type; SQL Server limits in the matrix row `syntax.recursive_cte` |
+| `count(*) OVER (...)` | written `count() OVER ()` | written `count(*)` |
+| `date_diff('year' \| 'month' \| 'quarter')` on PostgreSQL | AGE() counts whole elapsed periods, DuckDB boundaries | rule `date-diff-boundaries` |
+| `date_diff('week')` | SQL Server counts boundaries from DATEFIRST, PostgreSQL's cast rounds, DuckDB counts whole seven-day periods toward zero | rule `date-diff-weeks` on both |
+| a product of decimals wider than 38 digits | DuckDB multiplies exactly; SQL Server rounds each product to scale 6 | cataloged: matrix row `type.decimal_product_wide`, probe `dec_product_wide` |
 | `x % 0` | NULL in DuckDB, an error on both engines | `x % NULLIF(0 as written, 0)` unless the divisor is a non-zero constant |
 | `//` | polyglot cannot read it | integers only, as truncating division with NULL on zero; other types refused |
 | `round(x)` | no one-argument form on SQL Server | `round(x, 0)` |
