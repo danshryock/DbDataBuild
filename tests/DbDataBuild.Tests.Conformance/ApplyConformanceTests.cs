@@ -975,6 +975,78 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task ANY_ALL_and_row_value_IN_give_DuckDBs_rows_on_both_engines_including_where_NULLs_are_involved(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("sources/staging/s1.yml", "name: staging.s1\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: x, type: INTEGER}\n  - {name: y, type: INTEGER}\n");
+            run.Write("sources/staging/s2.yml", "name: staging.s2\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: z, type: INTEGER}\n  - {name: w, type: INTEGER}\n");
+            const string rows1 = "(1, 5, 1), (2, NULL, 1), (3, 1, NULL), (4, 10, 2), (5, 3, 3), (6, NULL, NULL), (7, 5, NULL), (8, 2, 2)";
+            const string rows2 = "(1, 2, 1), (2, NULL, 2), (3, 7, 3), (4, 3, 3), (5, 5, NULL)";
+            foreach (var (t, cols, rows) in new[] { ("s1", "id INT NOT NULL, x INT, y INT", rows1), ("s2", "id INT NOT NULL, z INT, w INT", rows2) })
+            {
+                await engine.ExecAsync($"CREATE TABLE staging.{t} ({cols})");
+                await engine.ExecAsync($"INSERT INTO staging.{t} VALUES {rows}");
+            }
+
+            // the same filters, on DuckDB, are the expected answer
+            var queries = new[]
+            {
+                "s.x > ANY (SELECT b.z FROM staging.s2 b)",
+                "s.x <= ANY (SELECT b.z FROM staging.s2 b)",
+                "s.x >= ALL (SELECT b.z FROM staging.s2 b)",
+                "s.x < ALL (SELECT b.z FROM staging.s2 b WHERE b.z IS NOT NULL)",
+                "s.x <> ALL (SELECT b.z FROM staging.s2 b)",
+                "s.x > ALL (SELECT b.z FROM staging.s2 b WHERE b.w > 100)",
+                "NOT (s.x > ANY (SELECT b.z FROM staging.s2 b))",
+                "s.x > ANY (SELECT b.z FROM staging.s2 b WHERE b.id = s.id)",
+                "s.x >= ALL (SELECT avg(b.z) FROM staging.s2 b)",
+                "s.id < 3 OR s.x <= ANY (SELECT b.z FROM staging.s2 b)",
+                "(s.x, s.y) IN (SELECT b.z, b.w FROM staging.s2 b)",
+                "(s.x, s.y) NOT IN (SELECT b.z, b.w FROM staging.s2 b)",
+                "(s.x, s.y) NOT IN (SELECT b.z, b.w FROM staging.s2 b WHERE b.id > 100)",
+            };
+            using var duck = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
+            duck.Open();
+            void Duck(string sql) { using var cmd = duck.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+            Duck("CREATE SCHEMA staging; CREATE TABLE staging.s1 (id INTEGER NOT NULL, x INTEGER, y INTEGER); CREATE TABLE staging.s2 (id INTEGER NOT NULL, z INTEGER, w INTEGER)");
+            Duck($"INSERT INTO staging.s1 VALUES {rows1}; INSERT INTO staging.s2 VALUES {rows2}");
+            List<string> Expected(string where)
+            {
+                using var cmd = duck.CreateCommand();
+                cmd.CommandText = $"SELECT s.id FROM staging.s1 s WHERE {where} ORDER BY s.id";
+                using var r = cmd.ExecuteReader();
+                var ids = new List<string>();
+                while (r.Read()) ids.Add(Convert.ToString(r.GetValue(0), System.Globalization.CultureInfo.InvariantCulture)!);
+                return ids;
+            }
+            for (var i = 0; i < queries.Length; i++)
+            {
+                run.Write($"models/marts/q{i}.yml", $"name: marts.q{i}\nkind: {{type: full}}\ncolumns:\n  - {{name: id, type: INTEGER, nullable: false}}\n");
+                run.Write($"models/marts/q{i}.sql", $"SELECT s.id FROM staging.s1 s WHERE {queries[i]}\n");
+            }
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply");
+            for (var i = 0; i < queries.Length; i++)
+                Assert.True(Expected(queries[i]).SequenceEqual(await engine.RowsAsync($"SELECT id FROM marts.q{i} ORDER BY id")), $"q{i}: {queries[i]}");
+            Assert.NotEmpty(Expected(queries[0]));                                              // the cases are not all empty
+
+            // used as a value, the NULL a comparison can give is not reproducible: refused, with the reason
+            run.Write("models/marts/qv.yml", "name: marts.qv\nkind: {type: full}\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: g, type: BOOLEAN}\n");
+            run.Write("models/marts/qv.sql", "SELECT s.id, s.x > ANY (SELECT b.z FROM staging.s2 b) AS g FROM staging.s1 s\n");
+            var refused = run.Cli("render", "--write");
+            Assert.NotEqual(0, refused.Exit);
+            Assert.Contains("DDB-324", refused.Err);
+            Assert.Contains("used as a value", refused.Err);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task DISTINCT_ON_with_a_deciding_order_gives_the_same_rows_on_both_engines(string name)
     {
         var run = await SetUp(name);

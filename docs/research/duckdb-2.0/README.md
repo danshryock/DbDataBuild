@@ -90,3 +90,7 @@ The matrix needed no change: it describes engines other than DuckDB, and DuckDB'
 - **Now:** nothing blocks the move except the two packages: run `scripts/test-duckdb-preview.sh` (unit) and `TEST_PROJECT=tests/DbDataBuild.Tests.Conformance scripts/test-duckdb-preview.sh` (real engines) on each alpha or release candidate, watching for the deprecated setting.
 - **When 2.0.0 and a DuckDB.NET release for it exist:** bump `DuckDB.NET.Data.Full` and `Bindings.Full`, regenerate the committed lowered artifacts (their headers carry the DuckDB version), run both suites, and make 2.0 the default. Keep the 1.x path for one release: DuckDB 1.4 is an LTS line and 1.5 stays supported for a while, and the normalizer costs nothing.
 - **If `delim_join_as_cte` is removed first:** write the inverse decorrelation described above (a day or two, with the 16 forms as the test).
+
+## Update 2026-10-03: ANY / ALL / row-value IN
+
+The lowering of `x op ANY/ALL (subquery)` and row-value `IN` (progress entry 39) was written and tested against 1.5.x plans. On the 2.0 alpha these plans are different (a count-based `CASE` over a scalar subquery, and an `EMPTY_RESULT` operator for an empty subquery), 9 of the new unit tests fail there (6 value-use refusals that are not refused, and 3 filter cases: two refused with "the plan operator EMPTY_RESULT" and one with **wrong rows**). The default engine is unaffected. Rework them when 2.0 is adopted; the differential tests will show every gap.

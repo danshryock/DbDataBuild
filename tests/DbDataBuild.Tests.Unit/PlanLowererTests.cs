@@ -358,6 +358,90 @@ public class PlanLowererTests
         Assert.Contains("SELECT", lowered);
     }
 
+    // x op ANY / ALL (subquery) and a row-value IN, as filter conditions: lowered with predicates only, and equal to DuckDB's rows on data with NULLs on both sides
+    // (t.a is NULL for id 3, u.a is NULL in one row; none of these may differ from DuckDB, which is why they were refused or wrong before). A correlated row-value IN is not in the list: DuckDB itself
+    // cannot run it ("Correlated IN/ANY/ALL with multiple columns not yet supported").
+    public static TheoryData<string> ComparisonSubqueries => new()
+    {
+        "SELECT id FROM t WHERE a > ANY (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a <= ANY (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a = ANY (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a < ANY (SELECT a FROM u WHERE a IS NOT NULL)",
+        "SELECT id FROM t WHERE a >= ALL (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a < ALL (SELECT a FROM u WHERE a IS NOT NULL)",
+        "SELECT id FROM t WHERE a <> ALL (SELECT a FROM u)",
+        "SELECT id FROM t WHERE a > ALL (SELECT a FROM u WHERE b > 1000)",
+        "SELECT id FROM t WHERE a > ANY (SELECT a FROM u WHERE b > 1000)",
+        "SELECT id FROM t WHERE NOT (a > ANY (SELECT a FROM u))",
+        "SELECT id FROM t WHERE NOT (a <= ALL (SELECT a FROM u WHERE a IS NOT NULL))",
+        "SELECT id FROM t WHERE a > ANY (SELECT u.b / 100 FROM u WHERE u.a = t.a)",
+        "SELECT id FROM t WHERE a >= ALL (SELECT u.a FROM u WHERE u.b > t.b)",
+        "SELECT id FROM t WHERE a >= ALL (SELECT avg(a) FROM u)",
+        "SELECT id FROM t WHERE a > ANY (SELECT a FROM u ORDER BY a LIMIT 2)",
+        "SELECT id FROM t WHERE a > ANY (SELECT DISTINCT a FROM u)",
+        "SELECT id FROM t WHERE b = 3 OR a > ANY (SELECT a FROM u)",
+        "SELECT id FROM t WHERE b = 3 AND a <= ALL (SELECT a FROM u WHERE a IS NOT NULL)",
+        "SELECT id FROM t WHERE NOT (b = 3 OR a > ANY (SELECT a FROM u))",
+        "SELECT id FROM t WHERE a > ANY (SELECT a FROM u) AND a < ALL (SELECT b FROM u)",
+        "SELECT a, count(*) AS n FROM t GROUP BY a HAVING a > ANY (SELECT a FROM u)",
+        "SELECT id FROM t WHERE (a, b) IN (SELECT a, b / 100 FROM u)",
+        "SELECT id FROM t WHERE (a, b) NOT IN (SELECT a, b / 100 FROM u)",
+        "SELECT id FROM t WHERE (a, b) NOT IN (SELECT a, b FROM u WHERE b < 0)",
+        "SELECT id FROM t WHERE (a, b, id) IN (SELECT a, b, id FROM t t2 WHERE t2.x > 3)",
+    };
+
+    [Theory, MemberData(nameof(ComparisonSubqueries))]
+    public void ANY_ALL_and_row_value_IN_lower_to_predicates_with_the_same_rows_as_DuckDB_on_data_with_NULLs(string source)
+    {
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+        Assert.DoesNotContain('\u0003', lowered);
+    }
+
+    [Theory]
+    [InlineData("SELECT id, a > ANY (SELECT a FROM u) AS g FROM t")]
+    [InlineData("SELECT id, a >= ALL (SELECT a FROM u) AS g FROM t")]
+    [InlineData("SELECT id FROM t WHERE (a > ANY (SELECT a FROM u)) IS NULL")]
+    [InlineData("SELECT id FROM t WHERE CASE WHEN a > ALL (SELECT a FROM u) THEN 1 ELSE 0 END = 1")]
+    [InlineData("SELECT id, (a, b) NOT IN (SELECT a, b / 100 FROM u) AS g FROM t")]
+    [InlineData("SELECT id FROM t ORDER BY a > ANY (SELECT a FROM u), id")]
+    public void A_comparison_subquery_used_as_a_value_is_refused_because_its_NULL_cannot_be_reproduced(string source)
+    {
+        using var c = Open();
+        var ex = Assert.Throws<LoweringException>(() => Lower(c, source));
+        Assert.Contains("used as a value", ex.Message);
+    }
+
+    [Fact]
+    public void A_generated_alias_never_takes_the_name_of_a_table_of_the_query()
+    {
+        using var c = Open();
+        Exec(c, "CREATE TABLE s1 (id INTEGER, x INTEGER); INSERT INTO s1 VALUES (1, 5), (2, NULL), (3, 1), (4, 9); CREATE TABLE s2 (id INTEGER, z INTEGER); INSERT INTO s2 VALUES (1, 2), (2, 4), (3, NULL);");
+        Exec(c, "CREATE TABLE series_2 (id INTEGER); INSERT INTO series_2 VALUES (1), (2)");
+        foreach (var source in new[]
+        {
+            "SELECT id FROM s1 WHERE x >= ALL (SELECT avg(z) FROM s2)",                                    // the derived table around the aggregate would have been called s1
+            "SELECT id FROM s1 WHERE x > ANY (SELECT max(z) FROM s2)",
+            "SELECT s1.id, q.m FROM s1 JOIN (SELECT id, max(z) AS m FROM s2 GROUP BY id) q ON q.id = s1.id",
+            "SELECT g.x, series_2.id FROM generate_series(1, 3) AS g(x) JOIN series_2 ON series_2.id = g.x JOIN generate_series(1, 3) AS h(y) ON h.y = g.x",
+        })
+        {
+            var lowered = Lower(c, source);
+            Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+            if (source.Contains("FROM s1 ")) Assert.DoesNotMatch(@"\) AS s1\b", lowered);                    // no derived table is named like the table s1
+        }
+    }
+
+    [Fact]
+    public void A_comparison_subquery_is_written_with_EXISTS_and_the_false_case_with_a_null_aware_NOT_EXISTS()
+    {
+        using var c = Open();
+        Assert.Equal("SELECT id\nFROM t\nWHERE EXISTS (\n  SELECT 1\n  FROM u\n  WHERE (u.a < t.a)\n)", Lower(c, "SELECT id FROM t WHERE a > ANY (SELECT a FROM u)"));
+        Assert.Equal("SELECT id\nFROM t\nWHERE (NOT EXISTS (\n  SELECT 1\n  FROM u\n  WHERE ((u.a >= t.a) OR u.a IS NULL OR t.a IS NULL)\n))", Lower(c, "SELECT id FROM t WHERE a > ALL (SELECT a FROM u)"));
+        Assert.Equal("SELECT id\nFROM t\nWHERE EXISTS (\n  SELECT 1\n  FROM u\n  WHERE ((u.a = t.a) AND (u.b = t.b))\n)", Lower(c, "SELECT id FROM t WHERE (a, b) IN (SELECT a, b FROM u)"));
+    }
+
     [Fact]
     public void Correlated_subqueries_read_like_the_original_with_the_outer_column_qualified()
     {

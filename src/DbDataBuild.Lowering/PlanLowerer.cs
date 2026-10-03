@@ -45,9 +45,45 @@ public sealed class PlanLowerer
     private Func<string, IReadOnlyList<string>>? grainOf;
     private readonly Dictionary<string, string> aliasTables = new(StringComparer.Ordinal);
     private int aliasCounter;
+
+    /// <summary>Every table and CTE name in the plan. A generated alias (`s1`, `series`, `orders_2`) never takes one of them: a table that is itself called `s1` would otherwise be captured by a derived table named `s1`.</summary>
+    private readonly HashSet<string> reserved = new(StringComparer.OrdinalIgnoreCase);
+
+    private void Reserve(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var pr in e.EnumerateObject())
+            {
+                if (pr.Name is "table" or "ctename" && pr.Value.ValueKind == JsonValueKind.String) reserved.Add(pr.Value.GetString()!);
+                else Reserve(pr.Value);
+            }
+        }
+        else if (e.ValueKind == JsonValueKind.Array) foreach (var x in e.EnumerateArray()) Reserve(x);
+    }
+
+    /// <summary>`name`, then `name_2`, `name_3`, ... skipping names that are a table or CTE of the plan.</summary>
+    private string UniqueAlias(string name, string usesKey)
+    {
+        uses[usesKey] = uses.GetValueOrDefault(usesKey) + 1;
+        if (uses[usesKey] == 1) return name;
+        string alias;
+        do alias = $"{name}_{uses[usesKey]++}"; while (reserved.Contains(alias));
+        uses[usesKey]--;     // the counter names the next use, so it ends on the one just taken
+        return alias;
+    }
     private readonly Dictionary<string, int> uses = [];
     private readonly Dictionary<int, (string Name, Rel Definition)> ctes = [];
     private readonly List<string> rules = [];
+
+    /// <summary>
+    /// A MARK join that is not a plain `IN` or `EXISTS`: `x op ANY/ALL (subquery)` and a row-value `(a, b) IN (subquery)`. Its value is three-valued (TRUE, FALSE, or NULL when no row matches and some comparison was
+    /// unknown), and SQL Server has no boolean values, so it cannot be one expression. In a filter it can be written exactly with predicates only, by what the filter needs of it:
+    /// <c>True</c> holds when the mark is TRUE (a row matches), <c>False</c> when it is FALSE (every row is definitely not a match, or there are none). A column holds a sentinel (`\u0003n\u0003`)
+    /// until the filter that uses it picks one; a sentinel that reaches the output means the value was used as a value, and the query is refused.
+    /// </summary>
+    private readonly List<(string True, string False)> marks = [];
+    private const string MarkUsedAsValue = "a subquery comparison (ANY, ALL or a row-value IN) used as a value rather than as a filter condition: its NULL result cannot be reproduced on SQL Server and PostgreSQL";
 
     /// <param name="outputNames">
     /// The names DuckDB gives the query's output columns (from `DESCRIBE`). The plan does not always carry them: when no projection sits at the top (a bare aggregate, for example)
@@ -75,6 +111,7 @@ public sealed class PlanLowerer
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
         var lowerer = new PlanLowerer { grainOf = grainOf };
+        lowerer.Reserve(plans);
         var rel = lowerer.Node(plans[0]);
         if (outputNames != null && rel.SetOp == null)
         {
@@ -84,6 +121,7 @@ public sealed class PlanLowerer
             rel.Sel = rel.Sel.Select((s, i) => s with { Alias = outputNames[i] }).ToList();
         }
         var sql = rel.Cte(lowerer.ctesInOrder) + rel.Sql();
+        if (sql.Contains('\u0003')) throw new LoweringException(MarkUsedAsValue);
         var names = rel.SetOp != null ? rel.SetOpNames! : rel.Aliases();
         var columns = names.Select((n, i) => new LoweredColumn(n, rel.Sel.Count > i ? rel.Sel[i].Type ?? "UNKNOWN" : "UNKNOWN")).ToList();
         return new LoweredQuery(sql, columns, lowerer.rules.Distinct().Order(StringComparer.Ordinal).ToList());
@@ -445,7 +483,12 @@ public sealed class PlanLowerer
 
     private static string IndentText(string s) => string.Join('\n', s.Split('\n').Select(l => "  " + l));
 
-    private string Fresh() => $"s{++aliasCounter}";
+    private string Fresh()
+    {
+        string alias;
+        do alias = $"s{++aliasCounter}"; while (reserved.Contains(alias));
+        return alias;
+    }
 
     private Rel Wrap(Rel rel)
     {
@@ -482,8 +525,7 @@ public sealed class PlanLowerer
         if (step == 0) throw new LoweringException($"{name} with a step of zero");
         if (name == "range") stop += step > 0 ? -1 : 1;     // range excludes its end
         var column = p.GetProperty("names").EnumerateArray().First().GetString()!;
-        uses["series"] = uses.GetValueOrDefault("series") + 1;     // range is a keyword on SQL Server, so both functions share one alias
-        var alias = uses["series"] == 1 ? "series" : $"series_{uses["series"]}";
+        var alias = UniqueAlias("series", "series");     // range is a keyword on SQL Server, so both functions share one alias
         var call = $"generate_series({start}, {stop}{(step == 1 ? "" : $", {step}")})";
         return new Rel
         {
@@ -510,8 +552,7 @@ public sealed class PlanLowerer
                 var idx = Arr(p, "column_indexes").Select(c => c.GetProperty("index").TryGetInt32(out var i) && i < names.Count ? i : -1).ToList();
                 if (idx.Count == 0) idx = Enumerable.Range(0, names.Count).ToList();
                 var baseName = table.GetString()!;
-                uses[baseName] = uses.GetValueOrDefault(baseName) + 1;
-                var alias = uses[baseName] == 1 ? baseName : $"{baseName}_{uses[baseName]}";
+                var alias = UniqueAlias(baseName, baseName);
                 var schema = Str(fd, "schema");
                 aliasTables[alias] = schema is null or "main" ? baseName : $"{schema}.{baseName}";
                 var rel = new Rel
@@ -552,7 +593,7 @@ public sealed class PlanLowerer
                     return c;
                 }
                 if (c.HasWindow || !c.Mergeable()) c = Wrap(c);
-                var preds = Arr(p, "expressions").Select(e => Expr(e, c.Outs())).ToList();
+                var preds = Arr(p, "expressions").Select(e => Predicate(e, c.Outs())).ToList();
                 if (c.HasAgg && c.Having.Count == 0 && !c.Plain) c.Having.AddRange(preds); else c.Where.AddRange(preds);
                 return c;
             }
@@ -682,8 +723,7 @@ public sealed class PlanLowerer
             {
                 var (name, definition) = ctes[p.GetProperty("cte_index").GetInt32()];
                 var key = "cte:" + name;
-                uses[key] = uses.GetValueOrDefault(key) + 1;
-                var alias = uses[key] == 1 ? name : $"{name}_{uses[key]}";
+                var alias = UniqueAlias(name, key);
                 var names = definition.SetOp != null ? definition.SetOpNames! : definition.Aliases();
                 return new Rel
                 {
@@ -768,24 +808,24 @@ public sealed class PlanLowerer
         if (right.SetOp != null) throw new LoweringException("a correlated subquery over a set operation (UNION, INTERSECT, EXCEPT)");
         var ro = right.Outs();
         // conditions that tie a duplicate-eliminated column to its carried copy on the right are plumbing; any other condition is the comparison of an IN
-        var real = new List<(string Left, string Op, string Right, int RightIndex)>();
+        var real = new List<JsonElement>();
         foreach (var c in Arr(p, "conditions"))
         {
             var r = c.GetProperty("right");
             var carried = r.GetProperty("type").GetString() == "BOUND_REF" && right.Sel[r.GetProperty("index").GetInt32()].Outer;
-            if (carried) continue;
-            real.Add((Expr(c.GetProperty("left"), lo), Str(c, "comparison")!, Expr(r, ro), r.TryGetProperty("index", out var ix) ? ix.GetInt32() : -1));
+            if (!carried) real.Add(c);
         }
 
         switch (joinType)
         {
             case "MARK":
             {
-                string mark;
-                if (real.Count == 0) mark = $"EXISTS (\n{SubqueryWith(right, "1")}\n)";
-                else if (real.Count == 1 && real[0].Op == "COMPARE_EQUAL") mark = $"({real[0].Left} IN (\n{SubqueryWith(right, real[0].Right)}\n))";
-                else throw new LoweringException("a subquery comparison other than IN and EXISTS");
-                left.Sel = left.Sel.Append(new Item(mark, null, "BOOLEAN")).ToList();
+                Item mark;
+                if (real.Count == 0) mark = new Item($"EXISTS (\n{SubqueryWith(right, "1")}\n)", null, "BOOLEAN");
+                else if (real.Count == 1 && Str(real[0], "comparison") == "COMPARE_EQUAL")
+                    mark = new Item($"({Expr(real[0].GetProperty("left"), lo)} IN (\n{SubqueryWith(right, Expr(real[0].GetProperty("right"), ro))}\n))", null, "BOOLEAN");
+                else mark = ComparisonMark(real, lo, right);
+                left.Sel = left.Sel.Append(mark).ToList();
                 left.Plain = false;
                 return left;
             }
@@ -905,30 +945,19 @@ public sealed class PlanLowerer
         var lo = left.Outs();
         var ro = right.Outs();
 
-        string? inLeft = null, inRight = null;
+        var comparisons = new List<JsonElement>();       // the comparison(s) of an IN, ANY or ALL: an outer expression against a column of the subquery
         var correlated = new List<string>();
         foreach (var c in Arr(p, "conditions"))
         {
             var op = Str(c, "comparison")!;
+            if (op != "COMPARE_NOT_DISTINCT_FROM") { comparisons.Add(c); continue; }
+            // the null-safe equality DuckDB uses for a correlated `=`: a predicate of the subquery on an outer column
+            if (right.HasAgg || right.HasWindow || !right.Mergeable()) throw new LoweringException("a correlated predicate over an aggregate");
             var l = Expr(c.GetProperty("left"), lo);
             var r = Expr(c.GetProperty("right"), ro);
-            if (op == "COMPARE_EQUAL")
-            {
-                if (inLeft != null) throw new LoweringException("a subquery comparison other than IN and EXISTS");
-                (inLeft, inRight) = (l, r);
-                continue;
-            }
-            if (right.HasAgg || right.HasWindow || !right.Mergeable()) throw new LoweringException("a correlated predicate over an aggregate");
-            var text = Comparisons.TryGetValue(op, out var sym) ? sym : throw new LoweringException("a subquery comparison other than IN and EXISTS");
-            if (op == "COMPARE_NOT_DISTINCT_FROM")
-            {
-                var guard = $"({r} IS NOT NULL)";
-                if (right.Where.Remove(guard)) text = "=";
-                else text = "IS NOT DISTINCT FROM";
-            }
-            // written the way a subquery is usually written, its own column first: `u.a = t.a`, `u.b < t.b`
-            var flipped = text switch { "<" => ">", ">" => "<", "<=" => ">=", ">=" => "<=", _ => text };
-            correlated.Add($"({r} {flipped} {Requalify(l)})");
+            var text = "IS NOT DISTINCT FROM";
+            if (right.Where.Remove($"({r} IS NOT NULL)")) text = "=";
+            correlated.Add($"({r} {text} {Requalify(l)})");
         }
         if (correlated.Count > 0)
         {
@@ -936,10 +965,87 @@ public sealed class PlanLowerer
             right.Where.AddRange(correlated);
         }
 
-        var mark = inLeft == null ? $"EXISTS (\n{SubqueryWith(right, "1")}\n)" : $"({inLeft} IN (\n{SubqueryWith(right, inRight!)}\n))";
-        left.Sel = left.Sel.Append(new Item(mark, null, "BOOLEAN")).ToList();
+        Item mark;
+        if (comparisons.Count == 0) mark = new Item($"EXISTS (\n{SubqueryWith(right, "1")}\n)", null, "BOOLEAN");
+        else if (comparisons.Count == 1 && Str(comparisons[0], "comparison") == "COMPARE_EQUAL")
+            mark = new Item($"({Expr(comparisons[0].GetProperty("left"), lo)} IN (\n{SubqueryWith(right, Expr(comparisons[0].GetProperty("right"), right.Outs()))}\n))", null, "BOOLEAN");
+        else mark = ComparisonMark(comparisons, lo, right);
+        left.Sel = left.Sel.Append(mark).ToList();
         left.Plain = false;
         return left;
+    }
+
+    /// <summary>
+    /// The mark of `x op ANY (S)`, `x op ALL (S)` (DuckDB writes it as `NOT (x op' ANY (S))`) and `(a, b) IN (S)`: a row of S matches when every comparison is TRUE, and the mark is TRUE if some row matches, FALSE
+    /// if no row matches or could (a comparison on a NULL operand), NULL otherwise. Written with predicates only: TRUE as `EXISTS (S WHERE p)`, and FALSE as `NOT EXISTS (S WHERE p OR an operand IS NULL)`.
+    /// For one comparison that is exactly SQL's three-valued logic. For a row of several, DuckDB lets a NULL in any component make the row unknown even when another component is definitely different (where SQL's
+    /// AND would say FALSE), so `(1, 2) NOT IN ((NULL, 3))` is not true in DuckDB; the lowering follows DuckDB, and the differential tests would show it if a DuckDB release changed that. A subquery with its own
+    /// aggregate, window, DISTINCT or LIMIT is a derived table first.
+    /// </summary>
+    private Item ComparisonMark(List<JsonElement> conditions, IReadOnlyList<string> lo, Rel right)
+    {
+        if (right.HasAgg || right.HasWindow || !right.Mergeable()) right = Wrap(right);
+        var ro = right.Outs();
+        var parts = new List<string>();
+        var nulls = new List<string>();
+        foreach (var c in conditions)
+        {
+            var op = Str(c, "comparison")!;
+            if (op is not ("COMPARE_EQUAL" or "COMPARE_NOTEQUAL" or "COMPARE_LESSTHAN" or "COMPARE_GREATERTHAN" or "COMPARE_LESSTHANOREQUALTO" or "COMPARE_GREATERTHANOREQUALTO"))
+                throw new LoweringException("a subquery comparison other than IN, ANY and ALL");
+            // written the way a subquery is usually written, its own column first: `b.z < a.x`
+            var flipped = op switch { "COMPARE_LESSTHAN" => ">", "COMPARE_GREATERTHAN" => "<", "COMPARE_LESSTHANOREQUALTO" => ">=", "COMPARE_GREATERTHANOREQUALTO" => "<=", _ => Comparisons[op] };
+            var (inner, outer) = (Expr(c.GetProperty("right"), ro), Requalify(Expr(c.GetProperty("left"), lo)));
+            parts.Add($"({inner} {flipped} {outer})");
+            nulls.Add($"{inner} IS NULL");
+            nulls.Add($"{outer} IS NULL");
+        }
+        var predicate = parts.Count == 1 ? parts[0] : "(" + string.Join(" AND ", parts) + ")";
+        var yes = right.Clone();
+        yes.Where.Add(predicate);
+        var maybe = right.Clone();
+        maybe.Where.Add($"({predicate} OR {string.Join(" OR ", nulls.Distinct())})");
+        marks.Add(($"EXISTS (\n{SubqueryWith(yes, "1")}\n)", $"(NOT EXISTS (\n{SubqueryWith(maybe, "1")}\n))"));
+        return new Item($"\u0003{marks.Count - 1}\u0003", null, "BOOLEAN");
+    }
+
+    private static bool ReferencesMark(JsonElement e, IReadOnlyList<string> outs)
+    {
+        if (e.ValueKind == JsonValueKind.Object)
+        {
+            if (Str(e, "type") == "BOUND_REF" && e.TryGetProperty("index", out var ix) && ix.GetInt32() is var i && i < outs.Count && outs[i].Contains('\u0003')) return true;
+            return e.EnumerateObject().Any(pr => ReferencesMark(pr.Value, outs));
+        }
+        return e.ValueKind == JsonValueKind.Array && e.EnumerateArray().Any(x => ReferencesMark(x, outs));
+    }
+
+    /// <summary>A filter condition. One that does not use a comparison mark is an ordinary expression.</summary>
+    private string Predicate(JsonElement e, IReadOnlyList<string> outs) => ReferencesMark(e, outs) ? Truth(e, outs, wantTrue: true) : Expr(e, outs);
+
+    /// <summary>
+    /// A predicate that is TRUE exactly when <paramref name="e"/> is TRUE (or, with <paramref name="wantTrue"/> false, exactly when it is FALSE), for an expression whose comparison marks sit directly under
+    /// AND, OR and NOT. A mark anywhere else is a value.
+    /// </summary>
+    private string Truth(JsonElement e, IReadOnlyList<string> outs, bool wantTrue)
+    {
+        if (!ReferencesMark(e, outs)) { var plain = Expr(e, outs); return wantTrue ? plain : $"(NOT {plain})"; }
+        switch (Str(e, "type"))
+        {
+            case "BOUND_REF":
+            {
+                var text = outs[e.GetProperty("index").GetInt32()];
+                if (!Regex.IsMatch(text, "^\u0003[0-9]+\u0003$")) throw new LoweringException(MarkUsedAsValue);
+                var mark = marks[int.Parse(text.Trim('\u0003'), System.Globalization.CultureInfo.InvariantCulture)];
+                return wantTrue ? mark.True : mark.False;
+            }
+            case "OPERATOR_NOT": return Truth(Arr(e, "children").First(), outs, !wantTrue);
+            case "CONJUNCTION_AND" or "CONJUNCTION_OR":
+            {
+                var and = (Str(e, "type") == "CONJUNCTION_AND") == wantTrue;      // TRUE of an AND, and FALSE of an OR, need every part
+                return "(" + string.Join(and ? " AND " : " OR ", Arr(e, "children").Select(c => Truth(c, outs, wantTrue))) + ")";
+            }
+            default: throw new LoweringException(MarkUsedAsValue);
+        }
     }
 
     /// <summary>A join where one side is the duplicate-eliminated outer values: those are not a table here, they are the outer query, so the join disappears.</summary>
