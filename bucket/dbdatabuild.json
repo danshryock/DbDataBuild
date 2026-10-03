@@ -1,13 +1,13 @@
 {
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Builds analytics tables and views on SQL Server, PostgreSQL and Fabric from DuckDB-dialect SQL: plan, then apply.",
     "homepage": "https://github.com/danshryock/DbDataBuild",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/danshryock/DbDataBuild/releases/download/v0.1.0/dbdatabuild-v0.1.0-win-x64.zip",
-            "hash": "f16cfa6ea5677f17470ea30d2c80aab1f02534d2fa252d5a0647c6701bd5c55f",
-            "extract_dir": "dbdatabuild-v0.1.0-win-x64"
+            "url": "https://github.com/danshryock/DbDataBuild/releases/download/v0.2.0/dbdatabuild-v0.2.0-win-x64.zip",
+            "hash": "9da8fb3de3f66894a2b83702a26fc01e81ac7d088899a1ca5181f95ac5415a12",
+            "extract_dir": "dbdatabuild-v0.2.0-win-x64"
         }
     },
     "bin": "dbdatabuild.exe",
