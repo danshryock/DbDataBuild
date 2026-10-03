@@ -1,0 +1,15 @@
+name: marts.fct_track_composer
+kind:
+  type: full
+grain:
+  - track_id
+  - position
+columns:
+  - name: track_id
+    type: INTEGER
+    nullable: false
+  - name: position
+    type: INTEGER
+    nullable: false
+  - name: composer
+    type: VARCHAR

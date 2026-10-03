@@ -25,8 +25,12 @@ public static class ProjectValidator
         var models = new List<ModelSource>();
         var modelsRoot = Path.Combine(projectRoot, ModelsDir);
         if (!Directory.Exists(modelsRoot))
-            return new(models, [new Diagnostic(DiagnosticCatalog.MissingKey, new(ModelsDir, 0, 0),
-                $"Directory `{ModelsDir}/` was not found under {projectRoot}.", Fix: $"Create `{ModelsDir}/` or run from the project root.")]);
+        {
+            // the sources still load: `seed` and `import-sources` need them in a project that has no models yet
+            diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(ModelsDir, 0, 0),
+                $"Directory `{ModelsDir}/` was not found under {projectRoot}.", Fix: $"Create `{ModelsDir}/` or run from the project root."));
+            return new(models, diags, LoadSources(projectRoot, diags));
+        }
 
         var files = Directory.EnumerateFiles(modelsRoot, "*.*", SearchOption.AllDirectories)
             .Where(f => f.EndsWith(".yml", StringComparison.Ordinal) || f.EndsWith(".sql", StringComparison.Ordinal))

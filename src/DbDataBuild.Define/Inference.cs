@@ -36,7 +36,7 @@ public static class ModelInference
         var (first, firstError) = QueryAnalyzer.Analyze(sql);
         if (first == null)
         {
-            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, At(), $"The DuckDB parser reported: {firstError}"));
+            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, At(), $"The DuckDB parser reported: {firstError}", Fix: SqlParseHints.Fix(sql, firstError)));
             return (null, diags);
         }
 

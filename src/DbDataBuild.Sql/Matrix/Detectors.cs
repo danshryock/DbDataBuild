@@ -32,6 +32,7 @@ public static class Detectors
         ["join_using"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("using", out var u) && u.ValueKind == JsonValueKind.Array && u.GetArrayLength() > 0),
         ["join_natural"] = n => Select(n) && Joins(n).Any(j => j.TryGetProperty("kind", out var k) && k.GetString() == "Natural"),
         ["distinct_on"] = n => Select(n) && NonNull(n, "distinct_on"),
+        ["recursive_cte"] = n => Select(n) && n.TryGet("with", out var w) && w.ValueKind == JsonValueKind.Object && w.TryGetProperty("recursive", out var r) && r.ValueKind == JsonValueKind.True,
         ["lateral_subquery"] = n => n.Type == "subquery" && n.TryGet("lateral", out var l) && l.ValueKind == JsonValueKind.True,
         ["sample"] = n => Select(n) && NonNull(n, "sample"),
         // date_part('week' | 'epoch' | ...): the parts the engines do not agree on (dow and isodow are rewritten by a target rule)

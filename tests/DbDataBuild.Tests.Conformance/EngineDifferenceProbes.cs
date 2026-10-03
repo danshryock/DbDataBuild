@@ -30,9 +30,9 @@ public class EngineDifferenceProbes
         C("cast_str_spaces_int", "CAST(' 12 ' AS INTEGER)"), C("cast_str_decimal_literal_int", "CAST('1.5' AS INTEGER)"), C("cast_varchar_len", "CAST(s AS VARCHAR(3))"),
         // text
         C("length", "length(s)"), C("upper", "upper(s)"), C("lower", "lower(s)"), C("substr2", "substr(s, 2, 2)"), C("substr0", "substr(s, 0, 2)"), C("substr_neg", "substr(s, -2)"), C("substr_neg_len", "substr(s, 2, -1)"),
-        C("substr_from", "substr(s, 2)"), C("left", "left(s, 2)"), C("right", "right(s, 2)"), C("left_neg", "left(s, -1)"), C("concat_op", "s || 'x'"), C("concat_fn", "concat(s, 'x')"), C("concat_int", "concat(s, i)"),
+        C("substr_from", "substr(s, 2)"), C("left", "left(s, 2)"), C("right", "right(s, 2)"), C("left_neg", "left(s, -1)"), C("concat_op", "s || 'x'"), C("strpos_concat", "strpos(s || 'x', 'x')"), C("strpos_concat_needle", "strpos(s, s || 'a')"), C("starts_with_concat", "starts_with(s || 'ab', 'ab')"), C("position_concat", "position('b' IN s || 'b')"), C("replace_concat", "replace(s || 'q', 'q', s || 'z')"), C("concat_fn", "concat(s, 'x')"), C("concat_int", "concat(s, i)"),
         C("concat_ws", "concat_ws('-', s, 'x')"), C("trim", "trim(s)"), C("ltrim", "ltrim(s)"), C("rtrim", "rtrim(s)"), C("replace", "replace(s, 'a', 'b')"), C("replace_empty", "replace(s, '', 'x')"),
-        C("strpos", "strpos(s, 'b')"), C("position", "position('b' IN s)"), C("reverse", "reverse(s)"), C("lpad", "lpad(s, 5, '*')"), C("rpad", "rpad(s, 5, '*')"), C("lpad_short", "lpad(s, 2, '*')"),
+        C("strpos", "strpos(s, 'b')"), C("position", "position('b' IN s)"), C("reverse", "reverse(s)"), C("lpad", "lpad(s, 5, '*')"), C("rpad", "rpad(s, 5, '*')"), C("lpad_short", "lpad(s, 2, '*')"), C("lpad_multi", "lpad(s, 7, 'ab')"), C("rpad_multi", "rpad(s, 6, 'xyz')"), C("lpad_exact", "lpad(s, 3, '-')"), C("lpad_zero", "lpad(s, 1, '-')"), C("split_part_first", "split_part(s, ',', 1)"), C("split_part_multichar", "split_part(s, 'b', 2)"), C("split_part_far", "split_part(s, ',', 9)"),
         C("repeat", "repeat(s, 2)"), C("like", "s LIKE 'a%'"), C("like_under", "s LIKE '_bc'"), C("ilike", "s ILIKE 'a%'"), C("not_like", "s NOT LIKE 'a%'"), C("starts_with", "starts_with(s, 'a')"),
         C("contains", "contains(s, 'b')"), C("eq", "s = 'abc'"), C("eq_trailing", "s = 'abc '"), C("lt", "s < 'b'"), C("ascii", "ascii(s)"), C("chr", "chr(65)"), C("split_part", "split_part(s, ',', 2)"),
         C("initcap_like", "upper(left(s, 1)) || lower(substr(s, 2))"), C("length_nonbmp", "length('😀a')"), C("upper_sharp_s", "upper('ß')"), C("lower_dotted_i", "lower('İ')"),
@@ -48,7 +48,7 @@ public class EngineDifferenceProbes
         C("date_diff_month", "date_diff('month', dt, DATE '2024-03-01')"), C("date_diff_year", "date_diff('year', dt, DATE '2025-01-01')"), C("date_part_year", "date_part('year', dt)"), C("extract_month", "extract(month FROM dt)"),
         C("year", "year(dt)"), C("month", "month(dt)"), C("day", "day(dt)"), C("dayofweek", "dayofweek(dt)"), C("dayofyear", "dayofyear(dt)"), C("week", "week(dt)"), C("quarter", "quarter(dt)"),
         C("date_trunc_month", "date_trunc('month', dt)"), C("date_trunc_year", "date_trunc('year', dt)"), C("date_trunc_day_ts", "date_trunc('day', ts)"), C("date_trunc_hour", "date_trunc('hour', ts)"),
-        C("last_day", "last_day(dt)"), C("date_sub_dates", "dt - DATE '2024-01-01'"), C("ts_add", "ts + INTERVAL 90 MINUTE"), C("ts_diff", "date_diff('second', ts, TIMESTAMP '2024-03-01 00:00:00')"),
+        C("last_day", "last_day(dt)"), C("date_sub_dates", "dt - DATE '2024-01-01'"), C("date_plus_int", "dt + 3"), C("date_minus_int", "dt - 3"), C("date_plus_col", "dt + i"), C("int_plus_date", "j + dt"), C("date_plus_neg", "dt + (-40)"), C("ts_add", "ts + INTERVAL 90 MINUTE"), C("ts_diff", "date_diff('second', ts, TIMESTAMP '2024-03-01 00:00:00')"),
         C("hour", "hour(ts)"), C("minute", "minute(ts)"), C("second", "second(ts)"), C("year_ts", "year(ts)"), C("dp_quarter", "date_part('quarter', dt)"), C("dp_dow", "date_part('dow', dt)"),
         C("dp_doy", "date_part('doy', dt)"), C("dp_week", "date_part('week', dt)"), C("dp_isodow", "date_part('isodow', dt)"), C("dp_epoch", "date_part('epoch', ts)"), C("dp_hour", "date_part('hour', ts)"), C("make_date", "make_date(2024, 2, 29)"), C("dt_lt", "dt < DATE '2024-02-01'"), C("dt_eq_ts", "dt = CAST(ts AS DATE)"),
         // aggregates over the whole table
@@ -93,11 +93,11 @@ public class EngineDifferenceProbes
         ["sqlserver:dp_week"] = "fn.date_part_calendar: DATEPART(WEEK) is not the ISO week",
         ["sqlserver:dp_epoch"] = "fn.date_part_calendar: no epoch part",
         ["postgres:dp_epoch"] = "fn.date_part_calendar: not translated",
-        ["postgres:string_agg"] = "fn.string_agg: polyglot writes LISTAGG for PostgreSQL", ["postgres:string_agg_sep"] = "fn.string_agg: polyglot writes LISTAGG for PostgreSQL", ["postgres:string_agg_filter"] = "fn.string_agg: polyglot writes LISTAGG for PostgreSQL",
-        ["sqlserver:lpad"] = "fn.pad", ["sqlserver:rpad"] = "fn.pad", ["sqlserver:lpad_short"] = "fn.pad",
+                ["sqlserver:lpad"] = Supplementary, ["sqlserver:rpad"] = Supplementary, ["sqlserver:lpad_short"] = Supplementary, ["sqlserver:lpad_multi"] = Supplementary, ["sqlserver:rpad_multi"] = Supplementary, ["sqlserver:lpad_exact"] = Supplementary, ["sqlserver:lpad_zero"] = Supplementary,
+        ["sqlserver:strpos_concat"] = Supplementary, ["sqlserver:position_concat"] = Supplementary,
         ["sqlserver:contains"] = "fn.contains", ["postgres:contains"] = "fn.contains",
         ["sqlserver:corr"] = "fn.corr", ["sqlserver:approx_free_mode"] = "fn.mode", ["postgres:approx_free_mode"] = "fn.mode",
-        ["sqlserver:split_part"] = Undefined, ["postgres:split_part"] = Undefined, ["sqlserver:week"] = Undefined, ["postgres:week"] = Undefined, ["postgres:last_day"] = Undefined,
+        ["sqlserver:split_part"] = "fn.split_part", ["sqlserver:split_part_first"] = "fn.split_part", ["sqlserver:split_part_multichar"] = "fn.split_part", ["sqlserver:split_part_far"] = "fn.split_part", ["sqlserver:week"] = Undefined, ["postgres:week"] = Undefined, ["postgres:last_day"] = Undefined,
     };
 
     [SkippableTheory]

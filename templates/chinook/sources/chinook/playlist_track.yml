@@ -1,0 +1,5 @@
+name: chinook.playlist_track
+grain: [playlist_id, track_id]
+columns:
+  - {name: playlist_id, type: INTEGER, nullable: false}
+  - {name: track_id, type: INTEGER, nullable: false}

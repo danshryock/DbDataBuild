@@ -126,7 +126,7 @@ public sealed class PlanLowerer
             if (outputNames.Count != rel.Sel.Count) throw new LoweringException($"the plan has {rel.Sel.Count} output columns, but DuckDB describes {outputNames.Count}");
             rel.Sel = rel.Sel.Select((s, i) => s with { Alias = outputNames[i] }).ToList();
         }
-        var sql = rel.Cte(lowerer.ctesInOrder) + rel.Sql();
+        var sql = rel.Cte(lowerer.ctesInOrder, lowerer.hasRecursiveCte) + rel.Sql();
         if (sql.Contains('\u0003')) throw new LoweringException(MarkUsedAsValue);
         var names = rel.SetOp != null ? rel.SetOpNames! : rel.Aliases();
         var columns = names.Select((n, i) => new LoweredColumn(n, rel.Sel.Count > i ? rel.Sel[i].Type ?? "UNKNOWN" : "UNKNOWN")).ToList();
@@ -134,6 +134,7 @@ public sealed class PlanLowerer
     }
 
     private readonly List<(string Name, string Sql)> ctesInOrder = [];
+    private bool hasRecursiveCte;
 
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -306,6 +307,19 @@ public sealed class PlanLowerer
         // RULE int-div: `//` on integers truncates toward zero. polyglot cannot read it, and the engines' own integer division is spelled `/`, which in DuckDB's dialect is float division
         if (name == "//" && a.Count == 2)
             return returns is "INTEGER" or "SMALLINT" or "TINYINT" ? $"CAST(trunc(CAST({a[0]} AS DOUBLE) / CAST(NULLIF({a[1]}, 0) AS DOUBLE)) AS {returns})" : throw new LoweringException($"integer division `//` over {returns}");
+        // RULE date-plus-days: `date + 3` and `date - i` add and take away days in DuckDB and PostgreSQL; SQL Server does not take a whole number as an interval. The explicit casts mark the expression for the
+        // target step (a date and a whole number side by side), which writes it as an interval of that many days on SQL Server.
+        var argTypes = Arr(e, "arguments").Select(x => x.TryGetProperty("id", out var xid) ? xid.GetString() ?? "" : "").ToList();   // a constant has no return type of its own, but the function lists its argument types
+        if (name is "+" or "-" && a.Count == 2 && argTypes is ["DATE", var daysType] && IntegerTypes.Contains(daysType) && returns == "DATE")
+        {
+            rules.Add("date-plus-days");
+            return $"(CAST({a[0]} AS DATE) {name} CAST({a[1]} AS {daysType}))";
+        }
+        if (name == "+" && a.Count == 2 && argTypes is [var leadingDays, "DATE"] && IntegerTypes.Contains(leadingDays) && returns == "DATE")
+        {
+            rules.Add("date-plus-days");
+            return $"(CAST({a[0]} AS {leadingDays}) + CAST({a[1]} AS DATE))";
+        }
         // the days between two dates is `a - b` in DuckDB; SQL Server has no subtraction of dates
         if (name == "-" && a.Count == 2 && TypeId(children[0]) == "DATE" && TypeId(children[1]) == "DATE") return $"date_diff('day', {a[1]}, {a[0]})";
         // DuckDB gives NULL for x % 0 where both engines raise an error
@@ -535,8 +549,8 @@ public sealed class PlanLowerer
             return sb.ToString();
         }
 
-        public string Cte(List<(string Name, string Sql)> ctes) =>
-            ctes.Count == 0 ? "" : "WITH " + string.Join(",\n", ctes.Select(c => $"{c.Name} AS (\n{Indent(c.Sql)}\n)")) + "\n";
+        public string Cte(List<(string Name, string Sql)> ctes, bool recursive = false) =>
+            ctes.Count == 0 ? "" : (recursive ? "WITH RECURSIVE " : "WITH ") + string.Join(",\n", ctes.Select(c => $"{c.Name} AS (\n{Indent(c.Sql)}\n)")) + "\n";
 
         private static string Indent(string s) => string.Join('\n', s.Split('\n').Select(l => "  " + l));
     }
@@ -580,7 +594,8 @@ public sealed class PlanLowerer
                 throw new LoweringException($"{name} over {type ?? "a non-constant"} values (only integer series are lowered)");
             args.Add(a.GetProperty("value").GetInt64());
         }
-        if (args.Count is < 1 or > 3 || (name == "generate_series" && args.Count < 2)) throw new LoweringException($"{name} with {args.Count} argument(s)");
+        if (args.Count == 0) throw new LoweringException($"{name} with bounds that come from another table's columns (a series per row, which SQL Server writes as CROSS APPLY); use a series of constants and filter it");
+        if (args.Count is > 3 || (name == "generate_series" && args.Count < 2)) throw new LoweringException($"{name} with {args.Count} argument(s)");
         var (start, stop, step) = args.Count switch { 1 => (0L, args[0], 1L), 2 => (args[0], args[1], 1L), _ => (args[0], args[1], args[2]) };
         if (step == 0) throw new LoweringException($"{name} with a step of zero");
         if (name == "range") stop += step > 0 ? -1 : 1;     // range excludes its end
@@ -788,6 +803,31 @@ public sealed class PlanLowerer
                 ctes[p.GetProperty("table_index").GetInt32()] = (Str(p, "ctename")!, definition);
                 ctesInOrder.Add((Str(p, "ctename")!, definition.Sql()));   // before the main query, which may define more CTEs that read this one
                 return Node(kids[1]);
+            }
+            case "LOGICAL_RECURSIVE_CTE":
+            {
+                // WITH RECURSIVE: the anchor query, then the recursive query that reads the CTE through a CTE_REF to this operator's own table index. The engines want both parts to have the same column types
+                // (SQL Server refuses a text column that is VARCHAR(81) in one part and VARCHAR(165) in the other), so a text or decimal column is cast to its type in both parts.
+                var name = Str(p, "ctename")!;
+                var anchor = Node(kids[0]);
+                var names = anchor.SetOp != null ? anchor.SetOpNames! : anchor.Aliases();
+                ctes[p.GetProperty("table_index").GetInt32()] = (name, anchor);
+                var recursive = Node(kids[1]);
+                if (anchor.SetOp != null || recursive.SetOp != null) throw new LoweringException("a recursive query whose parts are set operations");
+                static Rel Typed(Rel r)
+                {
+                    r.Sel = r.Sel.Select(i => i.Type is { } t && (t == "VARCHAR" || t.StartsWith("DECIMAL", StringComparison.Ordinal)) ? i with { Sql = $"CAST({i.Sql} AS {t})" } : i).ToList();
+                    return r;
+                }
+                var all = p.TryGetProperty("union_all", out var ua) && ua.ValueKind == JsonValueKind.True;
+                hasRecursiveCte = true;
+                return new Rel
+                {
+                    SetOp = $"{Typed(anchor).Sql()}\nUNION{(all ? " ALL" : "")}\n{Typed(recursive).Sql()}",
+                    SetOpDistinct = !all,
+                    SetOpNames = names,
+                    Sel = names.Select((n, i) => new Item(Token("u", n), n, i < anchor.Sel.Count ? anchor.Sel[i].Type : null)).ToList(),
+                };
             }
             case "LOGICAL_CTE_REF":
             {
@@ -1232,5 +1272,8 @@ public sealed class PlanLowerer
         return null;
     }
 
-    private static string? TypeNameOf(JsonElement e) => e.TryGetProperty("return_type", out var t) ? TypeName(t) : null;
+    private static string? TypeNameOf(JsonElement e) =>
+        e.TryGetProperty("return_type", out var t) ? TypeName(t)
+        : e.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Object && v.TryGetProperty("type", out var vt) && vt.ValueKind == JsonValueKind.Object ? TypeName(vt)   // a constant carries its type on the value
+        : null;
 }

@@ -48,6 +48,71 @@ public class TargetRulesTests
         Assert.Empty(TargetRules.Apply("SELECT date_part('year', d) AS w FROM t", "sqlserver").Rules);
     }
 
+    [Theory]
+    [InlineData("SELECT lpad(s, 5, '*') AS x FROM t", "left(replicate('*', 5), 5 - (len(s + 'x') - 1)) + s")]
+    [InlineData("SELECT rpad(s, 5, 'ab') AS x FROM t", "s + left(replicate('ab', 5), 5 - (len(s + 'x') - 1))")]
+    public void Padding_to_a_literal_length_is_written_out_for_SQL_Server(string sql, string expectedPart)
+    {
+        var r = TargetRules.Apply(sql, "sqlserver");
+        Assert.Equal([TargetRules.PadToLength], r.Rules);
+        Assert.Contains(expectedPart, Transpiled(sql, "sqlserver").Replace("LEN(", "len(").Replace("LEFT(", "left(").Replace("REPLICATE(", "replicate("));
+        Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);                                  // PostgreSQL has lpad and rpad
+    }
+
+    [Theory]
+    [InlineData("SELECT lpad(s, n, '*') AS x FROM t")]          // the length is not a literal
+    [InlineData("SELECT lpad(s, 5, p) AS x FROM t")]            // the pad is not a literal
+    [InlineData("SELECT lpad(s, 5, '') AS x FROM t")]           // an empty pad
+    [InlineData("SELECT lpad(s, 5000, '*') AS x FROM t")]       // longer than REPLICATE keeps of a non-MAX string
+    public void Padding_that_cannot_be_written_out_is_left_for_the_matrix_to_refuse(string sql) => Assert.Empty(TargetRules.Apply(sql, "sqlserver").Rules);
+
+    [Theory]
+    [InlineData("SELECT CAST(d AS DATE) + CAST(n AS INTEGER) AS x FROM t", "DATEADD(DAY, (n), d)")]
+    [InlineData("SELECT CAST(d AS DATE) - CAST(3 AS INTEGER) AS x FROM t", "DATEADD(DAY, -(3), d)")]
+    [InlineData("SELECT CAST(n AS BIGINT) + CAST(d AS DATE) AS x FROM t", "DATEADD(DAY, (n), d)")]
+    public void A_date_and_a_number_of_days_become_an_interval_on_SQL_Server_only(string sql, string expectedPart)
+    {
+        var r = TargetRules.Apply(sql, "sqlserver");
+        Assert.Equal([TargetRules.DatePlusDays], r.Rules);
+        Assert.Contains(expectedPart, Transpiled(sql, "sqlserver").Replace("\n", " "));
+        Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);                                  // PostgreSQL adds a number of days to a date itself
+        Assert.Empty(TargetRules.Apply("SELECT CAST(a AS INTEGER) + CAST(b AS INTEGER) AS x FROM t", "sqlserver").Rules);
+    }
+
+    [Fact]
+    public void String_agg_is_written_as_array_to_string_of_array_agg_for_PostgreSQL()
+    {
+        const string sql = "SELECT string_agg(DISTINCT g, ', ' ORDER BY g DESC) FILTER (WHERE w > 1) AS x FROM t GROUP BY k";
+        var r = TargetRules.Apply(sql, "postgres");
+        Assert.Equal([TargetRules.StringAggAsArrayToString], r.Rules);
+        var text = Transpiled(sql, "postgres");
+        Assert.Contains("ARRAY_TO_STRING(ARRAY_AGG(DISTINCT g ORDER BY g DESC) FILTER(WHERE w > 1), ', ')", text);
+        Assert.DoesNotContain("LISTAGG", text);
+        Assert.Empty(TargetRules.Apply(sql, "sqlserver").Rules);                                 // STRING_AGG ... WITHIN GROUP is written by the transpile
+    }
+
+    [Fact]
+    public void The_concatenation_operator_is_written_as_a_plus_on_SQL_Server_so_it_is_also_one_inside_strpos()
+    {
+        const string sql = "SELECT strpos(a || b, 'x') AS p, a || b || c AS q FROM t";
+        var r = TargetRules.Apply(sql, "sqlserver");
+        Assert.Equal([TargetRules.ConcatAsPlus], r.Rules);
+        var text = Transpiled(sql, "sqlserver");
+        Assert.DoesNotContain("||", text);
+        Assert.Contains("CHARINDEX('x', a + b)", text);
+        Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);
+    }
+
+    [Fact]
+    public void Split_part_reaches_PostgreSQL_as_its_own_split_part()
+    {
+        const string sql = "SELECT coalesce(array_extract(string_split(s, ', '), 2), '') AS x FROM t";
+        var r = TargetRules.Apply(sql, "postgres");
+        Assert.Equal([TargetRules.SplitPart], r.Rules);
+        Assert.Contains("split_part(s, ', ', cast(2 as int))", r.Sql.ToLowerInvariant());
+        Assert.Empty(TargetRules.Apply(sql, "sqlserver").Rules);                                 // there is nothing to write it as: the matrix refuses it
+    }
+
     [Fact]
     public void Length_counts_trailing_spaces_on_SQL_Server_only()
     {

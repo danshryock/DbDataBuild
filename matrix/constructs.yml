@@ -72,7 +72,7 @@
 - id: str.concat
   detect: node:concat
   duckdb: native
-  sqlserver: { status: approximated, test: spike/concat_pipes, note: "|| becomes +, which adds numbers when both operands are numeric. Only safe for string operands." }
+  sqlserver: { status: approximated, test: spike/concat_pipes, note: "|| becomes +, which adds numbers when both operands are numeric. Only safe for string operands. A lowered query is rewritten by the target rule concat-plus (every || is written as +, because the transpile leaves || inside the arguments of strpos, starts_with and the like) and casts non-text operands itself, so it no longer reports this." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres: { status: approximated, test: spike/concat_pipes, note: "|| on non-string operands is an error on Postgres; DuckDB concatenates them." }
 
@@ -212,9 +212,16 @@
 - id: fn.pad
   detect: [fn:LPAD, fn:RPAD]
   duckdb: native
-  sqlserver: { status: unsupported, test: spike/pad_fn, note: "SQL Server has no LPAD or RPAD before 2025. RIGHT(REPLICATE(p, n) + s, n) does it for strings known to be shorter than n; DuckDB cuts a longer string to n characters." }
+  sqlserver: { status: unsupported, test: spike/pad_fn, note: "SQL Server has no LPAD or RPAD before 2025. A lowered query is rewritten by the target rule pad-to-length (LEFT(REPLICATE(p, n), n - LEN(s)) + s, and LEFT(s, n) for a string that is too long, as DuckDB cuts it) when the length is a literal up to 4000 and the pad a non-empty literal, and no longer reports this; any other use still does." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: native }
+
+- id: fn.split_part
+  detect: [fn:SPLIT_PART, fn:STRING_SPLIT, fn:ARRAY_EXTRACT]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/split_part_fn, note: "SQL Server has no split_part, and STRING_SPLIT returns a table (one character as the separator, and the position only from 2022). Split with CHARINDEX and SUBSTRING, or load the pieces some other way." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/split_part_fn, note: "DuckDB's split_part reaches the plan as array_extract(string_split(s, sep), n), which PostgreSQL does not have. A lowered query is rewritten by the target rule split-part (PostgreSQL's own split_part, which also gives '' past the last piece) and no longer reports this; string_split anywhere else still does. Differs: position 0 is an error on PostgreSQL and '' in DuckDB." }
 
 - id: fn.contains
   detect: [node:contains, fn:CONTAINS]
@@ -242,7 +249,7 @@
   duckdb: native
   sqlserver: { status: translated, test: spike/string_agg_fn, note: "STRING_AGG(x, sep) WITHIN GROUP (ORDER BY ...). The separator and the ORDER BY are kept by lowering. NULL values are skipped, as in DuckDB." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
-  postgres:  { status: unsupported, test: spike/string_agg_fn, note: "polyglot writes LISTAGG for PostgreSQL, which has no such function (string_agg is the PostgreSQL name). Until that is fixed upstream, write array_to_string(array_agg(x ORDER BY ...), sep)." }
+  postgres:  { status: unsupported, test: spike/string_agg_fn, note: "polyglot writes LISTAGG for PostgreSQL, which has no such function (string_agg is the PostgreSQL name). A lowered query is rewritten by the target rule string-agg-array (array_to_string(array_agg(x ORDER BY ...), sep): NULLs skipped, NULL for no rows) and no longer reports this; a string_agg without a separator still does." }
 
 - id: fn.date_part_calendar
   detect: [detector:date_part_calendar]
@@ -257,3 +264,11 @@
   sqlserver: { status: unsupported, test: spike/substr_negative, note: "A negative start counts from the end of the string in DuckDB; SUBSTRING does not do that (and the two-argument form needs a length, which lowering adds). Use right(s, n) or substr(s, length(s) - n + 1)." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: approximated, test: spike/substr_negative, note: "A negative start does not count from the end: SUBSTRING(s FROM -2) is the whole string." }
+
+- id: syntax.recursive_cte
+  detect: detector:recursive_cte
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/recursive_cte, note: "The lowerer writes WITH RECURSIVE and the transpile drops the keyword. SQL Server stops at 100 levels of recursion (error 530) where DuckDB goes on, allows only UNION ALL between the parts (error 252 otherwise) and, in the anchor and the recursive part, wants every column to have the same type: the lowerer casts text and decimal columns in both parts. OPTION (MAXRECURSION n) cannot be put in a view, so a deeper hierarchy fails loudly there." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+

@@ -10,6 +10,9 @@
 - { datatype: int, evidence: [cast_int] }
 - { datatype: small_int, evidence: [cast_smallint] }
 - { datatype: timestamp, evidence: [cast_timestamp] }
+- { function: LEFT, evidence: [left_fn] }
+- { function: REPEAT, evidence: [repeat_fn] }
+- { datatype: text, evidence: [cast_varchar_nolen] }
 - { datatype: var_char, evidence: [cast_varchar_nolen, cast_varchar_len] }
 - { function: CURRENT_TIMESTAMP, evidence: [current_ts] }
 - { function: DATE_DIFF, evidence: [date_diff] }

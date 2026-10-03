@@ -299,6 +299,28 @@ public class PlanLowererTests
         Assert.True(sql.Contains("IS NOT NULL", StringComparison.Ordinal) == source.Contains("IS NOT NULL", StringComparison.Ordinal), sql);
     }
 
+    [Theory]
+    [InlineData("WITH RECURSIVE c AS (SELECT 1 AS n, 'a' AS s UNION ALL SELECT n + 1, s || 'b' FROM c WHERE n < 4) SELECT n, s FROM c")]
+    [InlineData("WITH RECURSIVE c AS (SELECT a, 1 AS depth, CAST(a AS VARCHAR) AS path FROM t WHERE a = 1 UNION ALL SELECT t.a, c.depth + 1, c.path || '>' || CAST(t.a AS VARCHAR) FROM t JOIN c ON t.a = c.a + 1 WHERE c.depth < 3) SELECT a, depth, path FROM c")]
+    [InlineData("WITH RECURSIVE c AS (SELECT 1 AS n UNION SELECT n % 3 + 1 FROM c) SELECT n FROM c")]
+    public void A_recursive_query_is_lowered_with_the_same_rows(string source)
+    {
+        using var c = Open();
+        var sql = Lower(c, source);
+        Assert.StartsWith("WITH RECURSIVE ", sql);
+        Assert.Equal(Rows(c, source, false), Rows(c, sql, false));
+    }
+
+    [Fact]
+    public void The_parts_of_a_recursive_query_get_the_same_text_and_decimal_types_so_SQL_Server_accepts_them()
+    {
+        using var c = Open();
+        var sql = Lower(c, "WITH RECURSIVE c AS (SELECT 1 AS n, 'a' AS s, 1.5 AS d UNION ALL SELECT n + 1, s || 'b', d * 2 FROM c WHERE n < 4) SELECT n, s, d FROM c");
+        Assert.Contains("CAST('a' AS VARCHAR)", sql);
+        Assert.Contains("AS VARCHAR) AS s", sql);
+        Assert.Contains("AS DECIMAL(", sql);
+    }
+
     [Fact]
     public void A_double_cast_to_a_decimal_rounds_the_scaled_value_half_away_from_zero_like_DuckDB()
     {
@@ -477,6 +499,9 @@ public class PlanLowererTests
         { "SELECT a, string_agg(s, ',') AS v FROM t GROUP BY a", "string_agg(s, ',')" },
         { "SELECT id, d1 - d2 AS v FROM t", "date_diff('day', d2, d1)" },
         { "SELECT id, substr(s, 2) AS v FROM t", "substr(s, 2, 2147483647)" },
+        { "SELECT id, d1 + 3 AS v FROM t", "date-plus-days" },
+        { "SELECT id, d1 - id AS v FROM t", "date-plus-days" },
+        { "SELECT id, id + d1 AS v FROM t", "date-plus-days" },
     };
 
     [Theory, MemberData(nameof(Probed))]

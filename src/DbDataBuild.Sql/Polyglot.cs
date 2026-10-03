@@ -63,11 +63,11 @@ public static class Polyglot
         return items.Count == 1 ? (o, items[0]) : (new PolyglotOutcome(5, o.Data, $"Expected one statement, got {items.Count}."), null);
     }
 
-    public static PolyglotOutcome Parse(string sql, string dialect) => Wrap(PolyglotNative.Parse(sql, dialect));
+    public static PolyglotOutcome Parse(string sql, string dialect) => Wrap(PolyglotNative.Parse(dialect == Dialects.Canonical ? DbDataBuild.Core.SqlParseHints.ForParser(sql) : sql, dialect));
     public static PolyglotOutcome Generate(string astJson, string dialect) => Wrap(PolyglotNative.Generate(astJson, dialect));
     public static PolyglotOutcome Format(string sql, string dialect) => Wrap(PolyglotNative.Format(sql, dialect));
-    public static PolyglotOutcome OutputColumns(string sql, string dialect) => Wrap(PolyglotNative.OutputColumns(sql, dialect));
-    public static PolyglotOutcome AnalyzeQuery(string sql, string optionsJson = "{}") => Wrap(PolyglotNative.AnalyzeQuery(sql, optionsJson));
+    public static PolyglotOutcome OutputColumns(string sql, string dialect) => Wrap(PolyglotNative.OutputColumns(dialect == Dialects.Canonical ? DbDataBuild.Core.SqlParseHints.ForParser(sql) : sql, dialect));
+    public static PolyglotOutcome AnalyzeQuery(string sql, string optionsJson = "{}") => Wrap(PolyglotNative.AnalyzeQuery(DbDataBuild.Core.SqlParseHints.ForParser(sql), optionsJson));
 
     public static PolyglotValidation Validate(string sql, string dialect, string optionsJson = "{}")
     {

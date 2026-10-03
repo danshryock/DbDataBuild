@@ -1,0 +1,6 @@
+name: chinook.album
+grain: [album_id]
+columns:
+  - {name: album_id, type: INTEGER, nullable: false}
+  - {name: title, type: "VARCHAR(160)", nullable: false}
+  - {name: artist_id, type: INTEGER, nullable: false}

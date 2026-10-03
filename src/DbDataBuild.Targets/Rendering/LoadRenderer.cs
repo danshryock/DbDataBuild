@@ -46,7 +46,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         var (bodyHash, hashError) = AstHasher.Hash(bodySql);
         if (bodyHash == null)
         {
-            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(queryFile, 0, 0), $"The DuckDB parser reported: {hashError}"));
+            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(queryFile, 0, 0), $"The DuckDB parser reported: {hashError}", Fix: SqlParseHints.Fix(bodySql, hashError)));
             return new RenderResult(files, reports, diags);
         }
         var sources = QueryAnalyzer.Analyze(bodySql).Facts?.BaseTables.Select(t => t.QualifiedName).Order(StringComparer.Ordinal).ToList() ?? [];

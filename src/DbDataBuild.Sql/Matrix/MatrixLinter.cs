@@ -30,7 +30,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         var parsed = Polyglot.Parse(sql, Dialects.Canonical);
         if (!parsed.Ok)
         {
-            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(file, 0, 0), $"The DuckDB parser reported: {parsed.Error}"));
+            diags.Add(new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(file, 0, 0), $"The DuckDB parser reported: {parsed.Error}", Fix: SqlParseHints.Fix(sql, parsed.Error)));
             return diags;
         }
 
@@ -146,10 +146,6 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         foreach (var j in Detectors.Joins(node))
             if (j.TryGetProperty("kind", out var k) && k.GetString() is { } kind && !CoveredJoinKinds.Contains(kind) && seen.Add($"join:{kind}:{loc.Line}:{loc.Column}"))
                 diags.Add(NotCovered(config, loc, $"join kind `{kind}`"));
-
-        if (node.TryGet("with", out var with) && with.ValueKind == JsonValueKind.Object &&
-            with.TryGetProperty("recursive", out var rec) && rec.ValueKind == JsonValueKind.True && seen.Add($"recursive:{loc.Line}:{loc.Column}"))
-            diags.Add(NotCovered(config, loc, "recursive CTE"));
     }
 
     private static Diagnostic NotCovered(ProjectConfig config, SourceLocation loc, string what) =>

@@ -1,0 +1,20 @@
+name: marts.dim_employee
+kind:
+  type: full
+grain:
+  - employee_id
+columns:
+  - name: employee_id
+    type: INTEGER
+    nullable: false
+  - name: full_name
+    type: VARCHAR
+  - name: title
+    type: VARCHAR
+    nullable: false
+  - name: reports_to
+    type: INTEGER
+  - name: level
+    type: INTEGER
+  - name: path
+    type: VARCHAR

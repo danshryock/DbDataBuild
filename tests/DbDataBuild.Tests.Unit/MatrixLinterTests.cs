@@ -44,6 +44,8 @@ public class MatrixLinterTests
         ["syntax.sample"] = "SELECT * FROM t USING SAMPLE 50%",
         ["str.case_mapping"] = "SELECT UPPER(s) AS x FROM t",
         ["fn.pad"] = "SELECT LPAD(s, 5, 'x') AS x FROM t",
+        ["syntax.recursive_cte"] = "WITH RECURSIVE c AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT n FROM c",
+        ["fn.split_part"] = "SELECT SPLIT_PART(s, ',', 2) AS x FROM t",
         ["fn.contains"] = "SELECT * FROM t WHERE CONTAINS(s, 'a')",
         ["fn.mode"] = "SELECT MODE(a) AS x FROM t",
         ["fn.corr"] = "SELECT CORR(a, b) AS x FROM t",
@@ -112,7 +114,6 @@ public class MatrixLinterTests
     [Theory]
     [InlineData("SELECT GREATEST(a, b) AS x FROM t", "function `GREATEST`")]
     [InlineData("SELECT CAST(a AS UUID) AS x FROM t", "data type `uuid`")]
-    [InlineData("WITH RECURSIVE c AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT n FROM c", "recursive CTE")]
     [InlineData("SELECT * FROM t SEMI JOIN u ON t.a = u.a", "join kind `Semi`")]
     public void Constructs_the_matrix_does_not_cover_are_reported_not_assumed_safe(string sql, string what)
     {
