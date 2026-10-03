@@ -22,6 +22,33 @@ public class TargetRulesTests
     }
 
     [Fact]
+    public void A_cast_of_a_double_to_an_integer_rounds_half_to_even_on_SQL_Server_only()
+    {
+        const string sql = "SELECT CAST(CAST(x AS DOUBLE) AS BIGINT) AS n FROM t";
+        var r = TargetRules.Apply(sql, "sqlserver");
+        Assert.Equal([TargetRules.DoubleToInt], r.Rules);
+        var text = Transpiled(sql, "sqlserver");
+        Assert.Contains("CASE WHEN ABS(x - FLOOR(x)) = 0.5 THEN 2 * ROUND(x * 0.5, 0) ELSE ROUND(x, 0) END", text);
+        Assert.StartsWith("SELECT CAST(CASE", text);
+        Assert.EndsWith("AS BIGINT) AS n FROM t", text);
+        Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);                 // PostgreSQL's own cast already rounds half to even
+        Assert.Equal(sql, TargetRules.Apply(sql, "postgres").Sql);
+        Assert.Empty(TargetRules.Apply("SELECT CAST(CAST(x AS INTEGER) AS BIGINT) AS n FROM t", "sqlserver").Rules);   // only a cast from a DOUBLE
+    }
+
+    [Fact]
+    public void Weekday_numbers_are_counted_from_a_known_day_on_SQL_Server_so_DATEFIRST_does_not_matter()
+    {
+        var dow = TargetRules.Apply("SELECT date_part('dow', d) AS w FROM t", "sqlserver");
+        Assert.Equal([TargetRules.WeekdayIndependentOfDateFirst], dow.Rules);
+        Assert.Contains("DATEDIFF", Transpiled("SELECT date_part('dow', d) AS w FROM t", "sqlserver"));
+        Assert.Contains("1900-01-07", dow.Sql);                      // a Sunday
+        Assert.Contains("1900-01-01", TargetRules.Apply("SELECT date_part('isodow', d) AS w FROM t", "sqlserver").Sql);     // a Monday
+        Assert.Empty(TargetRules.Apply("SELECT date_part('dow', d) AS w FROM t", "postgres").Rules);
+        Assert.Empty(TargetRules.Apply("SELECT date_part('year', d) AS w FROM t", "sqlserver").Rules);
+    }
+
+    [Fact]
     public void Length_counts_trailing_spaces_on_SQL_Server_only()
     {
         var r = TargetRules.Apply("SELECT length(s) AS n FROM t", "sqlserver");

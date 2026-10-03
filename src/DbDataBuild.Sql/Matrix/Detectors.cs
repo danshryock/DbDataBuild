@@ -34,7 +34,15 @@ public static class Detectors
         ["distinct_on"] = n => Select(n) && NonNull(n, "distinct_on"),
         ["lateral_subquery"] = n => n.Type == "subquery" && n.TryGet("lateral", out var l) && l.ValueKind == JsonValueKind.True,
         ["sample"] = n => Select(n) && NonNull(n, "sample"),
+        // date_part('week' | 'epoch' | ...): the parts the engines do not agree on (dow and isodow are rewritten by a target rule)
+        ["date_part_calendar"] = n => n.Type == "function" && string.Equals(n.GetString("name"), "DATE_PART", StringComparison.OrdinalIgnoreCase) &&
+            n.TryGet("args", out var args) && args.ValueKind == JsonValueKind.Array && args.GetArrayLength() > 0 && LiteralValue(args[0]) is "week" or "weekofyear" or "epoch" or "yearweek",
+        // substr(s, -2): DuckDB counts from the end
+        ["substring_negative_start"] = n => n.Type == "substring" && n.TryGet("start", out var start) && (start.ToString().Contains("\"neg\"", StringComparison.Ordinal) || LiteralValue(start)?.StartsWith('-') == true),
     };
+
+    private static string? LiteralValue(JsonElement e) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty("literal", out var l) && l.ValueKind == JsonValueKind.Object && l.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()?.ToLowerInvariant() : null;
 
     /// <summary>For clause-level detectors: the select field whose position best locates the construct.</summary>
     public static readonly IReadOnlyDictionary<string, string> LocationField = new Dictionary<string, string>

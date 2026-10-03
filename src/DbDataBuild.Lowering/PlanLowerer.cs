@@ -112,7 +112,13 @@ public sealed class PlanLowerer
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
         var lowerer = new PlanLowerer { grainOf = grainOf };
         lowerer.Reserve(plans);
-        var rel = lowerer.Node(plans[0]);
+        Rel rel;
+        try { rel = lowerer.Node(plans[0]); }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or ArgumentException or FormatException or IndexOutOfRangeException or InvalidCastException)
+        {
+            // a plan shape the lowerer did not expect is a query it cannot lower: refused with the reason's type (never the text of the data), not a crash
+            throw new LoweringException($"a plan shape the lowerer does not handle ({ex.GetType().Name}); this is a tool limitation, please report it");
+        }
         if (outputNames != null && rel.SetOp == null)
         {
             // DuckDB appends hidden columns (a DISTINCT ON key, an ORDER BY key) after the visible ones and drops them from the result: the first N are the query's columns
@@ -152,7 +158,9 @@ public sealed class PlanLowerer
     {
         if (v.TryGetProperty("is_null", out var isNull) && isNull.ValueKind == JsonValueKind.True) return "NULL";
         var type = v.GetProperty("type").GetProperty("id").GetString()!;
-        var x = v.GetProperty("value");
+        // the plan is serialized with skip_empty, which drops the value of an empty string: '' is a VARCHAR constant with no `value`
+        if (!v.TryGetProperty("value", out var x))
+            return type == "VARCHAR" ? "''" : throw new LoweringException($"a literal of type {type} without a value");
         switch (type)
         {
             case "DECIMAL":
@@ -250,6 +258,18 @@ public sealed class PlanLowerer
             inner = $"CAST({inner} AS VARCHAR)";
             rules.Add("try-cast-parse");
         }
+        // RULE decimal-to-int: DuckDB rounds a DECIMAL to the nearest integer, half away from zero (2.5 is 3); SQL Server truncates (2). round() is the same on all three.
+        if (fn == "CAST" && TypeId(child) == "DECIMAL" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
+        {
+            inner = $"round({inner}, 0)";
+            rules.Add("decimal-to-int");
+        }
+        // RULE double-to-int: DuckDB rounds a DOUBLE to the nearest integer, half to even (2.5 is 2, 3.5 is 4); SQL Server truncates, PostgreSQL does the same as DuckDB. The explicit DOUBLE cast marks it for the target step.
+        else if (fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
+        {
+            inner = $"CAST({inner} AS DOUBLE)";
+            rules.Add("double-to-int");
+        }
         return $"{fn}({inner} AS {TypeName(e.GetProperty("return_type"))})";
     }
 
@@ -269,12 +289,28 @@ public sealed class PlanLowerer
         if (name is "list_value" or "struct_pack" or "map") throw new LoweringException($"the nested-type function {name}");
         var a = children.Select(c => Expr(c, outs)).ToList();
         var returns = TypeId(e);
+        // position(needle IN haystack) is `position(haystack, needle)` in the plan, which reads the other way round as written; strpos(haystack, needle) says what it means
+        if (name == "position" && a.Count == 2) name = "strpos";
+        // SQL Server's SUBSTRING needs a length; DuckDB's two-argument form runs to the end of the string
+        if (name is "substr" or "substring" && a.Count == 2) a.Add("2147483647");
+        // the date parts that are functions in DuckDB are not on every engine; date_part is on all of them
+        if (name is "year" or "month" or "day" or "hour" or "minute" or "second" or "quarter" && a.Count == 1) return $"date_part('{name}', {a[0]})";
+        if (name is "dayofweek" or "isodow" or "dayofyear" && a.Count == 1) return $"date_part('{(name == "dayofweek" ? "dow" : name == "dayofyear" ? "doy" : name)}', {a[0]})";
+        // RULE int-div: `//` on integers truncates toward zero. polyglot cannot read it, and the engines' own integer division is spelled `/`, which in DuckDB's dialect is float division
+        if (name == "//" && a.Count == 2)
+            return returns is "INTEGER" or "SMALLINT" or "TINYINT" ? $"CAST(trunc(CAST({a[0]} AS DOUBLE) / CAST(NULLIF({a[1]}, 0) AS DOUBLE)) AS {returns})" : throw new LoweringException($"integer division `//` over {returns}");
+        // the days between two dates is `a - b` in DuckDB; SQL Server has no subtraction of dates
+        if (name == "-" && a.Count == 2 && TypeId(children[0]) == "DATE" && TypeId(children[1]) == "DATE") return $"date_diff('day', {a[1]}, {a[0]})";
+        // DuckDB gives NULL for x % 0 where both engines raise an error
+        if (name == "%" && a.Count == 2 && !(children[1].GetProperty("type").GetString() == "VALUE_CONSTANT" && !IsZeroConstant(children[1].GetProperty("value")))) a[1] = $"NULLIF({a[1]}, 0)";
         // RULE round-double: DuckDB rounds the scaled double half away from zero; the engines do something else. The explicit DOUBLE cast marks it for the target step.
         if (name == "round" && a.Count is 1 or 2 && TypeId(children[0]) == "DOUBLE" && (a.Count == 1 || children[1].GetProperty("type").GetString() == "VALUE_CONSTANT"))
         {
             a[0] = $"CAST({a[0]} AS DOUBLE)";
             rules.Add("round-double");
         }
+        // round(x) is round(x, 0); SQL Server has no one-argument form
+        if (name == "round" && a.Count == 1 && TypeId(children[0]) != "DOUBLE") a.Add("0");
         var anyDate = children.Any(c => TypeId(c) == "DATE");
         string text;
         if (LikeFunctions.TryGetValue(name, out var like) && a.Count == 2) return $"({a[0]} {like} {a[1]})";
@@ -289,6 +325,9 @@ public sealed class PlanLowerer
         }
         return text;
     }
+
+    private static bool IsZeroConstant(JsonElement value) =>
+        value.TryGetProperty("is_null", out var n) && n.ValueKind == JsonValueKind.True || !value.TryGetProperty("value", out var x) || x.ValueKind == JsonValueKind.Number && x.GetRawText().Trim('0', '.', '-') == "";
 
     private static string? SumWidening(string? type) => type switch { "TINYINT" or "SMALLINT" or "INTEGER" => "BIGINT", "BIGINT" => "DECIMAL(38, 0)", _ => null };
 
@@ -310,7 +349,21 @@ public sealed class PlanLowerer
             rules.Add("sum-widen");
         }
         var shown = AggregateNames.GetValueOrDefault(name, name);
-        var body = name == "count_star" ? "*" : (Str(e, "aggregate_type") == "DISTINCT" ? "DISTINCT " : "") + string.Join(", ", a);
+        // what the plan keeps outside the arguments: `string_agg`'s separator and any `ORDER BY` inside an aggregate. Anything else (the fraction of a quantile, the ordering of `first`) is not read here,
+        // and a query that silently lost it would be a different query.
+        var data = e.TryGetProperty("function_data", out var fd) && fd.ValueKind == JsonValueKind.Object && fd.EnumerateObject().Any() ? fd : (JsonElement?)null;
+        var orders = e.TryGetProperty("order_bys", out var ob) && ob.TryGetProperty("orders", out var ord) && ord.GetArrayLength() > 0 ? ord.EnumerateArray().ToList() : null;
+        string? suffix = null;
+        if (name == "string_agg")
+        {
+            if (data is { } d && d.EnumerateObject().Any(x => x.Name != "separator")) throw new LoweringException("string_agg with options the lowerer does not read");
+            var separator = data is { } sd && sd.TryGetProperty("separator", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString()! : ",";
+            a.Add("'" + separator.Replace("'", "''") + "'");
+            if (orders != null) suffix = " ORDER BY " + string.Join(", ", orders.Select(o => OrderItem(o, outs)));
+        }
+        else if (data != null || orders != null)
+            throw new LoweringException($"the aggregate {name} with {(orders != null ? "an ORDER BY inside it" : "arguments the plan keeps outside its parameters (for example the fraction of a quantile)")}");
+        var body = name == "count_star" ? "*" : (Str(e, "aggregate_type") == "DISTINCT" ? "DISTINCT " : "") + string.Join(", ", a) + suffix;
         var s = $"{shown}({body})";
         return e.TryGetProperty("filter", out var f) ? $"{s} FILTER (WHERE {Expr(f, outs)})" : s;
     }

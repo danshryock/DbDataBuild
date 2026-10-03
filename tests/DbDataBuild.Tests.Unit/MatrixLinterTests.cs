@@ -42,6 +42,14 @@ public class MatrixLinterTests
         ["syntax.join.natural"] = "SELECT * FROM t NATURAL JOIN u",
         ["syntax.distinct_on"] = "SELECT DISTINCT ON (a) a, b FROM t",
         ["syntax.sample"] = "SELECT * FROM t USING SAMPLE 50%",
+        ["str.case_mapping"] = "SELECT UPPER(s) AS x FROM t",
+        ["fn.pad"] = "SELECT LPAD(s, 5, 'x') AS x FROM t",
+        ["fn.contains"] = "SELECT * FROM t WHERE CONTAINS(s, 'a')",
+        ["fn.mode"] = "SELECT MODE(a) AS x FROM t",
+        ["fn.corr"] = "SELECT CORR(a, b) AS x FROM t",
+        ["fn.string_agg"] = "SELECT STRING_AGG(s, ',' ORDER BY a) AS x FROM t",
+        ["fn.date_part_calendar"] = "SELECT DATE_PART('week', d) AS x FROM t",
+        ["fn.substring_negative"] = "SELECT SUBSTR(s, -2) AS x FROM t",
         ["syntax.lateral"] = "SELECT * FROM t, LATERAL (SELECT u.b FROM u WHERE u.a = t.a) AS l",
     };
 

@@ -413,6 +413,56 @@ public class PlanLowererTests
         Assert.Contains("used as a value", ex.Message);
     }
 
+    // what the engine probes found (tests/DbDataBuild.Tests.Conformance/EngineDifferenceProbes.cs): each lowered query returns DuckDB's rows on DuckDB itself, which is the first half of the claim that
+    // the engines agree; the second half is the probes. t has NULLs, zeros, blanks and an emoji.
+    public static TheoryData<string, string> Probed => new()
+    {
+        { "SELECT id FROM t WHERE s <> ''", "" },
+        { "SELECT id, coalesce(s, '') AS v FROM t", "" },
+        { "SELECT id, nullif(s, '') AS v FROM t", "" },
+        { "SELECT id, replace(s, '', 'x') AS v FROM t", "" },
+        { "SELECT id FROM t WHERE s IN ('', 'abc')", "" },
+        { "SELECT id, position('b' IN s) AS v FROM t", "strpos(s, 'b')" },
+        { "SELECT id, round(CAST(a AS DECIMAL(10, 2)) / 4) AS v FROM t", "round(" },
+        { "SELECT id, round(a * 0.5) AS v FROM t", "round(" },
+        { "SELECT id, year(d) AS y, month(d) AS m, day(d) AS dd, quarter(d) AS q, hour(ts) AS h, minute(ts) AS mi, second(ts) AS s2 FROM t", "date_part('year', d)" },
+        { "SELECT id, dayofweek(d) AS w, dayofyear(d) AS y, isodow(d) AS i FROM t", "date_part('dow', d)" },
+        { "SELECT id, a % b AS v FROM t", "NULLIF(b, 0)" },
+        { "SELECT id, a % 3 AS v FROM t", "(a % 3)" },
+        { "SELECT id, a // b AS v FROM t", "trunc(" },
+        { "SELECT id, CAST(a * 0.5 AS INTEGER) AS v FROM t", "decimal-to-int" },
+        { "SELECT id, CAST(CAST(a AS DECIMAL(10, 2)) AS SMALLINT) AS v FROM t", "round(" },
+        { "SELECT id, CAST(a / 2 AS INTEGER) AS v FROM t", "double-to-int" },
+        { "SELECT id, CAST(CAST(a AS DOUBLE) / 4 AS BIGINT) AS v FROM t", "double-to-int" },
+        { "SELECT string_agg(s, ' | ' ORDER BY id DESC) AS v FROM t", "string_agg(s, ' | ' ORDER BY id DESC NULLS LAST)" },
+        { "SELECT string_agg(s, '-') FILTER (WHERE id > 2) AS v FROM t", "FILTER (WHERE" },
+        { "SELECT a, string_agg(s, ',') AS v FROM t GROUP BY a", "string_agg(s, ',')" },
+        { "SELECT id, d1 - d2 AS v FROM t", "date_diff('day', d2, d1)" },
+        { "SELECT id, substr(s, 2) AS v FROM t", "substr(s, 2, 2147483647)" },
+    };
+
+    [Theory, MemberData(nameof(Probed))]
+    public void Constructs_the_engine_probes_found_wrong_lower_to_queries_with_DuckDBs_own_rows(string source, string expectedInLowered)
+    {
+        using var c = Open();
+        var q = PlanLowerer.Lower(PlanOf(c, source), NamesOf(c, source));
+        Assert.Equal(Rows(c, source, false), Rows(c, q.Sql, false));
+        Assert.True(expectedInLowered == "" || q.Sql.Contains(expectedInLowered) || q.Rules.Contains(expectedInLowered), $"{expectedInLowered} is not in\n{q.Sql}\nrules: {string.Join(", ", q.Rules)}");
+    }
+
+    [Theory]
+    [InlineData("SELECT median(a) AS v FROM t", "median")]
+    [InlineData("SELECT quantile_cont(a, 0.9) AS v FROM t", "quantile")]
+    [InlineData("SELECT first(a ORDER BY id DESC) AS v FROM t", "ORDER BY inside")]
+    [InlineData("SELECT list(a ORDER BY id) AS v FROM t", "")]
+    [InlineData("SELECT x // 2 AS v FROM (SELECT CAST(a AS BIGINT) AS x FROM t) q", "BIGINT")]
+    public void An_aggregate_with_data_the_lowerer_does_not_read_and_an_unsupported_integer_division_are_refused(string source, string fragment)
+    {
+        using var c = Open();
+        var ex = Assert.Throws<LoweringException>(() => Lower(c, source));
+        Assert.Contains(fragment, ex.Message);
+    }
+
     [Fact]
     public void A_generated_alias_never_takes_the_name_of_a_table_of_the_query()
     {

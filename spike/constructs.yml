@@ -97,3 +97,11 @@
 - { id: round_decimal,       sql: "SELECT ROUND(CAST(a AS DECIMAL(10, 2)), 1) AS x FROM t",             expect: translate }
 - { id: floor_ceil,          sql: "SELECT FLOOR(CAST(a AS DOUBLE)) AS f, CEIL(CAST(a AS DOUBLE)) AS c FROM t", expect: translate }
 - { id: right_join,          sql: "SELECT t.a, u.b FROM t RIGHT JOIN u ON t.a = u.a",                   expect: translate }
+- { id: case_mapping,        sql: "SELECT UPPER(s) AS x FROM t",                                     expect: differs }
+- { id: pad_fn,              sql: "SELECT LPAD(s, 5, '*') AS x FROM t",                              expect: unsupported }
+- { id: contains_fn,         sql: "SELECT * FROM t WHERE CONTAINS(s, 'a')",                          expect: unsupported }
+- { id: mode_fn,             sql: "SELECT MODE(a) AS x FROM t",                                      expect: unsupported }
+- { id: corr_fn,             sql: "SELECT CORR(a, b) AS x FROM t",                                   expect: unsupported }
+- { id: string_agg_fn,       sql: "SELECT STRING_AGG(s, ',' ORDER BY a) AS x FROM t",                expect: translate }
+- { id: date_part_week,      sql: "SELECT DATE_PART('week', d) AS x FROM t",                         expect: differs }
+- { id: substr_negative,     sql: "SELECT SUBSTR(s, -2) AS x FROM t",                                expect: differs }

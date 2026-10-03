@@ -74,7 +74,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
     private static bool Matches(DetectRule rule, AstNode node) => rule.Kind switch
     {
         DetectKind.Node => node.Type == rule.Name,
-        DetectKind.Function => node.Type == "function" && string.Equals(node.GetString("name"), rule.Name, StringComparison.OrdinalIgnoreCase),
+        DetectKind.Function => node.Type is "function" or "aggregate_function" && string.Equals(node.GetString("name"), rule.Name, StringComparison.OrdinalIgnoreCase),
         DetectKind.Detector => Detectors.All[rule.Name](node),
         _ => false,
     };

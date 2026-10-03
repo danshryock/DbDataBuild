@@ -18,6 +18,8 @@ public static class TargetRules
     public const string LengthKeepsTrailingSpaces = "length-trailing-spaces";
     public const string RoundDouble = "round-double";
     public const string TryCastParse = "try-cast-parse";
+    public const string DoubleToInt = "double-to-int";
+    public const string WeekdayIndependentOfDateFirst = "weekday-datefirst";
 
     /// <summary>Applies the rules of <paramref name="target"/> to a DuckDB-dialect query. Returns the text unchanged, byte for byte, when no rule fires.</summary>
     public static Result Apply(string sql, string target)
@@ -44,7 +46,7 @@ public static class TargetRules
 
     private static HashSet<string> RulesFor(string target) => target switch
     {
-        "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse],
+        "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst],
         "postgres" => [RoundDouble, TryCastParse],
         _ => [],
     };
@@ -78,14 +80,43 @@ public static class TargetRules
                 // LEN ignores trailing spaces; appending a character and taking one off counts them. NULL stays NULL.
                 fired.Add(LengthKeepsTrailingSpaces);
                 return Template("length(__x || 'x') - 1", ("__x", x));
+            case "function" when rules.Contains(WeekdayIndependentOfDateFirst) && IsWeekdayPart(body, out var isoWeekday, out var day):
+                // DATEPART(weekday) counts from whatever @@DATEFIRST says; DuckDB's dow is Sunday = 0 and isodow Monday = 1, whatever the session. Counting days from a known Sunday (1900-01-07) or Monday does not depend on it.
+                fired.Add(WeekdayIndependentOfDateFirst);
+                return Template(isoWeekday ? "((date_diff('day', DATE '1900-01-01', CAST(__x AS DATE)) % 7) + 7) % 7 + 1" : "((date_diff('day', DATE '1900-01-07', CAST(__x AS DATE)) % 7) + 7) % 7", ("__x", day));
             case "function" when rules.Contains(RoundDouble) && IsRoundOfDouble(body, out var arg, out var digits):
                 fired.Add(RoundDouble);
                 return RoundTemplate(arg, digits);
+            case "cast" when rules.Contains(DoubleToInt) && IsDoubleToInt(body, out var number):
+                // SQL Server's cast to an integer truncates; DuckDB rounds to the nearest, a half to the even neighbour. Scaling by a half, rounding half away from zero and doubling does that.
+                fired.Add(DoubleToInt);
+                body["this"] = Template("CASE WHEN abs(__x - floor(__x)) = 0.5 THEN 2 * round(__x * 0.5, 0) ELSE round(__x, 0) END", ("__x", number));
+                return o;
             case "try_cast" when rules.Contains(TryCastParse) && TryCastTemplate(body, target) is { } replaced:
                 fired.Add(TryCastParse);
                 return replaced;
         }
         return null;
+    }
+
+    private static bool IsWeekdayPart(JsonObject f, out bool iso, out JsonNode day)
+    {
+        iso = false; day = null!;
+        if (!string.Equals(f["name"]?.GetValue<string>(), "date_part", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 2 } args) return false;
+        var part = args[0]?["literal"]?["value"]?.GetValue<string>()?.ToLowerInvariant();
+        if (part is not ("dow" or "dayofweek" or "isodow") || args[1] is not { } x) return false;
+        iso = part == "isodow";
+        day = x;
+        return true;
+    }
+
+    private static bool IsDoubleToInt(JsonObject cast, out JsonNode x)
+    {
+        x = null!;
+        if (cast["to"]?["data_type"]?.GetValue<string>() is not ("tiny_int" or "small_int" or "int" or "big_int")) return false;
+        if (cast["this"] is not JsonObject { Count: 1 } mark || mark["cast"] is not JsonObject inner || inner["to"]?["data_type"]?.GetValue<string>() != "double" || inner["this"] is not { } value) return false;
+        x = value;
+        return true;
     }
 
     // ---- round(double, n) -----------------------------------------------------------------------------------------------------------------------------------

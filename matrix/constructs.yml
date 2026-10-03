@@ -23,7 +23,7 @@
 - id: fn.length
   detect: node:length
   duckdb: native
-  sqlserver: { status: approximated, test: spike/length_fn, note: "LEN() ignores trailing spaces; DuckDB length() counts them (str.len). A query that went through lowering is rewritten by the target rule length-trailing-spaces (LEN(s + 'x') - 1) and no longer reports this; a query that is not lowered still does." }
+  sqlserver: { status: approximated, test: spike/length_fn, note: "LEN() ignores trailing spaces; DuckDB length() counts them (str.len). A query that went through lowering is rewritten by the target rule length-trailing-spaces (LEN(s + 'x') - 1) and no longer reports this; a query that is not lowered still does. LEN counts UTF-16 code units: a character outside the Basic Multilingual Plane (an emoji) counts as 2, DuckDB counts 1." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres: { status: native }
 
@@ -158,7 +158,7 @@
   duckdb: native
   sqlserver: { status: translated, test: spike/date_diff, note: "DATEDIFF counts boundaries, as DuckDB does." }
   fabric:    { status: unverified, note: "Same text as SQL Server; Fabric not checked." }
-  postgres:  { status: approximated, test: spike/date_diff, note: "Rewritten through epoch / 86400, which truncates and differs from boundary counting at day edges." }
+  postgres:  { status: approximated, test: spike/date_diff, note: "day is exact; month and year are rewritten with AGE(), which counts whole elapsed months and years, not month or year boundaries crossed as DuckDB does (2024-01-31 to 2024-03-01 is 2 months in DuckDB, 1 on PostgreSQL)." }
 
 - id: syntax.order_nulls
   detect: detector:order_nulls
@@ -201,3 +201,59 @@
   sqlserver: { status: translated, test: spike/lateral_join, note: "Rewritten to CROSS APPLY." }
   fabric:    { status: unverified, note: "Same text as SQL Server; Fabric support for APPLY not checked." }
   postgres:  { status: native }
+
+- id: str.case_mapping
+  detect: [node:upper, node:lower]
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/case_mapping, note: "UPPER and LOWER use the engine's Unicode tables: DuckDB maps 'ß' to 'ẞ', SQL Server leaves it. ASCII and the usual accents agree." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: approximated, test: spike/case_mapping, note: "Under the C collation (the usual profile for PostgreSQL) upper() and lower() change ASCII letters only: 'é' stays 'é'. Under a UTF-8 locale collation they agree with DuckDB." }
+
+- id: fn.pad
+  detect: [fn:LPAD, fn:RPAD]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/pad_fn, note: "SQL Server has no LPAD or RPAD before 2025. RIGHT(REPLICATE(p, n) + s, n) does it for strings known to be shorter than n; DuckDB cuts a longer string to n characters." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+
+- id: fn.contains
+  detect: [node:contains, fn:CONTAINS]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/contains_fn, note: "CONTAINS is a full-text predicate on SQL Server, not a function. Write strpos(s, x) > 0 (CHARINDEX) or LIKE." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/contains_fn, note: "There is no contains(text, text) function. Write strpos(s, x) > 0." }
+
+- id: fn.mode
+  detect: [node:mode, fn:MODE]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/mode_fn, note: "No MODE aggregate. Group and count, then take the top row." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/mode_fn, note: "mode() is an ordered-set aggregate there (mode() WITHIN GROUP (ORDER BY x)), which polyglot does not produce." }
+
+- id: fn.corr
+  detect: [fn:CORR]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/corr_fn, note: "No CORR aggregate." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+
+- id: fn.string_agg
+  detect: [node:string_agg]
+  duckdb: native
+  sqlserver: { status: translated, test: spike/string_agg_fn, note: "STRING_AGG(x, sep) WITHIN GROUP (ORDER BY ...). The separator and the ORDER BY are kept by lowering. NULL values are skipped, as in DuckDB." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/string_agg_fn, note: "polyglot writes LISTAGG for PostgreSQL, which has no such function (string_agg is the PostgreSQL name). Until that is fixed upstream, write array_to_string(array_agg(x ORDER BY ...), sep)." }
+
+- id: fn.date_part_calendar
+  detect: [detector:date_part_calendar]
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/date_part_week, note: "date_part('week') becomes DATEPART(WEEK), which numbers weeks from the first Sunday or the DATEFIRST setting, not ISO weeks as DuckDB does; 'epoch' has no equivalent. (dow and isodow are rewritten by the target rule weekday-datefirst and agree.)" }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/date_part_week, note: "'epoch' is EXTRACT(epoch FROM x) on PostgreSQL, which polyglot does not produce for date_part; week and the other parts agree." }
+
+- id: fn.substring_negative
+  detect: [detector:substring_negative_start]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/substr_negative, note: "A negative start counts from the end of the string in DuckDB; SUBSTRING does not do that (and the two-argument form needs a length, which lowering adds). Use right(s, n) or substr(s, length(s) - n + 1)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: approximated, test: spike/substr_negative, note: "A negative start does not count from the end: SUBSTRING(s FROM -2) is the whole string." }
