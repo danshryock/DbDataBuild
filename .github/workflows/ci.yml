@@ -17,6 +17,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25                 # the unit suite takes about a minute; a hang should fail, not run for hours
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -33,6 +34,7 @@ jobs:
   conformance:
     # SQL Server 2022 and PostgreSQL 17 in docker, as in CLAUDE.md. Linux only.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

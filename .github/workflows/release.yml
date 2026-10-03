@@ -15,6 +15,7 @@ jobs:
           - { os: ubuntu-latest,  rid: linux-x64, ext: tar.gz }
           - { os: windows-latest, rid: win-x64,   ext: zip }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

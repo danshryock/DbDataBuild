@@ -216,8 +216,8 @@ public class GraphTests
     {
         var psi = new ProcessStartInfo("git", args) { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         using var p = Process.Start(psi)!;
-        p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
-        p.WaitForExit();
+        var o = p.StandardOutput.ReadToEndAsync(); var e = p.StandardError.ReadToEndAsync();       // both at once: git's warnings must not fill a pipe nobody is reading
+        if (!p.WaitForExit(60_000)) { p.Kill(entireProcessTree: true); return false; }
         return p.ExitCode == 0;
     }
 

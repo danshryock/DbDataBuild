@@ -36,10 +36,11 @@ internal static class GitInfo
                 var psi = new ProcessStartInfo("git", args) { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
                 using var p = Process.Start(psi);
                 if (p == null) return (null, "git could not be started");
-                var o = p.StandardOutput.ReadToEnd();
-                var e = p.StandardError.ReadToEnd();
-                p.WaitForExit();
-                return (p.ExitCode == 0 ? o : null, e.Split('\n')[0].Trim());
+                // both streams are read at once: git can write enough to stderr (line-ending warnings, on Windows) to block while standard output is being read
+                var o = p.StandardOutput.ReadToEndAsync();
+                var e = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(60_000)) { try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } return (null, "git did not finish within a minute"); }
+                return (p.ExitCode == 0 ? o.GetAwaiter().GetResult() : null, e.GetAwaiter().GetResult().Split('\n')[0].Trim());
             }
             catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return (null, "git is not available"); }
         }
@@ -63,10 +64,10 @@ internal static class GitInfo
                 var psi = new ProcessStartInfo("git", args) { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
                 using var p = Process.Start(psi);
                 if (p == null) return null;
-                var o = p.StandardOutput.ReadToEnd();
-                p.StandardError.ReadToEnd();
-                p.WaitForExit();
-                return p.ExitCode == 0 ? o.Trim() : null;
+                var o = p.StandardOutput.ReadToEndAsync();
+                p.StandardError.ReadToEndAsync();                                  // read at once: a full error pipe would block git while standard output is awaited
+                if (!p.WaitForExit(60_000)) { try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } return null; }
+                return p.ExitCode == 0 ? o.GetAwaiter().GetResult().Trim() : null;
             }
             catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return null; }
         }
