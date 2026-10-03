@@ -540,6 +540,25 @@
       "if": {
         "properties": {
           "command": {
+            "const": "load-seeds"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_load_seeds"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
             "const": "new"
           }
         },
@@ -3090,6 +3109,53 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "data_load_seeds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "replace": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "integer"
+              },
+              "statements": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "rows",
+              "statements"
+            ]
           }
         }
       }

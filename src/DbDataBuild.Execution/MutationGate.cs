@@ -181,7 +181,7 @@ public sealed class MutationGate : IAsyncDisposable
         try
         {
             log.Append(new StatementLogEntry(RunId, n, DateTime.UtcNow, command, phase, s.StepId, s.Kind.ToString(), s.Hash, includeText ? s.Text : null,
-                includeText ? s.Parameters.Select(p => (p.Name, Convert.ToString(p.Value, CultureInfo.InvariantCulture) ?? "NULL")).ToList() : null, outcome));
+                includeText ? (s.BulkValues ? [("(bulk values)", $"{s.Parameters.Count.ToString(CultureInfo.InvariantCulture)} values, not logged")] : s.Parameters.Select(p => (p.Name, Convert.ToString(p.Value, CultureInfo.InvariantCulture) ?? "NULL")).ToList()) : null, outcome));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

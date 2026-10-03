@@ -22,10 +22,16 @@ public sealed class GateStatement
     public IReadOnlyList<GateParameter> Parameters { get; }
     public string Hash { get; }
 
-    private GateStatement(string stepId, StatementKind kind, string text, IReadOnlyList<GateParameter> parameters)
+    /// <summary>The parameters are rows of a bulk load: the log records how many values were sent, not the values (a load of thousands of rows would make the log as large as the data, and it is reproducible from its source).</summary>
+    public bool BulkValues { get; }
+
+    private GateStatement(string stepId, StatementKind kind, string text, IReadOnlyList<GateParameter> parameters, bool bulkValues = false)
     {
-        StepId = stepId; Kind = kind; Text = text; Parameters = parameters; Hash = Hashing.ScriptHash(text);
+        StepId = stepId; Kind = kind; Text = text; Parameters = parameters; Hash = Hashing.ScriptHash(text); BulkValues = bulkValues;
     }
+
+    /// <summary>A batch of rows of a bulk load: an INSERT with a parameter per value. A data statement; its values are not written to the statement log.</summary>
+    public static GateStatement BulkInsert(string stepId, string text, IReadOnlyList<GateParameter> parameters) => new(stepId, StatementKind.Data, text, parameters, bulkValues: true);
 
     /// <summary>A step of a plan. Plan steps are data loads or DDL; tracking writes never come from a plan.</summary>
     public static GateStatement FromPlanStep(string stepId, StatementKind kind, string text, IReadOnlyList<GateParameter>? parameters = null)

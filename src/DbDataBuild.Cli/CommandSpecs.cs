@@ -43,6 +43,7 @@ public static class CommandSpecs
         new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
         new("new", EffectClass.RepoFilesOnly, "List the project templates built in, or create a ready-to-run project from one", true),
         new("seed", EffectClass.RepoFilesOnly, "Run the seeds (DuckDB queries that generate the source data) into a DuckDB file", true),
+        new("load-seeds", EffectClass.TargetWrites, "Create the seeded source tables on a target and fill them from the seeds (prints what it would do unless --apply)", true),
         new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
         new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),

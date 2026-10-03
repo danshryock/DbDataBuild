@@ -422,5 +422,12 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Built** (DESIGN.md 15.6, 15.7): `seeds/<schema>/<table>.sql` per source (DuckDB, variables `seed` and `scale`, macros in `seeds/macros.sql`), `SeedLoader`/`SeedRun` (dependency order by table-name mention, cycles refused), `seed` command (`.dbdatabuild/seed.duckdb`), `sample` uses seeds and takes `--scale`. `templates/` embedded as resources; `new` lists and copies them. Templates `starter` and `retail`.
 - **Lowering and matrix**: `SIGN`, `TRUNC` and `str_position` are now covered (spike cases `sign_fn`, `trunc_fn`, `strpos_fn`), which changed the matrix hash: goldens regenerated. Templates avoid constructs with no target form: whole-number sums are cast back to BIGINT (DuckDB widens them to HUGEINT), `//` is written as floor of a DOUBLE division.
 - **Verified**: 1,311 unit tests pass, including one that takes each template through `new`, `validate` (0 warnings), `seed`, `sample` of every mart, `test` (retail 10/10) and `render` for SQL Server. Not verified: the templates on a real SQL Server or PostgreSQL (that needs the loading step, next), Fabric never.
-- **Left**: loading a seed (a source query) into SQL Server and PostgreSQL; Chinook and AdventureWorks templates.
+- **Left**: Chinook and AdventureWorks templates (backlog).
+
+## 45. `load-seeds`, templates on real engines, and three lowering bugs they found
+
+- **Built** (DESIGN.md 15.7): `load-seeds` creates the seeded source tables on SQL Server or PostgreSQL and fills them (`SeededData` in Sample reads batches from an in-memory DuckDB; `LoadSeedsCommand` builds the statements; `GateStatement.BulkInsert` keeps the values out of the statement log). Preview by default, `--apply` runs, `--replace` drops first, otherwise it stops at an existing table.
+- **Verified on SQL Server 2022 and PostgreSQL 17**: `TemplateConformanceTests` runs both templates through `new`, `load-seeds --apply`, `render --write`, `init --apply`, `plan`, `apply`, then compares every mart row by row with DuckDB's result on the same seeds: 4 of 4 pass. 
+- **Bugs this found (all silent wrong results, all fixed with unit tests that compare the lowered text's rows with DuckDB)**: a three-way `UNION` lost its third query; a one-sided predicate of a join's `ON` clause (`AND b.f IS NOT NULL`) was dropped; `CAST(double AS DECIMAL)` rounds differently on both engines (rule `double-to-decimal`, probe README). Fabric has still never run.
+- **Left**: the unit tests for the lowering fixes use the small tables of `PlanLowererTests`; the retail template could get a seed with NULL-heavy data to exercise more join shapes.
 

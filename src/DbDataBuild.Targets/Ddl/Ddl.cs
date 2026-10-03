@@ -35,6 +35,12 @@ public abstract partial class DdlGenerator(string target, ProjectConfig config)
 
     public string Qualified(string schema, string name) => $"{Quote(schema)}.{Quote(name)}";
 
+    /// <summary>An identifier quoted for this engine (a column name in an INSERT list).</summary>
+    public string QuoteIdentifier(string identifier) => Quote(identifier);
+
+    /// <summary>Drops a table that may not exist (SQL Server 2016 and later, PostgreSQL, Fabric).</summary>
+    public string DropTableIfExists(string schema, string name) => $"DROP TABLE IF EXISTS {Qualified(schema, name)};";
+
     /// <summary>Splits `marts.fct_orders` into schema and name.</summary>
     public static (string Schema, string Name) Split(string model)
     {

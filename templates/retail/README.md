@@ -42,6 +42,22 @@ Try breaking one: change `ELSE order_discount_cents - ...` in `fct_sales_lines.s
 - `dbdatabuild graph +marts.rpt_budget_vs_actual` and `dbdatabuild plan` with a selector (`--select marts.fct_sales_lines+`) to see what a change touches.
 - Add a mart (revenue per product category per month) and a test for it.
 
+## Trying it on a sandbox database
+
+The source tables are what `seeds/` generates, and `load-seeds` can put them in an empty SQL Server (or PostgreSQL) database you do not mind filling. The logins are environment variables
+(`DBDATABUILD_SQLSERVER_WRITE` for what writes, `DBDATABUILD_SQLSERVER_READ` for what reads; see the main documentation):
+
+```
+dbdatabuild load-seeds                 # shows what it would create and fill; connects to nothing
+dbdatabuild load-seeds --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
+dbdatabuild init --apply               # the tracking tables
+dbdatabuild render --write             # the rendered files are checked in against the models
+dbdatabuild plan --accept-inferred     # reads the database, writes a plan you can read
+dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
+```
+
+Then compare: `dbdatabuild sample <model> --limit 5` shows what DuckDB computes for the same seeds, and the tables in the database hold the same rows.
+
 ## PostgreSQL
 
 The project is set for SQL Server (see the comment at the top of `dbdatabuild.yml` for PostgreSQL). Everything but `fct_shipment_packages` and the calendar renders for both.

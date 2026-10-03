@@ -125,6 +125,16 @@ public static class CliApp
                     cmd.Options.Add(loadsProject);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Loads(spec, pr.GetValue(loadsProject)!.FullName, o, e)));
                     break;
+                case "load-seeds":
+                    var lsProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var lsTarget = new Option<string?>("--target") { Description = "Target to load (default: the project's only default target)" };
+                    var lsSeed = new Option<int>("--seed") { Description = "The variable `seed` the seeds read: the same seed and scale give the same rows", DefaultValueFactory = _ => 1 };
+                    var lsScale = new Option<int?>("--scale") { Description = "The variable `scale` the seeds read, usually how many of the main entity (default: the project's own)" };
+                    var lsReplace = new Option<bool>("--replace") { Description = "Drop and recreate a source table that already exists (default: stop at the first table that exists)" };
+                    var lsApply = new Option<bool>("--apply") { Description = "Create and fill the tables on the write login (default: print what would happen and connect to nothing)" };
+                    cmd.Options.Add(lsProject); cmd.Options.Add(lsTarget); cmd.Options.Add(lsSeed); cmd.Options.Add(lsScale); cmd.Options.Add(lsReplace); cmd.Options.Add(lsApply);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => LoadSeedsCommand.Run(spec, pr.GetValue(lsProject)!.FullName, pr.GetValue(lsTarget), pr.GetValue(lsSeed), pr.GetValue(lsScale), pr.GetValue(lsReplace), pr.GetValue(lsApply), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "init":
                     var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var initTarget = new Option<string?>("--target") { Description = "Target to initialize (default: the project's only default target)" };

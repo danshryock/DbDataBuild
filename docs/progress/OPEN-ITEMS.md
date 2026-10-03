@@ -87,7 +87,6 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 ## K. Graph and diff (2026-10-03)
 
 - **Built**: selectors and `graph` (entry 42), `diff` version 1 (entry 43). **Not built**: `diff` across targets (SQL Server against PostgreSQL: range hashes and a canonical text form per type), a floating-point tolerance, comparing a table with a DuckDB run of its model; `changed:` ignores hook scripts and rendered files; `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan. A model-level `tags:` setting (and `tag:` selectors) is not there.
-- **Source-query loading into SQL Server and PostgreSQL** (entry 44): seeds run DuckDB to DuckDB; a destination write path (DDL from the source descriptors, batched inserts through `MutationGate`) is not built.
-- **Templates on a real engine**: `starter` and `retail` are verified offline and against DuckDB only.
+- **Loading from a source query**: `load-seeds` loads seeds (DuckDB queries) into SQL Server and PostgreSQL (entry 45). Not built: loading from a query on another engine (SQL Server or PostgreSQL to DuckDB or to each other), CSV through DuckDB `read_csv` (seeds run with external access off).
 - **Template backlog**: Chinook, AdventureWorks.
 

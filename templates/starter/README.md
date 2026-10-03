@@ -31,8 +31,18 @@ dbdatabuild render --write             # write the load scripts for SQL Server (
 - Break something on purpose: rename a column in `models/marts/orders.sql` and run `validate`, then `test`.
 - Add a mart of your own, for example revenue per month, and write a model test for it.
 
-## Running it on a real database
+## Trying it on a sandbox database
 
-The sources are tables in your database (the seed queries show what they hold), and the project is set up for SQL Server (see the
-comment at the top of `dbdatabuild.yml` for PostgreSQL). `dbdatabuild plan` reads the database with a read-only login and writes a
-plan you can read; `dbdatabuild apply <plan>` runs exactly that plan. See the main documentation for logins and the plan files.
+The source tables are what `seeds/` generates, and `load-seeds` can put them in an empty SQL Server (or PostgreSQL) database you do not mind filling. The logins are environment variables
+(`DBDATABUILD_SQLSERVER_WRITE` for what writes, `DBDATABUILD_SQLSERVER_READ` for what reads; see the main documentation):
+
+```
+dbdatabuild load-seeds                 # shows what it would create and fill; connects to nothing
+dbdatabuild load-seeds --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
+dbdatabuild init --apply               # the tracking tables
+dbdatabuild render --write             # the rendered files are checked in against the models
+dbdatabuild plan --accept-inferred     # reads the database, writes a plan you can read
+dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
+```
+
+Then compare: `dbdatabuild sample <model> --limit 5` shows what DuckDB computes for the same seeds, and the tables in the database hold the same rows.

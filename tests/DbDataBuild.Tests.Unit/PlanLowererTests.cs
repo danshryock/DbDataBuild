@@ -271,6 +271,44 @@ public class PlanLowererTests
         Assert.Contains("DISTINCT ON", ex.Message);
     }
 
+    [Theory]
+    [InlineData("SELECT a FROM t UNION SELECT a FROM u UNION SELECT a + 100 FROM t")]
+    [InlineData("SELECT a FROM t UNION ALL SELECT a FROM u UNION ALL SELECT a + 100 FROM t UNION ALL SELECT a FROM t")]
+    [InlineData("SELECT a FROM t EXCEPT SELECT a FROM u EXCEPT SELECT a + 100 FROM t")]
+    public void A_set_operation_of_more_than_two_queries_keeps_every_query(string source)
+    {
+        // DuckDB flattens A UNION B UNION C into one operator with three children; the lowered text must read all of them
+        using var c = Open();
+        var sql = Lower(c, source);
+        Assert.Contains("+ 100", sql);
+        Assert.Equal(Rows(c, source, false), Rows(c, sql, false));
+    }
+
+    [Theory]
+    [InlineData("SELECT t.a FROM t JOIN u ON t.a = u.a AND u.b IS NOT NULL")]
+    [InlineData("SELECT t.a FROM t JOIN u ON t.a = u.a AND u.b > 1")]
+    [InlineData("SELECT t.a FROM t JOIN u ON t.a = u.a AND t.b IS NOT NULL")]
+    [InlineData("SELECT t.a, u.b FROM t LEFT JOIN u ON t.a = u.a AND u.b IS NOT NULL")]
+    [InlineData("SELECT t.a FROM t JOIN (SELECT a, b, count(*) AS n FROM u GROUP BY a, b) g ON t.a = g.a AND g.n > 1")]
+    public void A_condition_on_one_side_of_a_join_condition_is_not_lost(string source)
+    {
+        // the binder moves a one-sided predicate of the ON clause into a filter on that side's input
+        using var c = Open();
+        var sql = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, sql, false));
+        Assert.True(sql.Contains("IS NOT NULL", StringComparison.Ordinal) == source.Contains("IS NOT NULL", StringComparison.Ordinal), sql);
+    }
+
+    [Fact]
+    public void A_double_cast_to_a_decimal_rounds_the_scaled_value_half_away_from_zero_like_DuckDB()
+    {
+        using var c = Open();
+        var sql = Lower(c, "SELECT CAST(a / 8.0 AS DECIMAL(18, 2)) AS x FROM t");
+        Assert.Contains("round(CAST(", sql);
+        Assert.Contains(", 2) AS DECIMAL(18, 2))", sql);
+        Assert.Equal(Rows(c, "SELECT CAST(a / 8.0 AS DECIMAL(18, 2)) AS x FROM t", false), Rows(c, sql, false));
+    }
+
     [Fact]
     public void A_cte_is_kept_as_a_cte_in_dependency_order()
     {

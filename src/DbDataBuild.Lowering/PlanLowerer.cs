@@ -270,6 +270,13 @@ public sealed class PlanLowerer
             inner = $"CAST({inner} AS DOUBLE)";
             rules.Add("double-to-int");
         }
+        // RULE double-to-decimal: DuckDB scales a DOUBLE by the decimal's scale and rounds half away from zero (819.025 is 819.03, 0.285 is 0.28 because 0.285 * 100 is 28.499...); SQL Server converts the exact binary
+        // value (819.02) and PostgreSQL the shortest text (0.29). round(double, n) is what DuckDB does, and it is the shape the round-double target rule rewrites on every engine.
+        else if (fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to == "DECIMAL" && e.GetProperty("return_type").TryGetProperty("type_info", out var decimalInfo) && decimalInfo.TryGetProperty("scale", out var decimalScale) && decimalScale.GetInt32() is > 0 and <= 15)
+        {
+            inner = $"round(CAST({inner} AS DOUBLE), {decimalScale.GetInt32()})";
+            rules.Add("double-to-decimal");
+        }
         return $"{fn}({inner} AS {TypeName(e.GetProperty("return_type"))})";
     }
 
@@ -729,15 +736,25 @@ public sealed class PlanLowerer
                     host.Plain = false;
                     return host;
                 }
-                if (!l.Plain) l = Wrap(l);
-                if (!r.Plain) r = Wrap(r);
+                // The binder moves a one-sided predicate of an ON clause (`ON a.k = b.k AND b.f IS NOT NULL`) into a filter on that side's input, so an input can carry predicates of its own. They are not
+                // dropped: an input that is more than a table with filters becomes a derived table, and the filters of a plain input are read as WHERE (an inner join, or the side a left or right join keeps)
+                // or as part of ON (the side a left or right join fills in with NULLs, where a WHERE would turn the join into an inner one).
+                var joinKind = Str(p, "join_type");
+                static bool Flat(Rel x) => x.Plain && x.Mergeable() && !x.HasWindow && x.Having.Count == 0 && x.Group.Count == 0;
+                var full = joinKind is "OUTER" or "FULL";
+                if (!Flat(l) || (full && l.Where.Count > 0)) l = Wrap(l);
+                if (!Flat(r) || (full && r.Where.Count > 0)) r = Wrap(r);
                 var rel = new Rel { Sources = l.Sources.Concat(r.Sources).ToList(), Sel = l.Sel.Concat(RightColumns(p, r.Sel)).ToList() };
+                var filled = new List<string>();      // predicates of the side the join fills in with NULLs
+                if (t == "LOGICAL_CROSS_PRODUCT" || joinKind == "INNER") { rel.Where.AddRange(l.Where); rel.Where.AddRange(r.Where); }
+                else if (joinKind == "LEFT") { rel.Where.AddRange(l.Where); filled.AddRange(r.Where); }
+                else if (joinKind == "RIGHT") { rel.Where.AddRange(r.Where); filled.AddRange(l.Where); }
                 if (t == "LOGICAL_CROSS_PRODUCT") { rel.Frm = $"{l.Frm}\nCROSS JOIN {r.Frm}"; return rel; }
-                var joinType = Str(p, "join_type") switch { "INNER" => "JOIN", "LEFT" => "LEFT JOIN", "RIGHT" => "RIGHT JOIN", "OUTER" or "FULL" => "FULL JOIN", var other => throw new LoweringException($"the join type {other}") };
+                var joinType = joinKind switch { "INNER" => "JOIN", "LEFT" => "LEFT JOIN", "RIGHT" => "RIGHT JOIN", "OUTER" or "FULL" => "FULL JOIN", var other => throw new LoweringException($"the join type {other}") };
                 if (p.TryGetProperty("expression", out _)) throw new LoweringException("a join with an extra expression");
                 var lo = l.Outs(); var ro = r.Outs();
                 var conditions = Arr(p, "conditions").Select(c => $"({Expr(c.GetProperty("left"), lo)} {Comparisons[Str(c, "comparison")!]} {Expr(c.GetProperty("right"), ro)})");
-                rel.Frm = $"{l.Frm}\n{joinType} {r.Frm}\n  ON {string.Join(" AND ", conditions)}";
+                rel.Frm = $"{l.Frm}\n{joinType} {r.Frm}\n  ON {string.Join(" AND ", conditions.Concat(filled))}";
                 return rel;
             }
             case "LOGICAL_WINDOW":
@@ -789,13 +806,15 @@ public sealed class PlanLowerer
             case "LOGICAL_UNION" or "LOGICAL_INTERSECT" or "LOGICAL_EXCEPT":
             {
                 var a = Node(kids[0]);
-                var b = Node(kids[1]);
                 var op = t switch { "LOGICAL_UNION" => "UNION", "LOGICAL_INTERSECT" => "INTERSECT", _ => "EXCEPT" };
                 var all = p.TryGetProperty("setop_all", out var sa) && sa.ValueKind == JsonValueKind.True;
                 var names = a.SetOp != null ? a.SetOpNames! : a.Aliases();
+                // DuckDB flattens `A UNION B UNION C` into one operator with three children; every child after the first is joined in order
+                var text = a.Sql();
+                foreach (var kid in kids.Skip(1)) text = $"{text}\n{op}{(all ? " ALL" : "")}\n{Node(kid).Sql()}";
                 return new Rel
                 {
-                    SetOp = $"{a.Sql()}\n{op}{(all ? " ALL" : "")}\n{b.Sql()}",
+                    SetOp = text,
                     SetOpDistinct = !all,
                     SetOpNames = names,
                     Sel = names.Select((n, i) => new Item(Token("u", n), n, i < a.Sel.Count ? a.Sel[i].Type : null)).ToList(),
