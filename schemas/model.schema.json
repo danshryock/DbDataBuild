@@ -93,6 +93,71 @@
           "DDB-225"
         ]
       }
+    },
+    "rewrites": {
+      "description": "Which rewrites make the engines give DuckDB's answers (`dbdatabuild matrix --rewrites` lists them). The default is `fidelity: exact`: all of them. `fidelity: native` turns off every rewrite the targets can do without, for shorter queries and simpler plans, at the price of each engine's own behavior (a trailing space not counted, an integer cut instead of rounded, a week counted another way); `disable` and `enable` change single rewrites. A rewrite a target cannot do without (SQL Server has no LPAD, PostgreSQL's round takes no double) cannot be turned off (DDB-229). A model's section is applied on top of the project's.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fidelity": {
+          "enum": [
+            "exact",
+            "native"
+          ]
+        },
+        "disable": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "length-trailing-spaces",
+              "round-double",
+              "try-cast-parse",
+              "double-to-int",
+              "decimal-to-int",
+              "double-to-decimal",
+              "avg-double",
+              "sum-widen",
+              "date-to-timestamp",
+              "weekday-datefirst",
+              "date-diff-boundaries",
+              "date-diff-weeks",
+              "date-plus-days",
+              "concat-plus",
+              "pad-to-length",
+              "split-part",
+              "string-agg-array"
+            ]
+          }
+        },
+        "enable": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "length-trailing-spaces",
+              "round-double",
+              "try-cast-parse",
+              "double-to-int",
+              "decimal-to-int",
+              "double-to-decimal",
+              "avg-double",
+              "sum-widen",
+              "date-to-timestamp",
+              "weekday-datefirst",
+              "date-diff-boundaries",
+              "date-diff-weeks",
+              "date-plus-days",
+              "concat-plus",
+              "pad-to-length",
+              "split-part",
+              "string-agg-array"
+            ]
+          }
+        }
+      }
     }
   },
   "allOf": [

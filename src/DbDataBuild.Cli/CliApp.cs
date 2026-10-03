@@ -263,7 +263,9 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PublishMetadataCommand.Run(spec, pr.GetValue(pubProject)!.FullName, pr.GetValue(pubTarget), pr.GetValue(pubModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "matrix":
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PrintMatrix(spec, o, e)));
+                    var matrixRewrites = new Option<bool>("--rewrites") { Description = "List the rewrites that make the engines give DuckDB's answers (what each does, where it is required, and what the engine does without it); `rewrites:` in dbdatabuild.yml or a model turns the optional ones off" };
+                    cmd.Options.Add(matrixRewrites);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PrintMatrix(spec, pr.GetValue(matrixRewrites), o, e)));
                     break;
                 case "explain":
                     var code = new Argument<string>("code") { Description = "Diagnostic code, e.g. DDB-214" };
@@ -320,7 +322,7 @@ public static class CliApp
         return errors == 0 ? ExitOk : ExitFindings;
     }
 
-    private static int PrintMatrix(CommandSpec spec, TextWriter output, TextWriter error)
+    private static int PrintMatrix(CommandSpec spec, bool rewrites, TextWriter output, TextWriter error)
     {
         WriteHeader(spec, output);
         var diags = new List<Diagnostic>();
@@ -329,6 +331,21 @@ public static class CliApp
         {
             foreach (var d in diags) error.Diag(d);
             return ExitFindings;
+        }
+        output.Payload("rewrites", RewriteCatalog.All.Select(r => new { name = r.Name, layer = r.Layer.ToString().ToLowerInvariant(), targets = r.Targets, required_on = r.RequiredOn, exact = r.Exact, native = r.Native }).ToList());
+        if (rewrites)
+        {
+            output.WriteLine($"{"rewrite",-24} {"layer",-9} {"required on",-24} what it does");
+            foreach (var r in RewriteCatalog.All)
+            {
+                output.WriteLine($"{r.Name,-24} {r.Layer.ToString().ToLowerInvariant(),-9} {(r.RequiredOn.Count == 0 ? "optional" : string.Join(", ", r.RequiredOn)),-24} {r.Exact}");
+                output.WriteLine($"{"",-24} {"",-9} {"",-24} without it: {r.Native}");
+            }
+            output.Payload("version", MatrixLoader.EmbeddedVersion());
+            output.Payload("constructs", Array.Empty<object>());
+            output.Payload("covered_entries", matrix.Covered.Count);
+            output.WriteLine($"\n{RewriteCatalog.All.Count} rewrite(s). Turn the optional ones off with `rewrites: {{ fidelity: native }}` or `rewrites: {{ disable: [name] }}` in dbdatabuild.yml or in a model.");
+            return ExitOk;
         }
         output.WriteLine($"{"construct",-26} {"sqlserver",-13} {"fabric",-13} {"postgres",-13}");
         foreach (var row in matrix.Rows)

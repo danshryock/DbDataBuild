@@ -129,6 +129,56 @@ public class TargetRulesTests
         Assert.DoesNotContain("'week'", r.Sql);
     }
 
+    [Theory]
+    [InlineData("SELECT json_extract_string(s, '$.a.b') AS x FROM t", "json_extract_path_text(json_extract_path(cast(s as json), 'a'), 'b')")]
+    [InlineData("SELECT json_extract_string(s, '$.arr[1].k') AS x FROM t", "json_extract_path_text(json_extract_path(json_extract_path(cast(s as json), 'arr'), 1), 'k')")]
+    [InlineData("SELECT json_extract_string(s, '$.k') AS x FROM t", "json_extract_path_text(cast(s as json), 'k')")]
+    public void A_simple_json_path_becomes_the_keys_of_json_extract_path_text_on_PostgreSQL(string sql, string expected)
+    {
+        var r = TargetRules.Apply(sql, "postgres");
+        Assert.Equal([TargetRules.JsonExtractString], r.Rules);
+        Assert.Contains(expected, System.Text.RegularExpressions.Regex.Replace(r.Sql.ToLowerInvariant(), @"\s+", " ").Replace("( ", "(").Replace(" )", ")"));
+        Assert.Empty(TargetRules.Apply(sql, "sqlserver").Rules);                                 // JSON_VALUE is what the transpile writes
+    }
+
+    [Theory]
+    [InlineData("SELECT json_extract_string(s, '$..k') AS x FROM t")]       // a wildcard
+    [InlineData("SELECT json_extract_string(s, p) AS x FROM t")]            // a computed path
+    [InlineData("SELECT json_extract_string(s, '$') AS x FROM t")]          // the whole document
+    public void A_json_path_that_is_not_a_list_of_keys_is_left_for_the_matrix_to_refuse(string sql) => Assert.Empty(TargetRules.Apply(sql, "postgres").Rules);
+
+    [Fact]
+    public void A_json_value_under_a_cast_keeps_its_last_key_on_PostgreSQL()
+    {
+        const string sql = "SELECT CAST(json_extract_string(s, '$.frame.gears') AS INTEGER) AS x FROM t";
+        var text = Transpiled(sql, "postgres");
+        Assert.Contains("-> 'frame' ->> 'gears'", text);
+        Assert.DoesNotContain("'$.", text);
+    }
+
+    [Fact]
+    public void Regular_expression_functions_PostgreSQL_does_not_have_are_written_out_for_it()
+    {
+        var full = TargetRules.Apply("SELECT regexp_full_match(s, 'a.c') AS x FROM t", "postgres");
+        Assert.Equal([TargetRules.RegexpFullMatch], full.Rules);
+        Assert.Contains("'^(?:'", full.Sql);
+        var extract = TargetRules.Apply("SELECT regexp_extract(s, 'a(b)', 1) AS x FROM t", "postgres");
+        Assert.Equal([TargetRules.RegexpExtract], extract.Rules);
+        Assert.Contains("regexp_match(", extract.Sql.ToLowerInvariant());
+        Assert.Contains("[2]", extract.Sql);                                                    // group 1 is the second element: the whole match comes first
+        Assert.Contains("[1]", TargetRules.Apply("SELECT regexp_extract(s, 'ab') AS x FROM t", "postgres").Sql);
+        Assert.Empty(TargetRules.Apply("SELECT regexp_extract(s, 'a(b)', n) AS x FROM t", "postgres").Rules);       // the group is not a literal
+        Assert.Empty(TargetRules.Apply("SELECT regexp_extract(s, 'a(b)', 1) AS x FROM t", "sqlserver").Rules);
+    }
+
+    [Fact]
+    public void Json_array_length_casts_text_to_json_on_PostgreSQL()
+    {
+        var r = TargetRules.Apply("SELECT json_array_length(s) AS x FROM t", "postgres");
+        Assert.Equal([TargetRules.JsonArrayLength], r.Rules);
+        Assert.Contains("cast(s as json)", r.Sql.ToLowerInvariant());
+    }
+
     [Fact]
     public void Split_part_reaches_PostgreSQL_as_its_own_split_part()
     {

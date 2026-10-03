@@ -286,3 +286,52 @@
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: native }
 
+- id: fn.nth_value
+  detect: [node:nth_value, fn:NTH_VALUE]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/nth_value_fn, note: "SQL Server has no NTH_VALUE (FIRST_VALUE and LAST_VALUE only). Rank the rows with row_number() and take the one at the position, in a CTE or a subquery." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+
+- id: fn.json_extract_string
+  detect: [fn:JSON_EXTRACT_STRING]
+  duckdb: native
+  sqlserver: { status: approximated, test: spike/json_extract_string_fn, note: "Rewritten to JSON_VALUE, which gives the same text for a scalar, NULL for a missing path, and agrees on the probes (numbers, booleans, nested names, array positions, null). It gives NULL where DuckDB gives the JSON text of an object or an array. The result is nvarchar(4000)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/json_extract_string_fn, note: "polyglot writes `x ->> '$.a.b'`, which PostgreSQL rejects for text and which takes a key, not a path. A lowered query with a literal path of names and positions is rewritten by the target rule json-extract-string (json_extract_path_text) and no longer reports this; a computed path or a wildcard still does. The text of an object keeps the spacing of the document (DuckDB writes it without) ({\"x\": 1})." }
+
+- id: fn.json_other
+  detect: [fn:JSON_EXTRACT, node:json_extract, fn:JSON_VALID, fn:JSON_TYPE, fn:JSON_KEYS]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/json_other_fn, note: "json_extract returns JSON (a string keeps its quotes), which JSON_QUERY does not (it returns objects and arrays only); json_valid, json_type and json_keys have no counterpart. Use json_extract_string for a scalar, or keep the document apart from the query." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/json_other_fn, note: "json_extract is written as json_extract_path, which takes json (not text) and returns json; json_valid is not a function (PostgreSQL 16 has `IS JSON`). Use json_extract_string for a scalar." }
+
+- id: fn.json_array_length
+  detect: [node:json_array_length, fn:JSON_ARRAY_LENGTH]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/json_array_length_fn, note: "SQL Server has no JSON_ARRAY_LENGTH. Count the elements with OPENJSON in a subquery." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/json_array_length_fn, note: "A lowered query is rewritten by the target rule json-array-length (the text is cast to json) and no longer reports this. A value that is not an array raises on PostgreSQL where DuckDB gives 0." }
+
+- id: fn.regexp_full_match
+  detect: [fn:REGEXP_FULL_MATCH, node:regexp_full_match]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/regexp_full_match_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_LIKE with its own flavor (not verified here)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/regexp_full_match_fn, note: "polyglot writes the unanchored `~` operator, so a partial match counts. A lowered query is rewritten by the target rule regexp-full-match (the pattern anchored) and no longer reports this. DuckDB's RE2 and PostgreSQL's ARE agree on common patterns, not on all." }
+
+- id: fn.regexp_extract
+  detect: [fn:REGEXP_EXTRACT, node:regexp_extract]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/regexp_extract_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_SUBSTR (not verified here)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: unsupported, test: spike/regexp_extract_fn, note: "PostgreSQL has no regexp_extract. A lowered query with a literal group number is rewritten by the target rule regexp-extract (regexp_match, '' for no match) and no longer reports this." }
+
+- id: fn.regexp_replace
+  detect: [fn:REGEXP_REPLACE, node:regexp_replace]
+  duckdb: native
+  sqlserver: { status: unsupported, test: spike/regexp_replace_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_REPLACE (not verified here)." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres:  { status: native }
+

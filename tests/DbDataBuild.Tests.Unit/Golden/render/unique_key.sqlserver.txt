@@ -5,7 +5,7 @@
 -- target:          sqlserver
 -- strategy:        delete_insert_by_key
 -- definition hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
--- matrix version:  824ea3e733d4
+-- matrix version:  e6a23d6b459f
 -- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
@@ -24,7 +24,7 @@ COMMIT TRANSACTION;
 model: marts.fct_orders
 target: sqlserver
 definition_hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
-matrix_version: 824ea3e733d4
+matrix_version: e6a23d6b459f
 tool_version: 0.1.0
 sources: [staging.orders]
 operations:
@@ -35,5 +35,5 @@ operations:
     matrix: emulated
     findings: [syntax.order_nulls]
     script: load.default.sql
-    script_sha256: 2ee5cbb7de07efc947caf5caa1092559926c0536d0a6e73fe5800ec5a140bde0
+    script_sha256: 14546c8238df441f809f00805ac8543f0784dfe3e42b6bdcac730a34ecaee09a
     parameters: []

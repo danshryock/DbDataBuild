@@ -34,7 +34,8 @@ public sealed record ModelDefinition(
     IReadOnlyList<LoadOperation>? DeclaredLoads = null,
     IReadOnlyList<IndexDefinition>? DeclaredIndexes = null,
     IReadOnlyList<HookDefinition>? DeclaredHooks = null,
-    IReadOnlyList<string>? DeclaredLintIgnore = null)
+    IReadOnlyList<string>? DeclaredLintIgnore = null,
+    RewriteSettings? Rewrites = null)
 {
     /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224) the operator has silenced for this model (`lint_ignore:`).</summary>
     public IReadOnlyList<string> LintIgnore => DeclaredLintIgnore ?? [];

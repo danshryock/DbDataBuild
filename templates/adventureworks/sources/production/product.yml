@@ -13,3 +13,4 @@ columns:
   - {name: product_subcategory_id, type: INTEGER, nullable: false}
   - {name: sell_start_date, type: DATE, nullable: false}
   - {name: sell_end_date, type: DATE}
+  - {name: attributes, type: VARCHAR}

@@ -61,6 +61,26 @@ public class PlanLowererTests
 
     // the declared grains of the seeded tables: t is identified by id, u by (a, b)
     private static IReadOnlyList<string> Grain(string table) => table switch { "t" => ["id"], "u" => ["a", "b"], _ => [] };
+    private static LoweredQuery LowerWith(DuckDBConnection c, string sql, params string[] off) => PlanLowerer.Lower(PlanOf(c, sql), NamesOf(c, sql), null, new RewritePolicy(off));
+
+    [Theory]
+    [InlineData("SELECT CAST(CAST(a AS DECIMAL(10, 2)) AS INTEGER) AS x FROM t", "decimal-to-int", "round(")]
+    [InlineData("SELECT CAST(a / 2 AS INTEGER) AS x FROM t", "double-to-int", "AS DOUBLE) AS INTEGER")]
+    [InlineData("SELECT AVG(a) AS x FROM t", "avg-double", "CAST(a AS DOUBLE)")]
+    [InlineData("SELECT SUM(a) AS x FROM t", "sum-widen", "CAST(a AS BIGINT)")]
+    [InlineData("SELECT d1 + 3 AS x FROM t", "date-plus-days", "CAST(d1 AS DATE)")]
+    public void A_rewrite_that_is_off_is_not_written_into_the_lowered_query(string source, string rewrite, string marker)
+    {
+        using var c = Open();
+        var on = LowerWith(c, source);
+        var off = LowerWith(c, source, rewrite);
+        Assert.Contains(rewrite, on.Rules);
+        Assert.Contains(marker, on.Sql);
+        Assert.DoesNotContain(rewrite, off.Rules);
+        Assert.DoesNotContain(marker, off.Sql);
+        Assert.Equal(Rows(c, source, false), Rows(c, off.Sql, false));         // without the rewrite DuckDB still gives the same rows: it is the engines the rewrite is for
+    }
+
     private static string LowerWithGrain(DuckDBConnection c, string sql) => PlanLowerer.Lower(PlanOf(c, sql), NamesOf(c, sql), Grain).Sql;
 
     private static List<(string Id, string Sql)> Corpus()
@@ -334,6 +354,80 @@ public class PlanLowererTests
         Assert.Equal(Rows(c, source, false), Rows(c, sql, false));
     }
 
+    [Theory]
+    [InlineData("SELECT median(a) AS m FROM t")]
+    [InlineData("SELECT quantile_cont(a, 0.9) AS q, quantile_cont(a, 0.1) AS p FROM t")]
+    [InlineData("SELECT quantile_disc(a, 0.5) AS q, quantile_disc(a, 0.0) AS z, quantile_disc(a, 1.0) AS o FROM t")]
+    [InlineData("SELECT id % 2 AS g, median(a) AS m, quantile_cont(CAST(a AS DECIMAL(10, 2)), 0.75) AS q, count(*) AS n FROM t GROUP BY id % 2")]
+    [InlineData("SELECT median(a) FILTER (WHERE id > 1000) AS m FROM t")]
+    public void Median_and_quantiles_are_ranked_and_read_off_with_the_same_values_as_DuckDB(string source)
+    {
+        using var c = Open();
+        var lowered = source.Contains("FILTER") ? null : Lower(c, source);
+        if (lowered == null) { Assert.Throws<LoweringException>(() => Lower(c, source)); return; }
+        Assert.Contains("row_number() OVER", lowered);
+        Assert.DoesNotContain("median(", lowered);
+        Assert.DoesNotContain("quantile_", lowered);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+    }
+
+    [Theory]
+    [InlineData("SELECT g, median(d) AS m, quantile_cont(d, 0.9) AS p, quantile_cont(d, 0.1) AS q, quantile_disc(d, 0.75) AS r FROM dq GROUP BY g")]
+    [InlineData("SELECT median(d) AS m, quantile_cont(d, 0.37) AS p, quantile_cont(CAST(d AS DECIMAL(18, 2)), 0.9) AS q FROM dq")]
+    public void Quantiles_of_decimals_cut_to_a_whole_number_of_the_scale_like_DuckDB_and_agree_on_many_rows(string source)
+    {
+        using var c = Open();
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "CREATE TABLE dq AS SELECT i % 9 AS g, CASE WHEN i % 40 = 0 THEN NULL ELSE CAST((hash(i) % 100000000) / 10000.0 AS DECIMAL(19, 4)) END AS d FROM range(1, 1500) t(i)";
+            cmd.ExecuteNonQuery();
+        }
+        var lowered = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount)")]
+    [InlineData("SELECT id, measure, amount FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount) WHERE amount > 1")]
+    [InlineData("SELECT * FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount) ORDER BY id, measure")]
+    public void Unpivot_becomes_one_select_per_column_without_the_rows_DuckDB_drops(string source)
+    {
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Contains("UNION ALL", lowered);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM (PIVOT t ON id IN (1, 2, 3) USING sum(a) GROUP BY b)")]
+    [InlineData("SELECT * FROM (PIVOT t ON b IN (1, 2) USING sum(a) AS total, count(*) AS n)")]
+    public void Pivot_is_lowered_to_aggregates_with_the_same_rows(string source)
+    {
+        using var c = Open();
+        Assert.Equal(Rows(c, source, false), Rows(c, Lower(c, source), false));
+    }
+
+    [Fact]
+    public void QUALIFY_and_LATERAL_are_lowered_with_the_same_rows()
+    {
+        using var c = Open();
+        foreach (var source in new[]
+        {
+            "SELECT id, a FROM t QUALIFY row_number() OVER (PARTITION BY b ORDER BY id DESC) = 1",
+            "SELECT t.id, top.a FROM t, LATERAL (SELECT u.a FROM u WHERE u.a = t.a ORDER BY u.a LIMIT 1) top",
+        })
+            Assert.Equal(Rows(c, source, false), Rows(c, Lower(c, source), false));
+    }
+
+    [Fact]
+    public void The_json_arrows_are_the_functions_the_transpile_knows()
+    {
+        using var c = Open();
+        var sql = Lower(c, "SELECT CAST('{\"k\": \"v\"}' AS JSON) ->> '$.k' AS x");
+        Assert.Contains("json_extract_string(", sql);
+        Assert.DoesNotContain("->>", sql);
+    }
+
     [Fact]
     public void A_double_cast_to_a_decimal_rounds_the_scaled_value_half_away_from_zero_like_DuckDB()
     {
@@ -527,8 +621,8 @@ public class PlanLowererTests
     }
 
     [Theory]
-    [InlineData("SELECT median(a) AS v FROM t", "median")]
-    [InlineData("SELECT quantile_cont(a, 0.9) AS v FROM t", "quantile")]
+    [InlineData("SELECT quantile_cont(a, [0.25, 0.75]) AS v FROM t", "list of fractions")]
+    [InlineData("SELECT median(DISTINCT a) AS v FROM t", "DISTINCT")]
     [InlineData("SELECT first(a ORDER BY id DESC) AS v FROM t", "ORDER BY inside")]
     [InlineData("SELECT list(a ORDER BY id) AS v FROM t", "")]
     [InlineData("SELECT x // 2 AS v FROM (SELECT CAST(a AS BIGINT) AS x FROM t) q", "BIGINT")]

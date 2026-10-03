@@ -1,4 +1,5 @@
 using System.Numerics;
+using DbDataBuild.Core;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -102,7 +103,7 @@ public sealed class PlanLowerer
     /// The columns that identify one row of a table (its declared grain), by the name the query uses (`staging.orders`). `DISTINCT ON` keeps one arbitrary row per key unless its
     /// ordering decides which, so it is lowered only when the ordering includes the grain of every table it reads; an unknown or empty grain means "cannot prove it".
     /// </param>
-    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null)
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null)
     {
         using var doc = JsonDocument.Parse(PlanNormalizer.Normalize(planJson));
         var root = doc.RootElement;
@@ -110,7 +111,7 @@ public sealed class PlanLowerer
             throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
-        var lowerer = new PlanLowerer { grainOf = grainOf };
+        var lowerer = new PlanLowerer { grainOf = grainOf, rewrites = rewrites ?? RewritePolicy.Exact };
         lowerer.Reserve(plans);
         Rel rel;
         try { rel = lowerer.Node(plans[0]); }
@@ -135,6 +136,10 @@ public sealed class PlanLowerer
 
     private readonly List<(string Name, string Sql)> ctesInOrder = [];
     private bool hasRecursiveCte;
+    private RewritePolicy rewrites = RewritePolicy.Exact;
+
+    /// <summary>Whether a rewrite that keeps an engine equal to DuckDB is applied (the model or the project may have asked for the engine's own behavior).</summary>
+    private bool On(string rewrite) => rewrites.Allows(rewrite);
 
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -254,26 +259,26 @@ public sealed class PlanLowerer
         var fn = e.TryGetProperty("try_cast", out var tc) && tc.ValueKind == JsonValueKind.True ? "TRY_CAST" : "CAST";
         var inner = Expr(child, outs);
         // RULE try-cast-parse: parsing a string differs per engine ('' is NULL here, 0 on SQL Server, an error on PostgreSQL). The explicit VARCHAR cast marks the string source for the target step.
-        if (fn == "TRY_CAST" && TypeId(child) == "VARCHAR" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT" or "DECIMAL" or "DOUBLE" or "FLOAT" or "DATE" or "TIMESTAMP")
+        if (On("try-cast-parse") && fn == "TRY_CAST" && TypeId(child) == "VARCHAR" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT" or "DECIMAL" or "DOUBLE" or "FLOAT" or "DATE" or "TIMESTAMP")
         {
             inner = $"CAST({inner} AS VARCHAR)";
             rules.Add("try-cast-parse");
         }
         // RULE decimal-to-int: DuckDB rounds a DECIMAL to the nearest integer, half away from zero (2.5 is 3); SQL Server truncates (2). round() is the same on all three.
-        if (fn == "CAST" && TypeId(child) == "DECIMAL" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
+        if (On("decimal-to-int") && fn == "CAST" && TypeId(child) == "DECIMAL" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
         {
             inner = $"round({inner}, 0)";
             rules.Add("decimal-to-int");
         }
         // RULE double-to-int: DuckDB rounds a DOUBLE to the nearest integer, half to even (2.5 is 2, 3.5 is 4); SQL Server truncates, PostgreSQL does the same as DuckDB. The explicit DOUBLE cast marks it for the target step.
-        else if (fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
+        else if (On("double-to-int") && fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to is "TINYINT" or "SMALLINT" or "INTEGER" or "BIGINT")
         {
             inner = $"CAST({inner} AS DOUBLE)";
             rules.Add("double-to-int");
         }
         // RULE double-to-decimal: DuckDB scales a DOUBLE by the decimal's scale and rounds half away from zero (819.025 is 819.03, 0.285 is 0.28 because 0.285 * 100 is 28.499...); SQL Server converts the exact binary
         // value (819.02) and PostgreSQL the shortest text (0.29). round(double, n) is what DuckDB does, and it is the shape the round-double target rule rewrites on every engine.
-        else if (fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to == "DECIMAL" && e.GetProperty("return_type").TryGetProperty("type_info", out var decimalInfo) && decimalInfo.TryGetProperty("scale", out var decimalScale) && decimalScale.GetInt32() is > 0 and <= 15)
+        else if (On("double-to-decimal") && fn == "CAST" && TypeId(child) is "DOUBLE" or "FLOAT" && to == "DECIMAL" && e.GetProperty("return_type").TryGetProperty("type_info", out var decimalInfo) && decimalInfo.TryGetProperty("scale", out var decimalScale) && decimalScale.GetInt32() is > 0 and <= 15)
         {
             inner = $"round(CAST({inner} AS DOUBLE), {decimalScale.GetInt32()})";
             rules.Add("double-to-decimal");
@@ -294,6 +299,9 @@ public sealed class PlanLowerer
             if (c.GetProperty("type").GetString() == "VALUE_CONSTANT") return $"INTERVAL {Literal(c.GetProperty("value"))} {name[3..^1].ToUpperInvariant()}";
             throw new LoweringException("an interval built from an expression");
         }
+        // the JSON arrows are the functions json_extract_string and json_extract written as operators, which the transpile does not read
+        if (name == "->>") name = "json_extract_string";
+        else if (name == "->") name = "json_extract";
         if (name is "list_value" or "struct_pack" or "map") throw new LoweringException($"the nested-type function {name}");
         var a = children.Select(c => Expr(c, outs)).ToList();
         var returns = TypeId(e);
@@ -310,12 +318,12 @@ public sealed class PlanLowerer
         // RULE date-plus-days: `date + 3` and `date - i` add and take away days in DuckDB and PostgreSQL; SQL Server does not take a whole number as an interval. The explicit casts mark the expression for the
         // target step (a date and a whole number side by side), which writes it as an interval of that many days on SQL Server.
         var argTypes = Arr(e, "arguments").Select(x => x.TryGetProperty("id", out var xid) ? xid.GetString() ?? "" : "").ToList();   // a constant has no return type of its own, but the function lists its argument types
-        if (name is "+" or "-" && a.Count == 2 && argTypes is ["DATE", var daysType] && IntegerTypes.Contains(daysType) && returns == "DATE")
+        if (On("date-plus-days") && name is "+" or "-" && a.Count == 2 && argTypes is ["DATE", var daysType] && IntegerTypes.Contains(daysType) && returns == "DATE")
         {
             rules.Add("date-plus-days");
             return $"(CAST({a[0]} AS DATE) {name} CAST({a[1]} AS {daysType}))";
         }
-        if (name == "+" && a.Count == 2 && argTypes is [var leadingDays, "DATE"] && IntegerTypes.Contains(leadingDays) && returns == "DATE")
+        if (On("date-plus-days") && name == "+" && a.Count == 2 && argTypes is [var leadingDays, "DATE"] && IntegerTypes.Contains(leadingDays) && returns == "DATE")
         {
             rules.Add("date-plus-days");
             return $"(CAST({a[0]} AS {leadingDays}) + CAST({a[1]} AS DATE))";
@@ -325,7 +333,7 @@ public sealed class PlanLowerer
         // DuckDB gives NULL for x % 0 where both engines raise an error
         if (name == "%" && a.Count == 2 && !(children[1].GetProperty("type").GetString() == "VALUE_CONSTANT" && !IsZeroConstant(children[1].GetProperty("value")))) a[1] = $"NULLIF({a[1]}, 0)";
         // RULE round-double: DuckDB rounds the scaled double half away from zero; the engines do something else. The explicit DOUBLE cast marks it for the target step.
-        if (name == "round" && a.Count is 1 or 2 && TypeId(children[0]) == "DOUBLE" && (a.Count == 1 || children[1].GetProperty("type").GetString() == "VALUE_CONSTANT"))
+        if (On("round-double") && name == "round" && a.Count is 1 or 2 && TypeId(children[0]) == "DOUBLE" && (a.Count == 1 || children[1].GetProperty("type").GetString() == "VALUE_CONSTANT"))
         {
             a[0] = $"CAST({a[0]} AS DOUBLE)";
             rules.Add("round-double");
@@ -339,7 +347,7 @@ public sealed class PlanLowerer
         else if (name == "-" && a.Count == 1) return $"(-{a[0]})";
         else text = $"{name}({string.Join(", ", a)})";
         // RULE date-to-timestamp: DuckDB widens a DATE to TIMESTAMP in date_trunc and in interval arithmetic; the engines keep a DATE. Say so in the query.
-        if (returns == "TIMESTAMP" && anyDate && name is "date_trunc" or "datetrunc" or "+" or "-")
+        if (On("date-to-timestamp") && returns == "TIMESTAMP" && anyDate && name is "date_trunc" or "datetrunc" or "+" or "-")
         {
             rules.Add("date-to-timestamp");
             return $"CAST({text} AS TIMESTAMP)";
@@ -352,19 +360,75 @@ public sealed class PlanLowerer
 
     private static string? SumWidening(string? type) => type switch { "TINYINT" or "SMALLINT" or "INTEGER" => "BIGINT", "BIGINT" => "DECIMAL(38, 0)", _ => null };
 
+    private static bool IsQuantile(JsonElement e) =>
+        Str(e, "type") == "BOUND_AGGREGATE" && Str(e, "name") is "median" or "quantile_cont" or "quantile_disc" && e.TryGetProperty("function_data", out var fd) && fd.ValueKind == JsonValueKind.Object && fd.TryGetProperty("quantiles", out _);
+
+    /// <summary>
+    /// The quantile of the rows of a group from their ranks (<paramref name="rankAt"/>, <paramref name="countAt"/> are the columns the ranking added): continuous is the interpolation DuckDB does, in double arithmetic,
+    /// at position (n - 1) * q of the sorted non-NULL values; discrete is the value at position ceil(n * q). A group with no value gives NULL.
+    /// </summary>
+    private string Quantile(JsonElement e, IReadOnlyList<string> outs, int rankAt, int countAt)
+    {
+        var name = Str(e, "name")!;
+        if (Str(e, "aggregate_type") == "DISTINCT" || e.TryGetProperty("filter", out _)) throw new LoweringException($"{name} with DISTINCT or FILTER");
+        var data = e.GetProperty("function_data");
+        var fractions = data.GetProperty("quantiles").EnumerateArray().ToList();
+        if (fractions.Count != 1) throw new LoweringException($"{name} with a list of fractions (the result is a list)");
+        if (data.TryGetProperty("desc", out var desc) && desc.ValueKind == JsonValueKind.True) throw new LoweringException($"{name} over a descending order");
+        var q = FractionText(fractions[0]);
+        var x = Expr(Arr(e, "children").Single(), outs);
+        var rank = outs[rankAt];
+        var n = $"CAST({outs[countAt]} AS DOUBLE)";
+        rules.Add("quantile-ranked");
+        if (name == "quantile_disc")
+        {
+            var position = $"CASE WHEN ceil({n} * {q}) < 1 THEN 1 ELSE CAST(ceil({n} * {q}) AS BIGINT) END";
+            return $"max(CASE WHEN {rank} = {position} THEN {x} END)";
+        }
+        var returns = e.GetProperty("return_type");
+        var kind = returns.GetProperty("id").GetString();
+        if (kind is not ("DOUBLE" or "DECIMAL")) throw new LoweringException($"{name} over {kind} values");
+        // DuckDB interpolates a DECIMAL on its stored whole numbers (the value times 10^scale) in double arithmetic and cuts the result to a whole number (1228.40888 is 1228.4088, not 1228.4089);
+        // the same is done here, so the values agree to the last digit
+        var scale = kind == "DECIMAL" && returns.TryGetProperty("type_info", out var info) && info.TryGetProperty("scale", out var s) ? s.GetInt32() : 0;
+        var ten = $"1{new string('0', scale)}";                                  // 10^scale
+        var power = scale == 0 ? "" : $" * {ten}";
+        string Value() => kind == "DECIMAL" ? $"CAST(CAST({x}{power} AS BIGINT) AS DOUBLE)" : $"CAST({x} AS DOUBLE)";
+        var at = $"(({n} - 1) * {q})";
+        var lower = $"max(CASE WHEN {rank} = CAST(floor{at} AS BIGINT) + 1 THEN {Value()} END)";
+        var upper = $"max(CASE WHEN {rank} = CAST(ceil{at} AS BIGINT) + 1 THEN {Value()} END)";
+        var groupSize = $"CAST(max({outs[countAt]}) AS DOUBLE)";                 // outside an aggregate the group's row count has to be an aggregate itself
+        var fraction = $"(({groupSize} - 1) * {q})";
+        var weight = $"({fraction} - floor{fraction})";
+        var interpolated = $"({lower} * (1.0 - {weight}) + {upper} * {weight})";      // DuckDB's own form: lo * (1 - d) + hi * d, which is not lo + (hi - lo) * d in the last bit
+        if (kind == "DOUBLE") return interpolated;
+        rules.Add("double-to-decimal");
+        rules.Add("round-double");                                                // the explicit DOUBLE cast marks the round for the target step, as in the cast rule
+        return $"CAST(round(CAST(CAST(trunc({interpolated}) AS DOUBLE) / {ten}.0 AS DOUBLE), {scale}) AS {TypeName(returns)})";
+    }
+
+    /// <summary>The fraction of a quantile as the plan holds it (a decimal constant stored as a whole number and a scale), written as a decimal literal.</summary>
+    private static string FractionText(JsonElement constant)
+    {
+        var scale = constant.GetProperty("type").GetProperty("type_info").GetProperty("scale").GetInt32();
+        var value = constant.GetProperty("value").GetInt64();
+        var text = Math.Abs(value).ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(scale + 1, '0');
+        return scale == 0 ? text : $"{text[..^scale]}.{text[^scale..]}";
+    }
+
     private string Aggregate(JsonElement e, IReadOnlyList<string> outs)
     {
         var name = Str(e, "name")!;
         var children = Arr(e, "children").ToList();
         var a = children.Select(c => Expr(c, outs)).ToList();
         // RULE avg-double: the result type is DOUBLE; the engines' own AVG over integers or decimals is not
-        if (name == "avg" && TypeId(e) == "DOUBLE" && children.Count > 0 && TypeId(children[0]) != "DOUBLE")
+        if (On("avg-double") && name == "avg" && TypeId(e) == "DOUBLE" && children.Count > 0 && TypeId(children[0]) != "DOUBLE")
         {
             a[0] = $"CAST({a[0]} AS DOUBLE)";
             rules.Add("avg-double");
         }
         // RULE sum-widen: DuckDB sums integers into a HUGEINT; SQL Server's SUM of an INT is an INT and raises an overflow error past 2^31 (a BIGINT's past 2^63). Widen the argument.
-        if (name == "sum" && children.Count == 1 && SumWidening(TypeId(children[0])) is { } widened)
+        if (On("sum-widen") && name == "sum" && children.Count == 1 && SumWidening(TypeId(children[0])) is { } widened)
         {
             a[0] = $"CAST({a[0]} AS {widened})";
             rules.Add("sum-widen");
@@ -400,7 +464,7 @@ public sealed class PlanLowerer
         var name = type switch
         {
             "WINDOW_ROW_NUMBER" => "row_number", "WINDOW_RANK" => "rank", "WINDOW_RANK_DENSE" => "dense_rank", "WINDOW_LEAD" => "lead", "WINDOW_LAG" => "lag",
-            "WINDOW_FIRST_VALUE" => "first_value", "WINDOW_LAST_VALUE" => "last_value", "WINDOW_NTILE" => "ntile", "WINDOW_PERCENT_RANK" => "percent_rank", "WINDOW_CUME_DIST" => "cume_dist",
+            "WINDOW_FIRST_VALUE" => "first_value", "WINDOW_NTH_VALUE" => "nth_value", "WINDOW_LAST_VALUE" => "last_value", "WINDOW_NTILE" => "ntile", "WINDOW_PERCENT_RANK" => "percent_rank", "WINDOW_CUME_DIST" => "cume_dist",
             _ => Str(e, "name"),
         } ?? throw new LoweringException($"the window function {type}");
         var windowChildren = Arr(e, "children").ToList();
@@ -408,13 +472,13 @@ public sealed class PlanLowerer
         // count(*) OVER (...) is a `count` with no argument in the plan: written as it was, `count() OVER ()` reached both engines as a call they do not have
         if (type == "WINDOW_AGGREGATE" && (name == "count_star" || (name == "count" && windowChildren.Count == 0))) { name = "count"; args = ["*"]; }
         else if (type == "WINDOW_AGGREGATE" && AggregateNames.TryGetValue(name, out var windowName)) name = windowName;
-        if (type == "WINDOW_AGGREGATE" && name == "sum" && windowChildren.Count == 1 && SumWidening(TypeId(windowChildren[0])) is { } widened)
+        if (On("sum-widen") && type == "WINDOW_AGGREGATE" && name == "sum" && windowChildren.Count == 1 && SumWidening(TypeId(windowChildren[0])) is { } widened)
         {
             args[0] = $"CAST({args[0]} AS {widened})";
             rules.Add("sum-widen");
         }
         // RULE avg-double also applies to avg(x) OVER (...)
-        if (type == "WINDOW_AGGREGATE" && name == "avg" && TypeId(e) == "DOUBLE" && windowChildren.Count > 0 && TypeId(windowChildren[0]) != "DOUBLE")
+        if (On("avg-double") && type == "WINDOW_AGGREGATE" && name == "avg" && TypeId(e) == "DOUBLE" && windowChildren.Count > 0 && TypeId(windowChildren[0]) != "DOUBLE")
         {
             args[0] = $"CAST({args[0]} AS DOUBLE)";
             rules.Add("avg-double");
@@ -581,6 +645,64 @@ public sealed class PlanLowerer
     }
 
     /// <summary>
+    /// UNPIVOT reaches the plan as an UNNEST of two lists built per row: the constant list of the column names and `unpivot_list(col1, col2, ...)`. The same rows are one SELECT per column
+    /// joined by UNION ALL (the name as a literal and the column as the value), which every engine runs; the NULL values DuckDB drops come out of the filter that follows the UNNEST.
+    /// Any other UNNEST is not lowered: the engines have no equal for a list column.
+    /// </summary>
+    private Rel? TryUnpivot(JsonElement p, List<JsonElement> kids)
+    {
+        if (kids.Count != 1 || kids[0].GetProperty("type").GetString() != "LOGICAL_PROJECTION") return null;
+        var projection = kids[0];
+        var exprs = Arr(projection, "expressions").ToList();
+        var namesAt = exprs.FindIndex(e => Str(e, "alias") == "unpivot_names" && Str(e, "type") == "VALUE_CONSTANT");
+        var listAt = exprs.FindIndex(e => Str(e, "alias") == "unpivot_list" && Str(e, "name") == "unpivot_list");
+        var unnests = Arr(p, "expressions").ToList();
+        if (namesAt < 0 || listAt < 0 || unnests.Count != 2) return null;
+        var namesValue = exprs[namesAt].GetProperty("value");
+        if (!namesValue.TryGetProperty("value", out var listValue) || !listValue.TryGetProperty("children", out var nameItems)) return null;
+        var names = nameItems.EnumerateArray().Select(n => n.TryGetProperty("value", out var v) ? v.GetString() : null).ToList();
+        var values = Arr(exprs[listAt], "children").ToList();
+        if (names.Count == 0 || names.Count != values.Count || names.Any(n => n == null)) return null;
+
+        var source = Node(Arr(projection, "children").Single());
+        var outs = source.Outs();
+        var passthrough = exprs.Select((e, i) => (e, i)).Where(x => x.i != namesAt && x.i != listAt).ToList();
+        var aliases = passthrough.Select((x, j) => Str(x.e, "alias") ?? $"c{j}").ToList();
+        var nameColumn = UniqueName(aliases, "unpivot_name");
+        var valueColumn = UniqueName(aliases, "unpivot_value");
+        var branches = new List<string>();
+        for (var k = 0; k < names.Count; k++)
+        {
+            var branch = source.Clone();
+            branch.Sel = passthrough.Select((x, j) => new Item(Expr(x.e, outs), aliases[j], TypeNameOf(x.e))).ToList()
+                .Append(new Item($"'{names[k]!.Replace("'", "''")}'", nameColumn, "VARCHAR"))
+                .Append(new Item(Expr(values[k], outs), valueColumn, TypeNameOf(unnests[1])))
+                .ToList();
+            branches.Add(branch.Sql());
+        }
+        var a = Fresh();
+        var realNames = aliases.Append(nameColumn).Append(valueColumn).ToList();
+        var sel = new List<Item>();
+        var next = 0;
+        for (var i = 0; i < exprs.Count; i++)
+        {
+            if (i == namesAt || i == listAt) { sel.Add(new Item("NULL", Str(exprs[i], "alias"), null)); continue; }       // the two lists are not columns of the result
+            sel.Add(new Item(Token(a, realNames[next]), realNames[next], TypeNameOf(exprs[i])));
+            next++;
+        }
+        sel.Add(new Item(Token(a, nameColumn), nameColumn, "VARCHAR"));
+        sel.Add(new Item(Token(a, valueColumn), valueColumn, TypeNameOf(unnests[1])));
+        return new Rel { Frm = $"(\n{IndentText(string.Join("\nUNION ALL\n", branches))}\n) AS {a}", Sources = [a], Plain = true, Sel = sel };
+    }
+
+    private static string UniqueName(List<string> taken, string wanted)
+    {
+        var name = wanted;
+        for (var i = 2; taken.Contains(name, StringComparer.OrdinalIgnoreCase); i++) name = wanted + i;
+        return name;
+    }
+
+    /// <summary>
     /// `generate_series(a, b[, s])` and `range(...)` over integer constants become the engines' own GENERATE_SERIES (SQL Server 2022, PostgreSQL), with
     /// `range`'s exclusive end turned into an inclusive one. The column is cast to BIGINT because DuckDB's is, and SQL Server's would otherwise be INT.
     /// Date and timestamp series, UNNEST and any other table function are refused: the engines have no equal.
@@ -679,10 +801,34 @@ public sealed class PlanLowerer
             {
                 var c = Node(kids[0]);
                 if (!c.Mergeable() || c.HasWindow || c.HasAgg || c.Group.Count > 0 || c.Having.Count > 0) c = Wrap(c);
+                var aggregateExprs = Arr(p, "expressions").ToList();
+                // median, quantile_cont and quantile_disc have no aggregate form on SQL Server (only an analytic PERCENTILE_CONT with an OVER clause): the rows are ranked inside each group first, and the
+                // quantile is read off the ranks with conditional aggregates, which every engine has
+                var quantileColumns = new Dictionary<int, (int Rank, int Count)>();
+                if (aggregateExprs.Any(IsQuantile))
+                {
+                    var before = c.Outs();
+                    var partition = Arr(p, "groups").Select(g => Expr(g, before)).ToList();
+                    var by = partition.Count > 0 ? "PARTITION BY " + string.Join(", ", partition) : "";
+                    var items = new List<Item>(c.Sel);
+                    var ranked = new Dictionary<string, (int Rank, int Count)>(StringComparer.Ordinal);       // several quantiles of one column share one ranking
+                    for (var i = 0; i < aggregateExprs.Count; i++)
+                    {
+                        if (!IsQuantile(aggregateExprs[i])) continue;
+                        var x = Expr(Arr(aggregateExprs[i], "children").Single(), before);
+                        if (ranked.TryGetValue(x, out var shared)) { quantileColumns[i] = shared; continue; }
+                        quantileColumns[i] = ranked[x] = (items.Count, items.Count + 1);
+                        items.Add(new Item($"row_number() OVER ({by} ORDER BY {x} NULLS LAST)", null, "BIGINT"));
+                        items.Add(new Item($"count({x}) OVER ({by})", null, "BIGINT"));
+                    }
+                    c.Sel = items;
+                    c.HasWindow = true;
+                    c = Wrap(c);
+                }
                 var outs = c.Outs();
                 var childItems = c.Sel;
                 var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems))).ToList();
-                var aggs = Arr(p, "expressions").Select(a => (Sql: Expr(a, outs), Type: TypeNameOf(a), Outer: false)).ToList();
+                var aggs = aggregateExprs.Select((a, i) => (Sql: quantileColumns.TryGetValue(i, out var cols) ? Quantile(a, outs, cols.Rank, cols.Count) : Expr(a, outs), Type: TypeNameOf(a), Outer: false)).ToList();
                 if (groups.Count == 0 && aggs.Count == 0) throw new LoweringException("an empty aggregate");
                 // a group on a value of the enclosing query is constant for each outer row (DuckDB added it when it decorrelated the subquery), so it is not a GROUP BY any more
                 if (groups.Count > 0 && groups.All(g => g.Outer) && aggs.Count == 0) throw new LoweringException("an aggregate that only groups by correlated values");
@@ -807,6 +953,7 @@ public sealed class PlanLowerer
                 ctesInOrder.Add((Str(p, "ctename")!, definition.Sql()));   // before the main query, which may define more CTEs that read this one
                 return Node(kids[1]);
             }
+            case "LOGICAL_UNNEST" when TryUnpivot(p, kids) is { } unpivoted: return unpivoted;
             case "LOGICAL_RECURSIVE_CTE":
             {
                 // WITH RECURSIVE: the anchor query, then the recursive query that reads the CTE through a CTE_REF to this operator's own table index. The engines want both parts to have the same column types

@@ -17,6 +17,11 @@ SELECT p.product_id,
        CAST(round(p.base_cost * pow(1.06, price_steps(p.product_id)) * (1.35 + 0.5 * rnd(p.product_id, 67)), 2) AS DECIMAL(19, 4)) AS list_price,
        p.product_subcategory_id,
        DATE '2019-01-01' + to_days(pick(p.product_id, 68, 300)) AS sell_start_date,
-       CASE WHEN rnd(p.product_id, 69) < 0.08 THEN DATE '2024-06-30' END AS sell_end_date
+       CASE WHEN rnd(p.product_id, 69) < 0.08 THEN DATE '2024-06-30' END AS sell_end_date,
+       -- a JSON document of attributes: a frame for the bikes, tags for everything, and none for one product in ten
+       CASE WHEN rnd(p.product_id, 56) < 0.10 THEN NULL
+            WHEN p.product_id <= 30 THEN '{"frame": {"material": "' || ['alloy', 'carbon', 'steel', 'titanium'][1 + pick(p.product_id, 57, 4)] || '", "gears": ' || (1 + pick(p.product_id, 58, 24)) || '}, "tags": ["' ||
+                                         ['road', 'trail', 'city', 'race'][1 + pick(p.product_id, 59, 4)] || '", "' || ['new', 'sale', 'popular'][1 + pick(p.product_id, 60, 3)] || '"]}'
+            ELSE '{"tags": ["' || ['basic', 'premium', 'seasonal'][1 + pick(p.product_id, 59, 3)] || '"]}' END AS attributes
 FROM p
 JOIN production.product_subcategory s ON s.product_subcategory_id = p.product_subcategory_id

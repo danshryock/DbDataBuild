@@ -9,5 +9,6 @@ SELECT product_id,
        list_price,
        product_subcategory_id,
        sell_start_date,
-       sell_end_date
+       sell_end_date,
+       attributes
 FROM production.product

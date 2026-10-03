@@ -25,6 +25,8 @@ dbdatabuild render --write                 # the load scripts for SQL Server (re
 | `marts.agg_genre_revenue` | **aggregating** by genre and year with the share of the year, a rank, and a running total over the years (a window with a frame) |
 | `marts.agg_top_tracks` | the best three tracks of every genre (`row_number`), and units by year as columns (a pivot written with `CASE`) |
 | `marts.agg_customer_cohorts` | customers grouped by the month of their first purchase and how many came back, month by month |
+| `marts.rpt_genre_year_matrix` | `PIVOT`: the years of the genre revenue become columns |
+| `marts.rpt_best_track_per_genre` | `QUALIFY`: the first row of each genre's ranking, without a subquery |
 | `marts.rpt_playlists` | a many-to-many table, hours of music, and the most common genres of a playlist as one text (`string_agg`) |
 | `marts.rpt_sales_by_manager` | revenue **allocated up the hierarchy**: every manager's figure includes the people below them |
 

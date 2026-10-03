@@ -73,7 +73,7 @@ public sealed class EngineProbe : IDisposable
     }
 
     /// <summary>What the tool would send the engine for this query, or the lowering's refusal.</summary>
-    public (string? Sql, string? Refused) Render(string sql)
+    public (string? Sql, string? Refused) Render(string sql, DbDataBuild.Core.RewritePolicy? rewrites = null)
     {
         try
         {
@@ -81,8 +81,8 @@ public sealed class EngineProbe : IDisposable
             using (var cmd = duck.CreateCommand()) { cmd.CommandText = QueryDescriber.PlanStatement(sql); plan = (string)cmd.ExecuteScalar()!; }
             var names = new List<string>();
             using (var cmd = duck.CreateCommand()) { cmd.CommandText = "DESCRIBE " + sql; using var r = cmd.ExecuteReader(); while (r.Read()) names.Add(r.GetString(0)); }
-            var lowered = PlanLowerer.Lower(plan, names).Sql;
-            var ruled = TargetRules.Apply(lowered, engine.Name).Sql;
+            var lowered = PlanLowerer.Lower(plan, names, null, rewrites).Sql;
+            var ruled = TargetRules.Apply(lowered, engine.Name, rewrites).Sql;
             var (outcome, text) = Polyglot.TranspileOne(ruled, Dialects.Canonical, TargetRegistry.Get(engine.Name).Dialect);
             return outcome.Ok && text != null ? (text, null) : (null, "transpile: " + (outcome.Error ?? "failed"));
         }

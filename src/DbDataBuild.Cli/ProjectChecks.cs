@@ -35,7 +35,8 @@ internal static class ProjectChecks
                 bodyFile = $"rendered/{lowered.ArtifactPath}";
             }
             // each target is linted on the query it will actually get: the lowered one with that target's rules applied
-            foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, t).Sql, bodyFile ?? source.QueryFile, [t], config));
+            var rewrites = RewriteCatalog.For(config, source.Definition, diagnostics);
+            foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, t, rewrites).Sql, bodyFile ?? source.QueryFile, [t], config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
             if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, targets, body));
             diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));

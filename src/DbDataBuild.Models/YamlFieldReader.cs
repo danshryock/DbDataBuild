@@ -57,6 +57,34 @@ internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
         return list;
     }
 
+    /// <summary>Reads `rewrites:` (project or model): `fidelity: exact | native`, `disable: [names]`, `enable: [names]`. A name that is not a rewrite is reported with the list of names.</summary>
+    protected RewriteSettings? ReadRewrites(YamlMapping top)
+    {
+        if (top.Get("rewrites") is not { } node) return null;
+        if (node is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, node, "`rewrites` must be a mapping, for example `rewrites: { fidelity: native }`."); return null; }
+        CheckKeys(m, ["fidelity", "disable", "enable"], "`rewrites`");
+        string? fidelity = null;
+        if (Scalar(m, "fidelity", required: false, at: m) is { } f)
+        {
+            if (f.Value is RewriteSettings.Exact or RewriteSettings.Native) fidelity = f.Value;
+            else Add(DiagnosticCatalog.InvalidValue, f, $"`fidelity` is `{f.Value}`.", "exact (the engines are made to give DuckDB's answers) or native (the engines' own behavior).");
+        }
+        List<string> Names(string key)
+        {
+            var result = new List<string>();
+            foreach (var n in StringList(m, key, required: false, unique: true) ?? [])
+            {
+                if (RewriteCatalog.Find(n.Value) == null) Add(DiagnosticCatalog.InvalidValue, n, $"`{n.Value}` is not a rewrite.", $"One of: {string.Join(", ", RewriteCatalog.Names)}.");
+                else result.Add(n.Value);
+            }
+            return result;
+        }
+        var disable = Names("disable");
+        var enable = Names("enable");
+        foreach (var both in disable.Intersect(enable)) Add(DiagnosticCatalog.InvalidValue, m, $"`{both}` is in both `disable` and `enable`.");
+        return new RewriteSettings(fidelity, disable, enable, m.Line);
+    }
+
     /// <summary>Reads a required, non-empty `columns:` list (name, type, nullable, collation), reporting every problem.</summary>
         protected List<ColumnDefinition> ReadColumns(YamlMapping top)
         {

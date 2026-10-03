@@ -42,8 +42,22 @@ The older findings (from the probes, before the templates) are in `docs/research
 | A11 | a recursive query with decimal quantities multiplied down the levels and a path | lowered with the casts of C5; agrees on both engines | verified |
 | A12 | a backslash in a string literal (`strpos(login, '\')`) | read the same by the parser, DuckDB and both engines | verified |
 
+## The language areas (PIVOT, UNPIVOT, QUALIFY, LATERAL, quantiles, JSON, regular expressions)
+
+Models added to `adventureworks` (`rpt_revenue_by_color_year`, `rpt_quota_long`, `rpt_customer_last_order`, `rpt_territory_top_products`, `rpt_product_revenue_spread`, `dim_product_attributes`) and `chinook` (`rpt_genre_year_matrix`, `rpt_best_track_per_genre`); regular expressions, `nth_value` and the JSON functions that have no counterpart are probes (`EngineDifferenceProbes`), because a model that needs them runs on one engine only.
+
+| # | Construct | What happened | Disposition |
+|---|---|---|---|
+| L1 | `PIVOT` (statement or in a FROM) | the offline parser neither analyzes a PIVOT statement nor reads the query a PIVOT pulls from, so `define` could not find the tables it reads (DDB-219) and the dependency graph would have missed them | **fixed**: DuckDB's own parser (`json_serialize_sql`) says which tables a query reads when the offline parser does not know the syntax (`DuckParseTree`); lineage is unknown for such a query, the columns still come from DuckDB's describe. The lowering of a PIVOT was already an aggregate with `IS NOT DISTINCT FROM`, now covered |
+| L2 | `UNPIVOT` | the plan is an UNNEST of two lists built per row, which the lowerer refused | **fixed**: lowered to one SELECT per column joined by UNION ALL (the rows DuckDB drops for a NULL come out of the filter that follows). Any other `UNNEST` (a list column) is still **refused** |
+| L3 | `QUALIFY`, `LATERAL` | lowered to a window in a subquery and to a correlated subquery (`CROSS APPLY` on SQL Server) | verified on both engines, nothing to do |
+| L4 | `median`, `quantile_cont`, `quantile_disc` | refused (the fraction lives outside the aggregate's arguments); SQL Server has only an analytic PERCENTILE_CONT | **fixed**: the rows are ranked inside each group and the quantile read off the ranks with conditional aggregates, on any engine. A DECIMAL result follows DuckDB exactly: it interpolates as `lo * (1 - d) + hi * d` on the stored whole numbers and **cuts** the result (1228.40888 is 1228.4088). A list of fractions, DISTINCT and FILTER are **refused** |
+| L5 | `nth_value` | not lowered | **fixed** for PostgreSQL (lowered; native there); **cataloged** unsupported on SQL Server (matrix `fn.nth_value`) |
+| L6 | `json_extract_string` and the arrows | SQL Server: `JSON_VALUE` (same answers, NULL for an object); PostgreSQL: polyglot writes `x ->> '$.a.b'`, which takes a key not a path and no operator takes text; the arrows `->>` and `->` could not be transpiled; with several keys polyglot kept only the first, and under a CAST it wrote the last key as a path | **fixed**: the arrows are read as the functions; on PostgreSQL a simple literal path becomes a chain of `->` and a last `->>` (a number for an array position), in parentheses. Computed paths and wildcards **refused**. `json_extract`, `json_valid`, `json_type`, `json_keys` **cataloged** unsupported (matrix `fn.json_other`); `json_array_length` fixed on PostgreSQL, unsupported on SQL Server |
+| L7 | `regexp_full_match`, `regexp_extract`, `regexp_replace`, `regexp_matches` | PostgreSQL: the first wrote the unanchored `~` (a partial match counted), the second does not exist; SQL Server 2022 has none | **fixed** on PostgreSQL (anchored pattern; `regexp_match` with the group number plus one, `''` for no match); **cataloged** unsupported on SQL Server (2025 has REGEXP_*, not verified here). RE2 and PostgreSQL's ARE agree on common patterns, not all |
+| L8 | `generate_series` between dates, or with bounds from another table | refused | **cataloged** (a lateral series is a `CROSS APPLY` of GENERATE_SERIES, integers only on SQL Server); the templates count days forward from a constant series |
+| L9 | `IS NOT DISTINCT FROM` as a pivot's null-safe comparison | not covered (DDB-305) | **fixed**: covered, with the probes that already compare it |
+
 ## Not covered by a template yet
 
-`median` and `quantile_cont` (A4), `nth_value` (A3), `split_part` on SQL Server (C4), `PIVOT` and `UNPIVOT`, `QUALIFY`, `LATERAL`, `UNNEST` and list columns, JSON, `regexp_*`: the matrix says which of these
-are refused today; a template that needs one is how it gets built.
-
+`UNNEST` and list columns (L2), a lateral or date series (L8), `split_part` on SQL Server (C4), `json_extract` and `json_valid` (L6), and every regular expression on SQL Server (L7): the matrix says which are refused today; a template that needs one is how it gets built.

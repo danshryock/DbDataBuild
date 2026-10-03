@@ -12,19 +12,23 @@ namespace DbDataBuild.Tests.Conformance;
 /// </summary>
 public class TemplateConformanceTests
 {
-    public static TheoryData<string, string> Cases()
+    public static TheoryData<string, string, bool> Cases()
     {
-        var data = new TheoryData<string, string>();
+        var data = new TheoryData<string, string, bool>();
         foreach (var engine in new[] { "sqlserver", "postgres" })
             foreach (var template in new[] { "starter", "retail", "chinook", "adventureworks" })
-                data.Add(engine, template);
+                data.Add(engine, template, false);
+        // with the optional rewrites turned off (`rewrites: { fidelity: native }`) the engine's own behavior may give other values, never other rows: the projects still build and every table has the rows DuckDB gives
+        foreach (var engine in new[] { "sqlserver", "postgres" })
+            foreach (var template in new[] { "retail", "adventureworks" })
+                data.Add(engine, template, true);
         return data;
     }
 
     private const string PostgresConfig = "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\npolicy:\n  severity:\n    approximated: note\n";
 
     [SkippableTheory, MemberData(nameof(Cases))]
-    public async Task A_template_builds_on_the_engine_and_every_mart_matches_duckdb(string name, string template)
+    public async Task A_template_builds_on_the_engine_and_every_mart_matches_duckdb(string name, string template, bool native)
     {
         var engine = EngineEnv.Require(name);
         await engine.StartAsync();
@@ -44,6 +48,7 @@ public class TemplateConformanceTests
 
             Ok(Cli("new", template, dir), "new");
             if (name == "postgres") File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), PostgresConfig);
+            if (native) File.AppendAllText(Path.Combine(dir, "dbdatabuild.yml"), "\nrewrites:\n  fidelity: native\n");
 
             Ok(Cli("load-seeds", "--apply"), "load-seeds");
             Ok(Cli("render", "--write"), "render --write");
@@ -61,6 +66,12 @@ public class TemplateConformanceTests
                 Ok(sample, $"sample {mart}");
                 using var doc = JsonDocument.Parse(sample.Out);
                 var table = doc.RootElement.GetProperty("data").GetProperty("tables").EnumerateArray().Single(t => t.GetProperty("name").GetString() == mart);
+                if (native)
+                {
+                    var counted = int.Parse((await RowsAsync(engine, $"SELECT COUNT(*) FROM {mart}")).Single(), CultureInfo.InvariantCulture);
+                    Assert.True(table.GetProperty("row_count").GetInt32() == counted, $"{name} (native): {mart} has {counted} row(s), DuckDB gives {table.GetProperty("row_count").GetInt32()}");
+                    continue;
+                }
                 var expected = table.GetProperty("rows").EnumerateArray()
                     .Select(r => string.Join("|", r.EnumerateArray().Select(v => Canon(v.ValueKind == JsonValueKind.Null ? null : v.GetString()))))
                     .OrderBy(r => r, StringComparer.Ordinal).ToList();

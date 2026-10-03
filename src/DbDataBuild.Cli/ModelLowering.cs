@@ -49,6 +49,7 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
                 return new DuckTable(i < 0 ? "main" : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new DuckColumn(c.Name, c.Type, c.Nullable)).ToList());
             }).ToList();
 
+        var policy = RewriteCatalog.For(config, source.Definition);
         var (json, error) = QueryDescriber.SerializePlan(upstream, authorSql);
         if (json == null) return (null, Fail(error ?? "DuckDB returned no plan"));
         LoweredQuery query;
@@ -57,7 +58,7 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
             PlanLowerer.ThrowIfError(json);                                        // DuckDB's own parse and bind errors first
             var described = QueryDescriber.Describe(upstream, authorSql);
             if (!described.Ok) return (null, Fail(described.Error ?? "DuckDB could not describe the query"));
-            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf);
+            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf, policy);
         }
         catch (LoweringException ex) when (ex.Kind == "parser") { return (null, new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(source.QueryFile, 0, 0), $"The DuckDB parser reported: {ex.Message}")); }
         catch (LoweringException ex) when (ex.Kind is "binder" or "catalog" && ex.Message.StartsWith("Table with name", StringComparison.Ordinal))
@@ -73,6 +74,7 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         sb.Append($"-- model:        {name}\n-- source:       {source.QueryFile}\n-- source hash:  {authorHash}\n-- duckdb:       {duckDbVersion}\n-- tool version: {ProductInfo.Version}\n");
         sb.Append($"-- output:       {string.Join(", ", query.Columns.Select(c => $"{c.Name} {c.DuckDbType}"))}\n");
         if (query.Rules.Count > 0) sb.Append($"-- type rules:   {string.Join(", ", query.Rules)}\n");
+        if (!policy.IsDefault) sb.Append($"-- rewrites off: {policy.Describe()}\n");
         sb.Append(query.Sql).Append('\n');
         var text = sb.ToString();
         return (new LoweredModel(query.Sql, query, ArtifactPathFor(name), text, DbDataBuild.State.Hashing.ScriptHash(text)), null);

@@ -39,7 +39,8 @@ public sealed record ProjectConfig(
     bool StoreMetadataOnApply = false,
     bool LoweringEnabled = true,
     bool LintIndexes = true,
-    bool LintSlices = true)
+    bool LintSlices = true,
+    RewriteSettings? Rewrites = null)
 {
     /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();

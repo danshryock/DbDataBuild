@@ -31,6 +31,8 @@ Offline commands (`validate`, `render`, `loads`, `matrix`, `explain`, `define`) 
 4. `dbdatabuild apply <plan>` runs exactly the recorded statements. `--dry-run` runs every check and prints every statement without executing anything. Risky steps need `--allow-risky`; destructive steps need `--allow-destructive <object>` for each object. `--allow-dirty` permits a working tree with uncommitted changes (recorded).
 5. `dbdatabuild run` is `plan` + `apply` for routine loads only. It refuses (and points at `plan`) when the plan would contain DDL, a question or a risky step. This is the command to schedule.
 
+**Engine behavior and speed.** By default the tool rewrites a query wherever an engine would answer differently from DuckDB (a trailing space not counted by `LEN`, an integer cut instead of rounded, a week counted another way), and those rewrites show in the rendered SQL. If you would rather have each engine's own behavior, for shorter queries and simpler plans, say so in `dbdatabuild.yml` (`rewrites: { fidelity: native }`, or `disable: [name]` for single ones) or in one model's definition. `dbdatabuild matrix --rewrites` lists every rewrite, which ones an engine cannot do without (those stay on), and what the engine does when one is off; the rendered files say `-- rewrites off: ...`, and `validate` reports the differences it no longer hides as notes.
+
 ## 4. Scheduling (SQL Agent, cron, any scheduler)
 
 Schedule `dbdatabuild run` for routine loads; use `plan` and `apply` by hand or in a reviewed pipeline for anything that changes structure.

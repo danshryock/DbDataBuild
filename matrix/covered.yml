@@ -51,6 +51,8 @@
 - { node: is_null, evidence: [is_null] }
 - { node: lag, evidence: [lag_lead] }
 - { node: lead, evidence: [lead_fn] }
+- { node: null_safe_eq, evidence: [null_safe_eq_fn] }
+- { node: null_safe_neq, evidence: [null_safe_eq_fn] }
 - { node: n_tile, evidence: [ntile_fn] }
 - { node: percent_rank, evidence: [percent_rank_fn] }
 - { node: cume_dist, evidence: [cume_dist_fn] }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using DbDataBuild.Core;
 using DbDataBuild.Sql;
 
 namespace DbDataBuild.Targets.Rules;
@@ -11,7 +12,7 @@ namespace DbDataBuild.Targets.Rules;
 /// A rule fires only on a shape it recognises. Nothing here guesses at types: the lowerer, which knows them, marks the expressions that need a rule
 /// (`round(CAST(x AS DOUBLE), n)`, `TRY_CAST(CAST(s AS VARCHAR) AS INTEGER)`), and the mark is removed when the rule fires.
 /// </summary>
-public static class TargetRules
+public static partial class TargetRules
 {
     public sealed record Result(string Sql, IReadOnlyList<string> Rules);
 
@@ -25,13 +26,18 @@ public static class TargetRules
     public const string ConcatAsPlus = "concat-plus";
     public const string DateDiffBoundaries = "date-diff-boundaries";
     public const string DateDiffWeeks = "date-diff-weeks";
+    public const string JsonExtractString = "json-extract-string";
+    public const string JsonArrayLength = "json-array-length";
+    public const string RegexpFullMatch = "regexp-full-match";
+    public const string RegexpExtract = "regexp-extract";
     public const string SplitPart = "split-part";
     public const string StringAggAsArrayToString = "string-agg-array";
 
     /// <summary>Applies the rules of <paramref name="target"/> to a DuckDB-dialect query. Returns the text unchanged, byte for byte, when no rule fires.</summary>
-    public static Result Apply(string sql, string target)
+    public static Result Apply(string sql, string target, RewritePolicy? policy = null)
     {
         var rules = RulesFor(target);
+        if (policy is { IsDefault: false }) rules.RemoveWhere(r => !policy.Allows(r));
         if (rules.Count == 0) return new(sql, []);
         var parsed = Polyglot.Parse(sql, Dialects.Canonical);
         if (!parsed.Ok) return new(sql, []);
@@ -51,10 +57,13 @@ public static class TargetRules
         return n is JsonArray a ? string.Join(";\n", a.Select(x => x!.GetValue<string>())) : data;
     }
 
+    /// <summary>The names of the rules applied for a target, before any policy.</summary>
+    public static IReadOnlyCollection<string> RulesOf(string target) => RulesFor(target);
+
     private static HashSet<string> RulesFor(string target) => target switch
     {
         "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
-        "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks],
+        "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks, JsonExtractString, JsonArrayLength, RegexpFullMatch, RegexpExtract],
         _ => [],
     };
 
@@ -124,6 +133,28 @@ public static class TargetRules
                 // and PostgreSQL has no week unit (and its cast to an integer rounds where DuckDB cuts).
                 fired.Add(DateDiffWeeks);
                 return Template("CAST(sign(date_diff('day', __a, __b)) * floor(abs(date_diff('day', __a, __b)) / 7.0) AS BIGINT)", ("__a", weekFrom), ("__b", weekTo));
+            case "function" when rules.Contains(JsonExtractString) && IsJsonExtractString(body, out var jsonText, out var jsonKeys):
+                // polyglot writes `x ->> '$.a.b'` for PostgreSQL, which takes a key, not a path, and no operator takes text on the left. A simple path (names and array positions) is a list of keys of
+                // json_extract_path_text, which gives the scalar as text, NULL for a missing path, and the text of an object or array (with PostgreSQL's spacing).
+                fired.Add(JsonExtractString);
+                // (polyglot keeps only the first key of a call with several, so the keys are chained: -> for the steps in between and ->> for the last, a position as a number and a name as text)
+                var chain = "CAST(__x AS JSON)";
+                for (var i = 0; i < jsonKeys.Count; i++) chain = $"{(i == jsonKeys.Count - 1 ? "json_extract_path_text" : "json_extract_path")}({chain}, {jsonKeys[i]})";
+                // (in parentheses: directly inside a CAST polyglot writes the last key as a path, `->> '$.gears'`, which finds nothing)
+                return Template($"({chain})", ("__x", jsonText));
+            case "json_array_length" when rules.Contains(JsonArrayLength) && body["this"] is { } jsonArray:
+                // PostgreSQL's json_array_length takes json, not text
+                fired.Add(JsonArrayLength);
+                return Template("json_array_length(CAST(__x AS JSON))", ("__x", jsonArray));
+            case "function" when rules.Contains(RegexpFullMatch) && IsRegexp(body, "regexp_full_match", 2, out var fullText, out var fullPattern, out _):
+                // regexp_full_match must match the whole text; polyglot writes the unanchored `~`. The pattern is wrapped in a group that does not capture and anchored.
+                fired.Add(RegexpFullMatch);
+                return Template("regexp_matches(__s, ('^(?:' || __p || ')$'))", ("__s", fullText), ("__p", fullPattern));
+            case "function" when rules.Contains(RegexpExtract) && IsRegexp(body, "regexp_extract", 2, out var extractText, out var extractPattern, out var extractGroup):
+                // PostgreSQL has no regexp_extract. regexp_match returns the groups of the first match as an array without the whole match; wrapping the pattern in one more group puts the whole match first,
+                // so group n is element n + 1. DuckDB gives '' when nothing matches (and NULL for a NULL text).
+                fired.Add(RegexpExtract);
+                return Template($"CASE WHEN __s IS NULL THEN NULL ELSE coalesce((regexp_match(__s, '(' || __p || ')'))[{extractGroup + 1}], '') END", ("__s", extractText), ("__p", extractPattern));
             case "concat" when rules.Contains(ConcatAsPlus) && body["left"] is { } concatLeft && body["right"] is { } concatRight:
                 // The transpile turns `||` into `+` for SQL Server, except inside the arguments of the functions it rewrites into another shape (strpos becomes CHARINDEX with the arguments swapped, starts_with
                 // becomes LEFT ... = ...): `strpos(a || b, 'x')` came out as `CHARINDEX('x', a || b)`, which T-SQL does not parse. Writing the plus here makes every `||` come out the same. The lowered query
@@ -212,6 +243,34 @@ public static class TargetRules
         if (!string.Equals(f["name"]?.GetValue<string>(), "date_diff", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 3 } args) return false;
         if (args[0]?["literal"]?["value"]?.GetValue<string>()?.ToLowerInvariant() != "week" || args[1] is not { } a || args[2] is not { } b) return false;
         from = a; to = b;
+        return true;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\$(\.[A-Za-z_][A-Za-z0-9_]*|\[[0-9]+\])+$")]
+    private static partial System.Text.RegularExpressions.Regex SimpleJsonPath();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\.([A-Za-z_][A-Za-z0-9_]*)|\[([0-9]+)\]")]
+    private static partial System.Text.RegularExpressions.Regex JsonPathStep();
+
+    /// <summary>json_extract_string(x, '$.a.b[1]') with a literal path of names and positions.</summary>
+    private static bool IsJsonExtractString(JsonObject f, out JsonNode text, out List<string> keys)
+    {
+        text = null!; keys = [];
+        if (!string.Equals(f["name"]?.GetValue<string>(), "json_extract_string", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 2 } args) return false;
+        if (args[1]?["literal"] is not JsonObject lit || lit["literal_type"]?.GetValue<string>() != "string" || lit["value"]?.GetValue<string>() is not { } path || !SimpleJsonPath().IsMatch(path)) return false;
+        keys = JsonPathStep().Matches(path).Select(m => m.Groups[1].Success ? "'" + m.Groups[1].Value + "'" : m.Groups[2].Value).ToList();      // a name as a text literal, a position as a number
+        text = args[0]!;
+        return true;
+    }
+
+    /// <summary>A regexp function with a literal group number (0 when it takes none): `regexp_extract(s, p)` and `regexp_extract(s, p, 2)`.</summary>
+    private static bool IsRegexp(JsonObject f, string name, int minArgs, out JsonNode text, out JsonNode pattern, out int group)
+    {
+        text = pattern = null!; group = 0;
+        if (!string.Equals(f["name"]?.GetValue<string>(), name, StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray args || args.Count < minArgs || args.Count > 3) return false;
+        if (args.Count == 3 && (args[2]?["literal"] is not JsonObject g || g["literal_type"]?.GetValue<string>() != "number" || !int.TryParse(g["value"]?.GetValue<string>(), NumberStyles.None, CultureInfo.InvariantCulture, out group))) return false;
+        if (name != "regexp_extract" && args.Count != minArgs) return false;
+        text = args[0]!; pattern = args[1]!;
         return true;
     }
 

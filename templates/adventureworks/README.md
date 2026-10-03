@@ -27,6 +27,12 @@ dbdatabuild render --write                 # the load scripts for SQL Server (re
 | `marts.rpt_sales_person_quota` | quota attainment per quarter, a rank and a percentile (`percent_rank`) |
 | `marts.fct_inventory_snapshot` | stock next to sales, the average of the last three months (a rolling frame) and the months of supply |
 | `marts.fct_purchase_lines`, `marts.rpt_vendor_scorecard` | lead time, share received and rejected, shipped on time (`count(*) FILTER (...)`), vendors ranked by spend |
+| `marts.rpt_revenue_by_color_year` | `PIVOT`: the years become columns |
+| `marts.rpt_quota_long` | `UNPIVOT`: revenue and quota columns become one row per measure |
+| `marts.rpt_customer_last_order` | `QUALIFY`: the latest order of every customer |
+| `marts.rpt_territory_top_products` | `LATERAL`: the three best products of each territory, a subquery that reads the row it is joined to (`CROSS APPLY` on SQL Server) |
+| `marts.rpt_product_revenue_spread` | `median`, `quantile_cont` and `quantile_disc`, ranked inside each group because SQL Server has no aggregate for them |
+| `marts.dim_product_attributes` | **JSON**: `json_extract_string` reads the frame, the gears and the first tag out of the document each product carries |
 | `marts.fct_work_orders` | scrap rate, days late, and a status mapped from dates (an order with no end is in progress) |
 | `marts.dim_employee` | the department they are in now (the history row with no end), the pay rate in force (`row_number`), the years with the company |
 | `marts.dim_date` | a calendar from a series of numbers with a fiscal year that starts in July |

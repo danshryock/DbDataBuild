@@ -39,6 +39,7 @@ internal static class MetadataBuilder
                 default_targets = cfg.DefaultTargets,
                 target_versions = cfg.TargetVersions,
                 tracking_schema = cfg.TrackingSchema,
+                rewrites = new { fidelity = cfg.Rewrites?.Fidelity ?? RewriteSettings.Exact, disable = cfg.Rewrites?.Disable ?? [], enable = cfg.Rewrites?.Enable ?? [] },
                 string_semantics = new
                 {
                     @case = cfg.StringSemantics.Case.ToString().ToLowerInvariant(),
@@ -198,6 +199,7 @@ internal static class MetadataBuilder
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             definition_hash = hash,
             upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
+            rewrites_off = RewriteCatalog.For(ctx.Config, def).Disabled.Order(StringComparer.Ordinal).ToList(),
             lowered = lowered == null ? null : new
             {
                 file = $"rendered/{lowered.ArtifactPath}", hash = lowered.Hash, rules = lowered.Query.Rules,

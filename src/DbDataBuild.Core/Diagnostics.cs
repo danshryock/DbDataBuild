@@ -137,6 +137,10 @@ public static class DiagnosticCatalog
         "a committed `sources/<schema>/<table>.yml` with the columns, types and nullability the table has now",
         $"Run `{ProductInfo.Cli} import-sources --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} define --check` to see which models are affected.",
         "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `import-sources --check` makes the difference a finding for CI; it needs the read login.");
+    public static readonly DiagnosticDescriptor RewriteNotOptional = E("229", "A rewrite cannot be turned off",
+        "`rewrites.disable` names only rewrites that reproduce DuckDB's behavior; a rewrite a target cannot do without is not one of them",
+        "Remove the name from `disable`, or take the target out of the model's `targets`. `dbdatabuild matrix --rewrites` lists every rewrite and where each is required.",
+        "Some rewrites are what makes a query valid on an engine (SQL Server has no LPAD, PostgreSQL's round takes no double). Turning one off would send the engine a statement it rejects, so the tool refuses before it renders. The rewrites that only keep an engine's answer equal to DuckDB's (a trailing space counted, a week counted) can be turned off.");
     public static readonly DiagnosticDescriptor SourceNotImportable = W("228", "A table cannot be imported as a source",
         "a table or view whose schema and table names can be a path (`sources/<schema>/<table>.yml`), or a descriptor whose table exists",
         "Rename the object, or write the descriptor by hand under a name the project can use. If a descriptor names a table that no longer exists, delete the descriptor or restore the table.",
@@ -377,7 +381,7 @@ public static class DiagnosticCatalog
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
         YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
-        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, ApplyStopped,
+        MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,

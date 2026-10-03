@@ -439,3 +439,10 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: 1,372 unit tests pass; the 36 new window probes, the pad, split, date and concatenation probes agree with DuckDB on both engines or are listed with their reason; every mart of the four templates equals DuckDB's rows on both engines. Fabric has still never run.
 - **Left**: the refused constructs above; `OPTION (MAXRECURSION)` for deeper hierarchies on SQL Server (it cannot go in a view).
 
+## 47. Language areas, and turning the rewrites off
+
+- **Built** (DESIGN.md 7.6.2): `rewrites:` in `dbdatabuild.yml` and in a model (`fidelity: exact | native`, `disable`, `enable`), `RewriteCatalog` (seventeen named rewrites, each with what it does, where it is required and what the engine does without it), `RewritePolicy` threaded through the lowerer and the target rules, DDB-229 for a rewrite a target cannot do without, `-- rewrites off:` in the lowered query and every load script, `rewrites` in the metadata documents and schemas, `dbdatabuild matrix --rewrites`.
+- **Language areas** (docs/research/template-findings.md, L1 to L9): PIVOT tables found by DuckDB's parser, UNPIVOT lowered, quantiles and median ranked (DECIMAL results cut as DuckDB does), `nth_value`, JSON extraction on both engines, regular expressions on PostgreSQL; eight new template models; probes for JSON and regular expressions.
+- **Verified**: 1,414 unit tests; on SQL Server 2022 and PostgreSQL 17 the four templates equal DuckDB's rows (eight runs), `retail` and `adventureworks` built with `fidelity: native` have DuckDB's row counts (four runs), and `RewriteOptOutProbes` shows the engine's own answer differs from DuckDB's, in the documented way, for eleven optional rewrites. Fabric has never run.
+- **Left**: `UNNEST` of list columns, lateral and date series, regular expressions and the remaining JSON functions on SQL Server.
+

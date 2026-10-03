@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DbDataBuild.Sql.Ast;
+using DbDataBuild.Targets.DuckDb;
 
 namespace DbDataBuild.Sql.Analysis;
 
@@ -45,6 +46,10 @@ public static class QueryAnalyzer
             };
 
         var analysis = Polyglot.AnalyzeQuery(sql, JsonSerializer.Serialize(options));
+        // PIVOT and UNPIVOT are DuckDB syntax the offline parser reads only as far as the statement: it neither analyzes a PIVOT statement nor looks into the query a PIVOT reads from.
+        // DuckDB's own parser says which tables they read; lineage and nullability are then unknown (the output columns still come from DuckDB's describe).
+        if (!analysis.Ok && analysis.Error is { } failure && failure.Contains("requires a SELECT or set operation", StringComparison.Ordinal) && DuckParseTree.BaseTables(sql) is ({ } fallbackTables, _))
+            return (new QueryFacts([], fallbackTables.Select(t => new BaseTable(t.Schema, t.Name)).ToList(), [], false, 0, false), null);
         if (!analysis.Ok) return (null, analysis.Error);
         var parsed = Polyglot.Parse(sql, Dialects.Canonical);
         if (!parsed.Ok) return (null, parsed.Error);
@@ -60,6 +65,10 @@ public static class QueryAnalyzer
             Str(p, "nullability") ?? "unknown",
             p.GetProperty("upstream").EnumerateArray().Select(Ref).ToList())).ToList();
         var baseTables = root.GetProperty("baseTables").EnumerateArray().Select(t => new BaseTable(Str(t, "schema"), Str(t, "table") ?? Str(t, "name") ?? "")).ToList();
+        if (parsed.Data!.Contains("\"pivot\"", StringComparison.Ordinal) || parsed.Data.Contains("\"unpivot\"", StringComparison.Ordinal))
+            foreach (var t in DuckParseTree.BaseTables(sql).Tables ?? [])
+                if (!baseTables.Any(b => string.Equals(b.Schema ?? "", t.Schema ?? "", StringComparison.OrdinalIgnoreCase) && string.Equals(b.Table, t.Name, StringComparison.OrdinalIgnoreCase)))
+                    baseTables.Add(new BaseTable(t.Schema, t.Name));
         var grouped = root.TryGetProperty("columnUses", out var uses)
             ? uses.EnumerateArray().Where(u => Str(u, "context") == "group").SelectMany(u => u.GetProperty("references").EnumerateArray()).Select(Ref).ToList()
             : [];

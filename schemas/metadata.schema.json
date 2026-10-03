@@ -153,6 +153,35 @@
                   "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/hook"
                 }
               }
+            },
+            "rewrites": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fidelity": {
+                  "enum": [
+                    "exact",
+                    "native"
+                  ]
+                },
+                "disable": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "enable": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "fidelity",
+                "disable",
+                "enable"
+              ]
             }
           }
         },
@@ -713,6 +742,13 @@
           "type": "array",
           "items": {
             "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/indexAdvice"
+          }
+        },
+        "rewrites_off": {
+          "description": "The rewrites that are off for this model, after the project's settings and the model's own (empty by default).",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       },

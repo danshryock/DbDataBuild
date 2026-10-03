@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DbDataBuild.Core\DbDataBuild.Core.csproj" />
     <ProjectReference Include="..\DbDataBuild.Models\DbDataBuild.Models.csproj" />
+    <ProjectReference Include="..\DbDataBuild.Targets.DuckDb\DbDataBuild.Targets.DuckDb.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

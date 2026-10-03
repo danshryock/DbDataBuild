@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads and validates one model definition (.yml). All problems are reported in one pass.</summary>
 public static class ModelDefinitionLoader
 {
-    private static readonly string[] TopKeys = ["name", "kind", "grain", "targets", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore"];
+    private static readonly string[] TopKeys = ["name", "kind", "grain", "targets", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore", "rewrites"];
     private static readonly string[] RenameKeys = ["from", "to"];
 
     /// <param name="file">Path shown in diagnostics.</param>
@@ -62,6 +62,8 @@ public static class ModelDefinitionLoader
             foreach (var code in (lintIgnore ?? []).Where(c => !IndexAdvisorCodes.Contains(c.Value)))
                 Add(DiagnosticCatalog.InvalidValue, code, $"`{code.Value}` is not an advisory lint code.", $"One of: {string.Join(", ", IndexAdvisorCodes)}.");
 
+            var rewrites = ReadRewrites(top);
+
             // semantic checks
             var declared = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             void Ref(IEnumerable<YamlScalar>? refs, string what)
@@ -91,7 +93,7 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList());
+                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites);
         }
 
         private static readonly string[] IndexAdvisorCodes = [DiagnosticCatalog.MergeKeyNotIndexed.Code, DiagnosticCatalog.LoadColumnNotIndexed.Code, DiagnosticCatalog.LoadSliceNotPushable.Code];

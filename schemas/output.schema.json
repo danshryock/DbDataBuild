@@ -1086,6 +1086,51 @@
         },
         "covered_entries": {
           "type": "integer"
+        },
+        "rewrites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "layer": {
+                "enum": [
+                  "lowering",
+                  "target",
+                  "both"
+                ]
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "required_on": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "exact": {
+                "type": "string"
+              },
+              "native": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "layer",
+              "targets",
+              "required_on",
+              "exact",
+              "native"
+            ]
+          }
         }
       }
     },

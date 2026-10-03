@@ -526,6 +526,19 @@ The step does not guess types. The lowerer, which has them, **marks** the expres
 
 Known differences the rules do not remove: a string DuckDB reads as a number that an engine refuses (`'12.7'` as INTEGER is 13 and `'1e3'` is 1000 in DuckDB, NULL on the engines); a PostgreSQL `TRY_CAST` of a string longer than 38 digits raises; `round` of a double beyond 1e15 digits or scaled past the double range. A column declared HUGEINT is still refused, so a model writes `CAST(sum(n) AS BIGINT)`.
 
+#### 7.6.2 Rewrites, and turning them off (as built)
+
+Every step that makes an engine give DuckDB's answer is a **rewrite** with a name, listed as data in `RewriteCatalog` (`dbdatabuild matrix --rewrites` prints it: what the rewrite does, the targets it is for, where it is required, and what the engine does without it). They fall in two kinds. A **required** rewrite is what makes a query valid on an engine (`pad-to-length`, `concat-plus`, `date-plus-days`, `weekday-datefirst` on SQL Server; `split-part`, `string-agg-array`, `json-extract-string`, `json-array-length`, `regexp-full-match`, `regexp-extract` and `round-double` on PostgreSQL); it cannot be turned off. An **optional** rewrite only keeps the answer equal to DuckDB's (`length-trailing-spaces`, `double-to-int`, `decimal-to-int`, `double-to-decimal`, `avg-double`, `sum-widen`, `try-cast-parse`, `date-to-timestamp`, `date-diff-boundaries`, `date-diff-weeks`, and `round-double` on SQL Server).
+
+```yaml
+rewrites:                   # dbdatabuild.yml, and the same keys in a model definition (applied on top of the project's)
+  fidelity: native          # exact (default: every rewrite) or native (the engines' own behavior wherever it is allowed)
+  disable: [date-diff-weeks]   # single rewrites off
+  enable: [length-trailing-spaces]   # single rewrites back on, under fidelity: native
+```
+
+`native` gives shorter queries and simpler plans (no `LEN(s + 'x') - 1`, no scaled rounding, no widened sums), at the price of the engines' own answers where they differ; the matrix linter then reports those constructs as notes again, because the rewrite no longer silences them. Naming a rewrite the model's targets need in `disable` is DDB-229 (the other names in the list still apply). The policy is resolved per model for the targets it is built for, so `round-double` stays on for a model built for SQL Server and PostgreSQL (PostgreSQL has no `round(double precision, integer)`). The rendered files say what is off (`-- rewrites off: ...` in the lowered query and in every load script), the setting is part of what the rendered files hash, and the metadata documents carry it (`config.rewrites`, `rewrites_off` per model). `RewriteOptOutProbes` runs the optional rewrites both ways on a real engine and checks that the engine's own answer differs in the way the catalog says; the template conformance test builds `retail` and `adventureworks` with `fidelity: native` and compares row counts.
+
 ## 8. Targets
 
 ```csharp
