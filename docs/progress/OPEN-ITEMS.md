@@ -83,3 +83,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **DuckDB 2.0 adoption** (see `docs/research/duckdb-2.0/README.md`): lowering work is done (all unit and real-engine tests pass on the alpha). Open: it depends on the deprecated `delim_join_as_cte` setting (if it is removed, write the inverse decorrelation: 16 forms); wait for a DuckDB.NET release built for 2.0; then regenerate committed lowered artifacts (their headers carry the DuckDB version) and make 2.0 the default. A CI job running `scripts/test-duckdb-preview.sh` weekly would show convergence.
 - **GitHub**: the repository is private; no CI workflow yet (a workflow needs the polyglot library: building it takes a Rust toolchain and a few minutes, so cache `native/`); no branch protection, issue templates or release process; commit author is `dlshryoc` with no address (commits will not link to the GitHub account until the author identity is set for future commits).
 
+
+## K. Graph and diff (2026-10-03)
+
+- **Built**: selectors and `graph` (entry 42), `diff` version 1 (entry 43). **Not built**: `diff` across targets (SQL Server against PostgreSQL: range hashes and a canonical text form per type), a floating-point tolerance, comparing a table with a DuckDB run of its model; `changed:` ignores hook scripts and rendered files; `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan. A model-level `tags:` setting (and `tag:` selectors) is not there.

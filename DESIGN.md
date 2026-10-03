@@ -21,7 +21,7 @@ These are invariants. Each one must have automated tests (section 15).
 5. **Stateless by default.** What to do is derived from the git repo and the target's current catalog and data. Watermarks come from target data. Tracking tables are append-only records, not control inputs.
 6. **Configuration errors explain themselves.** Stable diagnostic codes, file and line, what was found, what is supported, suggested fix. Never a stack trace as primary output.
 7. **Supported states are enumerated data.** The support matrix and the planning decision table are tested data, not hidden branching logic.
-8. **Row data does not leave the target through tool output.** Diagnostics, logs, and plans contain schema, SQL, hashes, and counts only, never row values (see section 14). The one accepted exception is declared runtime parameter values and watermark resolver results, which are logged (section 6.6).
+8. **Row data does not leave the target through tool output.** Diagnostics, logs, and plans contain schema, SQL, hashes, and counts only, never row values (see section 14). The accepted exceptions are declared runtime parameter values and watermark resolver results, which are logged (section 6.6), and `diff --show-values`, which an operator requests explicitly to inspect differences (section 9.10): the values it reads appear in that command's own output and nowhere else, never in a log or a plan. The default stays safe: an operator can work with counts and column names alone.
 9. **No virtual environments, no implicit backfills, no automatic change categorization.**
 
 ## 3. Non-goals (first version)
@@ -565,6 +565,7 @@ Every command declares one **effect class**, printed in `--help` and in a header
 | `dbdatabuild explain <code>` | Offline only | Long-form diagnostic explanation |
 | `dbdatabuild define <path>` | Repo files only (no target connection) | Generate or update model definition files (YAML) from the query plus a guided walkthrough (section 6.5). `--check` writes nothing |
 | `dbdatabuild import-sources [<schema.table>...]` | Target read-only (writes `sources/` files only with `--write`) | Export tables and views from the target as source descriptors; refresh the project's descriptors; `--check` for CI (section 6.5.1) |
+| `dbdatabuild diff <table> --against <table>` | Target read-only | Compare the data of two tables of one target: schemas, row counts and a key-based row diff done in the engine; values only with `--show-values` (section 9.10) |
 | `dbdatabuild graph [<selector>...]` | Offline only | The dependency graph, column lineage and diagrams; selectors (section 9.9) |
 | `dbdatabuild test [<test>...]` | Offline only | Run the project's tests: metadata rules in `tests/metadata/` and model tests in `tests/models/` (section 9.8). In-memory DuckDB; no target, nothing written |
 | `dbdatabuild check` | Target read-only | Preflight findings: drift, blocks, history report inputs |
@@ -711,6 +712,17 @@ Several arguments are a union. A term that selects nothing is a usage error that
 **`dbdatabuild graph [selectors]`** (offline). It prints the chosen models and the tables they read by level, with each model's kind and what it reads (`--format json` has nodes, edges and unknown tables). `--columns` adds, for each output column, which column of which table it comes from and how (`direct`, `expression`, `aggregation`, ...), from the same lineage the metadata documents carry. `--column model.column` follows one column through the whole project: the source columns it comes from and every column built from it, with distances (the answer to "what does a change to this column reach?"). `--diagram dot|mermaid` prints a Graphviz or Mermaid diagram.
 
 **For rules**: the view `metadata_ancestors(model, ancestor, depth)` (a recursive query over `metadata_upstream`) is every table a model depends on and how far away it is, so a rule can say "no mart reads a source directly" or "nothing in `marts` is more than four levels above a source".
+
+### 9.10 Table diff (`dbdatabuild diff`, as built, version 1)
+
+`diff <schema.table> --against <schema.table>` (or `--against-schema <schema>` for the same table name in another schema, a development copy for example) compares the data of two tables or views **of one target** with read-only queries (effect class: target read-only; the read login; every statement through `ReadSession`).
+
+- **Schema.** The columns on both sides are paired by name. Columns on one side only are listed, a column whose type has no equality (`text`, `xml`, `json`, spatial types) or whose two types are of different kinds (text against a number) is **not compared** and says why, and a column whose type differs within a kind (`decimal(14,2)` against `decimal(18,3)`) is compared and the difference reported. `--columns` and `--exclude-columns` narrow the comparison (the key always stays).
+- **Key.** `--key a,b`, else the table's grain or unique key in the project (a model's `grain`, else `unique_key`, else a source descriptor's `grain`); with neither the command asks for `--key`. A key that is not unique on either side stops the row comparison and says how many keys repeat (the counts are still reported).
+- **Counts, inside the engine.** The row counts and non-NULL counts of every compared column (one query per side), the number of repeated keys, and then one `FULL OUTER JOIN` on the key that counts the rows on the left only, on the right only, matched, and matched with different values, in total and per column. A value is different if it differs or exactly one side is NULL (NULL equals NULL); the key is compared with `=`, so a row with a NULL key is a row on one side only. Text columns with different collations are compared in the left column's. Rows are marked present with a constant column, so a NULL in a key never makes a row look absent. Nothing is written and no row leaves the engine.
+- **Values only on request.** By default no value is read back: the output is counts and column names, so an operator can work and review without real data on screen. `--show-values` (with `--limit`, default 10) also reads the smallest and largest value of each column and sample rows of each kind of difference (only on the left, only on the right, and the differing columns of matched rows, as old and new), ordered by the key. They appear in the output of that command, in JSON under `samples`, and nowhere else: not in the statement log (which records SQL, never results), not in a plan. This is an accepted exception to principle 8, for an operator who asks.
+- **Exit code.** 0 when the compared columns are identical (same rows, same values), 1 when they differ or the key is not unique, 2 for a usage problem (a table that is not there, no key).
+- **Version 2 (not built): across targets.** SQL Server against PostgreSQL would hash rows in key ranges on each side, narrow the ranges that differ, and fetch only those rows. It needs a canonical text form of every column type on both engines (the probes in `docs/research/engine-differences` show how much the cast forms differ). Also not built: a tolerance for floating-point columns, and comparing a table with the result of DuckDB running the model on sample data.
 
 ## 10. Planning and applying
 
@@ -920,7 +932,7 @@ error DDB-214  marts/fct_orders.yml:3
 - Unhandled exceptions are caught at the top level and reported as **internal error (tool bug)**: what the command was doing, which statements already ran (from the statement log), and what state the target is in. A stack trace is never the primary output.
 - Full detail goes to a local log file **with values scrubbed**.
 - **SQL Server error messages contain data values** (conversion failures, duplicate keys). Runtime diagnostics must keep error numbers, states, and object names, and **strip message text that may contain values**. A test feeds known data-bearing errors and asserts the values never appear in output or logs.
-- Never log row values, statistics histograms, or execution plan literals. Declared runtime parameter values and resolver results are the one accepted exception (section 6.6).
+- Never log row values, statistics histograms, or execution plan literals. Declared runtime parameter values and resolver results (section 6.6), and the values `diff --show-values` prints to the operator who asked for them (section 9.10), are the accepted exceptions; the statement log holds the SQL, never a result.
 
 ## 15. Testing
 

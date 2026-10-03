@@ -847,6 +847,87 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Diff_compares_two_tables_of_one_target_with_counts_by_default_and_values_only_when_asked(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            System.Text.Json.Nodes.JsonNode Json((int Exit, string Out, string Err) r, int expectedExit)
+            {
+                Assert.True(r.Exit == expectedExit, $"exit {r.Exit}, expected {expectedExit}:\n{r.Out}\n{r.Err}");
+                return System.Text.Json.Nodes.JsonNode.Parse(r.Out)!;
+            }
+            // staging.orders (declared in the project with grain order_id): 1 10.00, 2 20.50, 3 NULL; add 5 50.00 (only on this side)
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (5, 50.00)");
+            await engine.ExecAsync(pg ? "CREATE SCHEMA dev" : "EXEC('CREATE SCHEMA dev')");
+            // the copy: 2 differs, 3 differs (NULL on the left), 4 is only here, 5 is missing, a wider decimal and one more column
+            await engine.ExecAsync($"CREATE TABLE dev.orders ({run.Q("order_id")} BIGINT NOT NULL, {run.Q("amount")} {engine.ColumnType("DECIMAL(18,3)")}, {run.Q("extra")} {engine.ColumnType("VARCHAR(5)")})");
+            await engine.ExecAsync("INSERT INTO dev.orders VALUES (1, 10.000, 'x'), (2, 21.500, 'x'), (3, 5.000, 'x'), (4, 40.000, 'x')");
+
+            // counts only: nothing of the data is read
+            var counts = Json(run.Cli("diff", "staging.orders", "--against-schema", "dev", "--format", "json"), 1);
+            var data = counts["data"]!;
+            Assert.Equal((4, 4, "grain"), ((int)data["left"]!["rows"]!, (int)data["right"]!["rows"]!, (string)data["key"]!["source"]!));
+            Assert.Equal((1, 1, 3, 2), ((int)data["rows"]!["only_left"]!, (int)data["rows"]!["only_right"]!, (int)data["rows"]!["matched"]!, (int)data["rows"]!["differing"]!));
+            Assert.Equal(2, (int)data["rows"]!["differing_by_column"]!["amount"]!);
+            Assert.Equal(["extra"], data["schema"]!["only_right"]!.AsArray().Select(x => (string)x!));
+            Assert.Equal(["amount"], data["schema"]!["type_differences"]!.AsArray().Select(x => (string)x!["column"]!));
+            Assert.Null(data["samples"]);
+            Assert.All(data["column_stats"]!.AsArray(), c => { Assert.Null(c!["left_min"]); Assert.Null(c["right_max"]); });
+            var amount = data["column_stats"]!.AsArray().Single(c => (string?)c!["column"] == "amount")!;
+            Assert.Equal((3, 4), ((int)amount["left_non_null"]!, (int)amount["right_non_null"]!));        // a NULL on one side is a count, not a value
+            Assert.False((bool)data["identical"]!);
+            Assert.DoesNotContain("21.5", counts.ToJsonString());
+            Assert.DoesNotContain("50.0", counts.ToJsonString());
+
+            // values, because the operator asked
+            var shown = Json(run.Cli("diff", "staging.orders", "--against", "dev.orders", "--show-values", "--limit", "5", "--format", "json"), 1)["data"]!;
+            var samples = shown["samples"]!;
+            Assert.Equal(("5", 50m), ((string)samples["only_left"]![0]!["key"]!["order_id"]!, decimal.Parse((string)samples["only_left"]![0]!["values"]!["amount"]!, System.Globalization.CultureInfo.InvariantCulture)));
+            Assert.Equal("4", (string?)samples["only_right"]![0]!["key"]!["order_id"]);
+            var differing = samples["differing"]!.AsArray().OrderBy(d => (string)d!["key"]!["order_id"]!).ToList();
+            Assert.Equal(["2", "3"], differing.Select(d => (string)d!["key"]!["order_id"]!));
+            Assert.Equal(("20.5", "21.5"), (Trim((string)differing[0]!["columns"]!["amount"]!["left"]!), Trim((string)differing[0]!["columns"]!["amount"]!["right"]!)));
+            Assert.Null((string?)differing[1]!["columns"]!["amount"]!["left"]);                           // NULL on the left
+            Assert.Equal("5", Trim((string)differing[1]!["columns"]!["amount"]!["right"]!));
+            Assert.Equal("10", Trim((string)shown["column_stats"]!.AsArray().Single(c => (string?)c!["column"] == "amount")!["left_min"]!));
+            Assert.Equal("50", Trim((string)shown["column_stats"]!.AsArray().Single(c => (string?)c!["column"] == "amount")!["left_max"]!));
+            var text = run.Cli("diff", "staging.orders", "--against-schema", "dev", "--show-values");
+            Assert.Contains("order_id=5", text.Out);
+            Assert.Contains("amount 20.50", text.Out.Replace("20.500", "20.50"));
+
+            // narrowing the columns, and a key given by hand
+            var narrow = Json(run.Cli("diff", "staging.orders", "--against-schema", "dev", "--columns", "order_id", "--format", "json"), 1)["data"]!;
+            Assert.Equal((0, 1, 1), ((int)narrow["rows"]!["differing"]!, (int)narrow["rows"]!["only_left"]!, (int)narrow["rows"]!["only_right"]!));
+
+            // an identical copy
+            await engine.ExecAsync(pg ? "CREATE TABLE dev.copy AS SELECT * FROM staging.orders" : "SELECT * INTO dev.copy FROM staging.orders");
+            var same = Json(run.Cli("diff", "staging.orders", "--against", "dev.copy", "--format", "json"), 0)["data"]!;
+            Assert.True((bool)same["identical"]!);
+            Assert.Equal((4, 0, 0, 0), ((int)same["rows"]!["matched"]!, (int)same["rows"]!["only_left"]!, (int)same["rows"]!["only_right"]!, (int)same["rows"]!["differing"]!));
+
+            // a key that is not unique: rows are not compared, and it says so
+            await engine.ExecAsync("INSERT INTO dev.copy VALUES (1, 10.00)");
+            var dup = Json(run.Cli("diff", "staging.orders", "--against", "dev.copy", "--format", "json"), 1)["data"]!;
+            Assert.Equal((false, 0, 1), ((bool)dup["rows"]!["compared"]!, (int)dup["duplicate_keys"]!["left"]!, (int)dup["duplicate_keys"]!["right"]!));
+            Assert.Contains("is not unique", run.Cli("diff", "staging.orders", "--against", "dev.copy").Out);
+
+            // a column of another kind is not compared; a table that is not there is a usage error
+            await engine.ExecAsync($"CREATE TABLE dev.texty ({run.Q("order_id")} BIGINT NOT NULL, {run.Q("amount")} {engine.ColumnType("VARCHAR(20)")})");
+            var kinds = Json(run.Cli("diff", "staging.orders", "--against", "dev.texty", "--format", "json"), 1)["data"]!;
+            Assert.Equal(["amount"], kinds["schema"]!["not_compared"]!.AsArray().Select(x => (string)x!["column"]!));
+            var gone = run.Cli("diff", "staging.orders", "--against", "dev.nothing");
+            Assert.Equal(2, gone.Exit);
+            Assert.Contains("is not a table or view", gone.Err);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+
+        static string Trim(string number) => decimal.Parse(number, System.Globalization.CultureInfo.InvariantCulture).ToString("0.#########", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task Unlimited_text_stays_unlimited_from_the_source_through_the_model_to_the_target(string name)
     {
         var run = await SetUp(name);

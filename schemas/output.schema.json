@@ -497,6 +497,25 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "diff"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_diff"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -2570,6 +2589,376 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "data_diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "left": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "table": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "integer"
+            },
+            "columns": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "table",
+            "rows",
+            "columns"
+          ]
+        },
+        "right": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "table": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "integer"
+            },
+            "columns": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "table",
+            "rows",
+            "columns"
+          ]
+        },
+        "key": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "source": {
+              "enum": [
+                "option",
+                "grain",
+                "unique_key"
+              ]
+            }
+          },
+          "required": [
+            "columns",
+            "source"
+          ]
+        },
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "compared_columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "only_left": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "only_right": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "not_compared": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "column": {
+                    "type": "string"
+                  },
+                  "left_type": {
+                    "type": "string"
+                  },
+                  "right_type": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "column",
+                  "left_type",
+                  "right_type",
+                  "reason"
+                ]
+              }
+            },
+            "type_differences": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "column": {
+                    "type": "string"
+                  },
+                  "left_type": {
+                    "type": "string"
+                  },
+                  "right_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "column",
+                  "left_type",
+                  "right_type"
+                ]
+              }
+            }
+          },
+          "required": [
+            "compared_columns",
+            "only_left",
+            "only_right",
+            "not_compared",
+            "type_differences"
+          ]
+        },
+        "duplicate_keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "left": {
+              "type": "integer"
+            },
+            "right": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "left",
+            "right"
+          ]
+        },
+        "rows": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "compared": {
+              "type": "boolean"
+            },
+            "only_left": {
+              "type": "integer"
+            },
+            "only_right": {
+              "type": "integer"
+            },
+            "matched": {
+              "type": "integer"
+            },
+            "differing": {
+              "type": "integer"
+            },
+            "differing_by_column": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          },
+          "required": [
+            "compared",
+            "only_left",
+            "only_right",
+            "matched",
+            "differing",
+            "differing_by_column"
+          ]
+        },
+        "column_stats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "type": "string"
+              },
+              "left_non_null": {
+                "type": "integer"
+              },
+              "right_non_null": {
+                "type": "integer"
+              },
+              "left_min": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "left_max": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "right_min": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "right_max": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "column",
+              "left_non_null",
+              "right_non_null"
+            ]
+          }
+        },
+        "samples": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "description": "Present only with --show-values: real values, in the output the operator asked for.",
+          "properties": {
+            "only_left": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "key",
+                  "values"
+                ]
+              }
+            },
+            "only_right": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "key",
+                  "values"
+                ]
+              }
+            },
+            "differing": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "columns": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "left": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "right": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "description": "A side that is NULL is left out."
+                    }
+                  }
+                },
+                "required": [
+                  "key",
+                  "columns"
+                ]
+              }
+            }
+          }
+        },
+        "identical": {
+          "type": "boolean"
         }
       }
     }

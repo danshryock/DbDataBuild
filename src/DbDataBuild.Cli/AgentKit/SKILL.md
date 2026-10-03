@@ -30,6 +30,7 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |
 | `import-sources [schema.table ...] [--write \| --check]` | database, read-only (files only with `--write`) | export tables and views from the target as `sources/` descriptors; with no arguments refresh the existing ones; the default shows a diff and writes nothing |
+| `diff <schema.table> --against <schema.table> \| --against-schema <schema> [--key a,b] [--show-values]` | database, read-only | compare the data of two tables of one target: schema, row counts and a key-based row diff done in the engine; counts only unless `--show-values` (ask the person before using it: it prints real data) |
 | `check`, `plan`, `report` | database, read-only | drift and blocks; write a plan file; history |
 | `apply <plan>`, `run`, `ack`, `init --apply`, `publish-metadata` | **changes the database** | only with the person's go-ahead; `apply --dry-run` changes nothing |
 

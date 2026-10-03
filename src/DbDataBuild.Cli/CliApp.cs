@@ -180,6 +180,22 @@ public static class CliApp
                     cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "diff":
+                    var diffTable = new Argument<string>("table") { Description = "The table or view to compare, as schema.table (a model's table, for example)" };
+                    var diffProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var diffTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var diffAgainst = new Option<string?>("--against") { Description = "The table or view to compare it with, as schema.table" };
+                    var diffAgainstSchema = new Option<string?>("--against-schema") { Description = "Compare with the table of the same name in this schema (a development copy, for example)" };
+                    var diffKey = new Option<string[]>("--key") { Description = "Columns that identify a row (default: the model's grain or unique key, or a source's grain)", AllowMultipleArgumentsPerToken = true };
+                    var diffOnly = new Option<string[]>("--columns") { Description = "Compare only these columns (and the key)", AllowMultipleArgumentsPerToken = true };
+                    var diffExcept = new Option<string[]>("--exclude-columns") { Description = "Leave these columns out of the comparison", AllowMultipleArgumentsPerToken = true };
+                    var diffValues = new Option<bool>("--show-values") { Description = "Read and show values: the smallest and largest of each column and sample rows of each difference (without it only counts are read)" };
+                    var diffLimit = new Option<int>("--limit") { Description = "With --show-values, how many sample rows of each kind of difference", DefaultValueFactory = _ => 10 };
+                    cmd.Arguments.Add(diffTable); cmd.Options.Add(diffProject); cmd.Options.Add(diffTarget); cmd.Options.Add(diffAgainst); cmd.Options.Add(diffAgainstSchema); cmd.Options.Add(diffKey);
+                    cmd.Options.Add(diffOnly); cmd.Options.Add(diffExcept); cmd.Options.Add(diffValues); cmd.Options.Add(diffLimit);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => DiffCommand.Run(spec, pr.GetValue(diffProject)!.FullName, pr.GetValue(diffTable)!, pr.GetValue(diffAgainst), pr.GetValue(diffAgainstSchema), pr.GetValue(diffTarget),
+                        pr.GetValue(diffKey) ?? [], pr.GetValue(diffOnly) ?? [], pr.GetValue(diffExcept) ?? [], pr.GetValue(diffValues), pr.GetValue(diffLimit), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "graph":
                     var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `target:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
                     var graphProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };

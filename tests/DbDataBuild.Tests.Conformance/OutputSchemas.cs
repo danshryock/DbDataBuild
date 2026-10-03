@@ -26,7 +26,7 @@ internal static class OutputSchemas
         var node = JsonNode.Parse(document) ?? throw new InvalidOperationException($"`{command}` printed no JSON document.");
         var result = Output.Value.Evaluate(JsonSerializer.SerializeToNode(node), new EvaluationOptions { OutputFormat = OutputFormat.List });
         if (result.IsValid) return;
-        var why = string.Join("\n", result.Details.Where(d => d.Errors != null).SelectMany(d => d.Errors!.Select(e => $"{d.InstanceLocation}: {e.Key}: {e.Value}")).Take(8));
+        var why = string.Join("\n", result.Details.Where(d => d.Errors != null).OrderBy(d => d.InstanceLocation.ToString().StartsWith("/data", StringComparison.Ordinal) ? 0 : 1).SelectMany(d => d.Errors!.Select(e => $"{d.InstanceLocation}: {e.Key}: {e.Value}")).Take(8));
         throw new Xunit.Sdk.XunitException($"`{command}` output does not satisfy output.schema.json:\n{why}\n{document}");
     }
 }
