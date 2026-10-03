@@ -245,6 +245,8 @@ columns:
     nullable: false
   - name: amount
     type: DECIMAL(14, 2)
+  - name: customer_id
+    type: BIGINT
 indexes:                                 # optional: what the table has (import-sources writes them)
   - {name: ix_orders_amount, columns: [amount], include: [order_id]}
 foreign_keys:

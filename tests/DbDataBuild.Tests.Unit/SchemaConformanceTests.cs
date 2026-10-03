@@ -281,7 +281,9 @@ public class DesignDocExampleTests
         var diags = new List<DbDataBuild.Core.Diagnostic>();
         var d = DbDataBuild.Models.SourceDescriptorLoader.Load(yaml, "sources/staging/orders.yml", "staging.orders", diags);
         Assert.Empty(diags.Select(DbDataBuild.Core.DiagnosticFormatter.Format));
-        Assert.Equal(["order_id", "amount"], d!.Columns.Select(c => c.Name));
+        Assert.Equal(["order_id", "amount", "customer_id"], d!.Columns.Select(c => c.Name));
+        Assert.Equal(["ix_orders_amount"], d.Indexes.Select(i => i.Name));
+        Assert.Equal(["fk_orders_customer"], d.ForeignKeys.Select(f => f.Name));
     }
 
     [Fact]
