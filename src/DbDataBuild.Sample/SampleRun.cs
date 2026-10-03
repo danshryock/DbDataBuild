@@ -10,7 +10,9 @@ public sealed record SampleModel(string Name, IReadOnlyList<ColumnDefinition> Co
 /// <param name="Rows">Rows generated per source.</param>
 /// <param name="Limit">Rows of each result that are returned (the row count is always complete).</param>
 /// <param name="DataDir">A directory of CSV files named after sources (`staging.orders.csv`); a source with a file uses it instead of generated rows.</param>
-public sealed record SampleOptions(int Rows = 50, int Seed = 1, int Limit = 20, string? DataDir = null);
+/// <param name="Seeds">The project's seeds (DESIGN.md 15.6): a source with a seed is filled by running it, with the variables `seed` and `scale`, instead of generated at random.</param>
+/// <param name="Scale">The variable `scale` the seeds read; null keeps the project's default.</param>
+public sealed record SampleOptions(int Rows = 50, int Seed = 1, int Limit = 20, string? DataDir = null, SeedSet? Seeds = null, int? Scale = null);
 
 public sealed record SampleColumn(string Name, string Type);
 
@@ -52,7 +54,28 @@ public static class SampleRun
         Exec(db, "SET enable_external_access = false");
 
         var tables = new List<SampleTable>();
-        foreach (var s in neededSources)
+        // sources with a seed (and no CSV of their own) are filled by their seeds, together with the seeds those read
+        var seeded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (options.Seeds is { Seeds.Count: > 0 } seedSet)
+        {
+            bool HasCsv(SourceDescriptor s) => options.DataDir != null && File.Exists(Path.Combine(options.DataDir, s.Name + ".csv"));
+            var wanted = neededSources.Where(s => seedSet.Find(s.Name) != null && !HasCsv(s)).Select(s => s.Name).ToList();
+            if (wanted.Count > 0)
+            {
+                try
+                {
+                    var loaded = SeedRun.Load(db, sources, seedSet, wanted, options.Seed, options.Scale);
+                    foreach (var l in loaded)
+                    {
+                        seeded.Add(l.Name);
+                        var s = bySource[l.Name];
+                        tables.Add(Read(db, s.Name, "source", s.Columns.Select(c => new SampleColumn(c.Name, c.Type)).ToList(), options, null, $"seeded by {l.File} (seed {options.Seed}{(options.Scale != null ? $", scale {options.Scale}" : "")})", []));
+                    }
+                }
+                catch (SampleException ex) { foreach (var name in wanted) { seeded.Add(name); tables.Add(new SampleTable(name, "source", Columns(bySource[name].Columns), 0, [], ex.Message, null, [])); } }
+            }
+        }
+        foreach (var s in neededSources.Where(s => !seeded.Contains(s.Name)))
         {
             try { tables.Add(LoadSource(db, s, options)); }
             catch (SampleException ex) { tables.Add(new SampleTable(s.Name, "source", Columns(s.Columns), 0, [], ex.Message, null, [])); }

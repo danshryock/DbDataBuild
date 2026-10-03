@@ -101,9 +101,24 @@ public static class CliApp
                     var sampleLimit = new Option<int>("--limit") { Description = "Rows of each result to show (the row count is always complete)", DefaultValueFactory = _ => 20 };
                     var sampleData = new Option<DirectoryInfo?>("--data") { Description = "A directory of CSV files named after sources (staging.orders.csv) to use instead of generated rows" };
                     var sampleSources = new Option<bool>("--sources") { Description = "Also show the source tables the models read" };
-                    cmd.Arguments.Add(sampleModels);
+                    var sampleScale = new Option<int?>("--scale") { Description = "For sources that have a seed (seeds/): the scale the seed reads with getvariable('scale'), usually how many of the main entity (default: the project's own)" };
+                    cmd.Arguments.Add(sampleModels); cmd.Options.Add(sampleScale);
                     cmd.Options.Add(sampleProject); cmd.Options.Add(sampleRows); cmd.Options.Add(sampleSeed); cmd.Options.Add(sampleLimit); cmd.Options.Add(sampleData); cmd.Options.Add(sampleSources);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => SampleCommand.Run(spec, pr.GetValue(sampleProject)!.FullName, pr.GetValue(sampleModels) ?? [], pr.GetValue(sampleRows), pr.GetValue(sampleSeed), pr.GetValue(sampleLimit), pr.GetValue(sampleData)?.FullName, pr.GetValue(sampleSources), o, e)));
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => SampleCommand.Run(spec, pr.GetValue(sampleProject)!.FullName, pr.GetValue(sampleModels) ?? [], pr.GetValue(sampleRows), pr.GetValue(sampleSeed), pr.GetValue(sampleLimit), pr.GetValue(sampleScale), pr.GetValue(sampleData)?.FullName, pr.GetValue(sampleSources), o, e)));
+                    break;
+                case "seed":
+                    var seedProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var seedSeed = new Option<int>("--seed") { Description = "The variable `seed` the seeds read: the same seed and scale give the same rows", DefaultValueFactory = _ => 1 };
+                    var seedScale = new Option<int?>("--scale") { Description = "The variable `scale` the seeds read, usually how many of the main entity (default: the project's own)" };
+                    var seedOut = new Option<FileInfo?>("--out") { Description = $"The DuckDB file to write (default: {SeedCommand.DefaultFile})" };
+                    cmd.Options.Add(seedProject); cmd.Options.Add(seedSeed); cmd.Options.Add(seedScale); cmd.Options.Add(seedOut);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => SeedCommand.Run(spec, pr.GetValue(seedProject)!.FullName, pr.GetValue(seedSeed), pr.GetValue(seedScale), pr.GetValue(seedOut)?.FullName, o, e)));
+                    break;
+                case "new":
+                    var newTemplate = new Argument<string?>("template") { Description = "The template to create (omit to list them)", Arity = ArgumentArity.ZeroOrOne };
+                    var newDirectory = new Argument<string?>("directory") { Description = "Where to write it (default: a directory named after the template)", Arity = ArgumentArity.ZeroOrOne };
+                    cmd.Arguments.Add(newTemplate); cmd.Arguments.Add(newDirectory);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => NewCommand.Run(spec, pr.GetValue(newTemplate), pr.GetValue(newDirectory), o, e)));
                     break;
                 case "loads":
                     var loadsProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };

@@ -1,0 +1,13 @@
+name: marts.customers
+kind: {type: full}
+grain: [customer_id]
+columns:
+  - {name: customer_id, type: INTEGER, nullable: false}
+  - {name: first_name, type: "VARCHAR(40)"}
+  - {name: last_name, type: "VARCHAR(40)"}
+  - {name: number_of_orders, type: BIGINT, nullable: false}
+  - {name: first_order_date, type: DATE}
+  - {name: most_recent_order_date, type: DATE}
+  - {name: lifetime_value, type: "DECIMAL(14, 2)"}
+indexes:
+  - {name: ux_customers_customer_id, columns: [customer_id], unique: true}

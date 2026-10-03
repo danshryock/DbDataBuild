@@ -13,6 +13,9 @@
 - { datatype: var_char, evidence: [cast_varchar_nolen, cast_varchar_len] }
 - { function: CURRENT_TIMESTAMP, evidence: [current_ts] }
 - { function: DATE_DIFF, evidence: [date_diff] }
+- { function: DATE_PART, evidence: [date_part_year] }
+- { function: SIGN, evidence: [sign_fn] }
+- { function: TRUNC, evidence: [trunc_fn] }
 - { function: DATE_TRUNC, evidence: [date_trunc_day] }
 - { function: LTRIM, evidence: [trim_fns] }
 - { function: NULLIF, evidence: [nullif_fn] }
@@ -60,6 +63,7 @@
 - { node: rank, evidence: [count_over_window] }
 - { node: select, evidence: [cast_varchar_nolen, cast_varchar_len, unicode_literal] }
 - { node: star, evidence: [ilike, limit, limit_offset] }
+- { node: str_position, evidence: [strpos_fn] }
 - { node: sub, evidence: [arithmetic_ops, abs_fn] }
 - { node: subquery, evidence: [lateral_join, subquery_from] }
 - { node: substring, evidence: [substr_fn] }

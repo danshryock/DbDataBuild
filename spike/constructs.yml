@@ -105,3 +105,7 @@
 - { id: string_agg_fn,       sql: "SELECT STRING_AGG(s, ',' ORDER BY a) AS x FROM t",                expect: translate }
 - { id: date_part_week,      sql: "SELECT DATE_PART('week', d) AS x FROM t",                         expect: differs }
 - { id: substr_negative,     sql: "SELECT SUBSTR(s, -2) AS x FROM t",                                expect: differs }
+- { id: date_part_year,      sql: "SELECT DATE_PART('year', d) AS x FROM t",                         expect: translate }
+- { id: sign_fn,             sql: "SELECT SIGN(a) AS x FROM t",                                       expect: translate }
+- { id: trunc_fn,            sql: "SELECT TRUNC(CAST(a AS DOUBLE) / 3) AS x FROM t",                   expect: translate }
+- { id: strpos_fn,           sql: "SELECT STRPOS(s, 'b') AS x FROM t",                                 expect: translate }

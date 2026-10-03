@@ -23,6 +23,8 @@
   <ItemGroup>
     <EmbeddedResource Include="AgentKit\SKILL.md" LogicalName="agentkit/SKILL.md" />
     <EmbeddedResource Include="..\..\schemas\*.json" LogicalName="agentkit/schemas/%(Filename)%(Extension)" />
+    <!-- project templates (DESIGN.md 15.7): templates/<name>/** is written out by `dbdatabuild new <name>`; the dot files too -->
+    <EmbeddedResource Include="..\..\templates\**\*" LogicalName="templates/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

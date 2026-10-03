@@ -516,6 +516,44 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "seed"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_seed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "new"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_new"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -1949,6 +1987,12 @@
               "warnings"
             ]
           }
+        },
+        "scale": {
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       }
     },
@@ -2959,6 +3003,94 @@
         },
         "identical": {
           "type": "boolean"
+        }
+      }
+    },
+    "data_seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "seed_file": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "seed_file",
+              "rows"
+            ]
+          }
+        },
+        "sources_without_a_seed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "data_new": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "files": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "files"
+            ]
+          }
+        },
+        "directory": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

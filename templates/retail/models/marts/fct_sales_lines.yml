@@ -1,0 +1,19 @@
+name: marts.fct_sales_lines
+kind: {type: incremental_by_unique_key, unique_key: [order_id, line_no]}
+grain: [order_id, line_no]
+columns:
+  - {name: order_id, type: INTEGER, nullable: false}
+  - {name: line_no, type: INTEGER, nullable: false}
+  - {name: date_key, type: BIGINT, nullable: false}
+  - {name: customer_id, type: INTEGER, nullable: false}
+  - {name: product_id, type: INTEGER, nullable: false}
+  - {name: store_id, type: INTEGER, nullable: false}
+  - {name: quantity, type: INTEGER, nullable: false}
+  - {name: gross_amount, type: "DECIMAL(18, 2)", nullable: false}
+  - {name: allocated_discount, type: "DECIMAL(18, 2)", nullable: false}
+  - {name: allocated_shipping, type: "DECIMAL(18, 2)", nullable: false}
+  - {name: net_amount, type: "DECIMAL(18, 2)", nullable: false}
+  - {name: margin_amount, type: "DECIMAL(18, 2)", nullable: false}
+indexes:
+  - {name: ux_fct_sales_lines, columns: [order_id, line_no], unique: true}
+  - {name: ix_fct_sales_lines_date, columns: [date_key]}

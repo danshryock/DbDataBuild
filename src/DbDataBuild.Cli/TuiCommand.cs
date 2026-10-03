@@ -53,7 +53,7 @@ internal static class TuiCommand
         private static OptionInfo Describe(Option o)
         {
             var type = o.ValueType;
-            var kind = type == typeof(bool) ? OptionKind.Flag : type == typeof(int) ? OptionKind.Integer
+            var kind = type == typeof(bool) ? OptionKind.Flag : type == typeof(int) || type == typeof(int?) ? OptionKind.Integer
                 : type == typeof(DirectoryInfo) || type == typeof(FileInfo) ? OptionKind.Path : type == typeof(string[]) ? OptionKind.List : OptionKind.Text;
             string? def = o.HasDefaultValue ? o.GetDefaultValue() switch { null => null, string[] a => string.Join(",", a), var v => v.ToString() } : null;
             var choices = o.Name == "--target" ? TargetNames.All : [];

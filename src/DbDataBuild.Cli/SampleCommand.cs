@@ -1,4 +1,5 @@
 using DbDataBuild.Core;
+using DbDataBuild.Models;
 using DbDataBuild.Sample;
 using DbDataBuild.Sql.Analysis;
 
@@ -10,7 +11,7 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class SampleCommand
 {
-    public static int Run(CommandSpec spec, string projectRoot, string[] models, int rows, int seed, int limit, string? dataDir, bool showSources, TextWriter output, TextWriter error)
+    public static int Run(CommandSpec spec, string projectRoot, string[] models, int rows, int seed, int limit, int? scale, string? dataDir, bool showSources, TextWriter output, TextWriter error)
     {
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
         if (rows < 1 || rows > 100_000) { error.WriteLine("--rows must be between 1 and 100000."); return CliApp.ExitUsage; }
@@ -30,12 +31,13 @@ internal static class SampleCommand
         }).ToList();
 
         SampleResult result;
-        try { result = SampleRun.Run(ctx.Project.Descriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir)); }
+        try { result = SampleRun.Run(ctx.Project.Descriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir, SeedLoader.Load(projectRoot), scale)); }
         catch (SampleException ex) { error.WriteLine(ex.Message); return CliApp.ExitFindings; }
 
         var tables = result.Tables.Where(t => t.Kind == "model" || showSources || t.Error != null).ToList();
         output.Payload("rows_per_source", rows);
         output.Payload("seed", seed);
+        output.Payload("scale", scale);
         output.Payload("limit", limit);
         output.Payload("tables", tables.Select(t => new
         {

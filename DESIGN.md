@@ -971,6 +971,16 @@ String comparison semantics (full case list in section 7.4), integer vs decimal 
 - **Load operations**: golden files for every rendered operation and resolver; `dbdatabuild render --check` fails on any difference and writes nothing; **the executed statement text equals the committed file text** (parameters bound, never interpolated; asserted from the statement log); only declared value parameters appear as placeholders (no identifier substitution of any kind); resolver contract violations (multiple rows, wrong type, NULL) produce the declared outcome; resolver value changing between plan and apply is refused; `max_span` and type constraints enforced; each strategy's result on the test engine is compared with its **DuckDB reference implementation** on synthetic data, including rerun idempotency and late-arriving rows.
 - **Data safety**: error-message scrubbing test (section 14.2).
 
+### 15.6 Seeds (as built)
+
+A source table can have a **seed**: `seeds/<schema>/<table>.sql`, one DuckDB query that returns the table's rows. The query is authored, relational and deterministic: it reads the variables `seed` and `scale` (`getvariable('seed')`, `getvariable('scale')`) and the macros in `seeds/macros.sql` (`rnd(i, salt)`, `pick(i, salt, n)`: a hash of the row number and a salt, so the same seed makes the same rows on every platform). A seed may read other seeds' tables (customers before orders); the order is found from the table names a query mentions, and a cycle is refused.
+
+`dbdatabuild seed` runs the seeds into `.dbdatabuild/seed.duckdb` (`--seed`, `--scale`); `sample` loads the seeded sources first and falls back to the type-driven generator (15.2) for a source with no seed. The same SQL is the one that loads a real target (a source query is how data enters any database): DuckDB to DuckDB comes first, SQL Server and PostgreSQL destinations are built on it. CSV is not a format of its own: it is a DuckDB `read_csv` in a seed query.
+
+### 15.7 Project templates (as built)
+
+`templates/<name>/` is embedded into the executable and `dbdatabuild new [template] [dir]` copies one out (no arguments lists them; `.template` holds the one-line description and is not copied). A template is a complete project: config, sources, seeds, models, tests and a README. `starter` (three sources, staging, two marts) and `retail` (twelve sources, a star schema with allocation, splitting, mapping and aggregation) exist; a unit test takes every template through `new`, `validate` with no warning, `seed`, `sample` of every mart, `test` and `render`. Templates are SQL Server first (a PostgreSQL profile is in a comment, because no single string profile fits both engines, DDB-310). Backlog: Chinook and AdventureWorks as templates.
+
 ## 16. Milestones
 
 1. **Spike (time-boxed)**: C# harness binding polyglot via FFI. Run about 40 constructs DuckDB to T-SQL through the conformance runner against a native test instance. Include PostgreSQL as a second render and differential target, since it is cheap at this stage and shows which matrix rows and assumptions are really T-SQL-specific. Outcome: confirm DuckDB-canonical is viable, seed the matrix, record polyglot gaps.

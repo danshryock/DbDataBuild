@@ -28,7 +28,7 @@ public class CliTests
     [Fact]
     public void Command_surface_matches_the_design_document()
     {
-        string[] expected = ["validate", "agent-kit", "tui", "sample", "metadata", "publish-metadata", "render", "loads", "matrix", "explain", "define", "diff", "graph", "import-sources", "test", "check", "plan", "report", "apply", "run", "ack", "init"];
+        string[] expected = ["validate", "agent-kit", "tui", "sample", "metadata", "publish-metadata", "render", "loads", "matrix", "explain", "define", "diff", "graph", "new", "seed", "import-sources", "test", "check", "plan", "report", "apply", "run", "ack", "init"];
         Assert.Equal(expected.OrderBy(x => x), CommandSpecs.All.Select(c => c.Name).OrderBy(x => x));
     }
 

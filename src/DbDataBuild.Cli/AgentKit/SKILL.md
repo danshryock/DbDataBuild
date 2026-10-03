@@ -26,6 +26,8 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `sample [models]` | offline | run models on generated or supplied rows and see the result (`--rows --seed --limit --data <dir> --sources`) |
 | `test [names] [--tag t] [--strict]` | offline | run the project's tests: metadata rules in `tests/metadata/*.sql` (DuckDB SELECTs over the `metadata_*` views that return violations); exit 1 if an error-severity rule returns rows |
 | `graph [selectors] [--columns \| --column m.c \| --diagram dot\|mermaid]` | offline | the dependency graph and column lineage; what a change to a model or a column reaches |
+| `new [template] [dir]` | repo files | list the built-in project templates, or create a ready-to-run example project (sources, seeds, staging, marts, tests) |
+| `seed [--seed n --scale n]` | repo files | run `seeds/` (DuckDB queries that generate the source data) into `.dbdatabuild/seed.duckdb`; `sample` uses the same seeds |
 | `metadata`, `loads`, `matrix`, `explain <code>` | offline | what the tool knows: types per target, load operations, what differs per engine, a code's meaning |
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |

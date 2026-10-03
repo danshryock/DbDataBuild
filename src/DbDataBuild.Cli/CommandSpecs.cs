@@ -41,6 +41,8 @@ public static class CommandSpecs
         new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
         new("agent-kit", EffectClass.RepoFilesOnly, "Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write)", true),
         new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
+        new("new", EffectClass.RepoFilesOnly, "List the project templates built in, or create a ready-to-run project from one", true),
+        new("seed", EffectClass.RepoFilesOnly, "Run the seeds (DuckDB queries that generate the source data) into a DuckDB file", true),
         new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
         new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
         new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),

@@ -5,7 +5,7 @@
 -- target:          sqlserver
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  363b0386cf91
+-- matrix version:  bf77f3e4bc07
 -- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 SELECT DATEADD(DAY, -3, MAX([order_date])) FROM [marts].[fct_daily];
@@ -17,7 +17,7 @@ SELECT DATEADD(DAY, -3, MAX([order_date])) FROM [marts].[fct_daily];
 -- target:          sqlserver
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  363b0386cf91
+-- matrix version:  bf77f3e4bc07
 -- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 SET XACT_ABORT ON;
@@ -36,7 +36,7 @@ COMMIT TRANSACTION;
 model: marts.fct_daily
 target: sqlserver
 definition_hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
-matrix_version: 363b0386cf91
+matrix_version: bf77f3e4bc07
 tool_version: 0.1.0
 sources: [staging.orders]
 operations:
@@ -47,9 +47,9 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: cd12e7002b68f372876f655001cafe337e5608946a7da7ae0b016ccdd3cf9c3e
+    script_sha256: a34bd6dcefe29a56d5982007baddc707fb8e030f6b1f52ff21e66d1c439d4ba1
     resolver: load.default.resolve.sql
-    resolver_sha256: b89cb828734361b2b758c951e75bb8f25e9222be003c771a186cf9cc44874dff
+    resolver_sha256: 2e210b5be0ce66fb3d684e348379ddcb445908c5a5c346e13d60cc73dcd387c0
     parameters:
       - name: watermark
         type: DATE
