@@ -63,7 +63,7 @@ public sealed class WebServerTests : IDisposable
         var reply = JsonNode.Parse(await ok.Content.ReadAsStringAsync())!;
         Assert.Equal("validate", (string)reply["document"]!["command"]!);
 
-        foreach (var command in new[] { "apply", "run", "init", "load-seeds", "plan", "seed", "new", "define", "tui", "mcp", "web", "diff" })
+        foreach (var command in new[] { "apply", "run", "init", "load-seeds", "seed", "new", "define", "tui", "mcp", "web", "diff" })
             Assert.Equal(HttpStatusCode.NotFound, (await Run(command)).StatusCode);
         // render can be run, but not with --write; a path outside the project and the project option are not inputs
         Assert.Equal(HttpStatusCode.OK, (await Run("render", "{\"check\":true}")).StatusCode);

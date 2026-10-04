@@ -18,10 +18,13 @@ internal sealed class ToolSurface
 
     private readonly string projectRoot;
     private readonly bool withholdWriteFlags;
+    private readonly IReadOnlySet<string> alsoWithheld;
 
     /// <param name="withholdWriteFlags">Also withhold the flag that makes a command change something (`render --write`), so every offered call only reads.</param>
-    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false)
+    /// <param name="alsoWithheld">More options to withhold, as `command --option` (the web page withholds `plan --accept-inferred`: a person answers each question).</param>
+    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false, IEnumerable<string>? alsoWithheld = null)
     {
+        this.alsoWithheld = (alsoWithheld ?? []).ToHashSet();
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.withholdWriteFlags = withholdWriteFlags;
         Tools = offered.ToDictionary(c => c.Name);
@@ -32,7 +35,7 @@ internal sealed class ToolSurface
     private bool IsWriteFlag(CommandInfo c, OptionInfo o) => withholdWriteFlags && c.WriteFlag != null && c.WriteFlag.TrimStart('!') == o.Name;
 
     private IEnumerable<OptionInfo> Offered(CommandInfo c) =>
-        c.Options.Where(o => o.Name != "--project" && !IsWriteFlag(c, o) && !(WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
+        c.Options.Where(o => o.Name != "--project" && !IsWriteFlag(c, o) && !alsoWithheld.Contains(c.Name + " " + o.Name) && !(WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
 
     internal static string PropertyName(string option) => option.TrimStart('-').Replace('-', '_');
 
@@ -96,7 +99,8 @@ internal sealed class ToolSurface
             {
                 if (item == null || !item.TryGetValue<string>(out var s)) { problem = $"`{a.Name}` must be {(a.Repeatable ? "a list of strings" : "a string")}."; return false; }
                 if (!InsideProject(s, out problem, a.Name)) return false;
-                argv.Add(s);
+                // `apply` opens its plan relative to the working directory of the process, which is not the project: say where it is
+                argv.Add(command.Name == "apply" && a.Name == "plan" ? Path.GetFullPath(Path.Combine(projectRoot, s)) : s);
             }
         }
         foreach (var (name, o) in offered)

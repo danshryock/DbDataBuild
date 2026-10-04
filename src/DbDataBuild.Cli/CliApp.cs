@@ -103,8 +103,9 @@ public static class CliApp
                 case "web":
                     var webProject = new Option<DirectoryInfo>("--project") { Description = "Project root to show", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var webPort = new Option<int>("--port") { Description = "Port on the loopback address (default: a free one)", DefaultValueFactory = _ => 0 };
-                    cmd.Options.Add(webProject); cmd.Options.Add(webPort);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Web.WebCommand.Run(Path.GetFullPath(pr.GetValue(webProject)!.FullName), pr.GetValue(webPort), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    var webApply = new Option<bool>("--allow-apply") { Description = "Let the page apply plans (a person confirms each one by typing the plan's id and target; needs the write login in this environment). Off by default: the page reads and plans only." };
+                    cmd.Options.Add(webProject); cmd.Options.Add(webPort); cmd.Options.Add(webApply);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Web.WebCommand.Run(Path.GetFullPath(pr.GetValue(webProject)!.FullName), pr.GetValue(webPort), pr.GetValue(webApply), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "sample":
                     var sampleModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };

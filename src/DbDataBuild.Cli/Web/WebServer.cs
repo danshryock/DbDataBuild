@@ -19,7 +19,7 @@ namespace DbDataBuild.Cli.Web;
 internal sealed class WebServer : IDisposable
 {
     /// <summary>The commands the page may run. All of them only read (render and define lose their write flags); none touches a target.</summary>
-    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review"];
+    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review", "plan"];
 
     /// <summary>The parts of a project a person may read through the page: what the project is made of, not the plans, the state or the environment.</summary>
     private static readonly string[] ReadableDirectories = ["models", "sources", "seeds", "tests", "rendered", "hooks"];
@@ -31,6 +31,7 @@ internal sealed class WebServer : IDisposable
     private readonly ICommandHost host;
     private readonly HttpListener listener = new();
     private readonly SemaphoreSlim oneCommandAtATime = new(1, 1);
+    private readonly WebActions actions;
     private readonly string page;
     private CancellationTokenSource? stop;
 
@@ -38,11 +39,13 @@ internal sealed class WebServer : IDisposable
     public int Port { get; }
     public string Address => $"http://127.0.0.1:{Port}/?token={Token}";
 
-    public WebServer(string projectRoot, ICommandHost host, int port = 0)
+    public WebServer(string projectRoot, ICommandHost host, int port = 0, bool allowApply = false)
     {
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.host = host;
-        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true);
+        // plan writes plan files in the project and reads the target with the read login; the person answers each question themselves, so `plan --accept-inferred` is not offered
+        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["plan --accept-inferred"]);
+        actions = new WebActions(this.projectRoot, host, oneCommandAtATime, allowApply);
         Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         Port = port != 0 ? port : FreePort();
         page = ReadPage().Replace("__TOKEN__", Token).Replace("__PROJECT__", WebUtility.HtmlEncode(Path.GetFileName(this.projectRoot.TrimEnd('/', '\\'))));
@@ -113,6 +116,11 @@ internal sealed class WebServer : IDisposable
 
         if (!TokenMatches(request.Headers["X-DDB-Token"])) return Refuse(403, "Missing or wrong token.");
         if (request.HttpMethod == "POST" && path == "/api/run") return Run(request);
+        if (request.HttpMethod == "GET" && path == "/api/capabilities") return (200, "application/json; charset=utf-8", new JsonObject { ["apply"] = actions.AllowApply, ["answers_file"] = WebActions.AnswersFile }.ToJsonString());
+        if (request.HttpMethod == "POST" && path == "/api/answers") return WithJsonBody(request, actions.SaveAnswers);
+        if (request.HttpMethod == "POST" && path == "/api/apply") return WithJsonBody(request, actions.StartApply);
+        if (request.HttpMethod == "GET" && path == "/api/job") return actions.JobStatus(request.QueryString["id"], int.TryParse(request.QueryString["from"], out var from) ? from : 0);
+        if (request.HttpMethod == "POST" && path == "/api/job/stop") return actions.StopJob(request.QueryString["id"]);
         if (request.HttpMethod == "GET" && path == "/api/file") return ReadFile(request.QueryString["path"]);
         return Refuse(404, "Not found.");
     }
@@ -121,6 +129,15 @@ internal sealed class WebServer : IDisposable
 
     private bool TokenMatches(string? given) =>
         given != null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given), Encoding.UTF8.GetBytes(Token));
+
+    private (int, string, string) WithJsonBody(HttpListenerRequest request, Func<JsonObject?, (int, string, string)> handle)
+    {
+        if (request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) != true) return Refuse(415, "Send application/json.");
+        if (request.ContentLength64 is < 0 or > MaxBodyBytes) return Refuse(413, "Body too large.");
+        using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
+        try { return handle(JsonNode.Parse(reader.ReadToEnd()) as JsonObject); }
+        catch (JsonException) { return Refuse(400, "Not JSON."); }
+    }
 
     private (int, string, string) Run(HttpListenerRequest request)
     {

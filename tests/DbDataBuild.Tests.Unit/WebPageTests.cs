@@ -39,11 +39,12 @@ public sealed class WebPageTests : IDisposable
     public void Dispose() { server.Dispose(); try { Directory.Delete(dir, true); } catch (IOException) { } }
 
     /// <summary>The text of the page's main area after the script has run.</summary>
-    private string Screen(string route)
+    private string Screen(string route, WebServer? from = null)
     {
+        from ??= server;
         var profile = Path.Combine(dir, ".chrome-" + Guid.NewGuid().ToString("N")[..6]);
         var start = new ProcessStartInfo(ChromeFactAttribute.Browser!) { RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-extensions", $"--user-data-dir={profile}", "--virtual-time-budget=10000", "--dump-dom", server.Address + route }) start.ArgumentList.Add(a);
+        foreach (var a in new[] { "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-extensions", $"--user-data-dir={profile}", "--virtual-time-budget=10000", "--dump-dom", from.Address + route }) start.ArgumentList.Add(a);
         using var chrome = Process.Start(start)!;
         var dom = chrome.StandardOutput.ReadToEndAsync();
         chrome.StandardError.ReadToEndAsync();
@@ -100,6 +101,25 @@ public sealed class WebPageTests : IDisposable
         Assert.Contains("a note", one);
         Assert.DoesNotContain("null", one);                                     // an absent panel is left out, not drawn as text
         Assert.Contains("hash does not match", Screen("#/plans/" + Uri.EscapeDataString("plans/postgres/2026-10-02-bbbb0002.plan.yml")));
+    }
+
+    [ChromeFact]
+    public void The_apply_panel_is_only_there_when_the_server_allows_it()
+    {
+        var folder = Path.Combine(dir, "plans", "postgres");
+        Directory.CreateDirectory(folder);
+        var plan = new Plan("2026-10-06-ffff0006", "postgres", null, false, "0.1.0", [new ObjectBase("marts.customers", ObjectState.InSync, new string('a', 64), new string('a', 64))], [],
+            [new PlanStep("1", StepType.Ddl, "marts.customers", "drop column legacy", "ALTER TABLE marts.customers DROP COLUMN legacy;", RiskClass.Destructive, ["col.dropped"], new string('b', 64), [])], []);
+        File.WriteAllText(Path.Combine(folder, "2026-10-06-ffff0006.plan.yml"), PlanDocument.Serialize(plan));
+        var route = "#/plans/" + Uri.EscapeDataString("plans/postgres/2026-10-06-ffff0006.plan.yml");
+
+        Assert.Contains("was not started with --allow-apply", Screen(route));
+        using var allowing = new WebServer(dir, new TuiCommand.CliHost(_ => null), 0, allowApply: true);
+        allowing.StartAsync();
+        var text = Screen(route, allowing);
+        Assert.Contains("I allow the destructive steps on marts.customers", text);
+        Assert.Contains("Apply to postgres", text);
+        Assert.Contains("Dry run", text);
     }
 
     [ChromeFact]

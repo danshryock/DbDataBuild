@@ -176,6 +176,114 @@ public class McpServerTests : IDisposable
         Assert.Equal([8], replies.Select(r => (int)r["id"]!));        // nothing for 7, an answer for 8
     }
 
+    /// <summary>A writer the test can read while the server writes to it.</summary>
+    private sealed class SyncWriter : StringWriter
+    {
+        public override void WriteLine(string? value) { lock (this) base.WriteLine(value); }
+        public override string ToString() { lock (this) return base.ToString(); }
+    }
+
+    private sealed class ApplyHost : DbDataBuild.Tui.Model.ICommandHost
+    {
+        public readonly List<List<string>> Ran = [];
+        public IReadOnlyList<DbDataBuild.Tui.Model.CommandInfo> Commands { get; } =
+        [
+            new("apply", "Apply a plan", "Target writes", DbDataBuild.Tui.Model.Impact.Target,
+                [new("plan", "The plan", false, true, [])],
+                [new("--dry-run", "Check only", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--allow-risky", "Allow risky steps", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])], "!--dry-run"),
+            new("validate", "Validate", "Offline only", DbDataBuild.Tui.Model.Impact.None, [], [new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])]),
+        ];
+        public DbDataBuild.Tui.Model.CommandResult Run(IReadOnlyList<string> args, DbDataBuild.Tui.Model.RunHooks? hooks = null) { lock (Ran) Ran.Add([.. args]); return new(0, "{\"ok\":true}", ""); }
+    }
+
+    private static string WaitForLine(SyncWriter output, string contains)
+    {
+        for (var i = 0; i < 400; i++)
+        {
+            var line = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(l => l.Contains(contains));
+            if (line != null) return line;
+            Thread.Sleep(25);
+        }
+        throw new TimeoutException($"The server never wrote a line with `{contains}`.");
+    }
+
+    /// <summary>Runs a session: initialize (with or without elicitation), then a call of apply; `answer` gets the question the server asks and returns what the person answered (null: nothing asked is expected).</summary>
+    private (List<JsonNode> Replies, ApplyHost Host) ApplySession(bool clientAsks, Func<JsonNode, JsonObject>? answer, bool dryRun = false)
+    {
+        var plan = Path.Combine(dir, "plans", "postgres");
+        Directory.CreateDirectory(plan);
+        var id = "2026-10-05-eeee0005";
+        File.WriteAllText(Path.Combine(plan, id + ".plan.yml"), DbDataBuild.Planning.PlanDocument.Serialize(new DbDataBuild.Planning.Plan(id, "postgres", null, false, "0.1.0",
+            [new DbDataBuild.Planning.ObjectBase("marts.fct", DbDataBuild.State.ObjectState.InSync, new string('a', 64), new string('a', 64))], [],
+            [new DbDataBuild.Planning.PlanStep("1", DbDataBuild.Planning.StepType.Ddl, "marts.fct", "drop column x", "ALTER TABLE marts.fct DROP COLUMN x;", DbDataBuild.Planning.RiskClass.Destructive, ["col.dropped"], new string('b', 64), [])], [])));
+        var host = new ApplyHost(); var feed = new Feed(); var output = new SyncWriter();
+        var server = new McpServer(dir, true, feed, output, host) { AnswerTimeout = TimeSpan.FromSeconds(20) };
+        var serving = Task.Run(server.Serve);
+        feed.Send(Request("initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = clientAsks ? new JsonObject { ["elicitation"] = new JsonObject() } : new JsonObject() }, id: 1).ToJsonString());
+        var arguments = new JsonObject { ["plan"] = $"plans/postgres/{id}.plan.yml" };
+        if (dryRun) arguments["dry_run"] = true;
+        feed.Send(Request("tools/call", new JsonObject { ["name"] = "apply", ["arguments"] = arguments }, id: 2).ToJsonString());
+        if (answer != null)
+        {
+            var asked = JsonNode.Parse(WaitForLine(output, "elicitation/create"))!;
+            Assert.Contains("drop column x", (string)asked["params"]!["message"]!);          // the person is shown what the plan does
+            feed.Send(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = asked["id"]!.DeepClone(), ["result"] = answer(asked) }.ToJsonString());
+        }
+        WaitForLine(output, "\"id\":2");
+        feed.End();
+        Assert.True(serving.Wait(TimeSpan.FromSeconds(15)));
+        return (output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!).ToList(), host);
+    }
+
+    private static JsonObject Accept(bool approve, string typed) => new() { ["action"] = "accept", ["content"] = new JsonObject { ["approve"] = approve, ["type_to_confirm"] = typed } };
+
+    [Fact]
+    public void A_command_that_changes_a_database_runs_only_when_the_person_approves_through_the_host()
+    {
+        var (replies, host) = ApplySession(clientAsks: true, _ => Accept(true, "apply"));
+        Assert.False((bool)replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!["isError"]!);
+        var ran = Assert.Single(host.Ran);
+        Assert.Equal("apply", ran[0]);
+        Assert.EndsWith("eeee0005.plan.yml", ran[1]);
+        Assert.True(Path.IsPathRooted(ran[1]));          // the plan is found from the project, not from wherever the server was started
+    }
+
+    [Theory]
+    [InlineData("decline")]
+    [InlineData("cancel")]
+    [InlineData("not approved")]
+    [InlineData("wrong text")]
+    public void Anything_but_a_clear_approval_runs_nothing(string how)
+    {
+        var (replies, host) = ApplySession(clientAsks: true, _ => how switch
+        {
+            "decline" => new JsonObject { ["action"] = "decline" },
+            "cancel" => new JsonObject { ["action"] = "cancel" },
+            "not approved" => Accept(false, "apply"),
+            _ => Accept(true, "yes please"),
+        });
+        Assert.True((bool)replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!["isError"]!);
+        Assert.Empty(host.Ran);
+    }
+
+    [Fact]
+    public void A_host_that_cannot_ask_gets_a_refusal_that_says_what_to_run_by_hand()
+    {
+        var (replies, host) = ApplySession(clientAsks: false, answer: null);
+        var result = replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!;
+        Assert.True((bool)result["isError"]!);
+        Assert.Contains("Run it yourself: dbdatabuild apply", (string)result["content"]![0]!["text"]!);
+        Assert.Empty(host.Ran);
+    }
+
+    [Fact]
+    public void A_dry_run_changes_nothing_so_it_needs_no_approval()
+    {
+        var (replies, host) = ApplySession(clientAsks: false, answer: null, dryRun: true);
+        Assert.False((bool)replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!["isError"]!);
+        Assert.Contains("--dry-run", Assert.Single(host.Ran));
+    }
+
     [Fact]
     public void Serve_answers_each_line_and_survives_a_line_that_is_not_json()
     {

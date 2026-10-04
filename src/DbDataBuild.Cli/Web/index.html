@@ -26,9 +26,11 @@ nav a { padding: 5px 12px; border-radius: 6px; color: var(--muted); text-decorat
 nav a.on { background: var(--accent); color: var(--accent-ink); }
 nav a:not(.on):hover { background: var(--code-bg); }
 .spacer { flex: 1; }
-button, select, input[type=search] { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+button, select, input[type=search], input[type=text] { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button:disabled:hover { border-color: var(--line); }
 main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; min-width: 120px; }
@@ -138,6 +140,13 @@ async function readFile(path) {
   const res = await fetch("/api/file?path=" + encodeURIComponent(path), { headers: { "X-DDB-Token": TOKEN } });
   if (!res.ok) return { error: res.status === 404 ? "This file does not exist (a rendered script exists after `dbdatabuild render --write`)." : await res.text() };
   return { text: await res.text() };
+}
+
+async function api(path, body) {
+  const res = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", "X-DDB-Token": TOKEN }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || res.statusText);
+  return text ? JSON.parse(text) : {};
 }
 
 function codeBlock(text, hitLine) {
@@ -410,14 +419,77 @@ async function matrixView() {
 
 const riskClass = { safe: "ok", risky: "warn", destructive: "bad" };
 
+let capabilities = null;
+
 async function plansView(file) {
-  const list = (await run("review")).data.plans;
-  const side = h("div", { class: "list" }, list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) },
-    (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.target)) : h("div", { class: "muted" }, "No plans under plans/. `dbdatabuild plan` writes one."));
+  capabilities ??= await api("/api/capabilities");
+  const list = (await run("review", {}, true)).data.plans;
+  const side = h("div", { class: "list" },
+    h("div", { class: !file ? "on" : null, onclick: () => go("plans") }, "+ New plan"),
+    list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) }, (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.target)) : h("div", { class: "muted" }, "No plans yet."));
   const detail = h("div");
   if (file) await planDetail(detail, file);
-  else detail.append(h("div", { class: "empty" }, list.length ? `${list.length} plan${list.length === 1 ? "" : "s"}, newest first. Choose one.` : "Nothing to review yet."));
+  else detail.append(await newPlanPanel());
   return h("div", { class: "split" }, side, detail);
+}
+
+// ---- making a plan, and answering what it asks ----------------------------------------------------------------------------------------------------------
+// `plan` reads the target (the read login of the server's environment) and writes plan files into the project. When it cannot decide something by itself it asks; the person answers each question
+// here (nothing is answered for them), the answers are written as the answers file the command reads, and the plan is made again.
+
+const planState = { answers: new Map() };
+
+async function newPlanPanel() {
+  const out = h("div");
+  const target = h("select", { "aria-label": "Target" }, h("option", { value: "" }, "the project's default target"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
+  const models = h("input", { type: "text", placeholder: "selectors, e.g. changed:HEAD+ or marts.fct_orders (default: every model)", "aria-label": "Models or selectors", style: "min-width:340px" });
+  async function make() {
+    out.replaceChildren(h("div", { class: "spin" }, "Planning: reading the target…"));
+    try {
+      const args = {};
+      if (target.value) args.target = target.value;
+      if (models.value.trim()) args.models = models.value.trim().split(/\s+/);
+      if (planState.answers.size) { const saved = await api("/api/answers", { answers: [...planState.answers.values()] }); args.answers = saved.path; }
+      const doc = await run("plan", args, true);
+      const questions = doc.data?.open_questions || [];
+      if (questions.length) { out.replaceChildren(questionsForm(questions, make)); return; }
+      if (doc.data?.files?.plan) { planState.answers.clear(); cache.delete("review{}"); go("plans", doc.data.files.plan); return; }
+      out.replaceChildren(outcome(doc));
+    } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
+  }
+  return h("div", null,
+    h("div", { class: "panel" }, h("h2", null, "Make a plan"),
+      h("div", { class: "muted" }, "Reads the target with the read login and writes a plan file under plans/. It changes nothing in the database."),
+      h("div", { class: "bar", style: "margin-top:8px" }, target, models, h("button", { onclick: make }, "Make a plan"))),
+    out);
+}
+
+function outcome(doc) {
+  return h("div", { class: "panel" }, h("h2", null, doc.ok ? "Done" : "Nothing was planned"),
+    (doc.messages || []).filter((m) => !m.startsWith("dbdatabuild ")).map((m) => h("div", null, m)),
+    (doc.diagnostics || []).map((d) => h("div", { class: sevClass[d.severity] }, `${d.code}: ${d.found}`)),
+    (doc.errors || []).map((m) => h("div", { class: "err" }, m)));
+}
+
+function questionsForm(questions, again) {
+  const rows = questions.map((q) => {
+    const group = "q-" + q.id;
+    const value = h("input", { type: "text", "aria-label": "Value", hidden: true });
+    const note = h("input", { type: "text", placeholder: "note (optional, kept in the plan)", "aria-label": "Note" });
+    const radios = q.options.map((o) => {
+      const r = h("input", { type: "radio", name: group, value: o.key, onchange: () => { value.hidden = !o.takes_value; if (o.takes_value) value.placeholder = o.value_hint || "value"; update(); } });
+      return { o, r, el: h("label", { style: "display:block;margin:3px 0" }, r, " ", h("b", null, o.key), " ", o.description, o.consequence ? h("div", { class: "muted", style: "margin-left:24px" }, o.consequence) : null) };
+    });
+    const proposal = q.proposal ? h("div", { class: "muted", style: "margin:6px 0" }, `The tool suggests ${q.proposal.option}${q.proposal.value ? " = " + q.proposal.value : ""} (${q.proposal.certainty}): ${(q.proposal.evidence || []).join("; ")} `,
+      h("button", { onclick: () => { const x = radios.find((y) => y.o.key === q.proposal.option); if (x) { x.r.checked = true; x.r.dispatchEvent(new Event("change")); if (q.proposal.value) value.value = q.proposal.value; update(); } } }, "Choose that")) : null;
+    value.addEventListener("input", () => update());
+    const get = () => { const c = radios.find((x) => x.r.checked); return c ? { question_id: q.id, choice: c.o.key, value: c.o.takes_value ? value.value.trim() : undefined, note: note.value.trim() || undefined, complete: !c.o.takes_value || value.value.trim().length > 0 } : null; };
+    return { q, get, el: h("div", { class: "panel" }, h("h2", null, q.prompt), (q.context || []).map((c) => h("div", { class: "muted" }, c)), proposal, radios.map((x) => x.el), value, h("div", { style: "margin-top:6px" }, note)) };
+  });
+  const go1 = h("button", { disabled: true, onclick: () => { for (const r of rows) { const a = r.get(); planState.answers.set(a.question_id, { question_id: a.question_id, choice: a.choice, value: a.value, note: a.note }); } again(); } }, "Answer and plan again");
+  function update() { go1.disabled = !rows.every((r) => r.get()?.complete); }
+  return h("div", null, h("div", { class: "panel" }, h("b", null, `${questions.length} question${questions.length === 1 ? "" : "s"} to answer before a plan can be made. `), h("span", { class: "muted" }, "Each one is yours to decide: nothing is chosen for you.")),
+    rows.map((r) => r.el), go1);
 }
 
 async function planDetail(root, file) {
@@ -431,7 +503,8 @@ async function planDetail(root, file) {
     h("div", { class: "panel" }, h("h2", null, plan.id, " ", badge("intact", "ok")),
       h("div", { class: "muted" }, `tool ${plan.tool_version}` + (plan.git_commit ? `, commit ${plan.git_commit}${plan.git_dirty ? " (working tree was dirty)" : ""}` : "")),
       h("div", null, h("span", { class: "muted" }, "a person applies it with "), h("code", null, `dbdatabuild apply ${file}` + (needs.length ? " " + needs.join(" ") : ""))),
-      h("div", { class: "muted" }, "This page only reads plans; it cannot apply one.")),
+      null),
+    applyPanel(file, plan, d, needs),
     h("div", { class: "panel" }, h("h2", null, "Steps"), stepsTable(plan.steps)),
     plan.answers?.length ? h("div", { class: "panel" }, h("h2", null, "Answers this plan was made with"), h("pre", null, JSON.stringify(plan.answers, null, 2))) : null,
     plan.noticed?.length ? h("div", { class: "panel" }, h("h2", null, "Noticed"), h("ul", null, plan.noticed.map((n) => h("li", null, n)))) : null,
@@ -451,6 +524,58 @@ function stepsTable(steps) {
       return [h("tr", { style: "cursor:pointer", onclick: () => { detail.hidden = !detail.hidden; } },
         h("td", null, s.id), h("td", null, s.type), h("td", null, badge(s.risk, riskClass[s.risk])), h("td", null, h("code", null, s.object)), h("td", null, s.description)), detail];
     })));
+}
+
+// ---- applying -------------------------------------------------------------------------------------------------------------------------------------------
+// Only when the server was started with --allow-apply. The person reads the plan above, names each allowance, and types the target; the server checks all of it against the plan file again.
+
+function applyPanel(file, plan, d) {
+  if (!capabilities?.apply) return h("div", { class: "panel" }, h("h2", null, "Apply"), h("div", { class: "muted" }, "This page was not started with --allow-apply, so it cannot apply plans. Apply at a terminal with the command above, or restart with `dbdatabuild web --allow-apply`."));
+  const out = h("div");
+  const risky = h("input", { type: "checkbox", "aria-label": "Allow the risky steps", onchange: () => update() });
+  const destructive = d.apply_needs.allow_destructive.map((o) => ({ o, box: h("input", { type: "checkbox", "aria-label": "Allow destructive steps on " + o, onchange: () => update() }) }));
+  const typed = h("input", { type: "text", placeholder: "type " + plan.target + " to confirm", "aria-label": "Type the target name to confirm", oninput: () => update(), autocomplete: "off", spellcheck: "false" });
+  const dry = h("button", { onclick: () => start(true) }, "Dry run (changes nothing)");
+  const go1 = h("button", { disabled: true, onclick: () => start(false), style: "font-weight:600" }, "Apply to " + plan.target);
+  function update() { go1.disabled = !(typed.value === plan.target && (!d.apply_needs.allow_risky || risky.checked) && destructive.every((x) => x.box.checked)); }
+  async function start(dryRun) {
+    out.replaceChildren(h("div", { class: "spin" }, "Starting…"));
+    try {
+      const { job } = await api("/api/apply", { plan: file, dry_run: dryRun, allow_risky: risky.checked, allow_destructive: destructive.filter((x) => x.box.checked).map((x) => x.o), confirm: { target: typed.value, plan_id: plan.id } });
+      // the confirmation is for this run only: the next one has to be confirmed again
+      typed.value = ""; risky.checked = false; destructive.forEach((x) => { x.box.checked = false; }); update(); dry.disabled = true;
+      await follow(out, job, dryRun);
+      dry.disabled = false;
+    } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
+  }
+  return h("div", { class: "panel" }, h("h2", null, "Apply"),
+    h("div", { class: "muted" }, "Runs exactly the statements of this plan on " + plan.target + ", with the write login of the server's environment. A dry run runs every check and changes nothing."),
+    d.apply_needs.allow_risky ? h("label", { style: "display:block;margin:6px 0" }, risky, " I allow the ", h("b", null, d.risky + " risky step" + (d.risky === 1 ? "" : "s"))) : null,
+    destructive.map((x) => h("label", { style: "display:block;margin:6px 0" }, x.box, " I allow the destructive steps on ", h("code", null, x.o))),
+    h("div", { class: "bar", style: "margin-top:8px" }, typed, dry, go1), out);
+}
+
+async function follow(out, job, dryRun) {
+  const log = h("pre", { style: "max-height:260px" }, "");
+  const stop = h("button", { onclick: async () => { stop.disabled = true; await api("/api/job/stop?id=" + job, {}); stop.textContent = "Stop asked: it stops between steps"; } }, "Stop after this step");
+  out.replaceChildren(h("div", { class: "bar" }, h("b", null, dryRun ? "Dry run" : "Applying"), stop), log);
+  let from = 0;
+  for (;;) {
+    let st;
+    try { st = await api(`/api/job?id=${job}&from=${from}`); } catch (e) { out.append(h("div", { class: "err" }, e.message)); return; }
+    if (st.lines.length) { log.append(st.lines.join("\n") + "\n"); from = st.next; }
+    if (st.done) {
+      stop.remove();
+      const doc = st.document;
+      out.append(h("div", { class: "panel" }, h("h2", null, badge(st.exit === 0 ? (dryRun ? "dry run passed" : "applied") : "exit " + st.exit, st.exit === 0 ? "ok" : "bad")),
+        (doc?.messages || [st.text]).filter(Boolean).map((m) => h("div", null, m)),
+        (doc?.diagnostics || []).map((x) => h("div", { class: sevClass[x.severity] }, `${x.code}: ${x.found}`)),
+        h("div", { class: "muted", style: "margin-top:8px" }, dryRun ? "Nothing was changed." : "See `dbdatabuild report` for what was recorded. A plan that stopped part-way can be continued with `apply --resume` at a terminal.")));
+      cache.clear();
+      return;
+    }
+    await sleep(700);
+  }
 }
 
 // ---- routing --------------------------------------------------------------------------------------------------------------------------------------------

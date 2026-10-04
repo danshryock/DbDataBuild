@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DbDataBuild.Tests.Unit" />
+    <InternalsVisibleTo Include="DbDataBuild.Tests.Conformance" />
   </ItemGroup>
 
   <PropertyGroup>

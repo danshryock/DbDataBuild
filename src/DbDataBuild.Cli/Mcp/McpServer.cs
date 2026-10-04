@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DbDataBuild.Core;
+using DbDataBuild.Planning;
 using DbDataBuild.Tui.Model;
 
 namespace DbDataBuild.Cli.Mcp;
@@ -41,6 +42,12 @@ internal sealed class McpServer
     public IReadOnlyCollection<string> ToolNames => tools.Keys.ToList();
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> cancelled = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> awaiting = new();
+    private int askCounter;
+    private bool clientCanAsk;
+
+    /// <summary>How long a person has to answer a question the server puts to them through the host.</summary>
+    internal TimeSpan AnswerTimeout { get; set; } = TimeSpan.FromMinutes(10);
     private string? currentRequest;
 
     /// <summary>
@@ -60,6 +67,9 @@ internal sealed class McpServer
                     JsonNode? message;
                     try { message = JsonNode.Parse(line); }
                     catch (JsonException) { message = null; }
+                    // the client's answer to a question the server asked (elicitation): handed to the call that is waiting for it
+                    if (message is JsonObject { } reply && reply["method"] == null && reply["id"] is JsonValue replyId && replyId.TryGetValue<string>(out var askedId) && awaiting.TryRemove(askedId, out var waiting))
+                    { waiting.TrySetResult(reply); continue; }
                     if (message is JsonObject { } n && n["id"] == null && (string?)n["method"] == "notifications/cancelled" && n["params"]?["requestId"] is { } target) { cancelled[target.ToJsonString()] = true; continue; }
                     queue.Add(message);
                 }
@@ -113,13 +123,14 @@ internal sealed class McpServer
     {
         var asked = p?["protocolVersion"]?.GetValue<string>();
         protocol = asked != null && SupportedProtocols.Contains(asked) ? asked : LatestProtocol;
+        clientCanAsk = p?["capabilities"]?["elicitation"] != null;
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false }, ["resources"] = new JsonObject { ["listChanged"] = false, ["subscribe"] = false }, ["prompts"] = new JsonObject { ["listChanged"] = false } },
             ["serverInfo"] = new JsonObject { ["name"] = "dbdatabuild", ["title"] = ProductInfo.Name, ["version"] = ProductInfo.Version },
             ["instructions"] = "Tools are the dbdatabuild commands, run on the project this server was started for. Read the resource dbdatabuild://skill first: it says how to work in a project. " +
-                "Every tool returns the command's JSON document. Row values are never returned to you; commands that change a target are " + (allowWrites ? "available (the operator allowed them)." : "not offered: a person runs those."),
+                "Every tool returns the command's JSON document. Row values are never returned to you; commands that change a target are " + (allowWrites ? "offered, and each run of one needs the person's confirmation through the host (you cannot give it)." : "not offered: a person runs those."),
         };
     }
 
@@ -129,6 +140,8 @@ internal sealed class McpServer
         if (!tools.TryGetValue(name, out var command)) throw new McpException(-32602, $"Unknown tool: {name}");
         var arguments = p?["arguments"] as JsonObject ?? new JsonObject();
         if (!surface.TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);
+
+        if (ChangesSomething(command, argv) && Approval(command, argv) is { } refused) return Failure(refused);
 
         var progressToken = p?["_meta"]?["progressToken"]?.DeepClone();
         var steps = 0;
@@ -148,6 +161,68 @@ internal sealed class McpServer
         var reply = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = failed };
         if (document != null && protocol == LatestProtocol) reply["structuredContent"] = document;
         return reply;
+    }
+
+    /// <summary>A command that changes a target or its tracking tables, as this call asks for it: those with a flag that decides (`init --apply`, `apply` unless `--dry-run`) by the flag, the others always.</summary>
+    internal static bool ChangesSomething(CommandInfo command, IReadOnlyList<string> argv)
+    {
+        if (command.Impact is Impact.None or Impact.RepoFiles) return false;
+        var flag = command.Name == "load-seeds" ? "--apply" : command.WriteFlag;
+        if (flag == null) return true;
+        return flag.StartsWith('!') ? !argv.Contains(flag[1..]) : argv.Contains(flag);
+    }
+
+    /// <summary>
+    /// A command that changes a database is run only after the person says so, through the host (MCP elicitation), not the model: the question shows the exact command and, for apply, what the plan does;
+    /// the answer must approve and type the command's name back. A host that cannot ask gets a refusal that says what to run by hand. Returns the refusal, or null when approved.
+    /// </summary>
+    private string? Approval(CommandInfo command, IReadOnlyList<string> argv)
+    {
+        var shown = $"dbdatabuild {string.Join(' ', argv.Where((a, i) => a != "--project" && (i == 0 || argv[i - 1] != "--project")).Select(a => a.StartsWith(projectRoot, StringComparison.Ordinal) ? Path.GetRelativePath(projectRoot, a).Replace('\\', '/') : a))}";
+        if (!clientCanAsk) return $"`{command.Name}` changes a database, and this host cannot ask you to confirm it, so it is not run on an agent's say-so. Run it yourself: {shown}";
+        var summary = command.Name == "apply" ? PlanSummary(argv) : "";
+        var id = "ddb-elicit-" + Interlocked.Increment(ref askCounter);
+        var answer = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        awaiting[id] = answer;
+        Send(new JsonObject
+        {
+            ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = "elicitation/create",
+            ["params"] = new JsonObject
+            {
+                ["message"] = $"An agent asks to run a command that changes a database ({command.Effect}):\n\n    {shown}\n{summary}\nApprove only if you have read the plan and mean it.",
+                ["requestedSchema"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["approve"] = new JsonObject { ["type"] = "boolean", ["title"] = "Approve", ["description"] = "Run exactly this command." },
+                        ["type_to_confirm"] = new JsonObject { ["type"] = "string", ["title"] = $"Type {command.Name} to confirm" },
+                    },
+                    ["required"] = new JsonArray("approve", "type_to_confirm"),
+                },
+            },
+        });
+        try
+        {
+            if (!answer.Task.Wait(AnswerTimeout)) return $"No answer to the confirmation in {AnswerTimeout.TotalMinutes:0} minutes. Nothing was run.";
+        }
+        finally { awaiting.TryRemove(id, out _); }
+        var result = answer.Task.Result["result"] as JsonObject;
+        var content = result?["content"] as JsonObject;
+        var approved = (string?)result?["action"] == "accept" && content?["approve"] is JsonValue a && a.TryGetValue<bool>(out var yes) && yes
+            && content["type_to_confirm"] is JsonValue t && t.TryGetValue<string>(out var typed) && typed.Trim() == command.Name;
+        return approved ? null : "The person did not approve this command. Nothing was run. Do not ask again unless they ask you to.";
+    }
+
+    private string PlanSummary(IReadOnlyList<string> argv)
+    {
+        var plan = argv.Skip(1).FirstOrDefault(a => a.EndsWith(".plan.yml", StringComparison.Ordinal));
+        if (plan == null) return "";
+        var (browser, _) = PlanBrowser.Load(plan);
+        return browser == null ? "\nThe plan does not parse or was edited: apply will refuse it.\n"
+            : $"\nPlan {browser.Plan.Id} on {browser.Plan.Target}: {browser.Plan.Steps.Count} steps, {browser.Risky} risky, {browser.Destructive} destructive" +
+              (browser.DestructiveObjects.Count > 0 ? $" (on {string.Join(", ", browser.DestructiveObjects)})" : "") + ".\n" +
+              string.Join("\n", browser.Plan.Steps.Take(12).Select(s => $"  {s.Id}. [{s.Risk.ToString().ToLowerInvariant()}] {s.Description}")) + (browser.Plan.Steps.Count > 12 ? $"\n  … and {browser.Plan.Steps.Count - 12} more" : "") + "\n";
     }
 
     private static JsonObject Failure(string message) =>
