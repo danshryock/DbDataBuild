@@ -36,7 +36,8 @@ internal sealed class WebServer : IDisposable
     private CancellationTokenSource? stop;
 
     public string Token { get; }
-    public int Port { get; }
+    public int Port { get; private set; }
+    private readonly bool portWasChosenHere;
     public string Address => $"http://127.0.0.1:{Port}/?token={Token}";
 
     public WebServer(string projectRoot, ICommandHost host, int port = 0, bool allowApply = false)
@@ -47,6 +48,7 @@ internal sealed class WebServer : IDisposable
         surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["plan --accept-inferred"], personReads: true);
         actions = new WebActions(this.projectRoot, host, oneCommandAtATime, allowApply);
         Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+        portWasChosenHere = port == 0;
         Port = port != 0 ? port : FreePort();
         page = ReadPage().Replace("__TOKEN__", Token).Replace("__PROJECT__", WebUtility.HtmlEncode(Path.GetFileName(this.projectRoot.TrimEnd('/', '\\'))));
         listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
@@ -71,7 +73,17 @@ internal sealed class WebServer : IDisposable
     public Task StartAsync(CancellationToken cancel = default)
     {
         stop = CancellationTokenSource.CreateLinkedTokenSource(cancel);
-        listener.Start();
+        // a free port found a moment ago can be taken by the time it is bound (another process, or another server of this one): choose again
+        for (var attempt = 0; ; attempt++)
+        {
+            try { listener.Start(); break; }
+            catch (HttpListenerException) when (portWasChosenHere && attempt < 10)
+            {
+                Port = FreePort();
+                listener.Prefixes.Clear();
+                listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
+            }
+        }
         return Task.Run(async () =>
         {
             using var registration = stop.Token.Register(() => { try { listener.Stop(); } catch (ObjectDisposedException) { } });
