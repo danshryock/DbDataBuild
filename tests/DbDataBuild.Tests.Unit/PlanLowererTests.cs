@@ -390,11 +390,12 @@ public class PlanLowererTests
     [InlineData("SELECT * FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount)")]
     [InlineData("SELECT id, measure, amount FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount) WHERE amount > 1")]
     [InlineData("SELECT * FROM (UNPIVOT t ON a, b INTO NAME measure VALUE amount) ORDER BY id, measure")]
-    public void Unpivot_becomes_one_select_per_column_without_the_rows_DuckDB_drops(string source)
+    public void Unpivot_becomes_a_lateral_values_list_over_one_scan_with_the_same_rows(string source)
     {
         using var c = Open();
         var lowered = Lower(c, source);
-        Assert.Contains("UNION ALL", lowered);
+        Assert.Contains("LATERAL (VALUES", lowered);
+        Assert.DoesNotContain("UNION ALL", lowered);
         Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
     }
 

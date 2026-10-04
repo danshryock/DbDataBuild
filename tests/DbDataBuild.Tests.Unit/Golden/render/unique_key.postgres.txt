@@ -5,7 +5,7 @@
 -- target:          postgres
 -- strategy:        delete_insert_by_key
 -- definition hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
--- matrix version:  e6a23d6b459f
+-- matrix version:  6daf14fc9cbf
 -- tool version:    0.1.0
 -- parameters:      none
 BEGIN;
@@ -23,7 +23,7 @@ COMMIT;
 model: marts.fct_orders
 target: postgres
 definition_hash: 73c24ac7a06fff501b4b69301f6410951857df75cda1267627f9e84ab56af541
-matrix_version: e6a23d6b459f
+matrix_version: 6daf14fc9cbf
 tool_version: 0.1.0
 sources: [staging.orders]
 operations:
@@ -34,5 +34,5 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: 01ff01ba465e2a50365bbd3a43c045d2edcc7e2a08d185028c601495f6e02533
+    script_sha256: 614f4b0ea700ad621730a68b05967e3e23dceb266400e50dbbf275562fa3b1e4
     parameters: []

@@ -108,6 +108,7 @@
 - { id: regexp_full_match_fn, sql: "SELECT REGEXP_FULL_MATCH(s, 'a.c') AS x FROM t",            expect: unsupported }
 - { id: regexp_extract_fn,   sql: "SELECT REGEXP_EXTRACT(s, 'a(b)', 1) AS x FROM t",           expect: unsupported }
 - { id: regexp_replace_fn,   sql: "SELECT REGEXP_REPLACE(s, 'a', 'x') AS x FROM t",            expect: unsupported }
+- { id: unpivot_values,     sql: "SELECT * FROM (UNPIVOT t ON a, b INTO NAME m VALUE v)",       expect: translate }
 - { id: lead_fn,             sql: "SELECT LEAD(x, 1) OVER (ORDER BY b) AS p FROM t",           expect: translate }
 - { id: ntile_fn,            sql: "SELECT NTILE(4) OVER (ORDER BY b) AS p FROM t",             expect: translate }
 - { id: percent_rank_fn,     sql: "SELECT PERCENT_RANK() OVER (ORDER BY b) AS p FROM t",       expect: translate }

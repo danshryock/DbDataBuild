@@ -645,8 +645,8 @@ public sealed class PlanLowerer
     }
 
     /// <summary>
-    /// UNPIVOT reaches the plan as an UNNEST of two lists built per row: the constant list of the column names and `unpivot_list(col1, col2, ...)`. The same rows are one SELECT per column
-    /// joined by UNION ALL (the name as a literal and the column as the value), which every engine runs; the NULL values DuckDB drops come out of the filter that follows the UNNEST.
+    /// UNPIVOT reaches the plan as an UNNEST of two lists built per row: the constant list of the column names and `unpivot_list(col1, col2, ...)`. The same rows are a lateral VALUES list with a row per
+    /// column (the name as a literal and the column as the value) joined to one scan of the source, which SQL Server writes as CROSS APPLY and PostgreSQL as LATERAL; the NULL values DuckDB drops come out of the filter that follows the UNNEST.
     /// Any other UNNEST is not lowered: the engines have no equal for a list column.
     /// </summary>
     private Rel? TryUnpivot(JsonElement p, List<JsonElement> kids)
@@ -670,17 +670,16 @@ public sealed class PlanLowerer
         var aliases = passthrough.Select((x, j) => Str(x.e, "alias") ?? $"c{j}").ToList();
         var nameColumn = UniqueName(aliases, "unpivot_name");
         var valueColumn = UniqueName(aliases, "unpivot_value");
-        var branches = new List<string>();
-        for (var k = 0; k < names.Count; k++)
-        {
-            var branch = source.Clone();
-            branch.Sel = passthrough.Select((x, j) => new Item(Expr(x.e, outs), aliases[j], TypeNameOf(x.e))).ToList()
-                .Append(new Item($"'{names[k]!.Replace("'", "''")}'", nameColumn, "VARCHAR"))
-                .Append(new Item(Expr(values[k], outs), valueColumn, TypeNameOf(unnests[1])))
-                .ToList();
-            branches.Add(branch.Sql());
-        }
+        // one scan of the source: its columns and the unpivoted values as columns, then a lateral VALUES list with a row per unpivoted column (CROSS APPLY on SQL Server)
+        var inner = source.Clone();
+        var type = TypeNameOf(unnests[1]);
+        var valueAliases = values.Select((_, k) => UniqueName(aliases, $"unpivot_v{k}")).ToList();
+        inner.Sel = passthrough.Select((x, j) => new Item(Expr(x.e, outs), aliases[j], TypeNameOf(x.e)))
+            .Concat(values.Select((v, k) => new Item(Expr(v, outs), valueAliases[k], type))).ToList();
         var a = Fresh();
+        var b = Fresh();
+        var rows = string.Join(", ", names.Select((n, k) => $"('{n!.Replace("'", "''")}', CAST({Token(a, valueAliases[k])} AS {type ?? "VARCHAR"}))"));
+        var from = $"(\n{IndentText(inner.Sql())}\n) AS {a}\nCROSS JOIN LATERAL (VALUES {rows}) AS {b}({nameColumn}, {valueColumn})";
         var realNames = aliases.Append(nameColumn).Append(valueColumn).ToList();
         var sel = new List<Item>();
         var next = 0;
@@ -690,9 +689,9 @@ public sealed class PlanLowerer
             sel.Add(new Item(Token(a, realNames[next]), realNames[next], TypeNameOf(exprs[i])));
             next++;
         }
-        sel.Add(new Item(Token(a, nameColumn), nameColumn, "VARCHAR"));
-        sel.Add(new Item(Token(a, valueColumn), valueColumn, TypeNameOf(unnests[1])));
-        return new Rel { Frm = $"(\n{IndentText(string.Join("\nUNION ALL\n", branches))}\n) AS {a}", Sources = [a], Plain = true, Sel = sel };
+        sel.Add(new Item(Token(b, nameColumn), nameColumn, "VARCHAR"));
+        sel.Add(new Item(Token(b, valueColumn), valueColumn, type));
+        return new Rel { Frm = from, Sources = [a, b], Plain = true, Sel = sel };
     }
 
     private static string UniqueName(List<string> taken, string wanted)
