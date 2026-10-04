@@ -48,7 +48,7 @@ public sealed class WebPageTests : IDisposable
         var dom = chrome.StandardOutput.ReadToEndAsync();
         chrome.StandardError.ReadToEndAsync();
         Assert.True(chrome.WaitForExit(90_000), "The browser did not finish.");
-        var main = Regex.Match(dom.Result, "<main id=\"view\">(.*?)</main>", RegexOptions.Singleline);
+        var main = Regex.Match(dom.Result, "<main id=\"view\"[^>]*>(.*?)</main>", RegexOptions.Singleline);
         Assert.True(main.Success, "The page has no main area.");
         return Regex.Replace(System.Net.WebUtility.HtmlDecode(Regex.Replace(main.Groups[1].Value, "<[^>]+>", " ")), @"\s+", " ");
     }
