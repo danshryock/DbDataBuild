@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ddb-token" content="__TOKEN__">
+<title>dbdatabuild: __PROJECT__</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d2328; --muted: #5d6872; --line: #dcdfe3; --accent: #1f6feb; --accent-ink: #ffffff;
+  --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --note: #0969da; --src: #8250df; --code-bg: #f1f2f4; --hi: #fff3bf;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181c; --panel: #1c2127; --ink: #e6e9ec; --muted: #9aa6b1; --line: #313941; --accent: #4c9aff; --accent-ink: #0b1218;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --note: #58a6ff; --src: #b392f0; --code-bg: #232a31; --hi: #5a4a10;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header h1 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav a { padding: 5px 12px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+nav a.on { background: var(--accent); color: var(--accent-ink); }
+nav a:not(.on):hover { background: var(--code-bg); }
+.spacer { flex: 1; }
+button, select, input[type=search] { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; min-width: 120px; }
+.card b { display: block; font-size: 22px; }
+.card span { color: var(--muted); font-size: 12px; }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .note { color: var(--note); } .muted { color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+.panel h2 { font-size: 14px; margin: 0 0 8px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+pre { background: var(--code-bg); border-radius: 6px; padding: 10px 12px; overflow: auto; max-height: 560px; margin: 8px 0; tab-size: 4; }
+pre .ln { color: var(--muted); user-select: none; display: inline-block; width: 4ch; text-align: right; margin-right: 1.5ch; }
+pre .hit { background: var(--hi); display: block; }
+.badge { display: inline-block; padding: 0 7px; border-radius: 10px; font-size: 12px; border: 1px solid currentColor; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; background: var(--code-bg); margin: 0 4px 2px 0; }
+a.link, .link { color: var(--accent); cursor: pointer; text-decoration: none; }
+a.link:hover, .link:hover { text-decoration: underline; }
+.split { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+.list { max-height: calc(100vh - 150px); overflow: auto; }
+.list div { padding: 4px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list div:hover { background: var(--code-bg); }
+.list div.on { background: var(--accent); color: var(--accent-ink); }
+.list h3 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 10px 8px 2px; letter-spacing: .04em; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 8px; flex-wrap: wrap; }
+.tabs a { padding: 6px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+.tabs a.on { color: var(--ink); border-bottom-color: var(--accent); }
+.graph { overflow: auto; max-height: calc(100vh - 190px); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.graph svg text { font: 12px system-ui, sans-serif; fill: var(--ink); pointer-events: none; }
+.graph .node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; rx: 5; cursor: pointer; }
+.graph .node.source rect { stroke: var(--src); }
+.graph .node.model rect { stroke: var(--accent); }
+.graph .node.sel rect { fill: var(--accent); }
+.graph .node.sel text { fill: var(--accent-ink); }
+.graph .node.dim { opacity: .18; }
+.graph .edge { fill: none; stroke: var(--muted); stroke-width: 1; opacity: .5; }
+.graph .edge.hi { stroke: var(--accent); stroke-width: 1.8; opacity: 1; }
+.graph .edge.dim { opacity: .07; }
+.bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.empty { color: var(--muted); padding: 24px; text-align: center; }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); width: min(1000px, 94vw); max-height: 88vh; padding: 0; }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog .head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+dialog .body { padding: 6px 14px 14px; overflow: auto; max-height: calc(88vh - 56px); }
+.err { color: var(--bad); white-space: pre-wrap; }
+.spin { color: var(--muted); padding: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>dbdatabuild<small id="proj">__PROJECT__</small></h1>
+  <nav id="nav"></nav>
+  <span class="spacer"></span>
+  <span class="muted" id="stamp"></span>
+  <button id="refresh" title="Run the commands again">Refresh</button>
+</header>
+<main id="view"></main>
+<dialog id="dlg"><div class="head"><b id="dlgTitle"></b><span class="spacer"></span><button id="dlgClose">Close</button></div><div class="body" id="dlgBody"></div></dialog>
+
+<script>
+"use strict";
+const TOKEN = document.querySelector('meta[name="ddb-token"]').content;
+// the token came in the address; take it out of the visible URL and the history
+if (location.search) history.replaceState(null, "", location.pathname + location.hash);
+
+// ---- small helpers -------------------------------------------------------------------------------------------------------------------------------------
+// Everything from the project is put in the page as text (textContent), never as markup.
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return e;
+}
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const cache = new Map();
+async function run(command, args = {}, fresh = false) {
+  const key = command + JSON.stringify(args);
+  if (!fresh && cache.has(key)) return cache.get(key);
+  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-DDB-Token": TOKEN }, body: JSON.stringify({ command, arguments: args }) });
+  if (!res.ok) throw new Error(await res.text());
+  const out = await res.json();
+  if (!out.document) throw new Error(out.text || "The command gave no document.");
+  cache.set(key, out.document);
+  return out.document;
+}
+async function readFile(path) {
+  const res = await fetch("/api/file?path=" + encodeURIComponent(path), { headers: { "X-DDB-Token": TOKEN } });
+  if (!res.ok) return { error: res.status === 404 ? "This file does not exist (a rendered script exists after `dbdatabuild render --write`)." : await res.text() };
+  return { text: await res.text() };
+}
+
+function codeBlock(text, hitLine) {
+  const pre = h("pre");
+  text.replace(/\n$/, "").split("\n").forEach((line, i) => {
+    pre.append(h("span", { class: hitLine === i + 1 ? "hit" : null }, h("span", { class: "ln" }, i + 1), line, "\n"));
+  });
+  return pre;
+}
+
+async function openFile(path, line) {
+  $("dlgTitle").textContent = path + (line ? ":" + line : "");
+  const body = $("dlgBody");
+  body.replaceChildren(h("div", { class: "spin" }, "Loading…"));
+  $("dlg").showModal();
+  const f = await readFile(path);
+  body.replaceChildren(f.error ? h("div", { class: "err" }, f.error) : codeBlock(f.text, line));
+  const hit = body.querySelector(".hit");
+  if (hit) hit.scrollIntoView({ block: "center" });
+}
+$("dlgClose").addEventListener("click", () => $("dlg").close());
+
+async function openExplain(code) {
+  $("dlgTitle").textContent = code;
+  const body = $("dlgBody");
+  body.replaceChildren(h("div", { class: "spin" }, "Loading…"));
+  $("dlg").showModal();
+  try {
+    const d = (await run("explain", { code })).data.code;
+    body.replaceChildren(h("h3", null, d.title), h("p", null, d.explanation), h("p", null, h("b", null, "Supported: "), d.supported), h("p", null, h("b", null, "Fix: "), d.fix));
+  } catch (e) { body.replaceChildren(h("div", { class: "err" }, e.message)); }
+}
+
+const sevClass = { error: "bad", warning: "warn", note: "note" };
+const statusClass = { pass: "ok", fail: "bad", warn: "warn", error: "bad" };
+function badge(text, cls) { return h("span", { class: "badge " + (cls || "") }, text); }
+function modelLink(name) { return h("a", { class: "link", href: "#/models/" + encodeURIComponent(name) }, name); }
+function fileLink(file, line) { return h("span", { class: "link", onclick: () => openFile(file, line) }, file + (line ? ":" + line : "")); }
+function loading() { return h("div", { class: "spin" }, "Running the commands…"); }
+function failure(e) { return h("div", { class: "panel" }, h("div", { class: "err" }, "Could not load: " + e.message)); }
+
+// ---- health ---------------------------------------------------------------------------------------------------------------------------------------------
+
+async function healthView() {
+  const [v, t] = await Promise.all([run("validate"), run("test")]);
+  const counts = v.data.counts, tc = t.data.counts;
+  const filters = { error: true, warning: true, note: counts.errors + counts.warnings === 0 };
+  const cards = h("div", { class: "cards" },
+    card(counts.models, "models"), card(counts.errors, "errors", counts.errors ? "bad" : "ok"), card(counts.warnings, "warnings", counts.warnings ? "warn" : "ok"), card(counts.notes, "notes"),
+    card(`${tc.passed}/${tc.total}`, "tests passed", tc.failed + tc.errored ? "bad" : "ok"));
+  const holder = h("div");
+  const bar = h("div", { class: "bar" }, h("b", null, "Findings"),
+    ["error", "warning", "note"].map((s) => h("label", null, h("input", { type: "checkbox", checked: filters[s], onchange: (e) => { filters[s] = e.target.checked; draw(); } }), " " + s + "s")));
+  function draw() {
+    const shown = v.diagnostics.filter((d) => filters[d.severity]);
+    if (!shown.length) { holder.replaceChildren(h("div", { class: "empty" }, v.diagnostics.length ? "Nothing at the selected severities." : "No findings.")); return; }
+    // a finding in a lowered query belongs to its model: that file only exists once `render --write` has run
+    const place = (d) => { const m = /^rendered\/lowered\/([^/]+)\//.exec(d.location.file || ""); return m ? m[1] : d.location.file || "(project)"; };
+    const byFile = Map.groupBy(shown, place);
+    holder.replaceChildren(...[...byFile].sort((a, b) => a[0].localeCompare(b[0])).map(([file, ds]) => h("div", { class: "panel" },
+      h("h2", null, /^(models|sources|tests)\//.test(file) ? fileLink(file) : /^[a-z_]+\.[A-Za-z0-9_]+$/.test(file) ? [modelLink(file), h("span", { class: "muted" }, " (lowered query)")] : file, " ", h("span", { class: "muted" }, `(${ds.length})`)),
+      h("table", null, h("tbody", null, ds.map((d) => h("tr", null,
+        h("td", null, badge(d.severity, sevClass[d.severity])),
+        h("td", { style: "white-space:nowrap" }, h("span", { class: "link", onclick: () => openExplain(d.code) }, d.code)),
+        h("td", null, h("div", null, h("b", null, d.title), d.location.line ? h("span", { class: "muted" }, "  line " + d.location.line) : null), h("div", null, d.found), d.fix ? h("div", { class: "muted" }, "Fix: " + d.fix) : null))))))));
+  }
+  draw();
+  const failing = t.data.tests.filter((x) => x.status !== "pass");
+  return h("div", null, cards, bar, holder, failing.length ? h("div", { class: "panel" }, h("h2", null, "Tests that did not pass"), testsTable(failing)) : null);
+}
+function card(value, label, cls) { return h("div", { class: "card" }, h("b", { class: cls }, value), h("span", null, label)); }
+
+// ---- lineage --------------------------------------------------------------------------------------------------------------------------------------------
+
+async function lineageView(selected) {
+  const g = (await run("graph", { columns: true })).data;
+  const nodes = g.nodes, byName = new Map(nodes.map((n) => [n.name, n]));
+  const up = new Map(), down = new Map();
+  for (const e of g.edges) { (down.get(e.from) ?? down.set(e.from, []).get(e.from)).push(e.to); (up.get(e.to) ?? up.set(e.to, []).get(e.to)).push(e.from); }
+  const levels = Map.groupBy(nodes, (n) => n.level);
+  const W = 230, H = 26, GX = 80, GY = 10;
+  const pos = new Map();
+  let maxRows = 0;
+  for (const [lvl, ns] of levels) {
+    ns.sort((a, b) => a.name.localeCompare(b.name));
+    ns.forEach((n, i) => pos.set(n.name, { x: 20 + lvl * (W + GX), y: 20 + i * (H + GY) }));
+    maxRows = Math.max(maxRows, ns.length);
+  }
+  const width = 40 + (Math.max(...levels.keys()) + 1) * (W + GX), height = 40 + maxRows * (H + GY);
+  const svgNs = "http://www.w3.org/2000/svg";
+  const s = (tag, attrs, ...kids) => { const e = document.createElementNS(svgNs, tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); for (const kid of kids) e.append(kid); return e; };
+  const svg = s("svg", { width, height, viewBox: `0 0 ${width} ${height}` });
+  const edgeEls = g.edges.map((e) => {
+    const a = pos.get(e.from), b = pos.get(e.to);
+    if (!a || !b) return null;
+    const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2, mx = (x1 + x2) / 2;
+    const p = s("path", { class: "edge", d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}` });
+    svg.append(p);
+    return { e, p };
+  }).filter(Boolean);
+  const nodeEls = new Map();
+  for (const n of nodes) {
+    const p = pos.get(n.name);
+    const label = n.name.length > 31 ? n.name.slice(0, 30) + "…" : n.name;
+    const el = s("g", { class: "node " + n.kind, transform: `translate(${p.x},${p.y})` }, s("rect", { width: W, height: H }), s("text", { x: 8, y: 17 }, document.createTextNode(label)));
+    el.append(s("title", {}, document.createTextNode(n.name + (n.targets?.length ? "  (" + n.targets.join(", ") + ")" : ""))));
+    el.addEventListener("click", () => select(selectedName === n.name ? null : n.name));
+    svg.append(el); nodeEls.set(n.name, el);
+  }
+  const side = h("div", { class: "panel" });
+  const search = h("input", { type: "search", placeholder: "Find a table…", oninput: () => find() });
+  let selectedName = null;
+  function reach(start, map) { const seen = new Set(); const q = [start]; while (q.length) for (const nx of map.get(q.pop()) ?? []) if (!seen.has(nx)) { seen.add(nx); q.push(nx); } return seen; }
+  function select(name) {
+    selectedName = name;
+    const keep = name ? new Set([name, ...reach(name, up), ...reach(name, down)]) : null;
+    for (const [n, el] of nodeEls) { el.classList.toggle("sel", n === name); el.classList.toggle("dim", !!keep && !keep.has(n)); }
+    for (const { e, p } of edgeEls) { const inside = !keep || (keep.has(e.from) && keep.has(e.to)); p.classList.toggle("hi", !!keep && inside); p.classList.toggle("dim", !!keep && !inside); }
+    side.replaceChildren(...describe(name, keep).flat(Infinity).filter(Boolean));
+    if (name) nodeEls.get(name).scrollIntoView({ block: "nearest", inline: "center" });
+  }
+  function describe(name, keep) {
+    if (!name) return [h("h2", null, "Lineage"), h("div", { class: "muted" }, `${nodes.filter((n) => n.kind === "source").length} sources, ${nodes.filter((n) => n.kind === "model").length} models, ${g.edges.length} dependencies. Click a table to follow what it reads and what reads it; click it again to clear.`)];
+    const n = byName.get(name);
+    const into = g.column_edges.filter((c) => c.to_model === name), outOf = g.column_edges.filter((c) => c.from_table === name);
+    return [h("h2", null, n.kind === "model" ? modelLink(name) : name, " ", badge(n.kind, n.kind === "model" ? "note" : "")),
+      h("div", { class: "muted" }, `${keep.size - 1} connected: ${reach(name, up).size} upstream, ${reach(name, down).size} downstream`), n.file ? h("div", null, fileLink(n.file)) : null,
+      into.length ? [h("h3", null, "Columns read from upstream"), colTable(into, (c) => `${c.from_table}.${c.from_column}`, (c) => c.to_column)] : null,
+      outOf.length ? [h("h3", null, "Columns used downstream"), colTable(outOf, (c) => `${c.to_model}.${c.to_column}`, (c) => c.from_column)] : null];
+  }
+  function colTable(rows, other, own) {
+    return h("table", null, h("thead", null, h("tr", null, h("th", null, "column"), h("th", null, "related"), h("th", null, "how"))),
+      h("tbody", null, rows.map((c) => h("tr", null, h("td", null, h("code", null, own(c))), h("td", null, h("code", null, other(c))), h("td", { class: "muted" }, c.transform)))));
+  }
+  function find() {
+    const q = search.value.trim().toLowerCase();
+    if (!q) return;
+    const hit = nodes.find((n) => n.name.toLowerCase().includes(q));
+    if (hit) select(hit.name);
+  }
+  select(selected && byName.has(selected) ? selected : null);
+  return h("div", null, h("div", { class: "bar" }, search), h("div", { class: "split", style: "grid-template-columns: 1fr 360px" }, h("div", { class: "graph" }, svg), side));
+}
+
+// ---- models ---------------------------------------------------------------------------------------------------------------------------------------------
+
+async function modelsView(name, tab) {
+  const meta = (await run("metadata")).data;
+  const models = meta.models, sources = meta.sources;
+  const filter = h("input", { type: "search", placeholder: "Filter…", oninput: () => drawList() });
+  const list = h("div", { class: "list" });
+  function drawList() {
+    const q = filter.value.trim().toLowerCase();
+    const layers = Map.groupBy(models.filter((m) => m.name.toLowerCase().includes(q)), (m) => m.name.split(".")[0]);
+    const srcs = sources.filter((s) => s.name.toLowerCase().includes(q));
+    list.replaceChildren(...[
+      ...[...layers].map(([layer, ms]) => [h("h3", null, layer), ms.map((m) => h("div", { class: m.name === name ? "on" : null, onclick: () => go("models", m.name) }, m.name.slice(layer.length + 1)))]),
+      srcs.length ? [h("h3", null, "sources"), srcs.map((s) => h("div", { class: s.name === name ? "on" : null, onclick: () => go("models", s.name) }, s.name))] : null].flat(Infinity).filter(Boolean));
+  }
+  drawList();
+  const detail = h("div");
+  const model = models.find((m) => m.name === name), source = sources.find((s) => s.name === name);
+  if (model) await modelDetail(detail, model, tab || "columns");
+  else if (source) detail.append(sourceDetail(source));
+  else detail.append(h("div", { class: "empty" }, `${models.length} models and ${sources.length} sources. Choose one.`));
+  return h("div", { class: "split" }, h("div", null, h("div", { class: "bar" }, filter), list), detail);
+}
+
+function sourceDetail(s) {
+  return h("div", { class: "panel" }, h("h2", null, s.name, " ", badge("source", "")), h("pre", null, JSON.stringify(s, null, 2)));
+}
+
+async function modelDetail(root, m, tab) {
+  const targets = m.targets || [];
+  const tabs = [["columns", "Columns"], ["sql", "Query"], ["lowered", "Lowered"], ...targets.map((t) => ["target:" + t, t])];
+  const body = h("div");
+  root.append(
+    h("div", { class: "panel" }, h("h2", null, m.name, " ", badge(m.kind?.type ?? m.kind, "note")),
+      h("div", null, h("span", { class: "muted" }, "grain "), (m.grain || []).length ? m.grain.map((g) => h("span", { class: "tag" }, g)) : h("span", { class: "warn" }, "not declared")),
+      h("div", null, h("span", { class: "muted" }, "targets "), targets.map((t) => h("span", { class: "tag" }, t))),
+      h("div", null, h("span", { class: "muted" }, "reads "), (m.upstream || []).map((u) => [h("span", { class: "tag" }, u.kind === "model" ? modelLink(u.name) : h("a", { class: "link", href: "#/models/" + encodeURIComponent(u.name) }, u.name)), " "])),
+      (m.rewrites_off || []).length ? h("div", null, h("span", { class: "muted" }, "rewrites off "), m.rewrites_off.map((r) => h("span", { class: "tag" }, r))) : null),
+    h("div", { class: "panel" }, h("div", { class: "tabs" }, tabs.map(([id, label]) => h("a", { class: id === tab ? "on" : null, onclick: () => go("models", m.name, id) }, label))), body));
+  if (tab === "columns") body.append(columnsTable(m, targets));
+  else if (tab === "sql") await showFile(body, m.files?.query);
+  else if (tab === "lowered") {
+    if (m.lowered?.rules?.length) body.append(h("div", null, h("span", { class: "muted" }, "type rules that fired "), m.lowered.rules.map((r) => h("span", { class: "tag" }, r))));
+    await showFile(body, m.lowered?.file);
+  } else if (tab.startsWith("target:")) {
+    const t = tab.slice(7);
+    const ops = (m.loads || []).filter((l) => !l.target || l.target === t);
+    if (ops.length) body.append(h("div", { class: "muted" }, "load: " + ops.map((o) => `${o.operation ?? o.name ?? "default"} (${o.strategy ?? ""})`).join(", ")));
+    await showFile(body, `rendered/${t}/${m.name}/load.default.sql`);
+  }
+}
+
+function columnsTable(m, targets) {
+  return h("table", null,
+    h("thead", null, h("tr", null, h("th", null, "column"), h("th", null, "type"), h("th", null, "null"), targets.map((t) => h("th", null, t)), h("th", null, "from"))),
+    h("tbody", null, (m.columns || []).map((c) => h("tr", null,
+      h("td", null, h("code", null, c.name), (m.grain || []).includes(c.name) ? h("span", { class: "tag" }, "grain") : null),
+      h("td", null, h("code", null, c.logical_type ?? c.duckdb_type)),
+      h("td", null, c.nullable ? "yes" : "no"),
+      targets.map((t) => h("td", null, h("code", null, nativeType(c.native?.[t])))),
+      h("td", { class: "muted" }, c.lineage ? [c.lineage.transform, " ", (c.lineage.upstream || []).map((u) => u.table + "." + u.column).join(", ")] : "")))));
+}
+function nativeType(n) { return n ? n.type + (n.length != null ? `(${n.length})` : "") : ""; }
+
+async function showFile(body, path) {
+  if (!path) { body.append(h("div", { class: "muted" }, "No file.")); return; }
+  const f = await readFile(path);
+  body.append(h("div", { class: "muted" }, fileLink(path)), f.error ? h("div", { class: "muted" }, f.error) : codeBlock(f.text));
+}
+
+// ---- tests ---------------------------------------------------------------------------------------------------------------------------------------------
+
+function testsTable(tests) {
+  return h("table", null, h("thead", null, h("tr", null, h("th", null, "status"), h("th", null, "kind"), h("th", null, "test"), h("th", null, "violations"))),
+    h("tbody", null, tests.map((t) => {
+      const detail = h("tr", { hidden: true }, h("td", { colspan: 4 }, t.description ? h("div", { class: "muted" }, t.description) : null, t.file ? h("div", null, fileLink(t.file)) : null,
+        t.rows?.length ? h("table", null, h("thead", null, h("tr", null, (t.columns || []).map((c) => h("th", null, c)))), h("tbody", null, t.rows.slice(0, 50).map((r) => h("tr", null, (Array.isArray(r) ? r : (t.columns || []).map((c) => r[c])).map((v) => h("td", null, v == null ? "∅" : String(v))))))) : null));
+      return [h("tr", { style: "cursor:pointer", onclick: () => { detail.hidden = !detail.hidden; } },
+        h("td", null, badge(t.status, statusClass[t.status])), h("td", null, t.kind), h("td", null, t.name.replace("::", " · ")), h("td", null, t.violations ?? "")), detail];
+    })));
+}
+
+async function testsView() {
+  const t = (await run("test")).data;
+  return h("div", null, h("div", { class: "cards" }, card(t.counts.total, "tests"), card(t.counts.passed, "passed", "ok"), card(t.counts.failed, "failed", t.counts.failed ? "bad" : ""), card(t.counts.warned, "warned", t.counts.warned ? "warn" : ""), card(t.counts.errored, "errored", t.counts.errored ? "bad" : "")),
+    h("div", { class: "panel" }, testsTable(t.tests)));
+}
+
+// ---- support matrix --------------------------------------------------------------------------------------------------------------------------------------
+
+async function matrixView() {
+  const m = (await run("matrix")).data;
+  const targets = ["sqlserver", "fabric", "postgres"];
+  const tone = { supported: "ok", approximated: "warn", unsupported: "bad", unverified: "muted" };
+  const filter = h("input", { type: "search", placeholder: "Filter constructs…", oninput: () => draw() });
+  const only = h("select", { onchange: () => draw() }, h("option", { value: "" }, "any status"), ["supported", "approximated", "unsupported", "unverified"].map((s) => h("option", { value: s }, s)));
+  const holder = h("div");
+  function draw() {
+    const q = filter.value.trim().toLowerCase(), st = only.value;
+    const rows = m.constructs.filter((c) => c.id.toLowerCase().includes(q) && (!st || targets.some((t) => c.targets[t]?.status === st)));
+    holder.replaceChildren(h("table", null, h("thead", null, h("tr", null, h("th", null, "construct"), targets.map((t) => h("th", null, t)))),
+      h("tbody", null, rows.map((c) => h("tr", null, h("td", null, h("code", null, c.id)), targets.map((t) => { const x = c.targets[t]; return h("td", { title: x?.note || "" }, x ? badge(x.status, tone[x.status]) : ""); }))))));
+  }
+  draw();
+  return h("div", null, h("div", { class: "muted", style: "margin-bottom:8px" }, `Matrix ${m.version}: ${m.constructs.length} constructs. Hover a status for the note.`),
+    h("div", { class: "panel" }, h("div", { class: "bar" }, filter, only), holder),
+    h("div", { class: "panel" }, h("h2", null, "Rewrites that make an engine give DuckDB's answers"),
+      h("table", null, h("thead", null, h("tr", null, h("th", null, "rewrite"), h("th", null, "targets"), h("th", null, "required on"), h("th", null, "with it"), h("th", null, "without it"))),
+        h("tbody", null, m.rewrites.map((r) => h("tr", null, h("td", null, h("code", null, r.name)), h("td", null, r.targets.join(", ")), h("td", null, r.required_on.join(", ")), h("td", null, r.exact), h("td", { class: "muted" }, r.native)))))));
+}
+
+// ---- routing --------------------------------------------------------------------------------------------------------------------------------------------
+
+const views = { health: "Health", lineage: "Lineage", models: "Models", tests: "Tests", matrix: "Support matrix" };
+function go(view, a, b) { location.hash = "#/" + [view, a && encodeURIComponent(a), b].filter(Boolean).join("/"); }
+
+async function render() {
+  const [, view = "health", a, b] = location.hash.split("/");
+  const current = views[view] ? view : "health";
+  $("nav").replaceChildren(...Object.entries(views).map(([id, label]) => h("a", { href: "#/" + id, class: id === current ? "on" : null }, label)));
+  const main = $("view");
+  main.replaceChildren(loading());
+  const name = a ? decodeURIComponent(a) : null;
+  try {
+    const node = await ({ health: healthView, lineage: () => lineageView(name), models: () => modelsView(name, b), tests: testsView, matrix: matrixView })[current]();
+    main.replaceChildren(node);
+    $("stamp").textContent = "loaded " + new Date().toLocaleTimeString();
+  } catch (e) { main.replaceChildren(failure(e)); }
+}
+$("refresh").addEventListener("click", () => { cache.clear(); render(); });
+addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>

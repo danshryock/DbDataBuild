@@ -158,7 +158,7 @@ public class JsonOutputTests
     {
         var text = File.ReadAllText(Path.Combine(RepoRoot(), "schemas", "output.schema.json"));
         var declared = JsonNode.Parse(text)!["allOf"]!.AsArray().Select(x => (string)x!["if"]!["properties"]!["command"]!["const"]!).Order().ToList();
-        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("tui" or "mcp")).Select(c => c.Name).Order(), declared);       // a new command without a data schema fails here (`tui` is interactive and has no JSON form)
+        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("tui" or "mcp" or "web")).Select(c => c.Name).Order(), declared);       // a new command without a data schema fails here (`tui` is interactive and has no JSON form)
 
         var dir = Project();
         var (_, doc, _, _) = Run("loads", "--project", dir);

@@ -99,6 +99,12 @@ public static class CliApp
                     cmd.Options.Add(mcpProject); cmd.Options.Add(mcpWrites);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => Mcp.McpCommand.Run(Path.GetFullPath(pr.GetValue(mcpProject)!.FullName), pr.GetValue(mcpWrites), o.IsJson(), input, o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "web":
+                    var webProject = new Option<DirectoryInfo>("--project") { Description = "Project root to show", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var webPort = new Option<int>("--port") { Description = "Port on the loopback address (default: a free one)", DefaultValueFactory = _ => 0 };
+                    cmd.Options.Add(webProject); cmd.Options.Add(webPort);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Web.WebCommand.Run(Path.GetFullPath(pr.GetValue(webProject)!.FullName), pr.GetValue(webPort), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "sample":
                     var sampleModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var sampleProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };

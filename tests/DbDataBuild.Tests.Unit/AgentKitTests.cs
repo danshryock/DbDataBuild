@@ -42,11 +42,11 @@ public partial class AgentKitTests
     public void Every_command_option_code_and_schema_the_skill_names_exists()
     {
         var catalog = TuiCommand.CliHost.Catalog();
-        var commands = catalog.Select(c => c.Name).Concat(["tui", "agent-kit", "mcp"]).ToHashSet();
+        var commands = catalog.Select(c => c.Name).Concat(["tui", "agent-kit", "mcp", "web"]).ToHashSet();
         var options = catalog.SelectMany(c => c.Options.Select(o => o.Name)).Concat(["--format"]).ToHashSet();
         foreach (Match m in CommandMention().Matches(Skill)) Assert.True(commands.Contains(m.Groups[1].Value), $"the skill mentions `dbdatabuild {m.Groups[1].Value}`, which is not a command");
         // the table names commands without the program name, so check the backticked first words too
-        foreach (var name in catalog.Select(c => c.Name).Where(n => n is not ("tui" or "agent-kit" or "mcp"))) Assert.Contains($"`{name}", Skill);
+        foreach (var name in catalog.Select(c => c.Name).Where(n => n is not ("tui" or "agent-kit" or "mcp" or "web"))) Assert.Contains($"`{name}", Skill);
         foreach (Match m in FlagMention().Matches(Skill))
             Assert.True(options.Contains(m.Groups[1].Value) || ConfigOnly.Contains(m.Groups[1].Value), $"the skill mentions {m.Groups[1].Value}, which is not an option of any command");
 

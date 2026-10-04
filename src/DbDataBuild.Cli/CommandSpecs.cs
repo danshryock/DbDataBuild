@@ -42,6 +42,7 @@ public static class CommandSpecs
         new("agent-kit", EffectClass.RepoFilesOnly, "Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write)", true),
         new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
         new("mcp", EffectClass.OfflineOnly, "Model Context Protocol server on standard input and output: the commands as tools for an AI agent, the agent kit as resources (each tool it offers declares its own effect; commands that change a target are offered only with --allow-writes)", true),
+        new("web", EffectClass.OfflineOnly, "Read-only web interface on this machine's loopback address: project health, lineage, models and their rendered scripts, tests, the support matrix (it runs only commands that read the project)", true),
         new("new", EffectClass.RepoFilesOnly, "List the project templates built in, or create a ready-to-run project from one", true),
         new("seed", EffectClass.RepoFilesOnly, "Run the seeds (DuckDB queries that generate the source data) into a DuckDB file", true),
         new("load-seeds", EffectClass.TargetWrites, "Create the seeded source tables on a target and fill them from the seeds (prints what it would do unless --apply)", true),

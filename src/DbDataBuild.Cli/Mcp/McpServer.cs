@@ -16,13 +16,6 @@ internal sealed class McpServer
     internal const string LatestProtocol = "2025-06-18";
     private static readonly string[] SupportedProtocols = [LatestProtocol, "2025-03-26", "2024-11-05"];
 
-    /// <summary>Per command, the options a model cannot use: the project (fixed), and the ones that show values or read data the project's operator supplied.</summary>
-    private static readonly Dictionary<string, string[]> WithheldOptions = new()
-    {
-        ["diff"] = ["--show-values"],
-        ["sample"] = ["--data"],
-    };
-
     /// <summary>The longest document returned in a tool result; a larger one is cut and the model is told how to ask for less.</summary>
     internal const int MaxDocumentCharacters = 120_000;
 
@@ -31,7 +24,8 @@ internal sealed class McpServer
     private readonly TextReader input;
     private readonly TextWriter output;
     private readonly ICommandHost host;
-    private readonly Dictionary<string, CommandInfo> tools;
+    private readonly ToolSurface surface;
+    private IReadOnlyDictionary<string, CommandInfo> tools => surface.Tools;
     private string protocol = LatestProtocol;
 
     public McpServer(string projectRoot, bool allowWrites, TextReader input, TextWriter output, ICommandHost host)
@@ -41,10 +35,10 @@ internal sealed class McpServer
         this.input = input;
         this.output = output;
         this.host = host;
-        tools = host.Commands.Where(c => c.Name is not ("tui" or "mcp") && (allowWrites || c.Impact is Impact.None or Impact.RepoFiles)).ToDictionary(c => c.Name);
+        surface = new ToolSurface(projectRoot, host.Commands.Where(c => c.Name is not ("tui" or "mcp" or "web") && (allowWrites || c.Impact is Impact.None or Impact.RepoFiles)));
     }
 
-    public IReadOnlyCollection<string> ToolNames => tools.Keys;
+    public IReadOnlyCollection<string> ToolNames => tools.Keys.ToList();
 
     /// <summary>Reads requests until the input ends. A line that is not JSON gets a parse error; the server never throws out of the loop.</summary>
     public void Serve()
@@ -74,7 +68,7 @@ internal sealed class McpServer
             {
                 "initialize" => Initialize(request["params"] as JsonObject),
                 "ping" => new JsonObject(),
-                "tools/list" => new JsonObject { ["tools"] = new JsonArray(tools.Values.OrderBy(t => t.Name, StringComparer.Ordinal).Select(Describe).ToArray()) },
+                "tools/list" => new JsonObject { ["tools"] = new JsonArray(tools.Values.OrderBy(t => t.Name, StringComparer.Ordinal).Select(surface.Describe).ToArray()) },
                 "tools/call" => CallTool(request["params"] as JsonObject),
                 "resources/list" => new JsonObject { ["resources"] = new JsonArray(Resources.Listed().ToArray()) },
                 "resources/templates/list" => new JsonObject { ["resourceTemplates"] = new JsonArray(Resources.Templates().ToArray()) },
@@ -103,63 +97,12 @@ internal sealed class McpServer
         };
     }
 
-    // ---- tools ------------------------------------------------------------------------------------------------------------------------------------------
-
-    private IEnumerable<OptionInfo> Offered(CommandInfo c) =>
-        c.Options.Where(o => o.Name != "--project" && !(WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
-
-    internal static string PropertyName(string option) => option.TrimStart('-').Replace('-', '_');
-
-    private JsonObject Describe(CommandInfo c)
-    {
-        var properties = new JsonObject();
-        var required = new JsonArray();
-        foreach (var a in c.Arguments)
-        {
-            properties[a.Name] = a.Repeatable ? Array(a.Description) : new JsonObject { ["type"] = "string", ["description"] = a.Description };
-            if (a.Choices.Count > 0) properties[a.Name]![a.Repeatable ? "items" : "enum"] = a.Repeatable ? new JsonObject { ["type"] = "string", ["enum"] = Strings(a.Choices) } : Strings(a.Choices);
-            if (a.Required) required.Add(a.Name);
-        }
-        foreach (var o in Offered(c))
-        {
-            var schema = o.Kind switch
-            {
-                OptionKind.Flag => new JsonObject { ["type"] = "boolean" },
-                OptionKind.Integer => new JsonObject { ["type"] = "integer" },
-                OptionKind.List => Array(o.Description),
-                _ => new JsonObject { ["type"] = "string" },
-            };
-            if (o.Kind != OptionKind.List) schema["description"] = o.Description + (o.Default != null && o.Kind != OptionKind.Flag ? $" (default: {o.Default})" : "");
-            if (o.Kind == OptionKind.Path) schema["description"] = schema["description"] + " A path inside the project.";
-            if (o.Choices.Count > 0) schema["enum"] = Strings(o.Choices);
-            properties[PropertyName(o.Name)] = schema;
-        }
-        var readOnly = c.Impact is Impact.None && c.WriteFlag == null;
-        return new JsonObject
-        {
-            ["name"] = c.Name,
-            ["title"] = c.Name,
-            ["description"] = $"{c.Purpose}. Effect: {c.Effect}.",
-            ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = properties, ["required"] = required, ["additionalProperties"] = false },
-            ["annotations"] = new JsonObject
-            {
-                ["readOnlyHint"] = readOnly,
-                ["destructiveHint"] = c.Impact is Impact.Target or Impact.TargetData,
-                ["idempotentHint"] = readOnly,
-                ["openWorldHint"] = c.Effect.Contains("Target", StringComparison.Ordinal),
-            },
-        };
-    }
-
-    private static JsonObject Array(string description) => new() { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" }, ["description"] = description };
-    private static JsonArray Strings(IEnumerable<string> values) => new(values.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray());
-
     private JsonObject CallTool(JsonObject? p)
     {
         var name = p?["name"]?.GetValue<string>() ?? throw new McpException(-32602, "tools/call needs a tool name");
         if (!tools.TryGetValue(name, out var command)) throw new McpException(-32602, $"Unknown tool: {name}");
         var arguments = p?["arguments"] as JsonObject ?? new JsonObject();
-        if (!TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);
+        if (!surface.TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);
 
         var progressToken = p?["_meta"]?["progressToken"]?.DeepClone();
         var steps = 0;
@@ -180,66 +123,6 @@ internal sealed class McpServer
 
     private static JsonObject Failure(string message) =>
         new() { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = message }), ["isError"] = true };
-
-    /// <summary>The command line for a call: the project root, positional values, then the options. A path outside the project, an option the tool does not offer, and a wrong type are refused.</summary>
-    internal bool TryBuildArguments(CommandInfo command, JsonObject arguments, out List<string> argv, out string? problem)
-    {
-        argv = [command.Name]; problem = null;
-        var offered = Offered(command).ToDictionary(o => PropertyName(o.Name));
-        var known = command.Arguments.Select(a => a.Name).Concat(offered.Keys).ToHashSet();
-        foreach (var key in arguments.Select(k => k.Key))
-            if (!known.Contains(key)) { problem = $"`{key}` is not an input of {command.Name}. Inputs: {string.Join(", ", known.Order())}."; return false; }
-
-        foreach (var a in command.Arguments)
-        {
-            if (arguments[a.Name] is not { } v) { if (a.Required) { problem = $"`{a.Name}` is required."; return false; } continue; }
-            foreach (var item in a.Repeatable ? (v as JsonArray)?.Select(x => x as JsonValue) ?? [] : [v as JsonValue])
-            {
-                if (item == null || !item.TryGetValue<string>(out var s)) { problem = $"`{a.Name}` must be {(a.Repeatable ? "a list of strings" : "a string")}."; return false; }
-                if (!InsideProject(s, out problem, a.Name)) return false;
-                argv.Add(s);
-            }
-        }
-        foreach (var (name, o) in offered)
-        {
-            if (arguments[name] is not { } v) continue;
-            switch (o.Kind)
-            {
-                case OptionKind.Flag:
-                    if (v is not JsonValue f || !f.TryGetValue<bool>(out var on)) { problem = $"`{name}` must be true or false."; return false; }
-                    if (on) argv.Add(o.Name);
-                    break;
-                case OptionKind.Integer:
-                    if (v is not JsonValue n || !n.TryGetValue<int>(out var i)) { problem = $"`{name}` must be a whole number."; return false; }
-                    argv.Add(o.Name); argv.Add(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    break;
-                case OptionKind.List:
-                    foreach (var item in (v as JsonArray)?.Select(x => x as JsonValue) ?? [])
-                    {
-                        if (item == null || !item.TryGetValue<string>(out var s)) { problem = $"`{name}` must be a list of strings."; return false; }
-                        argv.Add(o.Name); argv.Add(s);
-                    }
-                    break;
-                default:
-                    if (v is not JsonValue t || !t.TryGetValue<string>(out var text)) { problem = $"`{name}` must be a string."; return false; }
-                    if (o.Choices.Count > 0 && !o.Choices.Contains(text)) { problem = $"`{name}` must be one of {string.Join(", ", o.Choices)}."; return false; }
-                    if (o.Kind == OptionKind.Path && !InsideProject(text, out problem, name)) return false;
-                    argv.Add(o.Name); argv.Add(o.Kind == OptionKind.Path ? Path.GetFullPath(Path.Combine(projectRoot, text)) : text);
-                    break;
-            }
-        }
-        if (command.Options.Any(o => o.Name == "--project")) { argv.Add("--project"); argv.Add(projectRoot); }
-        return true;
-    }
-
-    /// <summary>A value that names a file or a model must stay under the project root: no absolute path, no `..`.</summary>
-    private bool InsideProject(string value, out string? problem, string input)
-    {
-        problem = null;
-        if (value.Length == 0 || value.StartsWith('-')) { problem = $"`{input}`: `{value}` is not a name or a path."; return false; }
-        if (Path.IsPathRooted(value) || value.Split('/', '\\').Contains("..")) { problem = $"`{input}`: `{value}` is outside the project. Paths are relative to the project root."; return false; }
-        return true;
-    }
 }
 
 internal sealed class McpException(int code, string message) : Exception(message)
