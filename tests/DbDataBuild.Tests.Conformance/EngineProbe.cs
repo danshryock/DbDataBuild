@@ -82,7 +82,7 @@ public sealed class EngineProbe : IDisposable
             var lowered = PlanLowerer.Lower(plan, names, null, rewrites).Sql;
             var ruled = TargetRules.Apply(lowered, engine.Name, rewrites).Sql;
             var (outcome, text) = Polyglot.TranspileOne(ruled, Dialects.Canonical, Dialects.ForTarget(engine.Name));
-            return outcome.Ok && text != null ? (text, null) : (null, "transpile: " + (outcome.Error ?? "failed"));
+            return outcome.Ok && text != null ? (TargetRules.Finish(text, engine.Name), null) : (null, "transpile: " + (outcome.Error ?? "failed"));
         }
         catch (LoweringException ex) { return (null, ex.Message); }
         catch (DuckDBException ex) { return (null, "duckdb: " + FirstLine(ex.Message)); }

@@ -202,6 +202,7 @@ public static class Planner
         catch (DdlUnsupportedException ex) { blocks.Add(ex.Diagnostic); return false; }
 
         var (outcome, body) = Polyglot.TranspileOne(DbDataBuild.Targets.Rules.TargetRules.Apply(c.Model.BodySql, c.Input.Target, RewriteCatalog.For(c.Input.Config, c.Def)).Sql, Dialects.Canonical, TargetRegistry.Get(c.Input.Target).Dialect);
+        if (body != null) body = DbDataBuild.Targets.Rules.TargetRules.Finish(body, c.Input.Target);
         if (body == null)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: the transpiler reported: {outcome.Error}."));

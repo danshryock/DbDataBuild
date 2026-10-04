@@ -9,6 +9,47 @@ public class TargetRulesTests
 {
     private static string Transpiled(string sql, string target) => Polyglot.TranspileOne(TargetRules.Apply(sql, target).Sql, Dialects.Canonical, target == "sqlserver" ? "tsql" : "postgres").Sql!;
 
+    private static string ForSpark(string sql) => Polyglot.TranspileOne(TargetRules.Apply(sql, "spark").Sql, Dialects.Canonical, Dialects.ForTarget("spark")).Sql!;
+
+    [Theory]
+    [InlineData("SELECT a / b AS v FROM t", TargetRules.DivisionByZeroIsInfinity, "CASE WHEN b = 0")]
+    [InlineData("SELECT concat(s, 'x') AS v FROM t", TargetRules.ConcatSkipsNull, "CONCAT_WS('', s, 'x')")]
+    [InlineData("SELECT substr(s, 0, 2) AS v FROM t", TargetRules.SubstringBounds, "SUBSTRING(s, 1, 1)")]
+    [InlineData("SELECT substr(s, 2, -1) AS v FROM t", TargetRules.SubstringBounds, "SUBSTRING(s, 1, 1)")]
+    [InlineData("SELECT left(s, -1) AS v FROM t", TargetRules.SubstringBounds, "GREATEST(LENGTH(s) - 1, 0)")]
+    [InlineData("SELECT week(d) AS v FROM t", TargetRules.WeekOfYear, "EXTRACT(WEEK FROM d)")]
+    [InlineData("SELECT regexp_replace(s, 'a', 'x', 'g') AS v FROM t", TargetRules.RegexpReplaceFlags, "REGEXP_REPLACE(s, 'a', 'x')")]
+    [InlineData("SELECT regexp_replace(s, '(a)(b)', '\\2\\1') AS v FROM t", TargetRules.RegexpReplaceFlags, "$2$1")]
+    [InlineData("SELECT regexp_full_match(s, 'a.c') AS v FROM t", TargetRules.RegexpFullMatch, "RLIKE")]
+    public void Spark_rules_rewrite_what_the_engine_does_differently(string sql, string rule, string expected)
+    {
+        Assert.Contains(rule, TargetRules.Apply(sql, "spark").Rules);
+        Assert.Contains(expected.Replace(" ", ""), ForSpark(sql).Replace(" ", "").Replace("\\\\", "\\"), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string For(string target, string sql) => TargetRules.Finish(Polyglot.TranspileOne(TargetRules.Apply(sql, target).Sql, Dialects.Canonical, Dialects.ForTarget(target)).Sql!, target);
+
+    [Theory]
+    [InlineData("oracle", "SELECT a % b AS v FROM t", TargetRules.ModAsFunction, "MOD(a, b)")]
+    [InlineData("bigquery", "SELECT a % b AS v FROM t", TargetRules.ModAsFunction, "MOD(a, b)")]
+    [InlineData("oracle", "SELECT CAST(a AS VARCHAR) AS v FROM t", TargetRules.VarcharLength, "VARCHAR2(4000)")]
+    [InlineData("oracle", "SELECT left(s, 2) AS v FROM t", TargetRules.LeftRightAsSubstr, "SUBSTR(s, 1, 2)")]
+    [InlineData("oracle", "SELECT right(s, 2) AS v FROM t", TargetRules.LeftRightAsSubstr, "SUBSTR(s, -2)")]
+    [InlineData("bigquery", "SELECT date_diff('month', a, b) AS v FROM t", TargetRules.DateDiffArgumentOrder, "DATE_DIFF(b, a, MONTH)")]
+    public void Oracle_and_BigQuery_rules_write_the_engines_spelling(string target, string sql, string rule, string expected)
+    {
+        Assert.Contains(rule, TargetRules.Apply(sql, target).Rules);
+        var text = For(target, sql);
+        Assert.Contains(expected, text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ddb_", text, StringComparison.OrdinalIgnoreCase);     // every marker is replaced
+    }
+
+    [Theory]
+    [InlineData("SELECT substr(s, 2, 2) AS v FROM t")]
+    [InlineData("SELECT substr(s, -2, 2147483647) AS v FROM t")]
+    [InlineData("SELECT left(s, 2) AS v FROM t")]
+    public void Spark_substring_rule_leaves_ordinary_bounds_alone(string sql) => Assert.DoesNotContain(TargetRules.SubstringBounds, TargetRules.Apply(sql, "spark").Rules);
+
     [Fact]
     public void A_query_no_rule_applies_to_is_returned_byte_for_byte()
     {

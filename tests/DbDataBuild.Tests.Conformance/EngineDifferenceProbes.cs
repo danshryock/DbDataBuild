@@ -157,7 +157,7 @@ public class EngineDifferenceProbes
             {
                 var actual = await probe.OnEngineAsync(rendered!);
                 if (expected.Error != null) { status = actual.Error != null ? "both-error" : "duckdb-errors"; detail = $"duckdb: {expected.Error}; engine: {actual.Error ?? actual.Rows}"; }
-                else if (actual.Error != null) { status = "engine-error"; detail = actual.Error; }
+                else if (actual.Error != null) { status = "engine-error"; detail = $"{actual.Error}\n        sql    {rendered!.Replace("\n", " ")}"; }
                 else if (actual.Rows == expected.Rows) status = "same";
                 else { status = "DIFFERENT"; detail = $"duckdb [{expected.Rows}]\n        engine [{actual.Rows}]\n        sql    {rendered!.Replace("\n", " ")}"; }
             }

@@ -32,6 +32,15 @@ public static partial class TargetRules
     public const string RegexpExtract = "regexp-extract";
     public const string SplitPart = "split-part";
     public const string StringAggAsArrayToString = "string-agg-array";
+    public const string DivisionByZeroIsInfinity = "division-by-zero";
+    public const string ConcatSkipsNull = "concat-skips-null";
+    public const string RegexpReplaceFlags = "regexp-replace-flags";
+    public const string SubstringBounds = "substring-bounds";
+    public const string WeekOfYear = "week-of-year";
+    public const string ModAsFunction = "mod-function";
+    public const string VarcharLength = "varchar-length";
+    public const string LeftRightAsSubstr = "left-right-substr";
+    public const string DateDiffArgumentOrder = "date-diff-argument-order";
 
     /// <summary>Applies the rules of <paramref name="target"/> to a DuckDB-dialect query. Returns the text unchanged, byte for byte, when no rule fires.</summary>
     public static Result Apply(string sql, string target, RewritePolicy? policy = null)
@@ -50,6 +59,22 @@ public static partial class TargetRules
         return new(formatted.Ok ? Unwrap(formatted.Data!) : Unwrap(text.Data!), fired.ToList());
     }
 
+    // Some rules write a name polyglot would turn back into what it replaced (MOD into %) or into what the engine lacks (VARCHAR into CLOB). They write a marker, and Finish puts the engine's
+    // spelling in after the transpile.
+    private static readonly (string Marker, string Spelling, string Target)[] Markers =
+    [
+        (@"\bddb_mod\s*\(", "MOD(", "oracle"), (@"\bddb_mod\s*\(", "MOD(", "bigquery"),
+        (@"\bddb_varchar\b", "VARCHAR2(4000)", "oracle"), (@"\bddb_date_diff\s*\(", "DATE_DIFF(", "bigquery"),
+    ];
+
+    /// <summary>Replaces the markers of the rules of <paramref name="target"/> in the transpiled text. Returns the text unchanged when it holds none.</summary>
+    public static string Finish(string transpiled, string target)
+    {
+        foreach (var (marker, spelling, markerTarget) in Markers)
+            if (markerTarget == target) transpiled = System.Text.RegularExpressions.Regex.Replace(transpiled, marker, spelling, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return transpiled;
+    }
+
     private static string Unwrap(string data)
     {
         // Generate and Format return a JSON array of statements
@@ -64,6 +89,9 @@ public static partial class TargetRules
     {
         "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
         "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks, JsonExtractString, JsonArrayLength, RegexpFullMatch, RegexpExtract],
+        "oracle" => [ModAsFunction, VarcharLength, LeftRightAsSubstr],
+        "bigquery" => [ModAsFunction, DateDiffArgumentOrder, DateDiffWeeks],
+        "spark" => [DivisionByZeroIsInfinity, ConcatSkipsNull, SplitPart, DateDiffBoundaries, DateDiffWeeks, WeekdayIndependentOfDateFirst, DoubleToInt, RegexpFullMatch, RegexpReplaceFlags, SubstringBounds, WeekOfYear],
         _ => [],
     };
 
@@ -132,7 +160,9 @@ public static partial class TargetRules
                 // DuckDB's weeks are whole periods of seven days between the two dates, counted toward zero (the days between, divided by seven). SQL Server counts week boundaries from whatever DATEFIRST says,
                 // and PostgreSQL has no week unit (and its cast to an integer rounds where DuckDB cuts).
                 fired.Add(DateDiffWeeks);
-                return Template("CAST(sign(date_diff('day', __a, __b)) * floor(abs(date_diff('day', __a, __b)) / 7.0) AS BIGINT)", ("__a", weekFrom), ("__b", weekTo));
+                return Template(target == "bigquery"
+                    ? "CAST(sign(ddb_date_diff(__b, __a, DAY)) * floor(abs(ddb_date_diff(__b, __a, DAY)) / 7.0) AS BIGINT)"
+                    : "CAST(sign(date_diff('day', __a, __b)) * floor(abs(date_diff('day', __a, __b)) / 7.0) AS BIGINT)", ("__a", weekFrom), ("__b", weekTo));
             case "function" when rules.Contains(JsonExtractString) && IsJsonExtractString(body, out var jsonText, out var jsonKeys):
                 // polyglot writes `x ->> '$.a.b'` for PostgreSQL, which takes a key, not a path, and no operator takes text on the left. A simple path (names and array positions) is a list of keys of
                 // json_extract_path_text, which gives the scalar as text, NULL for a missing path, and the text of an object or array (with PostgreSQL's spacing).
@@ -155,6 +185,51 @@ public static partial class TargetRules
                 // so group n is element n + 1. DuckDB gives '' when nothing matches (and NULL for a NULL text).
                 fired.Add(RegexpExtract);
                 return Template($"CASE WHEN __s IS NULL THEN NULL ELSE coalesce((regexp_match(__s, '(' || __p || ')'))[{extractGroup + 1}], '') END", ("__s", extractText), ("__p", extractPattern));
+            case "div" when rules.Contains(DivisionByZeroIsInfinity) && body["left"] is { } dividend && body["right"] is { } divisor:
+                // DuckDB's double division by zero is Infinity (NaN for 0 / 0), never an error; Spark (ANSI mode, the default of 4.0) raises DIVIDE_BY_ZERO.
+                fired.Add(DivisionByZeroIsInfinity);
+                return Template("CASE WHEN __b = 0 THEN CASE WHEN __a > 0 THEN CAST('Infinity' AS DOUBLE) WHEN __a < 0 THEN CAST('-Infinity' AS DOUBLE) WHEN __a = 0 THEN CAST('NaN' AS DOUBLE) END ELSE __a / __b END", ("__a", dividend), ("__b", divisor));
+            case "mod" when rules.Contains(ModAsFunction) && body["left"] is { } modLeft && body["right"] is { } modRight:
+                // the transpile leaves `%`, which neither Oracle nor BigQuery has; both have MOD(a, b), which takes the sign of the dividend as DuckDB's % does
+                fired.Add(ModAsFunction);
+                return Template("ddb_mod(__a, __b)", ("__a", modLeft), ("__b", modRight));
+            case "cast" when rules.Contains(VarcharLength) && body["to"] is JsonObject { } castTo && castTo["data_type"]?.GetValue<string>() == "var_char" && castTo["length"] == null:
+                // a VARCHAR without a length is a CLOB on Oracle, which most functions and comparisons refuse; 4000 is the longest VARCHAR2
+                fired.Add(VarcharLength);
+                body["to"] = new JsonObject { ["data_type"] = "custom", ["name"] = "ddb_varchar" };
+                return o;
+            case "function" when rules.Contains(LeftRightAsSubstr) && IsLeftRight(body, out var lrRight, out var lrText, out var lrCount):
+                fired.Add(LeftRightAsSubstr);
+                return lrRight ? Template("substr(__s, -__n)", ("__s", lrText), ("__n", lrCount)) : Template("substr(__s, 1, __n)", ("__s", lrText), ("__n", lrCount));
+            case "function" when rules.Contains(DateDiffArgumentOrder) && IsDateDiffInDays(body, out var ddUnit, out var ddFrom, out var ddTo):
+                // BigQuery's is DATE_DIFF(later, earlier, PART) with the part as a keyword; it counts boundaries crossed, as DuckDB does
+                fired.Add(DateDiffArgumentOrder);
+                return Template($"ddb_date_diff(__b, __a, {ddUnit})", ("__a", ddFrom), ("__b", ddTo));
+            case "substring" when rules.Contains(SubstringBounds) && SubstringWithinBounds(body) is { } bounded:
+                // DuckDB counts position 0 as before the text (substr('abc', 0, 2) is 'a') and a negative length as characters to the left of the position; Spark treats 0 as 1 and a negative length as empty.
+                fired.Add(SubstringBounds);
+                body["start"] = Template(bounded.Start.ToString(CultureInfo.InvariantCulture));
+                body["length"] = Template(bounded.Length.ToString(CultureInfo.InvariantCulture));
+                return o;
+            case "function" when rules.Contains(SubstringBounds) && IsLeftOfNegative(body, out var leftText, out var leftDrop):
+                // left(s, -n) is all but the last n characters in DuckDB; Spark's is empty.
+                fired.Add(SubstringBounds);
+                return Template($"substring(__s, 1, greatest(length(__s) - {leftDrop}, 0))", ("__s", leftText));
+            case "function" when rules.Contains(WeekOfYear) && string.Equals(body["name"]?.GetValue<string>(), "week", StringComparison.OrdinalIgnoreCase) && body["args"] is JsonArray { Count: 1 } weekArgs:
+                // DuckDB's week() is the ISO week number; Spark has no function of that name, but EXTRACT(WEEK ...) is the ISO week too.
+                fired.Add(WeekOfYear);
+                return Template("date_part('week', __d)", ("__d", weekArgs[0]!));
+            case "function" when rules.Contains(ConcatSkipsNull) && string.Equals(body["name"]?.GetValue<string>(), "concat", StringComparison.OrdinalIgnoreCase) && body["args"] is JsonArray concatArgs:
+                // DuckDB's concat() treats NULL as ''; Spark's gives NULL. concat_ws skips NULL on both.
+                fired.Add(ConcatSkipsNull);
+                body["name"] = "concat_ws";
+                concatArgs.Insert(0, Template("''"));
+                return o;
+            case "function" when rules.Contains(RegexpReplaceFlags) && IsRegexpReplaceWithFlags(body):
+                // Spark replaces every match and takes the 4th argument as a start position, and it writes a group reference as $1 where DuckDB writes \1. The global flag is dropped (the default there);
+                // a replacement without it (first match only) stays as it is: the matrix says so.
+                fired.Add(RegexpReplaceFlags);
+                return RegexpReplaceForSpark(o, body);
             case "concat" when rules.Contains(ConcatAsPlus) && body["left"] is { } concatLeft && body["right"] is { } concatRight:
                 // The transpile turns `||` into `+` for SQL Server, except inside the arguments of the functions it rewrites into another shape (strpos becomes CHARINDEX with the arguments swapped, starts_with
                 // becomes LEFT ... = ...): `strpos(a || b, 'x')` came out as `CHARINDEX('x', a || b)`, which T-SQL does not parse. Writing the plus here makes every `||` come out the same. The lowered query
@@ -272,6 +347,72 @@ public static partial class TargetRules
         if (name != "regexp_extract" && args.Count != minArgs) return false;
         text = args[0]!; pattern = args[1]!;
         return true;
+    }
+
+    private static int? IntegerLiteral(JsonNode? n)
+    {
+        if (n?["neg"]?["this"]?["literal"] is JsonObject negative && negative["literal_type"]?.GetValue<string>() == "number" && int.TryParse(negative["value"]?.GetValue<string>(), NumberStyles.None, CultureInfo.InvariantCulture, out var m)) return -m;
+        if (n?["literal"] is JsonObject lit && lit["literal_type"]?.GetValue<string>() == "number" && int.TryParse(lit["value"]?.GetValue<string>(), NumberStyles.None, CultureInfo.InvariantCulture, out var v)) return v;
+        return null;
+    }
+
+    /// <summary>The start and length Spark needs to give what DuckDB gives for a literal start of 0 or less, or a literal negative length; null when neither applies.</summary>
+    private static (int Start, int Length)? SubstringWithinBounds(JsonObject f)
+    {
+        if (IntegerLiteral(f["start"]) is not { } start || IntegerLiteral(f["length"]) is not { } length || start < 0) return null;      // a negative start counts from the end: left to the engine
+        if (length < 0)
+        {
+            if (start < 1) return (1, 0);
+            var from = Math.Max(start + length, 1);
+            return (from, start - from);
+        }
+        if (start < 1) return (1, Math.Max(length + start - 1, 0));
+        return null;
+    }
+
+    private static bool IsLeftOfNegative(JsonObject f, out JsonNode text, out int drop)
+    {
+        text = null!; drop = 0;
+        if (!string.Equals(f["name"]?.GetValue<string>(), "left", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 2 } args || IntegerLiteral(args[1]) is not { } n || n >= 0) return false;
+        text = args[0]!; drop = -n;
+        return true;
+    }
+
+    private static bool IsLeftRight(JsonObject f, out bool right, out JsonNode text, out JsonNode count)
+    {
+        right = false; text = count = null!;
+        var name = f["name"]?.GetValue<string>();
+        if (!string.Equals(name, "left", StringComparison.OrdinalIgnoreCase) && !string.Equals(name, "right", StringComparison.OrdinalIgnoreCase)) return false;
+        if (f["args"] is not JsonArray { Count: 2 } args || IntegerLiteral(args[1]) is not { } n || n < 1) return false;     // zero and negative counts mean something else in DuckDB: left to the matrix
+        right = string.Equals(name, "right", StringComparison.OrdinalIgnoreCase); text = args[0]!; count = args[1]!;
+        return true;
+    }
+
+    private static bool IsDateDiffInDays(JsonObject f, out string unit, out JsonNode from, out JsonNode to)
+    {
+        unit = ""; from = to = null!;
+        if (!string.Equals(f["name"]?.GetValue<string>(), "date_diff", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray { Count: 3 } args) return false;
+        var part = args[0]?["literal"]?["value"]?.GetValue<string>()?.ToLowerInvariant();
+        if (part is not ("day" or "month" or "year" or "quarter") || args[1] is not { } a || args[2] is not { } b) return false;
+        unit = part.ToUpperInvariant(); from = a; to = b;
+        return true;
+    }
+
+    private static bool IsRegexpReplaceWithFlags(JsonObject f)
+    {
+        if (!string.Equals(f["name"]?.GetValue<string>(), "regexp_replace", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray args) return false;
+        var literalFlags = args.Count == 4 && args[3]?["literal"]?["value"]?.GetValue<string>() == "g";
+        var literalReplacement = args.Count >= 3 && args[2]?["literal"]?["value"]?.GetValue<string>() is { } r && r.Contains('\\');
+        return literalFlags || literalReplacement;
+    }
+
+    private static JsonNode RegexpReplaceForSpark(JsonObject o, JsonObject f)
+    {
+        var args = (JsonArray)f["args"]!;
+        if (args.Count == 4) args.RemoveAt(3);
+        if (args[2]?["literal"] is JsonObject lit && lit["value"]?.GetValue<string>() is { } text)
+            lit["value"] = System.Text.RegularExpressions.Regex.Replace(text, @"\\([0-9])", "$$$1");
+        return o;
     }
 
     private static bool IsWeekdayPart(JsonObject f, out bool iso, out JsonNode day)

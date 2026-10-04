@@ -457,3 +457,10 @@ Operator decision: correlated subqueries are a hard requirement.
   `release.yml` needs it) runs everything with every engine.
 - **Left**: rules, matrix columns and refusals for the three dialects, in the order of the scoreboard; then the targets themselves (DDL types, tracking tables, load strategies, a driver behind `MutationGate`).
 
+## 49. First target rules for Spark SQL, BigQuery and Oracle
+
+- **Built**: sixteen rules in `TargetRules` and `RewriteCatalog` (the catalog test requires every rule to be listed): Spark `division-by-zero` (Infinity, -Infinity, NaN as DuckDB), `concat-skips-null`, `substring-bounds` (position 0, negative length, negative `left`), `week-of-year`, `regexp-replace-flags`, and the existing `split-part`, `date-diff-boundaries`, `date-diff-weeks`, `weekday-datefirst`, `double-to-int`, `regexp-full-match` now also for Spark; BigQuery `mod-function`, `date-diff-argument-order`, `date-diff-weeks`; Oracle `mod-function`, `varchar-length`, `left-right-substr`. `TargetRules.Finish` replaces `ddb_` markers after the transpile (polyglot turns `MOD(a, b)` back into `%`, and prints VARCHAR as CLOB on Oracle); called by the planner, the renderer and the probes.
+- **Scoreboard** (docs/research/engine-differences/oracle-spark-bigquery.md): Spark 225 to 253 of 267 agree, BigQuery emulator 163 to 175, Oracle 113 to 119; `Baselines/*.txt` raised. Oracle's gain is small because the empty string is NULL there, which changes about forty probes at once.
+- **Verified**: 1,432 unit tests; the three probe suites against the real engines (Spark 4.0, the emulator, Oracle 23ai Free). Not touched: SQL Server and PostgreSQL rules (their probes unchanged).
+- **Left**: the rest of the lists in the scoreboard document; a matrix column for each engine; Oracle's empty-string rule; the BigQuery probe run took 6 to 9 minutes in three runs where it took 33 seconds in another (emulator slowness on failing queries?): check before the CI job's 30 minute limit matters.
+

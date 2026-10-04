@@ -9,6 +9,7 @@ cast_dec_int
 cast_dec_smallint
 cast_double_int2
 cast_int_double
+cast_int_varchar
 cast_str_decimal_literal_int
 cast_str_spaces_int
 cast_ts_date
@@ -55,11 +56,16 @@ median
 min_date
 min_int_null
 minute
+mod
+mod_by_zero
+mod_neg
+mod_neg2
 month
 mul
 neg
 not_in_null
 nullif
+nullif_empty
 or_null
 quantile
 round0
