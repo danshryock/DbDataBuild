@@ -1,6 +1,6 @@
 # A web interface: as an MCP app in Claude Desktop, standalone, or in VS Code
 
-Status: step 1 of the suggested order is built (`dbdatabuild mcp`, tools and resources without a UI; DESIGN.md 9.7, progress entry 50); the read-only `dbdatabuild web` is built too (entry 51); the rest is an idea. This note records what it would be and whether the code base can carry it. Where it depends on a host's behavior (Claude Desktop, VS Code) that changes quickly, it says
+Status: step 1 of the suggested order is built (`dbdatabuild mcp`, tools and resources without a UI; DESIGN.md 9.7, progress entry 50); `dbdatabuild web` with plans, answers, apply, sample data and table diff is built (entries 51, 53 to 55), and so is the page as an MCP app (entry 56); the VS Code shell and the packaging are still ideas. This note records what it would be and whether the code base can carry it. Where it depends on a host's behavior (Claude Desktop, VS Code) that changes quickly, it says
 "verify": those are the things to check against the current specifications before building anything.
 
 ## The idea

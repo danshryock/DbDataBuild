@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DbDataBuild.Core;
+using DbDataBuild.Cli.Web;
 using DbDataBuild.Planning;
 using DbDataBuild.Tui.Model;
 
@@ -15,6 +16,7 @@ namespace DbDataBuild.Cli.Mcp;
 internal sealed class McpServer
 {
     internal const string LatestProtocol = "2025-06-18";
+    internal const string UiExtension = "io.modelcontextprotocol/ui", UiMime = "text/html;profile=mcp-app", UiUri = "ui://dbdatabuild/app";
     private static readonly string[] SupportedProtocols = [LatestProtocol, "2025-03-26", "2024-11-05"];
 
     /// <summary>The longest document returned in a tool result; a larger one is cut and the model is told how to ask for less.</summary>
@@ -26,11 +28,16 @@ internal sealed class McpServer
     private readonly TextWriter output;
     private readonly ICommandHost host;
     private readonly ToolSurface surface;
+    private readonly ICommandHost host0;
+    private readonly bool allowAppApply;
+    private bool clientHasUi;
+    private WebBackend? backend;
     private IReadOnlyDictionary<string, CommandInfo> tools => surface.Tools;
     private string protocol = LatestProtocol;
 
-    public McpServer(string projectRoot, bool allowWrites, TextReader input, TextWriter output, ICommandHost host)
+    public McpServer(string projectRoot, bool allowWrites, TextReader input, TextWriter output, ICommandHost host, bool allowAppApply = false)
     {
+        this.host0 = host; this.allowAppApply = allowAppApply;
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.allowWrites = allowWrites;
         this.input = input;
@@ -102,11 +109,11 @@ internal sealed class McpServer
             {
                 "initialize" => Initialize(request["params"] as JsonObject),
                 "ping" => new JsonObject(),
-                "tools/list" => new JsonObject { ["tools"] = new JsonArray(tools.Values.OrderBy(t => t.Name, StringComparer.Ordinal).Select(surface.Describe).ToArray()) },
+                "tools/list" => new JsonObject { ["tools"] = new JsonArray(ListTools().ToArray()) },
                 "tools/call" => CallTool(request["params"] as JsonObject),
-                "resources/list" => new JsonObject { ["resources"] = new JsonArray(Resources.Listed().ToArray()) },
+                "resources/list" => new JsonObject { ["resources"] = new JsonArray(Resources.Listed().Concat(clientHasUi ? [UiResourceEntry()] : []).ToArray()) },
                 "resources/templates/list" => new JsonObject { ["resourceTemplates"] = new JsonArray(Resources.Templates().ToArray()) },
-                "resources/read" => Resources.Read(request["params"]?["uri"]?.GetValue<string>()),
+                "resources/read" => request["params"]?["uri"]?.GetValue<string>() == UiUri && clientHasUi ? ReadUi() : Resources.Read(request["params"]?["uri"]?.GetValue<string>()),
                 "prompts/list" => new JsonObject { ["prompts"] = new JsonArray(Prompts.Listed().ToArray()) },
                 "prompts/get" => Prompts.Get(request["params"]?["name"]?.GetValue<string>(), request["params"]?["arguments"] as JsonObject),
                 _ => throw new McpException(-32601, $"Method not found: {method}"),
@@ -119,11 +126,97 @@ internal sealed class McpServer
     private static JsonObject Error(JsonNode? id, int code, string message) =>
         new() { ["jsonrpc"] = "2.0", ["id"] = id, ["error"] = new JsonObject { ["code"] = code, ["message"] = message } };
 
+    // ---- the app ------------------------------------------------------------------------------------------------------------------------------------
+
+    private static readonly string[] AppOnlyTools = ["ui_run", "ui_file", "ui_capabilities", "ui_answers", "ui_apply", "ui_job", "ui_stop"];
+    private static readonly string[] Screens = ["health", "lineage", "models", "plans", "sample", "diff", "tests", "matrix"];
+    /// <summary>Tools whose result the person is better served by seeing in the app.</summary>
+    private static readonly string[] ToolsWithApp = ["review", "plan", "graph", "diff", "sample"];
+
+    private WebBackend Backend => backend ??= new WebBackend(projectRoot, host0, allowAppApply);
+
+    private static JsonObject UiMeta(bool appOnly)
+    {
+        if (appOnly) return new JsonObject { ["ui"] = new JsonObject { ["visibility"] = new JsonArray("app") } };
+        return new JsonObject { ["ui"] = new JsonObject { ["resourceUri"] = UiUri }, ["ui/resourceUri"] = UiUri };       // the second is the key the first hosts read; the extension deprecates it
+    }
+
+    private IEnumerable<JsonNode> ListTools()
+    {
+        foreach (var t in tools.Values.OrderBy(t => t.Name, StringComparer.Ordinal))
+        {
+            var d = surface.Describe(t);
+            if (clientHasUi && ToolsWithApp.Contains(t.Name)) d["_meta"] = UiMeta(false);
+            yield return d;
+        }
+        if (!clientHasUi) yield break;
+        yield return new JsonObject
+        {
+            ["name"] = "show", ["title"] = "Show the interface", ["_meta"] = UiMeta(false),
+            ["description"] = "Open the dbdatabuild interface for the person (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something.",
+            ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["screen"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(Screens), ["description"] = "Which screen to open (default: health)" } }, ["additionalProperties"] = false },
+            ["annotations"] = new JsonObject { ["readOnlyHint"] = true, ["destructiveHint"] = false, ["idempotentHint"] = true, ["openWorldHint"] = false },
+        };
+        // what the page calls: visible to the app, not to the model. Applying a plan is among them: the person presses the button in the app, the model cannot.
+        foreach (var (name, what) in new[] { ("ui_run", "Run a command that does not change a database, for the page"), ("ui_file", "Read a file of the project, for the page"), ("ui_capabilities", "What the page may do"),
+                                             ("ui_answers", "Save the answers a person gave to the questions of a plan"), ("ui_apply", "Apply a plan the person confirmed (needs --allow-apply on the server)"),
+                                             ("ui_job", "Follow an apply"), ("ui_stop", "Ask a running apply to stop between steps") })
+            yield return new JsonObject
+            {
+                ["name"] = name, ["description"] = what + ". For the interface only.", ["_meta"] = UiMeta(true),
+                ["inputSchema"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true },
+                ["annotations"] = new JsonObject { ["readOnlyHint"] = name is "ui_run" or "ui_file" or "ui_capabilities" or "ui_job", ["destructiveHint"] = name == "ui_apply" },
+            };
+    }
+
+    private static JsonArray Strings(IEnumerable<string> v) => new(v.Select(x => (JsonNode)JsonValue.Create(x)!).ToArray());
+
+    private static JsonObject UiResourceEntry() => new() { ["uri"] = UiUri, ["name"] = "dbdatabuild interface", ["description"] = "The dbdatabuild interface as an MCP app", ["mimeType"] = UiMime };
+
+    private JsonObject ReadUi() => new()
+    {
+        ["contents"] = new JsonArray(new JsonObject
+        {
+            ["uri"] = UiUri, ["mimeType"] = UiMime, ["text"] = WebServer.PageHtml("mcp", "", projectRoot),
+            ["_meta"] = new JsonObject { ["ui"] = new JsonObject { ["prefersBorder"] = true } },       // no csp entry: the default allows the page's own script and style and nothing else, which is all it needs
+        }),
+    };
+
+    private JsonObject Show(JsonObject? arguments)
+    {
+        var screen = arguments?["screen"] is JsonValue v && v.TryGetValue<string>(out var s) && Screens.Contains(s) ? s : "health";
+        var doc = new JsonObject { ["command"] = "show", ["screen"] = screen };
+        return new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = $"The interface is open on the {screen} screen for the person." }), ["structuredContent"] = doc, ["isError"] = false };
+    }
+
+    private JsonObject CallAppTool(string name, JsonObject? arguments)
+    {
+        var a = arguments ?? new JsonObject();
+        var (status, _, body) = name switch
+        {
+            "ui_run" => Backend.RunCommand(a),
+            "ui_file" => FileAsJson(a["path"] is JsonValue pv && pv.TryGetValue<string>(out var path) ? path : null),
+            "ui_capabilities" => Backend.Capabilities(),
+            "ui_answers" => Backend.SaveAnswers(a),
+            "ui_apply" => Backend.StartApply(a),
+            "ui_job" => Backend.JobStatus(a["id"] is JsonValue iv && iv.TryGetValue<string>(out var id) ? id : null, a["from"] is JsonValue fv && fv.TryGetValue<int>(out var from) ? from : 0),
+            _ => Backend.StopJob(a["id"] is JsonValue sv && sv.TryGetValue<string>(out var sid) ? sid : null),
+        };
+        return new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = body }), ["isError"] = status >= 400 };
+    }
+
+    private (int, string, string) FileAsJson(string? path)
+    {
+        var (status, type, body) = Backend.ReadFile(path);
+        return status == 200 ? (200, type, new JsonObject { ["text"] = body }.ToJsonString()) : (status, type, body);
+    }
+
     private JsonObject Initialize(JsonObject? p)
     {
         var asked = p?["protocolVersion"]?.GetValue<string>();
         protocol = asked != null && SupportedProtocols.Contains(asked) ? asked : LatestProtocol;
         clientCanAsk = p?["capabilities"]?["elicitation"] != null;
+        clientHasUi = p?["capabilities"]?["extensions"]?[UiExtension] != null;
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
@@ -137,6 +230,8 @@ internal sealed class McpServer
     private JsonObject CallTool(JsonObject? p)
     {
         var name = p?["name"]?.GetValue<string>() ?? throw new McpException(-32602, "tools/call needs a tool name");
+        if (name.StartsWith("ui_", StringComparison.Ordinal) && clientHasUi && AppOnlyTools.Contains(name)) return CallAppTool(name, p?["arguments"] as JsonObject);
+        if (name == "show" && clientHasUi) return Show(p?["arguments"] as JsonObject);
         if (!tools.TryGetValue(name, out var command)) throw new McpException(-32602, $"Unknown tool: {name}");
         var arguments = p?["arguments"] as JsonObject ?? new JsonObject();
         if (!surface.TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);

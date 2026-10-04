@@ -14,6 +14,7 @@ dotnet test tests/DbDataBuild.Tests.Conformance   # real engines, about 6 minute
 scripts/test-engines.sh down
 UPDATE_GOLDEN=1 dotnet test tests/DbDataBuild.Tests.Unit   # rewrites golden files; review the diff
 scripts/publish.sh linux-x64                   # one self-contained executable (win-x64 too: TARGET_RID=win-x64 scripts/build-polyglot.sh first)
+node scripts/mcp-app-host.mjs <project>       # a stand-in MCP Apps host: opens the app in a browser (node and a browser needed; --allow-apply, --inspectable)
 scripts/test-windows-wine.sh                  # the unit tests with Windows semantics under Wine (TEST_PROJECT=DbDataBuild.Tests.Conformance for the engines; PostgreSQL cannot log in under Wine)
 scripts/test-duckdb-preview.sh                 # the unit tests against DuckDB's preview library (2.0 alpha); see docs/research/duckdb-2.0
 ```

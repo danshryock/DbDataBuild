@@ -284,6 +284,109 @@ public class McpServerTests : IDisposable
         Assert.Contains("--dry-run", Assert.Single(host.Ran));
     }
 
+    // ---- the app ----
+
+    private static JsonObject UiClient() => new() { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = new JsonObject { ["extensions"] = new JsonObject { [McpServer.UiExtension] = new JsonObject { ["mimeTypes"] = new JsonArray(McpServer.UiMime) } } } };
+
+    private McpServer UiServer(DbDataBuild.Tui.Model.ICommandHost? host = null, bool allowApply = false)
+    {
+        var server = new McpServer(dir, false, TextReader.Null, new StringWriter(), host ?? new TuiCommand.CliHost(_ => null), allowApply);
+        Result(server, "initialize", UiClient());
+        return server;
+    }
+
+    private static string Text(JsonObject result) => (string)result["content"]![0]!["text"]!;
+
+    [Fact]
+    public void A_host_without_the_app_extension_sees_no_app_no_app_only_tool_and_cannot_call_one()
+    {
+        var s = Server();
+        Result(s, "initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = new JsonObject() });
+        var tools = Result(s, "tools/list")["tools"]!.AsArray();
+        Assert.DoesNotContain(tools, t => ((string)t!["name"]!).StartsWith("ui_") || (string)t["name"]! == "show");
+        Assert.All(tools, t => Assert.Null(t!["_meta"]));
+        Assert.DoesNotContain("ui://dbdatabuild/app", Result(s, "resources/list")["resources"]!.AsArray().Select(r => (string)r!["uri"]!));
+        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "ui_run", ["arguments"] = new JsonObject { ["command"] = "validate" } })).Single()["error"]!["code"]!);
+        Assert.Equal(-32002, (int)s.Handle(Request("resources/read", new JsonObject { ["uri"] = "ui://dbdatabuild/app" })).Single()["error"]!["code"]!);
+    }
+
+    [Fact]
+    public void A_host_with_the_extension_gets_the_app_its_tools_and_the_ones_only_the_app_may_call()
+    {
+        var s = UiServer();
+        var tools = Result(s, "tools/list")["tools"]!.AsArray();
+        foreach (var name in new[] { "ui_run", "ui_file", "ui_capabilities", "ui_answers", "ui_apply", "ui_job", "ui_stop" })
+            Assert.Equal(["app"], tools.Single(t => (string)t!["name"]! == name)!["_meta"]!["ui"]!["visibility"]!.AsArray().Select(v => (string)v!));      // not offered to the model
+        foreach (var name in new[] { "review", "plan", "graph", "diff", "sample", "show" })
+            Assert.Equal("ui://dbdatabuild/app", (string)tools.Single(t => (string)t!["name"]! == name)!["_meta"]!["ui"]!["resourceUri"]!);
+        Assert.Null(tools.Single(t => (string)t!["name"]! == "validate")!["_meta"]);          // the model's own checks do not open a window each time
+        var resource = Result(s, "resources/read", new JsonObject { ["uri"] = "ui://dbdatabuild/app" })["contents"]![0]!;
+        Assert.Equal("text/html;profile=mcp-app", (string)resource["mimeType"]!);
+        var html = (string)resource["text"]!;
+        Assert.Contains("const TRANSPORT = \"mcp\"", html);
+        Assert.DoesNotContain("__TRANSPORT__", html);
+        Assert.DoesNotContain("__TOKEN__", html);
+        Assert.Contains("ui://dbdatabuild/app", Result(s, "resources/list")["resources"]!.AsArray().Select(r => (string)r!["uri"]!));
+    }
+
+    [Fact]
+    public void The_app_runs_what_the_page_runs_and_reads_what_the_page_reads_and_no_more()
+    {
+        var s = UiServer();
+        var validate = Call(s, "ui_run", new JsonObject { ["command"] = "validate" });
+        Assert.False((bool)validate["isError"]!);
+        Assert.Equal("validate", (string)JsonNode.Parse(Text(validate))!["document"]!["command"]!);
+        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "apply" })["isError"]!);                       // not a command the page runs
+        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "render", ["arguments"] = new JsonObject { ["write"] = true } })["isError"]!);
+        File.WriteAllText(Path.Combine(dir, ".env"), "SECRET=1");
+        Assert.True((bool)Call(s, "ui_file", new JsonObject { ["path"] = ".env" })["isError"]!);
+        Assert.True((bool)Call(s, "ui_file", new JsonObject { ["path"] = "../x.sql" })["isError"]!);
+        var yml = Call(s, "ui_file", new JsonObject { ["path"] = "dbdatabuild.yml" });
+        Assert.False((bool)yml["isError"]!);
+        Assert.Contains("targets", (string)JsonNode.Parse(Text(yml))!["text"]!, StringComparison.OrdinalIgnoreCase);
+        Assert.False((bool)JsonNode.Parse(Text(Call(s, "ui_capabilities")))!["apply"]!);
+    }
+
+    [Fact]
+    public void Show_names_the_screen_the_person_should_see()
+    {
+        var r = Call(UiServer(), "show", new JsonObject { ["screen"] = "plans" });
+        Assert.Equal("show", (string)r["structuredContent"]!["command"]!);
+        Assert.Equal("plans", (string)r["structuredContent"]!["screen"]!);
+        Assert.Equal("health", (string)Call(UiServer(), "show", new JsonObject { ["screen"] = "nonsense" })["structuredContent"]!["screen"]!);
+    }
+
+    [Fact]
+    public void An_app_applies_a_plan_only_with_allow_apply_and_the_persons_confirmation_and_the_model_is_never_offered_that()
+    {
+        var host = new ApplyHost();
+        var plan = Path.Combine(dir, "plans", "postgres");
+        Directory.CreateDirectory(plan);
+        var id = "2026-10-05-eeee0005";
+        File.WriteAllText(Path.Combine(plan, id + ".plan.yml"), DbDataBuild.Planning.PlanDocument.Serialize(new DbDataBuild.Planning.Plan(id, "postgres", null, false, "0.1.0",
+            [new DbDataBuild.Planning.ObjectBase("marts.fct", DbDataBuild.State.ObjectState.InSync, new string('a', 64), new string('a', 64))], [],
+            [new DbDataBuild.Planning.PlanStep("1", DbDataBuild.Planning.StepType.Ddl, "marts.fct", "add column", "ALTER TABLE marts.fct ADD x int;", DbDataBuild.Planning.RiskClass.Safe, ["col.added"], new string('b', 64), [])], [])));
+        var relative = $"plans/postgres/{id}.plan.yml";
+        var confirm = new JsonObject { ["target"] = "postgres", ["plan_id"] = id };
+
+        // the server was not started with --allow-apply: refused, nothing runs
+        var off = UiServer(host, allowApply: false);
+        Assert.True((bool)Call(off, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = confirm.DeepClone() })["isError"]!);
+        Assert.Empty(host.Ran);
+
+        var on = UiServer(host, allowApply: true);
+        Assert.True((bool)Call(on, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = "nope", ["plan_id"] = id } })["isError"]!);       // not confirmed
+        Assert.Empty(host.Ran);
+        var started = Call(on, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = confirm.DeepClone() });
+        Assert.False((bool)started["isError"]!);
+        var job = (string)JsonNode.Parse(Text(started))!["job"]!;
+        for (var i = 0; i < 400 && !(bool)JsonNode.Parse(Text(Call(on, "ui_job", new JsonObject { ["id"] = job })))!["done"]!; i++) Thread.Sleep(25);
+        Assert.Equal("apply", Assert.Single(host.Ran)[0]);
+
+        // and the model, which sees none of these tools, has no apply: it is a command only --allow-writes offers, and then only with the person's approval through the host
+        Assert.DoesNotContain("apply", on.ToolNames);
+    }
+
     [Fact]
     public void Serve_answers_each_line_and_survives_a_line_that_is_not_json()
     {

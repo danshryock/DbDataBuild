@@ -11,11 +11,18 @@
   --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --note: #0969da; --src: #8250df; --code-bg: #f1f2f4; --hi: #fff3bf;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #14181c; --panel: #1c2127; --ink: #e6e9ec; --muted: #9aa6b1; --line: #313941; --accent: #4c9aff; --accent-ink: #0b1218;
     --ok: #3fb950; --warn: #d29922; --bad: #f85149; --note: #58a6ff; --src: #b392f0; --code-bg: #232a31; --hi: #5a4a10;
   }
 }
+/* the host of an MCP app says light or dark: that wins over the system setting */
+:root[data-theme="dark"] {
+  --bg: #14181c; --panel: #1c2127; --ink: #e6e9ec; --muted: #9aa6b1; --line: #313941; --accent: #4c9aff; --accent-ink: #0b1218;
+  --ok: #3fb950; --warn: #d29922; --bad: #f85149; --note: #58a6ff; --src: #b392f0; --code-bg: #232a31; --hi: #5a4a10;
+}
+html.mcp .list, html.mcp .graph { max-height: 560px; }
+html.mcp header { position: static; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
@@ -125,28 +132,92 @@ function makeKeyboardOperable(e) {
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---- the host: the same page runs as a web page (HTTP to the local server) or as an MCP app (tool calls through the host) -------------------------------
+// Everything below talks to `call(op, payload)`; only this function knows which of the two it is.
+
+const TRANSPORT = "__TRANSPORT__";
+const http = {
+  run: (p) => post("/api/run", p), file: (p) => get("/api/file?path=" + encodeURIComponent(p.path), true), capabilities: () => get("/api/capabilities"), answers: (p) => post("/api/answers", p),
+  apply: (p) => post("/api/apply", p), job: (p) => get(`/api/job?id=${encodeURIComponent(p.id)}&from=${p.from || 0}`), stop: (p) => post("/api/job/stop?id=" + encodeURIComponent(p.id), {}),
+};
+async function fetchText(path, init) {
+  const res = await fetch(path, { ...init, headers: { "Content-Type": "application/json", "X-DDB-Token": TOKEN } });
+  const text = await res.text();
+  if (!res.ok) { const e = new Error(text || res.statusText); e.status = res.status; throw e; }
+  return text;
+}
+async function get(path, asText) { const t = await fetchText(path); return asText ? { text: t } : (t ? JSON.parse(t) : {}); }
+async function post(path, body) { const t = await fetchText(path, { method: "POST", body: JSON.stringify(body) }); return t ? JSON.parse(t) : {}; }
+
+const mcp = {
+  pending: new Map(), next: 1, toolResult: null,
+  rpc(method, params) { return new Promise((resolve, reject) => { const id = this.next++; this.pending.set(id, { resolve, reject }); window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*"); }); },
+  notify(method, params) { window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*"); },
+  async tool(name, args) {
+    const res = await this.rpc("tools/call", { name, arguments: args });
+    const text = res.content?.[0]?.text ?? "";
+    if (res.isError) { const e = new Error(text || "The tool failed."); e.status = 400; throw e; }
+    return text ? JSON.parse(text) : {};
+  },
+  async start() {
+    addEventListener("message", (ev) => {
+      if (ev.source !== window.parent) return;                                // only the host that embeds this page
+      const m = ev.data;
+      if (!m || m.jsonrpc !== "2.0") return;
+      if (m.id !== undefined && m.method === undefined) {
+        const p = this.pending.get(m.id);
+        if (p) { this.pending.delete(m.id); m.error ? p.reject(new Error(m.error.message || "The host refused.")) : p.resolve(m.result); }
+      } else if (m.method === "ping" && m.id !== undefined) window.parent.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
+      else if (m.method === "ui/resource-teardown" && m.id !== undefined) window.parent.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
+      else if (m.method === "ui/notifications/tool-result") routeFromResult(m.params);
+      else if (m.method === "ui/notifications/host-context-changed") applyContext(m.params);
+    });
+    const init = await this.rpc("ui/initialize", { appInfo: { name: "dbdatabuild", version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" });
+    applyContext(init?.hostContext);
+    this.notify("ui/notifications/initialized", {});
+    // tell the host how tall the page is, as it changes
+    let last = 0;
+    new ResizeObserver(() => { const hgt = Math.ceil(document.documentElement.getBoundingClientRect().height); if (hgt !== last) { last = hgt; this.notify("ui/notifications/size-changed", { width: Math.ceil(document.documentElement.getBoundingClientRect().width), height: hgt }); } }).observe(document.body);
+  },
+};
+function applyContext(ctx) { if (ctx?.theme) document.documentElement.setAttribute("data-theme", ctx.theme); }
+
+// The screen that shows what the tool the model called returned.
+function routeFromResult(result) {
+  const doc = result?.structuredContent;
+  const data = doc?.data;
+  if (doc?.command === "show" && views[doc.screen]) { go(doc.screen); return; }
+  const where = { validate: "health", test: "tests", graph: "lineage", metadata: "models", matrix: "matrix", sample: "sample", diff: "diff", plan: "plans", review: "plans" }[doc?.command];
+  if (!where) return;
+  if (doc.command === "review" && data?.path) go("plans", data.path);
+  else go(where);
+}
+
+async function call(op, payload = {}) { return TRANSPORT === "mcp" ? mcp.tool("ui_" + op, payload) : http[op](payload); }
+
 const cache = new Map();
 async function run(command, args = {}, fresh = false) {
   const key = command + JSON.stringify(args);
   if (!fresh && cache.has(key)) return cache.get(key);
-  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-DDB-Token": TOKEN }, body: JSON.stringify({ command, arguments: args }) });
-  if (!res.ok) throw new Error(await res.text());
-  const out = await res.json();
+  const out = await call("run", { command, arguments: args });
   if (!out.document) throw new Error(out.text || "The command gave no document.");
   cache.set(key, out.document);
   return out.document;
 }
 async function readFile(path) {
-  const res = await fetch("/api/file?path=" + encodeURIComponent(path), { headers: { "X-DDB-Token": TOKEN } });
-  if (!res.ok) return { error: res.status === 404 ? "This file does not exist (a rendered script exists after `dbdatabuild render --write`)." : await res.text() };
-  return { text: await res.text() };
+  try { return await call("file", { path }); }
+  catch (e) { return { error: e.status === 404 ? "This file does not exist." : e.message }; }
 }
 
+// the paths the page used to fetch, as operations
 async function api(path, body) {
-  const res = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", "X-DDB-Token": TOKEN }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const text = await res.text();
-  if (!res.ok) throw new Error(text || res.statusText);
-  return text ? JSON.parse(text) : {};
+  const url = new URL(path, "http://x");
+  if (url.pathname === "/api/capabilities") return call("capabilities");
+  if (url.pathname === "/api/answers") return call("answers", body);
+  if (url.pathname === "/api/apply") return call("apply", body);
+  if (url.pathname === "/api/job/stop") return call("stop", { id: url.searchParams.get("id") });
+  if (url.pathname === "/api/job") return call("job", { id: url.searchParams.get("id"), from: Number(url.searchParams.get("from") || 0) });
+  throw new Error("Unknown request " + path);
 }
 
 function codeBlock(text, hitLine) {
@@ -696,7 +767,8 @@ async function render() {
 }
 $("refresh").addEventListener("click", () => { cache.clear(); render(); });
 addEventListener("hashchange", render);
-render();
+if (TRANSPORT === "mcp") { document.documentElement.classList.add("mcp"); mcp.start().then(render, (e) => { $("view").replaceChildren(failure(e)); }); }
+else render();
 </script>
 </body>
 </html>

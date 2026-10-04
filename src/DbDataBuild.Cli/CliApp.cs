@@ -97,8 +97,9 @@ public static class CliApp
                 case "mcp":
                     var mcpProject = new Option<DirectoryInfo>("--project") { Description = "Project root the tools work on", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var mcpWrites = new Option<bool>("--allow-writes") { Description = "Also offer the commands that change a target or its tracking tables (apply, run, load-seeds, init, ack, publish-metadata). Off by default: a person runs those." };
-                    cmd.Options.Add(mcpProject); cmd.Options.Add(mcpWrites);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Mcp.McpCommand.Run(Path.GetFullPath(pr.GetValue(mcpProject)!.FullName), pr.GetValue(mcpWrites), o.IsJson(), input, o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    var mcpApply = new Option<bool>("--allow-apply") { Description = "Let an MCP app (a page the host shows the person) apply plans: the person confirms in the app by typing the plan's target; the tools it calls are hidden from the model. Needs the write login in this environment. Independent of --allow-writes, which offers the commands to the model (each run then needs the person's approval)." };
+                    cmd.Options.Add(mcpProject); cmd.Options.Add(mcpWrites); cmd.Options.Add(mcpApply);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Mcp.McpCommand.Run(Path.GetFullPath(pr.GetValue(mcpProject)!.FullName), pr.GetValue(mcpWrites), pr.GetValue(mcpApply), o.IsJson(), input, o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "web":
                     var webProject = new Option<DirectoryInfo>("--project") { Description = "Project root to show", DefaultValueFactory = _ => new DirectoryInfo(".") };
