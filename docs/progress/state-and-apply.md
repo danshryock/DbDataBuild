@@ -499,3 +499,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Not verified**: elicitation in a real host (Claude Desktop, VS Code): the shape of the request follows the 2025-06-18 specification, which was not checked against a host. The questions form was driven with a stand-in `plan`, not against a model change that really asks.
 - **Left**: `apply --resume` and `--allow-dirty` from the page; table diff and sample data in the page; the page as an MCP app (where the approval would live in the frame and the tool could be hidden from the model); the `.mcpb` bundle.
 
+## 55. Sample data and table diff in the page
+
+- **Built**: two screens in `dbdatabuild web`: Sample data (`sample`: models, rows, seed, limit, scale, the sources too; tables with their rows) and Table diff (`diff`: counts, key, columns, type differences, differing rows by column, column statistics, sample rows only with "Show values"). `ToolSurface(personReads: true)` offers `diff --show-values` and `sample --data` to the page and still withholds them from the MCP server.
+- **Verified**: 1,475 unit tests (sample runs, diff runs, values asked for by a person); `WebApplyConformanceTests` also runs the page's diff on SQL Server 2022 and PostgreSQL 17 (identical, then one amount changed: one differing row, no samples without `show_values`, the new value with it); the Sample screen read in a screenshot after a real run, the Table diff screen after feeding it a document of the schema's shape.
+- **Left**: diff from the page for views of another target (a diff is within one target); `sample --data` from the page needs a CSV directory in the project and was not tried.
+

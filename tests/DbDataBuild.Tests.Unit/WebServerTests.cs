@@ -63,7 +63,7 @@ public sealed class WebServerTests : IDisposable
         var reply = JsonNode.Parse(await ok.Content.ReadAsStringAsync())!;
         Assert.Equal("validate", (string)reply["document"]!["command"]!);
 
-        foreach (var command in new[] { "apply", "run", "init", "load-seeds", "seed", "new", "define", "tui", "mcp", "web", "diff" })
+        foreach (var command in new[] { "apply", "run", "init", "load-seeds", "seed", "new", "define", "tui", "mcp", "web" })
             Assert.Equal(HttpStatusCode.NotFound, (await Run(command)).StatusCode);
         // render can be run, but not with --write; a path outside the project and the project option are not inputs
         Assert.Equal(HttpStatusCode.OK, (await Run("render", "{\"check\":true}")).StatusCode);
@@ -83,6 +83,18 @@ public sealed class WebServerTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered")));       // the page can see the scripts without `render --write`
         var plain = JsonNode.Parse(await (await Run("render")).Content.ReadAsStringAsync())!;
         Assert.Null(plain["document"]!["data"]!["files"]![0]!["content"]);
+    }
+
+    [Fact]
+    public async Task Sample_and_diff_can_be_run_and_a_person_may_ask_for_values_which_a_model_never_may()
+    {
+        var sample = JsonNode.Parse(await (await Run("sample", "{\"models\":[\"marts.customers\"],\"limit\":3}")).Content.ReadAsStringAsync())!;
+        Assert.Equal(0, (int)sample["exit"]!);
+        Assert.Contains(sample["document"]!["data"]!["tables"]!.AsArray(), t => (string)t!["name"]! == "marts.customers");
+        // diff reads a target: here there is no login, and the answer is the command's own finding, not a refusal of the page
+        var diff = await Run("diff", "{\"table\":\"marts.customers\",\"against_schema\":\"dev\",\"show_values\":true}");
+        Assert.Equal(HttpStatusCode.OK, diff.StatusCode);
+        Assert.Equal("diff", (string)JsonNode.Parse(await diff.Content.ReadAsStringAsync())!["document"]!["command"]!);
     }
 
     [Fact]

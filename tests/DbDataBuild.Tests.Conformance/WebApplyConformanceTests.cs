@@ -67,6 +67,27 @@ public partial class ApplyConformanceTests
             Assert.Equal(3, await CountAsync(run, "marts.fct_orders"));
             Assert.Equal(3, await CountAsync(run, "marts.v_orders"));
 
+            // the page's table diff, on the engine: the loaded table equals its source, then one amount is changed
+            async Task<JsonNode> Diff(bool values)
+            {
+                var arguments = new JsonObject { ["table"] = "staging.orders", ["against"] = "marts.fct_orders", ["key"] = new JsonArray("order_id") };
+                if (values) arguments["show_values"] = true;
+                var reply = await Post("/api/run", new JsonObject { ["command"] = "diff", ["arguments"] = arguments });
+                Assert.Equal(HttpStatusCode.OK, reply.Status);
+                return JsonNode.Parse(reply.Body)!["document"]!["data"]!;
+            }
+            var same = await Diff(false);
+            Assert.True((bool)same["identical"]!);
+            Assert.Equal(3, (int)same["left"]!["rows"]!);
+            Assert.Equal(3, (int)same["rows"]!["matched"]!);
+            await run.Engine.ExecAsync("UPDATE marts.fct_orders SET amount = 99.00 WHERE order_id = 1");
+            var changed = await Diff(false);
+            Assert.False((bool)changed["identical"]!);
+            Assert.Equal(1, (int)changed["rows"]!["differing"]!);
+            Assert.Null(changed["samples"]);                                   // counts only, unless the person asked for values
+            var shown = await Diff(true);
+            Assert.Equal("99", ((string)shown["samples"]!["differing"]![0]!["columns"]!["amount"]!["right"]!).TrimEnd('0').TrimEnd('.'));
+
             // the plan has been used: a second apply is refused by the command itself
             var again = (string)JsonNode.Parse((await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = name, ["plan_id"] = id } })).Body)!["job"]!;
             Assert.NotEqual(0, (int)(await Finished(again))["exit"]!);

@@ -19,11 +19,14 @@ internal sealed class ToolSurface
     private readonly string projectRoot;
     private readonly bool withholdWriteFlags;
     private readonly IReadOnlySet<string> alsoWithheld;
+    private readonly bool personReads;
 
     /// <param name="withholdWriteFlags">Also withhold the flag that makes a command change something (`render --write`), so every offered call only reads.</param>
     /// <param name="alsoWithheld">More options to withhold, as `command --option` (the web page withholds `plan --accept-inferred`: a person answers each question).</param>
-    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false, IEnumerable<string>? alsoWithheld = null)
+    /// <param name="personReads">The client is a person's page, not a model: the options that show values are offered (the page asks for them explicitly; they are never on by default).</param>
+    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false, IEnumerable<string>? alsoWithheld = null, bool personReads = false)
     {
+        this.personReads = personReads;
         this.alsoWithheld = (alsoWithheld ?? []).ToHashSet();
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.withholdWriteFlags = withholdWriteFlags;
@@ -35,7 +38,7 @@ internal sealed class ToolSurface
     private bool IsWriteFlag(CommandInfo c, OptionInfo o) => withholdWriteFlags && c.WriteFlag != null && c.WriteFlag.TrimStart('!') == o.Name;
 
     private IEnumerable<OptionInfo> Offered(CommandInfo c) =>
-        c.Options.Where(o => o.Name != "--project" && !IsWriteFlag(c, o) && !alsoWithheld.Contains(c.Name + " " + o.Name) && !(WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
+        c.Options.Where(o => o.Name != "--project" && !IsWriteFlag(c, o) && !alsoWithheld.Contains(c.Name + " " + o.Name) && !(!personReads && WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
 
     internal static string PropertyName(string option) => option.TrimStart('-').Replace('-', '_');
 

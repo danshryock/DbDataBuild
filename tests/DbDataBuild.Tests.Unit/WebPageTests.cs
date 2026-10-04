@@ -67,6 +67,8 @@ public sealed class WebPageTests : IDisposable
             ($"#/models/{name}", "grain"),
             ($"#/models/{name}/sql", "SELECT"),
             ($"#/models/{name}/lowered", "SELECT"),
+            ("#/sample", "Run models on sample data"),
+            ("#/diff", "Compare two tables"),
             ("#/tests", "tests"),
             ("#/matrix", "construct"),
         };

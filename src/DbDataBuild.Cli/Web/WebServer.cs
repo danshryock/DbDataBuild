@@ -18,8 +18,8 @@ namespace DbDataBuild.Cli.Web;
 /// </summary>
 internal sealed class WebServer : IDisposable
 {
-    /// <summary>The commands the page may run. All of them only read (render and define lose their write flags); none touches a target.</summary>
-    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review", "plan"];
+    /// <summary>The commands the page may run. None changes a database (render loses its write flag); `plan` and `diff` read a target with the read login, `plan` writes plan files into the project.</summary>
+    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review", "plan", "sample", "diff"];
 
     /// <summary>The parts of a project a person may read through the page: what the project is made of, not the plans, the state or the environment.</summary>
     private static readonly string[] ReadableDirectories = ["models", "sources", "seeds", "tests", "rendered", "hooks"];
@@ -44,7 +44,7 @@ internal sealed class WebServer : IDisposable
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.host = host;
         // plan writes plan files in the project and reads the target with the read login; the person answers each question themselves, so `plan --accept-inferred` is not offered
-        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["plan --accept-inferred"]);
+        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["plan --accept-inferred"], personReads: true);
         actions = new WebActions(this.projectRoot, host, oneCommandAtATime, allowApply);
         Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         Port = port != 0 ? port : FreePort();

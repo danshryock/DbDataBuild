@@ -578,9 +578,107 @@ async function follow(out, job, dryRun) {
   }
 }
 
+// ---- table diff -----------------------------------------------------------------------------------------------------------------------------------------
+// `diff` compares two tables of one target inside the engine, with the read login of the server's environment. By default only counts are read; values come only when the person ticks the box.
+
+async function diffView() {
+  const out = h("div");
+  const field = (label, input) => h("label", { style: "display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)" }, label, input);
+  const table = h("input", { type: "text", placeholder: "marts.fct_orders", "aria-label": "Table", style: "min-width:220px" });
+  const against = h("input", { type: "text", placeholder: "dev.fct_orders", "aria-label": "Compare with table", style: "min-width:220px" });
+  const schema = h("input", { type: "text", placeholder: "dev", "aria-label": "Compare with the same table in this schema", style: "min-width:140px" });
+  const key = h("input", { type: "text", placeholder: "default: the grain", "aria-label": "Key columns, separated by commas", style: "min-width:180px" });
+  const target = h("select", { "aria-label": "Target" }, h("option", { value: "" }, "default target"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
+  const values = h("input", { type: "checkbox", "aria-label": "Show values" });
+  async function compare() {
+    out.replaceChildren(h("div", { class: "spin" }, "Comparing inside the engine…"));
+    try {
+      const args = { table: table.value.trim() };
+      if (against.value.trim()) args.against = against.value.trim(); else if (schema.value.trim()) args.against_schema = schema.value.trim();
+      if (key.value.trim()) args.key = key.value.split(",").map((x) => x.trim()).filter(Boolean);
+      if (target.value) args.target = target.value;
+      if (values.checked) args.show_values = true;
+      const doc = await run("diff", args, true);
+      out.replaceChildren(doc.data?.left ? diffResult(doc.data) : outcome(doc));
+    } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
+  }
+  return h("div", null, h("div", { class: "panel" }, h("h2", null, "Compare two tables"),
+    h("div", { class: "muted" }, "Counts are computed inside the engine and only counts are read. Values are read only if you tick the box, and are shown to you here, never to an agent."),
+    h("div", { class: "bar", style: "margin-top:8px;align-items:flex-end" }, field("Table", table), field("Compare with table", against), field("or the same table in schema", schema), field("Key", key), field("Target", target)),
+    h("div", { class: "bar" }, h("label", null, values, " Show values (reads real data from the target)"), h("button", { onclick: compare }, "Compare"))), out);
+}
+
+function diffResult(d) {
+  const r = d.rows, sc = d.schema;
+  const same = d.identical;
+  const list = (items) => items.length ? items.map((c) => h("span", { class: "tag" }, c)) : h("span", { class: "muted" }, "none");
+  return h("div", null,
+    h("div", { class: "cards" }, card(d.left.rows.toLocaleString(), d.left.table), card(d.right.rows.toLocaleString(), d.right.table),
+      card(same ? "identical" : "differ", `on ${d.target}`, same ? "ok" : "warn"),
+      r.compared ? [card(r.matched.toLocaleString(), "rows match", "ok"), card(r.differing.toLocaleString(), "rows differ", r.differing ? "bad" : ""), card(r.only_left.toLocaleString(), "only in " + d.left.table, r.only_left ? "bad" : ""), card(r.only_right.toLocaleString(), "only in " + d.right.table, r.only_right ? "bad" : "")] : null),
+    h("div", { class: "panel" }, h("h2", null, "Key"), h("div", null, list(d.key.columns), " ", h("span", { class: "muted" }, "from " + d.key.source.replace("_", " "))),
+      d.duplicate_keys && (d.duplicate_keys.left || d.duplicate_keys.right) ? h("div", { class: "warn" }, `Duplicate keys: ${d.duplicate_keys.left} on the left, ${d.duplicate_keys.right} on the right; rows are not compared.`) : null),
+    h("div", { class: "panel" }, h("h2", null, "Columns"),
+      h("div", null, h("span", { class: "muted" }, "compared "), list(sc.compared_columns)),
+      sc.only_left.length ? h("div", null, h("span", { class: "muted" }, "only in " + d.left.table + " "), list(sc.only_left)) : null,
+      sc.only_right.length ? h("div", null, h("span", { class: "muted" }, "only in " + d.right.table + " "), list(sc.only_right)) : null,
+      sc.type_differences.length ? h("table", null, h("thead", null, h("tr", null, h("th", null, "column"), h("th", null, d.left.table), h("th", null, d.right.table))), h("tbody", null, sc.type_differences.map((t) => h("tr", null, h("td", null, h("code", null, t.column)), h("td", null, t.left_type), h("td", null, t.right_type))))) : null,
+      sc.not_compared.length ? h("div", { class: "muted" }, "not compared: " + sc.not_compared.map((n) => `${n.column} (${n.reason})`).join("; ")) : null),
+    r.compared && Object.keys(r.differing_by_column).length ? h("div", { class: "panel" }, h("h2", null, "Rows that differ, by column"),
+      h("table", null, h("tbody", null, Object.entries(r.differing_by_column).sort((a, b) => b[1] - a[1]).map(([c, n]) => h("tr", null, h("td", null, h("code", null, c)), h("td", null, n.toLocaleString())))))) : null,
+    d.column_stats?.length ? h("div", { class: "panel" }, h("h2", null, "Column statistics"),
+      h("table", null, h("thead", null, h("tr", null, h("th", null, "column"), h("th", null, "non-null left"), h("th", null, "non-null right"), d.column_stats.some((c) => c.left_min != null) ? [h("th", null, "min left"), h("th", null, "min right"), h("th", null, "max left"), h("th", null, "max right")] : null)),
+        h("tbody", null, d.column_stats.map((c) => h("tr", null, h("td", null, h("code", null, c.column)), h("td", null, c.left_non_null.toLocaleString()), h("td", null, c.right_non_null.toLocaleString()),
+          d.column_stats.some((x) => x.left_min != null) ? [c.left_min, c.right_min, c.left_max, c.right_max].map((v) => h("td", null, v ?? "")) : null))))) : null,
+    d.samples ? samplesPanel(d) : null);
+}
+
+function samplesPanel(d) {
+  const kv = (o) => Object.entries(o).map(([k, v]) => `${k}=${v ?? "∅"}`).join(", ");
+  const part = (title, rows, render) => rows?.length ? [h("h3", null, title), h("table", null, h("tbody", null, rows.map((x) => h("tr", null, h("td", null, h("code", null, kv(x.key))), h("td", null, render(x)))))) ] : null;
+  return h("div", { class: "panel" }, h("h2", null, "Sample rows (real values)"),
+    part("Only in " + d.left.table, d.samples.only_left, (x) => kv(x.values)), part("Only in " + d.right.table, d.samples.only_right, (x) => kv(x.values)),
+    part("Differing", d.samples.differing, (x) => Object.entries(x.columns).map(([c, v]) => `${c}: ${v.left ?? "∅"} → ${v.right ?? "∅"}`).join("; ")));
+}
+
+// ---- sample data ----------------------------------------------------------------------------------------------------------------------------------------
+// `sample` runs models in DuckDB on generated rows (the project's seeds, or its own sample data) and shows what they give. Offline: no target is read.
+
+async function sampleView() {
+  const meta = (await run("metadata")).data;
+  const out = h("div");
+  const list = h("datalist", { id: "sample-models" }, meta.models.map((m) => h("option", { value: m.name })));
+  const models = h("input", { type: "text", list: "sample-models", placeholder: "model names or selectors (default: every model)", "aria-label": "Models", style: "min-width:360px" });
+  const num = (label, value, min) => { const i = h("input", { type: "text", value, "aria-label": label, size: 6 }); i.dataset.min = min; return i; };
+  const rows = num("Rows per source", "50", 1), seed = num("Seed", "1", 0), limit = num("Rows to show", "20", 1), scale = num("Scale", "", 1);
+  const sources = h("input", { type: "checkbox", "aria-label": "Also show the sources" });
+  async function go1() {
+    out.replaceChildren(h("div", { class: "spin" }, "Running the models in DuckDB…"));
+    try {
+      const args = {};
+      if (models.value.trim()) args.models = models.value.trim().split(/\s+/);
+      for (const [name, el] of [["rows", rows], ["seed", seed], ["limit", limit], ["scale", scale]]) if (el.value.trim() !== "") { const n = Number(el.value); if (!Number.isInteger(n) || n < +el.dataset.min) throw new Error(`${name} must be a whole number from ${el.dataset.min}`); args[name] = n; }
+      if (sources.checked) args.sources = true;
+      const doc = await run("sample", args, true);
+      out.replaceChildren(doc.data?.tables ? sampleResult(doc.data) : outcome(doc));
+    } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
+  }
+  return h("div", null, list, h("div", { class: "panel" }, h("h2", null, "Run models on sample data"),
+    h("div", { class: "muted" }, "Offline, in DuckDB, on generated rows: nothing is read from a target. The rows are made up by the project's seeds."),
+    h("div", { class: "bar", style: "margin-top:8px" }, models, h("label", null, "rows ", rows), h("label", null, "seed ", seed), h("label", null, "show ", limit), h("label", null, "scale ", scale), h("label", null, sources, " sources too"), h("button", { onclick: go1 }, "Run"))), out);
+}
+
+function sampleResult(d) {
+  return h("div", null, d.tables.map((t) => h("div", { class: "panel" },
+    h("h2", null, t.kind === "model" ? modelLink(t.name) : t.name, " ", badge(t.kind, t.kind === "model" ? "note" : ""), " ", h("span", { class: "muted" }, `${t.row_count.toLocaleString()} row${t.row_count === 1 ? "" : "s"}` + (t.row_count > t.rows.length ? `, first ${t.rows.length}` : ""))),
+    t.error ? h("div", { class: "err" }, t.error) : null, (t.warnings || []).map((w) => h("div", { class: "warn" }, w)),
+    t.rows.length ? h("div", { style: "overflow:auto;max-height:420px" }, h("table", null, h("thead", null, h("tr", null, t.columns.map((c) => h("th", { title: c.type }, c.name)))),
+      h("tbody", null, t.rows.map((r) => h("tr", null, r.map((v) => h("td", null, v == null ? h("span", { class: "muted" }, "∅") : v))))))) : (t.error ? null : h("div", { class: "muted" }, "No rows.")))));
+}
+
 // ---- routing --------------------------------------------------------------------------------------------------------------------------------------------
 
-const views = { health: "Health", lineage: "Lineage", models: "Models", plans: "Plans", tests: "Tests", matrix: "Support matrix" };
+const views = { health: "Health", lineage: "Lineage", models: "Models", plans: "Plans", sample: "Sample data", diff: "Table diff", tests: "Tests", matrix: "Support matrix" };
 function go(view, a, b) { location.hash = "#/" + [view, a && encodeURIComponent(a), b].filter(Boolean).join("/"); }
 
 async function render() {
@@ -591,7 +689,7 @@ async function render() {
   main.replaceChildren(loading());
   const name = a ? decodeURIComponent(a) : null;
   try {
-    const node = await ({ health: healthView, lineage: () => lineageView(name), models: () => modelsView(name, b), plans: () => plansView(name), tests: testsView, matrix: matrixView })[current]();
+    const node = await ({ health: healthView, lineage: () => lineageView(name), models: () => modelsView(name, b), plans: () => plansView(name), sample: sampleView, diff: diffView, tests: testsView, matrix: matrixView })[current]();
     main.replaceChildren(node);
     $("stamp").textContent = "loaded " + new Date().toLocaleTimeString();
   } catch (e) { main.replaceChildren(failure(e)); }
