@@ -393,9 +393,57 @@ async function matrixView() {
         h("tbody", null, m.rewrites.map((r) => h("tr", null, h("td", null, h("code", null, r.name)), h("td", null, r.targets.join(", ")), h("td", null, r.required_on.join(", ")), h("td", null, r.exact), h("td", { class: "muted" }, r.native)))))));
 }
 
+// ---- plans ----------------------------------------------------------------------------------------------------------------------------------------------
+// Plans are read here and never applied: applying is a person at a terminal with the named allowances.
+
+const riskClass = { safe: "ok", risky: "warn", destructive: "bad" };
+
+async function plansView(file) {
+  const list = (await run("review")).data.plans;
+  const side = h("div", { class: "list" }, list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) },
+    (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.target)) : h("div", { class: "muted" }, "No plans under plans/. `dbdatabuild plan` writes one."));
+  const detail = h("div");
+  if (file) await planDetail(detail, file);
+  else detail.append(h("div", { class: "empty" }, list.length ? `${list.length} plan${list.length === 1 ? "" : "s"}, newest first. Choose one.` : "Nothing to review yet."));
+  return h("div", { class: "split" }, side, detail);
+}
+
+async function planDetail(root, file) {
+  const doc = await run("review", { plan: file });
+  const d = doc.data;
+  if (!d.intact) { root.append(h("div", { class: "panel" }, h("h2", null, file, " ", badge("not intact", "bad")), h("div", null, "This plan does not parse or its hash does not match: it was edited or damaged, and `apply` would refuse it. Make a new plan."), (doc.diagnostics || []).map((x) => h("div", { class: "muted" }, x.found)))); return; }
+  const plan = d.plan;
+  const needs = [d.apply_needs.allow_risky ? "--allow-risky" : null, ...d.apply_needs.allow_destructive.map((o) => "--allow-destructive " + o)].filter(Boolean);
+  root.append(...[
+    h("div", { class: "cards" }, card(plan.steps.length, "steps"), card(d.risky, "risky", d.risky ? "warn" : ""), card(d.destructive, "destructive", d.destructive ? "bad" : ""), card(plan.target, "target")),
+    h("div", { class: "panel" }, h("h2", null, plan.id, " ", badge("intact", "ok")),
+      h("div", { class: "muted" }, `tool ${plan.tool_version}` + (plan.git_commit ? `, commit ${plan.git_commit}${plan.git_dirty ? " (working tree was dirty)" : ""}` : "")),
+      h("div", null, h("span", { class: "muted" }, "a person applies it with "), h("code", null, `dbdatabuild apply ${file}` + (needs.length ? " " + needs.join(" ") : ""))),
+      h("div", { class: "muted" }, "This page only reads plans; it cannot apply one.")),
+    h("div", { class: "panel" }, h("h2", null, "Steps"), stepsTable(plan.steps)),
+    plan.answers?.length ? h("div", { class: "panel" }, h("h2", null, "Answers this plan was made with"), h("pre", null, JSON.stringify(plan.answers, null, 2))) : null,
+    plan.noticed?.length ? h("div", { class: "panel" }, h("h2", null, "Noticed"), h("ul", null, plan.noticed.map((n) => h("li", null, n)))) : null,
+    plan.bases?.length ? h("div", { class: "panel" }, h("h2", null, "What the plan assumed about each object"), h("table", null, h("thead", null, h("tr", null, h("th", null, "object"), h("th", null, "state"))), h("tbody", null, plan.bases.map((b) => h("tr", null, h("td", null, modelLink(b.object)), h("td", null, b.state)))))) : null,
+    d.report ? h("div", { class: "panel" }, h("h2", null, "Report"), h("pre", null, d.report)) : null].filter(Boolean));
+}
+
+function stepsTable(steps) {
+  return h("table", null, h("thead", null, h("tr", null, h("th", null, "#"), h("th", null, "type"), h("th", null, "risk"), h("th", null, "object"), h("th", null, "what"))),
+    h("tbody", null, steps.map((s) => {
+      const detail = h("tr", { hidden: true }, h("td", { colspan: 5 },
+        s.reasons?.length ? h("div", null, h("span", { class: "muted" }, "why "), s.reasons.map((r) => h("span", { class: "tag" }, r))) : null,
+        (s.parameters || []).map((p) => h("div", null, h("code", null, `@${p.name}`), h("span", { class: "muted" }, ` (${p.type}, ${p.source}) = `), p.value ?? "NULL")),
+        s.has_resolver ? h("div", { class: "muted" }, "resolver result at plan time: " + (s.resolver_result ?? "NULL")) : null,
+        s.hash_after ? h("div", { class: "muted" }, "shape afterwards " + s.hash_after.slice(0, 16) + "…") : null,
+        codeBlock(s.text), s.resolver_text ? [h("div", { class: "muted" }, "resolver"), codeBlock(s.resolver_text)] : null));
+      return [h("tr", { style: "cursor:pointer", onclick: () => { detail.hidden = !detail.hidden; } },
+        h("td", null, s.id), h("td", null, s.type), h("td", null, badge(s.risk, riskClass[s.risk])), h("td", null, h("code", null, s.object)), h("td", null, s.description)), detail];
+    })));
+}
+
 // ---- routing --------------------------------------------------------------------------------------------------------------------------------------------
 
-const views = { health: "Health", lineage: "Lineage", models: "Models", tests: "Tests", matrix: "Support matrix" };
+const views = { health: "Health", lineage: "Lineage", models: "Models", plans: "Plans", tests: "Tests", matrix: "Support matrix" };
 function go(view, a, b) { location.hash = "#/" + [view, a && encodeURIComponent(a), b].filter(Boolean).join("/"); }
 
 async function render() {
@@ -406,7 +454,7 @@ async function render() {
   main.replaceChildren(loading());
   const name = a ? decodeURIComponent(a) : null;
   try {
-    const node = await ({ health: healthView, lineage: () => lineageView(name), models: () => modelsView(name, b), tests: testsView, matrix: matrixView })[current]();
+    const node = await ({ health: healthView, lineage: () => lineageView(name), models: () => modelsView(name, b), plans: () => plansView(name), tests: testsView, matrix: matrixView })[current]();
     main.replaceChildren(node);
     $("stamp").textContent = "loaded " + new Date().toLocaleTimeString();
   } catch (e) { main.replaceChildren(failure(e)); }

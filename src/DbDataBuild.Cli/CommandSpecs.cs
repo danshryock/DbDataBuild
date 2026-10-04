@@ -55,6 +55,7 @@ public static class CommandSpecs
         new("test", EffectClass.OfflineOnly, "Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/", true),
         new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),
         new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", true),
+        new("review", EffectClass.OfflineOnly, "Read plan files (offline, nothing applied): list a project's plans, or show one with its steps, risk, exact statements, report and what applying it would need to be allowed", true),
         new("publish-metadata", EffectClass.TrackingTablesOnly, "Store the project and model metadata as JSON in the target for introspection", true),
         new("report", EffectClass.TargetReadOnly, "Applied plans, DDL and load history, recorded shapes, and what needs attention", true),
         new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", true),

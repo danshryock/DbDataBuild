@@ -40,20 +40,43 @@ internal sealed class McpServer
 
     public IReadOnlyCollection<string> ToolNames => tools.Keys.ToList();
 
-    /// <summary>Reads requests until the input ends. A line that is not JSON gets a parse error; the server never throws out of the loop.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> cancelled = new();
+    private string? currentRequest;
+
+    /// <summary>
+    /// Reads requests until the input ends and answers them one at a time. A second thread keeps reading while a command runs, so that `notifications/cancelled` for the running request reaches it
+    /// (the command stops between its steps, as it does for the terminal interface) and its reply is not sent, as the protocol says. A line that is not JSON gets a parse error; the loop never throws.
+    /// </summary>
     public void Serve()
     {
-        while (input.ReadLine() is { } line)
+        using var queue = new System.Collections.Concurrent.BlockingCollection<JsonNode?>();
+        var reader = new Thread(() =>
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            JsonNode? message;
-            try { message = JsonNode.Parse(line); }
-            catch (JsonException) { Send(Error(null, -32700, "Parse error")); continue; }
-            foreach (var reply in Handle(message)) Send(reply);
+            try
+            {
+                while (input.ReadLine() is { } line)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    JsonNode? message;
+                    try { message = JsonNode.Parse(line); }
+                    catch (JsonException) { message = null; }
+                    if (message is JsonObject { } n && n["id"] == null && (string?)n["method"] == "notifications/cancelled" && n["params"]?["requestId"] is { } target) { cancelled[target.ToJsonString()] = true; continue; }
+                    queue.Add(message);
+                }
+            }
+            finally { queue.CompleteAdding(); }
+        }) { IsBackground = true, Name = "mcp-input" };
+        reader.Start();
+        foreach (var message in queue.GetConsumingEnumerable())
+        {
+            if (message == null) { Send(Error(null, -32700, "Parse error")); continue; }
+            foreach (var reply in Handle(message))
+                if (!(reply["id"] is { } id && cancelled.ContainsKey(id.ToJsonString()))) Send(reply);
         }
     }
 
-    private void Send(JsonNode message) => output.WriteLine(message.ToJsonString());
+    private readonly object writing = new();
+    private void Send(JsonNode message) { lock (writing) output.WriteLine(message.ToJsonString()); }
 
     /// <summary>The reply to one message (none for a notification). Exposed for tests.</summary>
     public IEnumerable<JsonNode> Handle(JsonNode? message)
@@ -62,6 +85,7 @@ internal sealed class McpServer
         if (message is not JsonObject request || request["method"] is not JsonValue methodValue || !methodValue.TryGetValue<string>(out var method)) return [Error((message as JsonObject)?["id"]?.DeepClone(), -32600, "Invalid request")];
         var id = request["id"]?.DeepClone();
         if (id == null) return [];                                    // a notification (initialized, cancelled): nothing to answer
+        currentRequest = id.ToJsonString();
         try
         {
             var result = method switch
@@ -108,8 +132,11 @@ internal sealed class McpServer
 
         var progressToken = p?["_meta"]?["progressToken"]?.DeepClone();
         var steps = 0;
-        var hooks = progressToken == null ? null : new RunHooks(Progress: message =>
-            Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/progress", ["params"] = new JsonObject { ["progressToken"] = progressToken.DeepClone(), ["progress"] = ++steps, ["message"] = message } }));
+        var running = currentRequest;
+        var hooks = new RunHooks(
+            Progress: progressToken == null ? null : message =>
+                Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/progress", ["params"] = new JsonObject { ["progressToken"] = progressToken.DeepClone(), ["progress"] = ++steps, ["message"] = message } }),
+            StopRequested: () => running != null && cancelled.ContainsKey(running));
         var result = host.Run(argv, hooks);
 
         // exit 1 means findings: the document is the answer. Only a usage error or a crash is an error of the call.

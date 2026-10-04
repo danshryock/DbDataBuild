@@ -275,6 +275,13 @@ public static class CliApp
                     cmd.Arguments.Add(pubModels); cmd.Options.Add(pubProject); cmd.Options.Add(pubTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PublishMetadataCommand.Run(spec, pr.GetValue(pubProject)!.FullName, pr.GetValue(pubTarget), pr.GetValue(pubModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "review":
+                    var reviewPlan = new Argument<string?>("plan") { Description = "A plan file (plans/<target>/<id>.plan.yml); omit to list the project's plans", Arity = ArgumentArity.ZeroOrOne };
+                    var reviewProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var reviewTarget = new Option<string?>("--target") { Description = "When listing, only the plans of this target" };
+                    cmd.Arguments.Add(reviewPlan); cmd.Options.Add(reviewProject); cmd.Options.Add(reviewTarget);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReviewCommand.Run(spec, pr.GetValue(reviewProject)!.FullName, pr.GetValue(reviewPlan), pr.GetValue(reviewTarget), o, e)));
+                    break;
                 case "matrix":
                     var matrixRewrites = new Option<bool>("--rewrites") { Description = "List the rewrites that make the engines give DuckDB's answers (what each does, where it is required, and what the engine does without it); `rewrites:` in dbdatabuild.yml or a model turns the optional ones off" };
                     cmd.Options.Add(matrixRewrites);

@@ -133,6 +133,49 @@ public class McpServerTests : IDisposable
         Assert.Equal(-32602, (int)s.Handle(Request("prompts/get", new JsonObject { ["name"] = "nope" })).Single()["error"]!["code"]!);
     }
 
+    /// <summary>A command that runs until it is asked to stop.</summary>
+    private sealed class SlowHost : DbDataBuild.Tui.Model.ICommandHost
+    {
+        public readonly ManualResetEventSlim Started = new();
+        public bool Stopped;
+        public IReadOnlyList<DbDataBuild.Tui.Model.CommandInfo> Commands { get; } = [new("slow", "Takes a while", "Offline only", DbDataBuild.Tui.Model.Impact.None, [], [])];
+        public DbDataBuild.Tui.Model.CommandResult Run(IReadOnlyList<string> args, DbDataBuild.Tui.Model.RunHooks? hooks = null)
+        {
+            Started.Set();
+            var until = DateTime.UtcNow.AddSeconds(20);
+            while (DateTime.UtcNow < until) { if (hooks?.StopRequested?.Invoke() == true) { Stopped = true; break; } Thread.Sleep(10); }
+            return new(0, "{}", "");
+        }
+    }
+
+    /// <summary>Lines the test hands to the server one at a time, as a client would.</summary>
+    private sealed class Feed : TextReader
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<string> lines = new();
+        public void Send(string line) => lines.Add(line);
+        public void End() => lines.CompleteAdding();
+        public override string? ReadLine() => lines.TryTake(out var l, Timeout.Infinite) ? l : null;
+    }
+
+    [Fact]
+    public void A_cancelled_request_stops_its_command_and_gets_no_reply_while_the_server_goes_on()
+    {
+        var host = new SlowHost();
+        var feed = new Feed();
+        var output = new StringWriter();
+        var server = new McpServer(dir, false, feed, output, host);
+        var serving = Task.Run(server.Serve);
+        feed.Send(Request("tools/call", new JsonObject { ["name"] = "slow" }, id: 7).ToJsonString());
+        Assert.True(host.Started.Wait(TimeSpan.FromSeconds(10)));
+        feed.Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/cancelled", ["params"] = new JsonObject { ["requestId"] = 7 } }.ToJsonString());
+        feed.Send(Request("ping", id: 8).ToJsonString());
+        feed.End();
+        Assert.True(serving.Wait(TimeSpan.FromSeconds(15)));
+        Assert.True(host.Stopped);
+        var replies = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!).ToList();
+        Assert.Equal([8], replies.Select(r => (int)r["id"]!));        // nothing for 7, an answer for 8
+    }
+
     [Fact]
     public void Serve_answers_each_line_and_survives_a_line_that_is_not_json()
     {

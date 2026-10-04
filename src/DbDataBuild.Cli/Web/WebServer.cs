@@ -19,7 +19,7 @@ namespace DbDataBuild.Cli.Web;
 internal sealed class WebServer : IDisposable
 {
     /// <summary>The commands the page may run. All of them only read (render and define lose their write flags); none touches a target.</summary>
-    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render"];
+    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review"];
 
     /// <summary>The parts of a project a person may read through the page: what the project is made of, not the plans, the state or the environment.</summary>
     private static readonly string[] ReadableDirectories = ["models", "sources", "seeds", "tests", "rendered", "hooks"];

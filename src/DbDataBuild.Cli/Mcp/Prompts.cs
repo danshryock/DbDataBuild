@@ -38,7 +38,7 @@ internal static class Prompts
 
         new("review-plan", "Review a plan", "Read a plan file and summarize it for a decision: what changes, what is risky, what it asks",
             [new("plan", "Path of the plan file (default: the newest under plans/)", false)],
-            a => Preface + $"Review {(a.TryGetValue("plan", out var p) && p.Length > 0 ? $"the plan `{p}`" : "the newest plan under plans/")}. Summarize it as the skill says: what is created, altered or dropped, what loads, and every risky or destructive step with its reason, " +
+            a => Preface + $"Review {(a.TryGetValue("plan", out var p) && p.Length > 0 ? $"the plan `{p}`" : "the newest plan: call `review` with no plan to list them")} with `review`. Check that it is intact. Summarize it as the skill says: what is created, altered or dropped, what loads, and every risky or destructive step with its reason, " +
                  "and every open question with its options and the tool's proposal. Do not edit the plan and do not apply it: tell me what I would be agreeing to."),
     ];
 

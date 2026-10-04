@@ -236,6 +236,25 @@
       "if": {
         "properties": {
           "command": {
+            "const": "review"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_review"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
             "const": "define"
           }
         },
@@ -3225,6 +3244,96 @@
               "statements"
             ]
           }
+        }
+      }
+    },
+    "data_review": {
+      "description": "no plan: plans; a plan file: path, intact, plan, report, risky, destructive, apply_needs (a plan that does not parse: path and intact false).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "integer"
+              },
+              "risky": {
+                "type": "integer"
+              },
+              "destructive": {
+                "type": "integer"
+              },
+              "intact": {
+                "type": "boolean"
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "id",
+              "target",
+              "steps",
+              "risky",
+              "destructive",
+              "intact",
+              "problems"
+            ]
+          }
+        },
+        "path": {
+          "type": "string"
+        },
+        "intact": {
+          "type": "boolean"
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "report": {
+          "type": "string"
+        },
+        "risky": {
+          "type": "integer"
+        },
+        "destructive": {
+          "type": "integer"
+        },
+        "apply_needs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow_risky": {
+              "type": "boolean"
+            },
+            "allow_destructive": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "allow_risky",
+            "allow_destructive"
+          ]
         }
       }
     }
