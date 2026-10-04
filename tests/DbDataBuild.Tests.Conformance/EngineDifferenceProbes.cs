@@ -125,12 +125,18 @@ public class EngineDifferenceProbes
         ["sqlserver:split_part"] = "fn.split_part", ["sqlserver:split_part_first"] = "fn.split_part", ["sqlserver:split_part_multichar"] = "fn.split_part", ["sqlserver:split_part_far"] = "fn.split_part", ["sqlserver:week"] = Undefined, ["postgres:week"] = Undefined, ["postgres:last_day"] = Undefined,
     };
 
+    /// <summary>The checked-in lists of the cases that agree with DuckDB on the engines that are only probed (`Baselines/&lt;engine&gt;.txt`); `DDB_PROBE_BASELINE=update` rewrites them.</summary>
+    private static string BaselineDirectory([System.Runtime.CompilerServices.CallerFilePath] string here = "") => Path.Combine(Path.GetDirectoryName(here)!, "Baselines");
+
     [SkippableTheory]
     [InlineData("sqlserver")]
     [InlineData("postgres")]
+    [InlineData("oracle")]
+    [InlineData("spark")]
+    [InlineData("bigquery")]
     public async Task Scalar_expressions_and_aggregates_give_DuckDBs_answer_or_a_documented_difference(string name)
     {
-        var engine = EngineEnv.Require(name);
+        var engine = EngineEnv.RequireProbe(name);
         await engine.StartAsync();
         await using var _ = engine;
         using var probe = new EngineProbe(engine);
@@ -139,6 +145,8 @@ public class EngineDifferenceProbes
         var report = new StringBuilder();
         var unexpected = new List<string>();
         var stale = new List<string>();
+        var preview = name is "oracle" or "spark" or "bigquery";      // dialects that are only probed so far: a baseline of the cases that agree, instead of a list of the differences
+        var statuses = new Dictionary<string, string>();
         foreach (var c in Cases)
         {
             var expected = probe.OnDuckDb(c.Sql);
@@ -155,11 +163,25 @@ public class EngineDifferenceProbes
             }
             report.AppendLine($"{status,-13} {c.Id,-24} {c.Sql}\n{(detail.Length > 0 ? "        " + detail + "\n" : "")}");
             var bad = status is "DIFFERENT" or "engine-error" or "duckdb-errors" || (status == "refused" && detail.StartsWith("CRASH", StringComparison.Ordinal));
+            statuses[c.Id] = status;
             var key = $"{name}:{c.Id}";
+            if (preview) continue;
             if (bad && !Known.ContainsKey(key)) unexpected.Add($"{c.Id}: {status}");
             if (!bad && Known.ContainsKey(key) && status is "same") stale.Add(c.Id);
         }
         if (Environment.GetEnvironmentVariable("DDB_PROBE_OUT") is { Length: > 0 } path) File.AppendAllText($"{path}.{name}.txt", report.ToString());
+        if (preview)
+        {
+            var baselinePath = Path.Combine(BaselineDirectory(), name + ".txt");
+            var agreeing = statuses.Where(s => s.Value == "same").Select(s => s.Key).Order(StringComparer.Ordinal).ToList();
+            if (Environment.GetEnvironmentVariable("DDB_PROBE_BASELINE") == "update") File.WriteAllText(baselinePath, string.Join("\n", agreeing) + "\n");
+            var baseline = File.Exists(baselinePath) ? File.ReadAllLines(baselinePath).Where(l => l.Length > 0).ToHashSet() : [];
+            var regressed = baseline.Where(id => statuses.TryGetValue(id, out var s) && s != "same").Order(StringComparer.Ordinal).ToList();
+            var summary = string.Join(", ", statuses.GroupBy(s => s.Value).OrderBy(g => g.Key).Select(g => $"{g.Key} {g.Count()}"));
+            if (Environment.GetEnvironmentVariable("DDB_PROBE_OUT") is { Length: > 0 } outPath) File.AppendAllText($"{outPath}.{name}.summary.txt", summary + "\n");
+            Assert.True(regressed.Count == 0, $"{name}: {regressed.Count} case(s) that agreed with DuckDB no longer do: {string.Join(", ", regressed)}  [now: {summary}]");
+            return;
+        }
         Assert.True(unexpected.Count == 0, $"{name}: {unexpected.Count} undocumented difference(s): {string.Join(", ", unexpected)}");
         Assert.True(stale.Count == 0, $"{name}: documented differences that are gone: {string.Join(", ", stale)}");
     }

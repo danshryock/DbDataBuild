@@ -12,6 +12,7 @@ namespace DbDataBuild.Tests.Conformance;
 /// answers and acknowledgements, drift, risk allowances, a stale plan, and a failure followed by a resume. Each stage asserts what the tracking tables and the
 /// target hold afterwards, not just the exit code.
 /// </summary>
+[Trait("Group", "apply")]
 public partial class ApplyConformanceTests
 {
     public static TheoryData<string> Engines => new() { "sqlserver", "postgres" };

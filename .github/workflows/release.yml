@@ -7,7 +7,12 @@ permissions:
   contents: read
 
 jobs:
+  conformance-full:
+    # a release is built only after every group has passed on every engine
+    uses: ./.github/workflows/conformance-full.yml
+
   build:
+    needs: conformance-full
     strategy:
       fail-fast: false
       matrix:

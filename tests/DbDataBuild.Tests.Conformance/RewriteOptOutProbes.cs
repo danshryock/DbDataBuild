@@ -35,7 +35,7 @@ public class RewriteOptOutProbes
     [InlineData("postgres")]
     public async Task Without_an_optional_rewrite_the_query_is_valid_and_the_engine_answers_in_its_own_way(string name)
     {
-        var engine = EngineEnv.Require(name);
+        var engine = EngineEnv.RequireProbe(name);
         await engine.StartAsync();
         await using var _ = engine;
         using var probe = new EngineProbe(engine);

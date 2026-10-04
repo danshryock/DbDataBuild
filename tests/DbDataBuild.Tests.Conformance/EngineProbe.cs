@@ -18,22 +18,22 @@ public sealed class EngineProbe : IDisposable
     public sealed record Outcome(string Rows, string? Error);
 
     private readonly DuckDBConnection duck = new("DataSource=:memory:");
-    private readonly Engine engine;
+    private readonly IProbeEngine engine;
 
     // id, i, j, d, n, s, dt, ts
-    private static readonly (int Id, string I, string J, string D, string N, string? S, string? Dt, string? Ts)[] Seed =
+    public static readonly IReadOnlyList<ProbeRow> Seed =
     [
-        (1, "7", "2", "2.5", "2.50", "abc", "2024-01-15", "2024-01-15 10:30:45"),
-        (2, "-7", "2", "-2.5", "-2.50", "ABC", "2024-02-29", "2024-02-29 23:59:59"),
-        (3, "7", "-2", "3.5", "3.50", " abc ", "2024-03-31", "2024-03-31 00:00:00"),
-        (4, "0", "0", "0.5", "0.00", "", "2023-12-31", "2023-12-31 12:00:00"),
-        (5, "NULL", "3", "NULL", "NULL", null, null, null),
-        (6, "5", "0", "1.005", "1.25", "😀a", "2024-06-30", "2024-06-30 08:15:30"),
-        (7, "2147483647", "1", "-0.5", "-0.50", "héllo", "2024-01-31", "2024-01-31 18:45:00"),
-        (8, "10", "3", "10000000000", "12345.67", "a,b,c", "2024-02-01", "2024-02-01 00:00:01"),
+        new(1, "7", "2", "2.5", "2.50", "abc", "2024-01-15", "2024-01-15 10:30:45"),
+        new(2, "-7", "2", "-2.5", "-2.50", "ABC", "2024-02-29", "2024-02-29 23:59:59"),
+        new(3, "7", "-2", "3.5", "3.50", " abc ", "2024-03-31", "2024-03-31 00:00:00"),
+        new(4, "0", "0", "0.5", "0.00", "", "2023-12-31", "2023-12-31 12:00:00"),
+        new(5, "NULL", "3", "NULL", "NULL", null, null, null),
+        new(6, "5", "0", "1.005", "1.25", "😀a", "2024-06-30", "2024-06-30 08:15:30"),
+        new(7, "2147483647", "1", "-0.5", "-0.50", "héllo", "2024-01-31", "2024-01-31 18:45:00"),
+        new(8, "10", "3", "10000000000", "12345.67", "a,b,c", "2024-02-01", "2024-02-01 00:00:01"),
     ];
 
-    public EngineProbe(Engine engine)
+    public EngineProbe(IProbeEngine engine)
     {
         this.engine = engine;
         duck.Open();
@@ -42,18 +42,13 @@ public sealed class EngineProbe : IDisposable
         QueryDescriber.PreparePlanConnection(duck);
     }
 
-    public async Task CreateTableAsync()
-    {
-        var sqlServer = engine.Name == "sqlserver";
-        await engine.ExecAsync($"CREATE TABLE probe (id INT NOT NULL, i INT, j INT, d {(sqlServer ? "FLOAT" : "DOUBLE PRECISION")}, n DECIMAL(10, 2), s {(sqlServer ? "NVARCHAR(50) COLLATE Latin1_General_100_BIN2" : "VARCHAR(50) COLLATE \"C\"")}, dt DATE, ts {(sqlServer ? "DATETIME2(6)" : "TIMESTAMP(6)")})");
-        await engine.ExecAsync(Insert(sqlServer));
-    }
+    public Task CreateTableAsync() => engine.CreateProbeTableAsync(Seed);
 
     private static string Insert(bool sqlServer)
     {
-        string Str(string? v) => v == null ? "NULL" : (sqlServer ? "N'" : "'") + v.Replace("'", "''") + "'";
+        string Str(string? v) => v == null ? "NULL" : "'" + v.Replace("'", "''") + "'";
         string Dt(string? v) => v == null ? "NULL" : $"CAST('{v}' AS DATE)";
-        string Ts(string? v) => v == null ? "NULL" : $"CAST('{v}' AS {(sqlServer ? "DATETIME2(6)" : "TIMESTAMP")})";
+        string Ts(string? v) => v == null ? "NULL" : $"CAST('{v}' AS TIMESTAMP)";
         return "INSERT INTO probe VALUES " + string.Join(", ", Seed.Select(r => $"({r.Id}, {r.I}, {r.J}, {r.D}, {r.N}, {Str(r.S)}, {Dt(r.Dt)}, {Ts(r.Ts)})"));
     }
 
@@ -67,7 +62,10 @@ public sealed class EngineProbe : IDisposable
             using var cmd = duck.CreateCommand();
             cmd.CommandText = sql;
             using var r = cmd.ExecuteReader();
-            return new(Rows(() => r.Read(), r.FieldCount, i => r.IsDBNull(i) ? null : r.GetValue(i), i => r.GetDataTypeName(i)), null);
+            var types = Enumerable.Range(0, r.FieldCount).Select(i => r.GetDataTypeName(i)).ToList();
+            var rows = new List<object?[]>();
+            while (r.Read()) rows.Add(Enumerable.Range(0, r.FieldCount).Select(i => r.IsDBNull(i) ? null : r.GetValue(i)).ToArray());
+            return new(Rows(new ProbeRows(rows, types)), null);
         }
         catch (DuckDBException ex) { return new(string.Empty, FirstLine(ex.Message)); }
     }
@@ -83,7 +81,7 @@ public sealed class EngineProbe : IDisposable
             using (var cmd = duck.CreateCommand()) { cmd.CommandText = "DESCRIBE " + sql; using var r = cmd.ExecuteReader(); while (r.Read()) names.Add(r.GetString(0)); }
             var lowered = PlanLowerer.Lower(plan, names, null, rewrites).Sql;
             var ruled = TargetRules.Apply(lowered, engine.Name, rewrites).Sql;
-            var (outcome, text) = Polyglot.TranspileOne(ruled, Dialects.Canonical, TargetRegistry.Get(engine.Name).Dialect);
+            var (outcome, text) = Polyglot.TranspileOne(ruled, Dialects.Canonical, Dialects.ForTarget(engine.Name));
             return outcome.Ok && text != null ? (text, null) : (null, "transpile: " + (outcome.Error ?? "failed"));
         }
         catch (LoweringException ex) { return (null, ex.Message); }
@@ -95,18 +93,15 @@ public sealed class EngineProbe : IDisposable
     {
         try
         {
-            using var cmd = engine.Conn.CreateCommand();
-            cmd.CommandText = rendered;
-            using var r = await cmd.ExecuteReaderAsync();
-            return new(Rows(() => r.Read(), r.FieldCount, i => r.IsDBNull(i) ? null : r.GetValue(i), i => r.GetDataTypeName(i)), null);
+            var r = await engine.QueryAsync(rendered);
+            return new(Rows(r), null);
         }
-        catch (Exception ex) when (ex is System.Data.Common.DbException) { return new(string.Empty, ex.GetType().Name + ": " + FirstLine(ex.Message)); }
+        catch (EngineQueryException ex) { return new(string.Empty, ex.Message); }
     }
 
-    private static string Rows(Func<bool> read, int fields, Func<int, object?> value, Func<int, string> typeName)
+    private static string Rows(ProbeRows result)
     {
-        var rows = new List<string>();
-        while (read()) rows.Add(string.Join("|", Enumerable.Range(0, fields).Select(i => Cell(value(i), typeName(i)))));
+        var rows = result.Rows.Select(row => string.Join("|", row.Select((v, i) => Cell(v, result.TypeNames[i])))).ToList();
         rows.Sort(StringComparer.Ordinal);
         return string.Join("; ", rows);
     }

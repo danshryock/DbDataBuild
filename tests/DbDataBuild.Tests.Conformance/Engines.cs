@@ -7,7 +7,7 @@ using Npgsql;
 namespace DbDataBuild.Tests.Conformance;
 
 /// <summary>An engine under test: creates an ephemeral database, runs scripts exactly as given with bound parameters, and reads rows back.</summary>
-public abstract class Engine : IAsyncDisposable
+public abstract class Engine : IProbeEngine
 {
     public abstract string Name { get; }          // sqlserver | postgres (the target names)
     public abstract string ColumnType(string logical);
@@ -64,6 +64,31 @@ public abstract class Engine : IAsyncDisposable
     }
 
     public Task ExecAsync(string sql) => ExecAsync(Conn, sql);
+
+    public async Task CreateProbeTableAsync(IReadOnlyList<ProbeRow> rows)
+    {
+        var sqlServer = Name == "sqlserver";
+        await ExecAsync($"CREATE TABLE probe (id INT NOT NULL, i INT, j INT, d {(sqlServer ? "FLOAT" : "DOUBLE PRECISION")}, n DECIMAL(10, 2), s {(sqlServer ? "NVARCHAR(50) COLLATE Latin1_General_100_BIN2" : "VARCHAR(50) COLLATE \"C\"")}, dt DATE, ts {(sqlServer ? "DATETIME2(6)" : "TIMESTAMP(6)")})");
+        string Str(string? v) => v == null ? "NULL" : (sqlServer ? "N'" : "'") + v.Replace("'", "''") + "'";
+        string Dt(string? v) => v == null ? "NULL" : $"CAST('{v}' AS DATE)";
+        string Ts(string? v) => v == null ? "NULL" : $"CAST('{v}' AS {(sqlServer ? "DATETIME2(6)" : "TIMESTAMP")})";
+        await ExecAsync("INSERT INTO probe VALUES " + string.Join(", ", rows.Select(r => $"({r.Id}, {r.I}, {r.J}, {r.D}, {r.N}, {Str(r.S)}, {Dt(r.Dt)}, {Ts(r.Ts)})")));
+    }
+
+    public async Task<ProbeRows> QueryAsync(string sql)
+    {
+        try
+        {
+            using var cmd = Conn.CreateCommand();
+            cmd.CommandText = sql;
+            using var r = await cmd.ExecuteReaderAsync();
+            var types = Enumerable.Range(0, r.FieldCount).Select(i => r.GetDataTypeName(i)).ToList();
+            var rows = new List<object?[]>();
+            while (await r.ReadAsync()) rows.Add(Enumerable.Range(0, r.FieldCount).Select(i => r.IsDBNull(i) ? null : r.GetValue(i)).ToArray());
+            return new(rows, types);
+        }
+        catch (DbException ex) { throw new EngineQueryException(ex.GetType().Name + ": " + ex.Message.Split('\n')[0].Trim()); }
+    }
 
     /// <summary>Runs committed script text unmodified; only parameters are bound, through the driver.</summary>
     public async Task RunScriptAsync(string script, IReadOnlyDictionary<string, object?>? parameters = null)

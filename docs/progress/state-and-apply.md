@@ -446,3 +446,14 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: 1,414 unit tests; on SQL Server 2022 and PostgreSQL 17 the four templates equal DuckDB's rows (eight runs), `retail` and `adventureworks` built with `fidelity: native` have DuckDB's row counts (four runs), and `RewriteOptOutProbes` shows the engine's own answer differs from DuckDB's, in the documented way, for eleven optional rewrites. Fabric has never run.
 - **Left**: `UNNEST` of list columns, lateral and date series, regular expressions and the remaining JSON functions on SQL Server.
 
+## 48. Oracle, Spark SQL and the BigQuery emulator as probed engines; the conformance suite in groups
+
+- **Built**: `IProbeEngine` (what a probe needs: a table of the eight seeded rows and a query) with `Engine` (SQL Server, PostgreSQL) and three new probe-only engines: Oracle 23ai Free (Oracle.ManagedDataAccess), Spark SQL 4.0
+  (Thrift server in http mode, read with the ADBC Spark driver) and the BigQuery emulator (REST `jobs.query`). `Dialects.ForTarget` knows `oracle`, `spark` and `bigquery`. The probes run on all five; the three new ones
+  against a baseline of the cases that agree with DuckDB (`Baselines/<engine>.txt`; the test fails on a regression, `DDB_PROBE_BASELINE=update` rewrites it). `scripts/test-engines.sh up [mssql pg oracle spark bigquery | all]`.
+- **Scoreboard** (no rewrite rules yet, polyglot's own translation): Spark 225 of 267 agree, BigQuery emulator 163, Oracle 113; the differences are listed in `docs/research/engine-differences/oracle-spark-bigquery.md`.
+- **Test groups** (the conformance suite took 6 min 17 s in one run): traits `Group=apply` (the plan and apply loop, about 2 min), `Group=templates` (the sample projects against DuckDB, about 2.5 min), `Group=release`
+  (the sample projects with the rewrites off), the rest is the quick group (about 1.5 min). `ci.yml` runs the groups and each preview engine as parallel jobs; `conformance-full.yml` (weekly, on request, and before a release:
+  `release.yml` needs it) runs everything with every engine.
+- **Left**: rules, matrix columns and refusals for the three dialects, in the order of the scoreboard; then the targets themselves (DDL types, tracking tables, load strategies, a driver behind `MutationGate`).
+

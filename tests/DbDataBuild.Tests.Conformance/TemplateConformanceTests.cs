@@ -10,25 +10,40 @@ namespace DbDataBuild.Tests.Conformance;
 /// A built-in project template on a real engine, end to end through the commands a person would type: `new`, `load-seeds` (the seeded source tables are created and filled), `render`, `init`, `plan`, `apply`.
 /// Then every mart as the engine built it is compared, row by row, with the same model run on the same seeds in DuckDB (`sample`), which is the meaning the models were written with.
 /// </summary>
+[Trait("Group", "templates")]
 public class TemplateConformanceTests
 {
-    public static TheoryData<string, string, bool> Cases()
+    public static TheoryData<string, string> Cases()
     {
-        var data = new TheoryData<string, string, bool>();
+        var data = new TheoryData<string, string>();
         foreach (var engine in new[] { "sqlserver", "postgres" })
             foreach (var template in new[] { "starter", "retail", "chinook", "adventureworks" })
-                data.Add(engine, template, false);
-        // with the optional rewrites turned off (`rewrites: { fidelity: native }`) the engine's own behavior may give other values, never other rows: the projects still build and every table has the rows DuckDB gives
+                data.Add(engine, template);
+        return data;
+    }
+
+    public static TheoryData<string, string> NativeCases()
+    {
+        var data = new TheoryData<string, string>();
         foreach (var engine in new[] { "sqlserver", "postgres" })
             foreach (var template in new[] { "retail", "adventureworks" })
-                data.Add(engine, template, true);
+                data.Add(engine, template);
         return data;
     }
 
     private const string PostgresConfig = "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\npolicy:\n  severity:\n    approximated: note\n";
 
     [SkippableTheory, MemberData(nameof(Cases))]
-    public async Task A_template_builds_on_the_engine_and_every_mart_matches_duckdb(string name, string template, bool native)
+    public Task A_template_builds_on_the_engine_and_every_mart_matches_duckdb(string name, string template) => BuildAndCompare(name, template, native: false);
+
+    /// <summary>
+    /// With the optional rewrites turned off (`rewrites: { fidelity: native }`) the engine's own behavior may give other values, never other rows: the projects still build and every table has the rows DuckDB gives.
+    /// Release group: it repeats the builds above with a different setting and takes about a minute.
+    /// </summary>
+    [SkippableTheory, MemberData(nameof(NativeCases)), Trait("Group", "release")]
+    public Task A_template_built_with_the_rewrites_off_still_has_the_rows_DuckDB_gives(string name, string template) => BuildAndCompare(name, template, native: true);
+
+    private static async Task BuildAndCompare(string name, string template, bool native)
     {
         var engine = EngineEnv.Require(name);
         await engine.StartAsync();

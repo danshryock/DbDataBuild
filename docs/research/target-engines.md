@@ -12,14 +12,20 @@ machine this was written on (`docker images`).
 | PostgreSQL 17 | `postgres:17-alpine` | second target |
 | DuckDB 1.5 | the library | the reference: every answer is compared with it |
 
+## Probed now (dialect only; no plan or apply yet)
+
+Oracle 23ai Free, Spark SQL 4.0 and the BigQuery emulator run the dialect probes locally and in CI (`scripts/test-engines.sh up oracle spark bigquery`, one CI job each); the scoreboard and what
+differs is in `engine-differences/oracle-spark-bigquery.md`. Two notes on the choices: the BigQuery emulator is `goccy/bigquery-emulator`, a **community** project (Google's own emulator is Spanner's), so a
+failure there can be the emulator's; and Spark runs with ANSI mode on, which is Spark 4's default and the closer match to DuckDB's errors.
+
 ## Next, in this order
 
 | # | Engine | How | Why it is worth it | Dialect notes |
 |---|---|---|---|---|
 | 1 | **SQL Server 2025**, and 2022 databases in compatibility mode | `mcr.microsoft.com/mssql/server:2025-latest` (pulled and run; a new database starts at level 170, `ALTER DATABASE ... SET COMPATIBILITY_LEVEL = 160` gives the older behavior) | the regular expressions (`REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_INSTR`, RE2 like DuckDB), `||`, `PRODUCT`, `CURRENT_DATE`; a 2025 server with a level-160 database has none of the regex functions (probed), so the version gate has to be min(engine version, compatibility level / 10) | still no `LPAD`, `NTH_VALUE`, `JSON_ARRAY_LENGTH`, `SPLIT_PART` |
-| 2 | **Oracle Database 23ai Free** | `gvenzl/oracle-free` (local image) or `container-registry.oracle.com/database/free`; Oracle's own | the most different mainstream SQL: no `LIMIT`, `FETCH FIRST`, empty string is NULL, `DATE` has a time, `VARCHAR2`, no boolean in SELECT lists before 23ai, `||` NULL rules | polyglot has an `oracle` dialect; the biggest test of "NULL and empty text" |
+| 2 | **Oracle Database 23ai Free** (probed) | `gvenzl/oracle-free` (local image) or `container-registry.oracle.com/database/free`; Oracle's own | the most different mainstream SQL: no `LIMIT`, `FETCH FIRST`, empty string is NULL, `DATE` has a time, `VARCHAR2`, no boolean in SELECT lists before 23ai, `||` NULL rules | polyglot has an `oracle` dialect; the biggest test of "NULL and empty text" |
 | 3 | **MySQL 9 / MariaDB 11** | `mysql:9`, `mariadb:11` (both local images) | the other common OLTP dialect: backtick quoting, `||` is OR unless `PIPES_AS_CONCAT`, integer division `DIV`, no `FULL JOIN`, `CTE` and window functions from 8.0 / 10.2 | `mysql` dialect in polyglot; MariaDB differs from MySQL in JSON and `RETURNING` |
-| 4 | **Apache Spark SQL** (and Delta Lake locally) | `apache/spark` image or `pyspark` in a container; local mode, no cluster | Databricks, Fabric's lakehouse SQL endpoint and EMR all speak it; `ANSI` mode on and off, `QUALIFY`, `PIVOT`/`UNPIVOT` natively, `TRY_CAST`, `LATERAL VIEW explode` for lists | `spark` dialect; the stand-in for Databricks |
+| 4 | **Apache Spark SQL** (probed; Delta Lake locally next) | `apache/spark` image or `pyspark` in a container; local mode, no cluster | Databricks, Fabric's lakehouse SQL endpoint and EMR all speak it; `ANSI` mode on and off, `QUALIFY`, `PIVOT`/`UNPIVOT` natively, `TRY_CAST`, `LATERAL VIEW explode` for lists | `spark` dialect; the stand-in for Databricks |
 | 5 | **Trino** | `trinodb/trino` image with the `memory` and `tpch` connectors | Athena, Starburst and many lakehouses; strict types (no implicit casts), `||`, `TRY_CAST`, `UNNEST` of arrays, `date_diff`, no `UPDATE` on most connectors | `trino` dialect; the stand-in for Athena |
 | 6 | **ClickHouse** | `clickhouse/clickhouse-server` | the analytics engine with the most unusual semantics: `NULL` is a type, integer overflow wraps, `toDate`, arrays everywhere, `ARRAY JOIN` | `clickhouse` dialect |
 | 7 | **Spanner emulator** | Google's own `gcr.io/cloud-spanner-emulator/emulator` (GoogleSQL and PostgreSQL dialects) | the only vendor-provided BigQuery-family emulator: GoogleSQL is BigQuery's dialect (`QUALIFY`, `UNNEST`, `SAFE_CAST`, `DATE_DIFF`) | `bigquery` dialect in polyglot is close; data types and DDL differ from BigQuery |

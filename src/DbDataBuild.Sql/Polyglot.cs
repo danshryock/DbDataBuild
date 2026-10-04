@@ -21,6 +21,9 @@ public static class Dialects
         "sqlserver" => "tsql",
         "fabric" => "fabric",
         "postgres" => "postgresql",
+        "oracle" => "oracle",
+        "spark" => "spark",
+        "bigquery" => "bigquery",
         _ => throw new ArgumentException($"Unknown target `{target}`.", nameof(target)),
     };
 }
