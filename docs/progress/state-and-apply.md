@@ -478,3 +478,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: 1,448 unit tests; the page loaded in headless Chrome against the retail template (all five screens render, no script errors, screenshots read). Not tried on Windows or with a browser other than Chrome; the keyboard and screen-reader behaviour has not been looked at.
 - **Left**: the lowered and rendered tabs need the files written by `render --write` (a command that returns the text without writing would remove that); plan review, apply and diff; a test that scripts the page (today only the server is tested and the page is checked by hand); the page as an MCP app; paging for a very large project's graph.
 
+## 52. `render --content`, and prompts for the MCP server
+
+- **Built**: `render --content` puts each rendered file's text in the JSON document (`data.files[].content`; plain render only, schema `filesHashedWithContent`), so a client can show the lowered query and the rendered scripts of the current models without `render --write`. The web page's Lowered and per-target tabs use it (they no longer read `rendered/`, which may be stale or unwritten), and so does any MCP client (`render` tool, input `content`). `prompts/list` and `prompts/get` on the MCP server: `explore-project`, `add-model`, `change-model`, `fix-findings`, `review-plan` (`Prompts.cs`); a test checks that every command a prompt names is a tool the server offers. The skill mentions `web` and `mcp`.
+- **Verified**: 1,449 unit tests (render content with nothing written, the prompts); the page's two tabs read in headless Chrome. The prompts were not tried in a host (Claude Desktop shows prompts as slash commands; unverified).
+- **Left**: cancelling a running MCP command, outputSchema per tool, the `.mcpb` bundle, plan review and apply in the page, a scripted test of the page.
+

@@ -75,9 +75,10 @@ public static class CliApp
                     var renderTarget = new Option<string[]>("--target") { Description = "Only these targets (sqlserver, fabric, postgres)", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
                     var renderWrite = new Option<bool>("--write") { Description = "Write the committed rendered/ files (and remove stale generated ones)" };
                     var renderCheck = new Option<bool>("--check") { Description = "CI: fail if the committed rendered/ files differ from a fresh render; writes nothing" };
+                    var renderContent = new Option<bool>("--content") { Description = "With --format json: put each rendered file's text in the document (files[].content), so a client can show the lowered and rendered scripts without writing them" };
                     cmd.Arguments.Add(renderModels);
-                    cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), o, e)));
+                    cmd.Options.Add(renderProject); cmd.Options.Add(renderTarget); cmd.Options.Add(renderWrite); cmd.Options.Add(renderCheck); cmd.Options.Add(renderContent);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RenderCommand.Render(spec, pr.GetValue(renderProject)!.FullName, pr.GetValue(renderModels) ?? [], pr.GetValue(renderTarget) ?? [], pr.GetValue(renderWrite), pr.GetValue(renderCheck), pr.GetValue(renderContent), o, e)));
                     break;
                 case "agent-kit":
                     var kitProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };

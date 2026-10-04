@@ -48,6 +48,7 @@ pre .hit { background: var(--hi); display: block; }
 .tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; background: var(--code-bg); margin: 0 4px 2px 0; }
 a.link, .link { color: var(--accent); cursor: pointer; text-decoration: none; }
 a.link:hover, .link:hover { text-decoration: underline; }
+.split > * { min-width: 0; }
 .split { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
 @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
 .list { max-height: calc(100vh - 150px); overflow: auto; }
@@ -314,13 +315,23 @@ async function modelDetail(root, m, tab) {
   else if (tab === "sql") await showFile(body, m.files?.query);
   else if (tab === "lowered") {
     if (m.lowered?.rules?.length) body.append(h("div", null, h("span", { class: "muted" }, "type rules that fired "), m.lowered.rules.map((r) => h("span", { class: "tag" }, r))));
-    await showFile(body, m.lowered?.file);
+    await showRendered(body, m.name, (f) => f.path.startsWith("rendered/lowered/"));
   } else if (tab.startsWith("target:")) {
     const t = tab.slice(7);
     const ops = (m.loads || []).filter((l) => !l.target || l.target === t);
     if (ops.length) body.append(h("div", { class: "muted" }, "load: " + ops.map((o) => `${o.operation ?? o.name ?? "default"} (${o.strategy ?? ""})`).join(", ")));
-    await showFile(body, `rendered/${t}/${m.name}/load.default.sql`);
+    await showRendered(body, m.name, (f) => f.path.startsWith(`rendered/${t}/`));
   }
+}
+
+// The lowered and rendered scripts come from `render --content`: made now from the current models, not read from rendered/ (which may be out of date or not written).
+async function showRendered(body, model, pick) {
+  try {
+    const doc = await run("render", { models: [model], content: true });
+    const files = (doc.data.files || []).filter(pick);
+    if (!files.length) { body.append(h("div", { class: "muted" }, "Nothing renders for this model here" + (doc.diagnostics?.length ? ": " + doc.diagnostics[0].found : "."))); return; }
+    for (const f of files) body.append(h("div", { class: "muted" }, f.path), codeBlock(f.content ?? ""));
+  } catch (e) { body.append(h("div", { class: "err" }, e.message)); }
 }
 
 function columnsTable(m, targets) {

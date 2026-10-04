@@ -112,6 +112,28 @@ public class McpServerTests : IDisposable
     }
 
     [Fact]
+    public void The_workflows_of_the_skill_are_prompts_that_name_tools_the_server_really_has()
+    {
+        var s = Server();
+        var listed = Result(s, "prompts/list")["prompts"]!.AsArray();
+        Assert.Contains("add-model", listed.Select(p => (string)p!["name"]!));
+        var text = (string)Result(s, "prompts/get", new JsonObject { ["name"] = "add-model", ["arguments"] = new JsonObject { ["name"] = "marts.fct_x", ["purpose"] = "one row per x" } })["messages"]![0]!["content"]!["text"]!;
+        Assert.Contains("marts.fct_x", text);
+        Assert.Contains("dbdatabuild://skill", text);
+        // every command a prompt tells the model to call exists as a tool here, and none is a command the server withholds
+        foreach (var prompt in listed)
+        {
+            var args = new JsonObject();
+            foreach (var a in prompt!["arguments"]!.AsArray()) args[(string)a!["name"]!] = "x.y";
+            var body = (string)Result(s, "prompts/get", new JsonObject { ["name"] = (string)prompt["name"]!, ["arguments"] = args })["messages"]![0]!["content"]!["text"]!;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(body, @"`([a-z-]+)`"))
+                if (CommandSpecs.All.Any(c => c.Name == m.Groups[1].Value)) Assert.Contains(m.Groups[1].Value, s.ToolNames);
+        }
+        Assert.Equal(-32602, (int)s.Handle(Request("prompts/get", new JsonObject { ["name"] = "add-model" })).Single()["error"]!["code"]!);       // a required argument is missing
+        Assert.Equal(-32602, (int)s.Handle(Request("prompts/get", new JsonObject { ["name"] = "nope" })).Single()["error"]!["code"]!);
+    }
+
+    [Fact]
     public void Serve_answers_each_line_and_survives_a_line_that_is_not_json()
     {
         var output = new StringWriter();

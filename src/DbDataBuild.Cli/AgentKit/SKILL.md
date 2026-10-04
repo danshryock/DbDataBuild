@@ -107,5 +107,5 @@ cases:
 - DuckDB SQL is what you write; the target SQL is generated. Never write T-SQL or PostgreSQL syntax in a model.
 - A change to an incremental model's query blocks `run` (DDB-431) until a person plans again or accepts it with `ack definition`. A change someone made in the database blocks that object (DDB-430) until `ack drift` or a restore.
 - `lowering: { enabled: false }`, `lint: { indexes: false }` and `rewrites: { fidelity: native }` in `dbdatabuild.yml` switch features off for the whole project (the last one gives each engine's own behavior where it differs from DuckDB, for shorter queries: `dbdatabuild matrix --rewrites` says what changes): ask before changing config.
-- The human interface is `dbdatabuild tui`; it runs the same commands. You do not need it.
+- The human interfaces are `dbdatabuild tui` (terminal) and `dbdatabuild web` (a read-only page: health, lineage, models with their lowered and rendered scripts, tests, the matrix); they run the same commands. You do not need them. If this project is served to you by `dbdatabuild mcp`, the commands are tools, `--format json` is already on, and the commands that change a database are not offered.
 - Anything not covered here: the `schemas/` folder next to this file has the exact shape of every file and every command's output, and `dbdatabuild explain <code>` explains every diagnostic.

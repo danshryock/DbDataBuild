@@ -14,9 +14,14 @@ internal static class RenderCommand
 {
     public const string RenderedDir = "rendered";
 
-    public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, TextWriter output, TextWriter error)
+    public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, bool content, TextWriter output, TextWriter error)
     {
         output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        if (content && (write || check))
+        {
+            error.WriteLine("--content only goes with a plain render: --write and --check have their own documents.");
+            return CliApp.ExitUsage;
+        }
         if (write && check)
         {
             error.WriteLine("--write and --check cannot be combined: --check writes nothing.");
@@ -65,7 +70,8 @@ internal static class RenderCommand
             return CliApp.ExitOk;
         }
 
-        output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content) }).ToList());
+        if (content) output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content), content = f.Content }).ToList());
+        else output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content) }).ToList());
         output.Payload("operations", files.Count);
 
         // default: print

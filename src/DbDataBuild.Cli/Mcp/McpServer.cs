@@ -73,6 +73,8 @@ internal sealed class McpServer
                 "resources/list" => new JsonObject { ["resources"] = new JsonArray(Resources.Listed().ToArray()) },
                 "resources/templates/list" => new JsonObject { ["resourceTemplates"] = new JsonArray(Resources.Templates().ToArray()) },
                 "resources/read" => Resources.Read(request["params"]?["uri"]?.GetValue<string>()),
+                "prompts/list" => new JsonObject { ["prompts"] = new JsonArray(Prompts.Listed().ToArray()) },
+                "prompts/get" => Prompts.Get(request["params"]?["name"]?.GetValue<string>(), request["params"]?["arguments"] as JsonObject),
                 _ => throw new McpException(-32601, $"Method not found: {method}"),
             };
             return [new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result }];
@@ -90,7 +92,7 @@ internal sealed class McpServer
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
-            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false }, ["resources"] = new JsonObject { ["listChanged"] = false, ["subscribe"] = false } },
+            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false }, ["resources"] = new JsonObject { ["listChanged"] = false, ["subscribe"] = false }, ["prompts"] = new JsonObject { ["listChanged"] = false } },
             ["serverInfo"] = new JsonObject { ["name"] = "dbdatabuild", ["title"] = ProductInfo.Name, ["version"] = ProductInfo.Version },
             ["instructions"] = "Tools are the dbdatabuild commands, run on the project this server was started for. Read the resource dbdatabuild://skill first: it says how to work in a project. " +
                 "Every tool returns the command's JSON document. Row values are never returned to you; commands that change a target are " + (allowWrites ? "available (the operator allowed them)." : "not offered: a person runs those."),

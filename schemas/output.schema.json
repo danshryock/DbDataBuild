@@ -952,6 +952,29 @@
         ]
       }
     },
+    "filesHashedWithContent": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "The file's text (render --content)."
+          }
+        },
+        "required": [
+          "path",
+          "hash"
+        ]
+      }
+    },
     "data_validate": {
       "type": "object",
       "additionalProperties": false,
@@ -1177,14 +1200,14 @@
       }
     },
     "data_render": {
-      "description": "print: files and operations; --write: files, wrote, removed; --check: files, out_of_date.",
+      "description": "print: files (with their text under --content) and operations; --write: files, wrote, removed; --check: files, out_of_date.",
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "files": {
-              "$ref": "#/$defs/filesHashed"
+              "$ref": "#/$defs/filesHashedWithContent"
             },
             "operations": {
               "type": "integer"

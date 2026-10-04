@@ -73,6 +73,19 @@ public sealed class WebServerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_lowered_and_rendered_text_comes_from_render_content_and_nothing_is_written()
+    {
+        var reply = JsonNode.Parse(await (await Run("render", "{\"content\":true}")).Content.ReadAsStringAsync())!;
+        var files = reply["document"]!["data"]!["files"]!.AsArray();
+        Assert.NotEmpty(files);
+        Assert.All(files, f => Assert.False(string.IsNullOrWhiteSpace((string?)f!["content"])));
+        Assert.Contains(files, f => ((string)f!["path"]!).StartsWith("rendered/lowered/"));
+        Assert.False(Directory.Exists(Path.Combine(dir, "rendered")));       // the page can see the scripts without `render --write`
+        var plain = JsonNode.Parse(await (await Run("render")).Content.ReadAsStringAsync())!;
+        Assert.Null(plain["document"]!["data"]!["files"]![0]!["content"]);
+    }
+
+    [Fact]
     public async Task A_request_without_the_token_for_another_host_or_from_another_origin_is_refused()
     {
         Assert.Equal(HttpStatusCode.Forbidden, (await Run("validate", token: false)).StatusCode);
