@@ -93,4 +93,5 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **Recursion on SQL Server**: a hierarchy deeper than 100 levels fails (error 530); `OPTION (MAXRECURSION n)` cannot be put in a view, so it needs the load statement of a table.
 - **Decimal products wider than 38 digits** round at scale 6 on SQL Server (matrix `type.decimal_product_wide`); no rewrite makes SQL Server exact.
 - **Oracle, Spark SQL, BigQuery emulator** (entry 48): probed only. Needed to make them targets: target rules for what the scoreboard shows, a matrix column each (the rows say `unverified` for nothing today: the loader requires the three existing targets), a DDL type table, tracking tables, load strategies, a driver behind `MutationGate`/`ReadSession`.
+- **Web interface** (idea, `docs/research/web-and-mcp-interface.md`): an MCP server (`dbdatabuild mcp`), a loopback web page, an MCP app for Claude Desktop and a VS Code extension, all clients of the JSON surface; suggested order: the MCP server without a UI, VS Code diagnostics, the web page, the MCP app, the webview.
 
