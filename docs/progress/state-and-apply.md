@@ -464,3 +464,10 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: 1,432 unit tests; the three probe suites against the real engines (Spark 4.0, the emulator, Oracle 23ai Free). Not touched: SQL Server and PostgreSQL rules (their probes unchanged).
 - **Left**: the rest of the lists in the scoreboard document; a matrix column for each engine; Oracle's empty-string rule; the BigQuery probe run took 6 to 9 minutes in three runs where it took 33 seconds in another (emulator slowness on failing queries?): check before the CI job's 30 minute limit matters.
 
+## 50. `dbdatabuild mcp`: the commands as tools for an AI agent
+
+- **Built** (DESIGN.md 9.7): a Model Context Protocol server on standard input and output (`src/DbDataBuild.Cli/Mcp/`: `McpServer`, `Resources`, `McpCommand`; hand-written JSON-RPC, no package). Tools from the TUI's command catalog, each run in process with `--format json`; resources for the skill, the schemas and `explain`; progress notifications. `mcp` is the second command with no JSON form of its own (like `tui`); the tests that list commands know it.
+- **Safety**: commands that change a target or its tracking tables are not offered without `--allow-writes`; `--project`, `diff --show-values` and `sample --data` are never offered; paths and model names outside the project are refused before anything runs; a test checks that no offered tool has an input that shows values or names the project.
+- **Verified**: 1,441 unit tests (nine new in `McpServerTests`, including the stdin loop and a line that is not JSON); a real run of the built executable over a pipe (initialize, then `graph`). Not tried against Claude Desktop, VS Code or another host.
+- **Left**: prompts (the skill's workflows), cancelling a running command (the loop is sequential: a request is read after the previous one finishes), an `.mcpb` bundle in the release job, a test that no tool *result* sent to a model carries row values (today by construction: the withheld options), outputSchema per tool, the UI extension.
+

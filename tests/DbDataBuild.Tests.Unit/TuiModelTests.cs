@@ -22,8 +22,8 @@ public class TuiModelTests
     public void Every_option_and_argument_of_every_command_is_in_the_catalog()
     {
         var root = Root();
-        Assert.Equal(CommandSpecs.All.Where(c => c.Name != "tui").Select(c => c.Name).Order(), Catalog.Select(c => c.Name).Order());
-        foreach (var cmd in root.Subcommands.Where(c => c.Name != "tui"))
+        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("tui" or "mcp")).Select(c => c.Name).Order(), Catalog.Select(c => c.Name).Order());
+        foreach (var cmd in root.Subcommands.Where(c => c.Name is not ("tui" or "mcp")))
         {
             var info = Catalog.Single(c => c.Name == cmd.Name);
             Assert.Equal(cmd.Options.Where(o => !NotOptions.Contains(o.Name)).Select(o => o.Name).Order(), info.Options.Select(o => o.Name).Order());

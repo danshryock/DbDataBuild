@@ -93,6 +93,12 @@ public static class CliApp
                     cmd.Options.Add(tuiProject); cmd.Options.Add(tuiTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => TuiCommand.Run(spec, pr.GetValue(tuiProject)!.FullName, pr.GetValue(tuiTarget), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "mcp":
+                    var mcpProject = new Option<DirectoryInfo>("--project") { Description = "Project root the tools work on", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var mcpWrites = new Option<bool>("--allow-writes") { Description = "Also offer the commands that change a target or its tracking tables (apply, run, load-seeds, init, ack, publish-metadata). Off by default: a person runs those." };
+                    cmd.Options.Add(mcpProject); cmd.Options.Add(mcpWrites);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => Mcp.McpCommand.Run(Path.GetFullPath(pr.GetValue(mcpProject)!.FullName), pr.GetValue(mcpWrites), o.IsJson(), input, o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "sample":
                     var sampleModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var sampleProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
