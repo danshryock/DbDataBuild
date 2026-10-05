@@ -98,5 +98,5 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **MCP server** (entry 50): built for tools and resources; open: `.mcpb` packaging, per-tool outputSchema, a no-values test over results, the UI extension and `dbdatabuild web` (docs/research/web-and-mcp-interface.md), verification against real hosts.
 - **Web interface** (entry 51): read-only screens built; open: plan review and apply, diff, sample data, accessibility, an answers form for plan questions, apply with an approval design (entry 53), the MCP app and VS Code shells.
 - **Page and MCP writes** (entry 54): built with approval; open: check elicitation against a real host, `apply --resume` from the page, the questions form against a real model change, the MCP app shell.
-- **MCP app** (entry 56): built and driven with a stand-in host; open: a real host (Claude Desktop, VS Code), the `.mcpb` bundle.
+- **MCP app** (entry 56): built and driven with a stand-in host; open: a real host (Claude Desktop, VS Code; checklist in docs/interfaces.md), attaching the `.mcpb` bundle to releases once a host has installed it, `ProductInfo.Version` (still 0.1.0, in every rendered header).
 

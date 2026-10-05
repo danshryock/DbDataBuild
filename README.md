@@ -35,6 +35,8 @@ dbdatabuild plan --target postgres        # read the target, write a plan file
 dbdatabuild apply plans/postgres/<id>.plan.yml --dry-run
 dbdatabuild test                          # run the project's tests (metadata rules in tests/metadata/)
 dbdatabuild tui                           # the same, interactively
+dbdatabuild web                           # the same in a browser, read-only unless --allow-apply (lineage, plans, diff, sample data)
+dbdatabuild mcp                           # the commands as tools for an AI agent (Claude Desktop, VS Code); also an MCP app
 ```
 
 `dbdatabuild --help` lists every command with its effect class (offline, repo files, database read-only, tracking tables, data writes). `dbdatabuild explain DDB-nnn` explains any diagnostic. `dbdatabuild agent-kit --write` installs a skill and the JSON Schemas for AI coding agents (`docs/agents.md`).
@@ -58,6 +60,7 @@ The real-engine suite uses throwaway SQL Server and PostgreSQL containers (`scri
 - `DESIGN.md`: the design. Sections marked "as built" describe what exists.
 - `docs/operations.md`: running it against real databases, scheduling, failure and recovery.
 - `docs/agents.md`: working with AI agents.
+- `docs/interfaces.md`: the terminal, web page, MCP server and MCP app; connecting a host.
 - `docs/progress/`: the build log (`state-and-apply.md`), the owner's review summary (`REVIEW.md`) and what is unfinished (`OPEN-ITEMS.md`).
 - `docs/research/duckdb-plan-lowering/`: how queries are lowered, with the prototype code.
 - `CLAUDE.md`: for anyone (human or agent) changing the code.
