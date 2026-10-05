@@ -137,6 +137,6 @@ internal static class McpConfig
         var servers = root["mcpServers"] as JsonObject ?? new JsonObject();
         servers[ServerName] = Entry();
         root["mcpServers"] = servers;
-        return (current, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IndentSize = 2, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n", null);
+        return (current, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IndentSize = 2, NewLine = "\n", Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n", null);       // LF on every platform (the default is the platform's line ending)
     }
 }
