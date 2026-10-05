@@ -123,8 +123,7 @@ public class LoadRendererTests
             Assert.Contains(lines, l => l.StartsWith("-- target:          " + f.Path.Split('/')[0]));
             Assert.Contains(lines, l => l.StartsWith("-- strategy:        "));
             Assert.Contains(lines, l => l == "-- definition hash: " + hash);
-            Assert.Contains(lines, l => Regex.IsMatch(l, "^-- matrix version:  [0-9a-f]{12}$"));
-            Assert.Contains(lines, l => l == "-- tool version:    " + DbDataBuild.Core.ProductInfo.Version);
+            Assert.DoesNotContain(lines, l => l.Contains("version", StringComparison.OrdinalIgnoreCase) && !l.Contains("definition"));      // nothing that changes with a release: a file changes when its text does
             Assert.Contains(lines, l => l.StartsWith("-- parameters:      "));
         }
     }

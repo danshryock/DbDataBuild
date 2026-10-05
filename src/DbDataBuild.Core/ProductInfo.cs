@@ -9,5 +9,11 @@ public static class ProductInfo
     public const string TrackingSchema = "dbdatabuild";
     public const string DiagnosticPrefix = "DDB-";
     public const string NamespacePrefix = "DbDataBuild";
-    public const string Version = "0.1.0";
+
+    /// <summary>
+    /// The release's version: the one `scripts/publish.sh` stamps (`VERSION`), and in a development build the one in Directory.Build.props, which a release bumps. It is in plans, in the JSON documents and in
+    /// the tracking tables as provenance. It is not in anything rendered: a rendered file changes when its text changes, not when the tool is upgraded.
+    /// </summary>
+    public static string Version { get; } =
+        typeof(ProductInfo).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false).OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
 }

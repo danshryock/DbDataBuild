@@ -15,10 +15,6 @@ namespace DbDataBuild.Cli.Mcp;
 /// </summary>
 internal sealed class McpServer
 {
-    /// <summary>The version a release stamps into the build (`publish.sh` with VERSION); a development build has none and says the product's own.</summary>
-    internal static string BuildVersion { get; } =
-        typeof(McpServer).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false).OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion.Split('+')[0] is { } v && v != "1.0.0" ? v : ProductInfo.Version;
-
     internal const string LatestProtocol = "2025-06-18";
     internal const string UiExtension = "io.modelcontextprotocol/ui", UiMime = "text/html;profile=mcp-app", UiUri = "ui://dbdatabuild/app";
     private static readonly string[] SupportedProtocols = [LatestProtocol, "2025-03-26", "2024-11-05"];
@@ -225,7 +221,7 @@ internal sealed class McpServer
         {
             ["protocolVersion"] = protocol,
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false }, ["resources"] = new JsonObject { ["listChanged"] = false, ["subscribe"] = false }, ["prompts"] = new JsonObject { ["listChanged"] = false } },
-            ["serverInfo"] = new JsonObject { ["name"] = "dbdatabuild", ["title"] = ProductInfo.Name, ["version"] = BuildVersion },
+            ["serverInfo"] = new JsonObject { ["name"] = "dbdatabuild", ["title"] = ProductInfo.Name, ["version"] = ProductInfo.Version },
             ["instructions"] = "Tools are the dbdatabuild commands, run on the project this server was started for. Read the resource dbdatabuild://skill first: it says how to work in a project. " +
                 "Every tool returns the command's JSON document. Row values are never returned to you; commands that change a target are " + (allowWrites ? "offered, and each run of one needs the person's confirmation through the host (you cannot give it)." : "not offered: a person runs those."),
         };

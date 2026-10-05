@@ -5,8 +5,6 @@
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  2f2b829662c9
--- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 SELECT CAST(MAX("order_date") - INTERVAL '3 days' AS DATE) FROM "marts"."fct_daily";
 
@@ -17,8 +15,6 @@ SELECT CAST(MAX("order_date") - INTERVAL '3 days' AS DATE) FROM "marts"."fct_dai
 -- target:          postgres
 -- strategy:        watermark_append
 -- definition hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
--- matrix version:  2f2b829662c9
--- tool version:    0.1.0
 -- parameters:      @watermark (DATE, resolver)
 BEGIN;
 CREATE TEMP TABLE ddb_stage AS
@@ -35,8 +31,6 @@ COMMIT;
 model: marts.fct_daily
 target: postgres
 definition_hash: cc5d3b3bee5655e4f5ce89b6035b1a267604df9161a563235ad0af3c35e329a8
-matrix_version: 2f2b829662c9
-tool_version: 0.1.0
 sources: [staging.orders]
 operations:
   - name: default
@@ -46,9 +40,9 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: a8fb12ed16d30a8b1e0718a7013fc80bec549ae6d6354c7e3738b707d73b8d06
+    script_sha256: 10d20ab78d4ad5d5ea7012c4ee6b2c7ce264ec9e8aa17ba6047acd40cd8f6f5e
     resolver: load.default.resolve.sql
-    resolver_sha256: 906cab8b73caa0e0d839da9f1ed219a93a3bdeaa3c6517b559d538d9a953e756
+    resolver_sha256: d36850f4e4464efe22b508dfe94793bc13648802f1b41b069593625cdfc96ea2
     parameters:
       - name: watermark
         type: DATE

@@ -5,8 +5,6 @@
 -- target:          sqlserver
 -- strategy:        full_replace
 -- definition hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
--- matrix version:  2f2b829662c9
--- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
 DROP TABLE IF EXISTS #ddb_stage;
@@ -24,8 +22,6 @@ COMMIT TRANSACTION;
 model: marts.dim_customer
 target: sqlserver
 definition_hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
-matrix_version: 2f2b829662c9
-tool_version: 0.1.0
 sources: [staging.customers]
 operations:
   - name: default
@@ -35,5 +31,5 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: bf5cd3f71985b29c2123a853a427852391e2dfc9474ab3a05dc46fd3f48c87f2
+    script_sha256: 0ea51df0a8fd0429dcb57e76cac8de77431634498d588c2b24a148ffc4342afd
     parameters: []
