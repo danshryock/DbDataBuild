@@ -55,7 +55,7 @@ public partial class AgentKitTests
         foreach (Match m in Regex.Matches(Skill, @"schemas/([a-z.]+\.json)")) Assert.Contains(AgentKitCommand.Files(), f => f.Path == "schemas/" + m.Groups[1].Value);
     }
 
-    private static readonly string[] ConfigOnly = [];
+    private static readonly string[] ConfigOnly = ["--allow-writes", "--allow-apply"];      // options of `mcp` and `web`, which are not in the catalog the test reads
 
     [Fact]
     public void The_example_model_in_the_skill_is_a_valid_definition()
@@ -107,5 +107,91 @@ public partial class AgentKitTests
         var elsewhere = Cli("agent-kit", "--project", dir, "--write", "--dir", "agents/dbdatabuild");
         Assert.True(File.Exists(Path.Combine(dir, "agents", "dbdatabuild", "SKILL.md")));
         Assert.Equal(0, elsewhere.Exit);
+    }
+
+    // ---- agent-kit --mcp ----
+
+    private static (int Exit, string Out, string Err) Kit(string dir, params string[] args)
+    {
+        var o = new StringWriter(); var e = new StringWriter();
+        var exit = CliApp.Run(["agent-kit", "--project", dir, .. args], o, e);
+        return (exit, o.ToString(), e.ToString());
+    }
+
+    private static string NewDir() { var d = Path.Combine(Path.GetTempPath(), "ddb-kit-" + Guid.NewGuid().ToString("N")[..8]); Directory.CreateDirectory(d); return d; }
+
+    [Fact]
+    public void Mcp_is_opt_in_and_adds_only_the_server_with_the_read_logins_by_name()
+    {
+        var dir = NewDir();
+        try
+        {
+            Assert.Equal(0, Kit(dir, "--write").Exit);
+            Assert.False(File.Exists(Path.Combine(dir, ".mcp.json")));            // not without --mcp
+            var listed = Kit(dir, "--mcp");
+            Assert.Equal(0, listed.Exit);
+            Assert.False(File.Exists(Path.Combine(dir, ".mcp.json")));            // listing writes nothing
+            Assert.Contains("--write would add the dbdatabuild server", listed.Out);
+
+            Assert.Equal(0, Kit(dir, "--write", "--mcp").Exit);
+            var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(dir, ".mcp.json")))!;
+            var server = json["mcpServers"]!["dbdatabuild"]!;
+            Assert.Equal("stdio", (string)server["type"]!);
+            Assert.Equal("dbdatabuild", (string)server["command"]!);
+            Assert.Equal(["mcp", "--project", "."], server["args"]!.AsArray().Select(a => (string)a!));
+            var env = server["env"]!.AsObject().Select(p => p.Key).ToList();
+            Assert.All(env, k => Assert.EndsWith("_READ", k));                    // the write login is never in the file
+            Assert.Contains("DBDATABUILD_POSTGRES_READ", env);
+            Assert.Equal("${DBDATABUILD_POSTGRES_READ:-}", (string)server["env"]!["DBDATABUILD_POSTGRES_READ"]!);       // a value comes from the environment, never from the file
+            Assert.DoesNotContain("--allow", File.ReadAllText(Path.Combine(dir, ".mcp.json")));                          // read-only
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Mcp_keeps_the_other_servers_is_idempotent_and_is_checked()
+    {
+        var dir = NewDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, ".mcp.json"), "{\n  \"mcpServers\": { \"other\": { \"type\": \"http\", \"url\": \"https://example.com/mcp\" } },\n  \"extra\": 1\n}\n");
+            Assert.Equal(CliApp.ExitFindings, Kit(dir, "--check", "--mcp").Exit);                      // the server is missing
+            Assert.Equal(0, Kit(dir, "--write", "--mcp").Exit);
+            var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(dir, ".mcp.json")))!;
+            Assert.Equal("https://example.com/mcp", (string)json["mcpServers"]!["other"]!["url"]!);
+            Assert.Equal(1, (int)json["extra"]!);
+            Assert.NotNull(json["mcpServers"]!["dbdatabuild"]);
+            var once = File.ReadAllText(Path.Combine(dir, ".mcp.json"));
+            Assert.Equal(0, Kit(dir, "--write", "--mcp").Exit);
+            Assert.Equal(once, File.ReadAllText(Path.Combine(dir, ".mcp.json")));                      // nothing changes the second time
+            Assert.Equal(0, Kit(dir, "--check", "--mcp").Exit);
+            Assert.DoesNotContain("\r", once);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("[1, 2]")]
+    [InlineData("{ \"mcpServers\": 3 }")]
+    public void A_file_that_cannot_be_merged_is_refused_and_left_as_it_is(string content)
+    {
+        var dir = NewDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, ".mcp.json"), content);
+            Assert.Equal(CliApp.ExitFindings, Kit(dir, "--write", "--mcp").Exit);
+            Assert.Equal(content, File.ReadAllText(Path.Combine(dir, ".mcp.json")));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void The_skill_tells_an_agent_how_to_work_when_the_server_is_there_and_not_to_start_it()
+    {
+        Assert.Contains("If the dbdatabuild tools are available", Skill);
+        Assert.Contains("You cannot start the server yourself", Skill);
+        Assert.Contains("agent-kit --write --mcp", Skill);
+        foreach (var screen in new[] { "plans", "lineage", "models", "health", "sample", "diff", "tests", "matrix" }) Assert.Contains($"`{screen}`", Skill);       // the screens `show` takes
     }
 }

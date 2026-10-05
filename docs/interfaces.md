@@ -32,6 +32,8 @@ What a model is never given: `diff --show-values`, `sample --data`, a path outsi
 
 The server speaks MCP over standard input and output. The settings below are the usual shapes; check your host's current documentation, which changes.
 
+Claude Code: `dbdatabuild agent-kit --write --mcp` adds the server to the project's `.mcp.json` (the other servers in the file are kept; the entry is `dbdatabuild mcp --project .`, read-only, passing the `DBDATABUILD_<TARGET>_READ` logins on by name from your environment, never the write login). It needs `dbdatabuild` on the PATH, and Claude Code asks before it first uses a project server. The skill the same command installs tells the agent how to work with the tools, and what is deliberately not offered.
+
 Claude Desktop (`claude_desktop_config.json`):
 
 ```json

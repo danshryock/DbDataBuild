@@ -101,4 +101,5 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **MCP app** (entry 56): built and driven with a stand-in host; open: a real host (Claude Desktop, VS Code; checklist in docs/interfaces.md), attaching the `.mcpb` bundle to releases once a host has installed it, `ProductInfo.Version` (still 0.1.0, in every rendered header).
 - **SQL Server version** (entry 58): `version` means the T-SQL level to generate for (16: 2022 and 2025@160; 17: 2025@170) and from 17 the regular expressions are written; open: the `i`/`s` regex options, other 2025 features (a native JSON type, vectors) are not used, the 2025 group in CI has not run yet on GitHub (first push of entry 58).
 - **Oracle empty string** (entry 59): measured and designed (DESIGN.md 7.4), not built: needs Oracle as a target and a matrix column.
+- **`agent-kit --mcp`** (entry 60): written from Claude Code's documentation, not run in it; check `${VAR:-}` with an empty default for an unset login, and the approval prompt.
 

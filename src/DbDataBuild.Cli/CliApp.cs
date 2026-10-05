@@ -85,8 +85,9 @@ public static class CliApp
                     var kitDir = new Option<string?>("--dir") { Description = "Where to install the kit, relative to the project (default: .claude/skills/dbdatabuild)" };
                     var kitWrite = new Option<bool>("--write") { Description = "Install the files (default: list them and write nothing)" };
                     var kitCheck = new Option<bool>("--check") { Description = "CI: fail if the installed kit differs from this version's; writes nothing" };
-                    cmd.Options.Add(kitProject); cmd.Options.Add(kitDir); cmd.Options.Add(kitWrite); cmd.Options.Add(kitCheck);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => AgentKitCommand.Run(spec, pr.GetValue(kitProject)!.FullName, pr.GetValue(kitDir), pr.GetValue(kitWrite), pr.GetValue(kitCheck), o, e)));
+                    var kitMcp = new Option<bool>("--mcp") { Description = "Also add the dbdatabuild MCP server to the project's .mcp.json (Claude Code starts it: `dbdatabuild mcp --project .`, read-only; other servers in the file are kept). With --write it writes the file, with --check it checks it, otherwise it only says what it would do." };
+                    cmd.Options.Add(kitProject); cmd.Options.Add(kitDir); cmd.Options.Add(kitWrite); cmd.Options.Add(kitCheck); cmd.Options.Add(kitMcp);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => AgentKitCommand.Run(spec, pr.GetValue(kitProject)!.FullName, pr.GetValue(kitDir), pr.GetValue(kitWrite), pr.GetValue(kitCheck), pr.GetValue(kitMcp), o, e)));
                     break;
                 case "tui":
                     var tuiProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };

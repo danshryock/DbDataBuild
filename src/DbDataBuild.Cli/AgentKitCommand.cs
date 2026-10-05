@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using DbDataBuild.Core;
+using DbDataBuild.Models;
 using DbDataBuild.State;
 
 namespace DbDataBuild.Cli;
@@ -28,7 +31,7 @@ internal static class AgentKitCommand
         return files;
     }
 
-    public static int Run(CommandSpec spec, string projectRoot, string? dir, bool write, bool check, TextWriter output, TextWriter error)
+    public static int Run(CommandSpec spec, string projectRoot, string? dir, bool write, bool check, bool mcp, TextWriter output, TextWriter error)
     {
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
         if (write && check) { error.WriteLine("--write and --check cannot be combined: --check writes nothing."); return CliApp.ExitUsage; }
@@ -57,6 +60,27 @@ internal static class AgentKitCommand
         output.Payload("wrote", wrote);
         output.Payload("out_of_date", check ? stale : []);
 
+        // --mcp: the project's .mcp.json (Claude Code reads it) gets the dbdatabuild server added, and nothing else in it is touched
+        if (mcp)
+        {
+            var (current, desired, problem) = McpConfig.Plan(projectRoot);
+            if (problem != null) { error.Diag(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, new(McpConfig.FileName, 0, 0), problem)); return CliApp.ExitFindings; }
+            var upToDate = current == desired;
+            var wroteMcp = false;
+            if (write && !upToDate)
+            {
+                var full = Path.Combine(projectRoot, McpConfig.FileName);
+                var temp = full + ".ddb-" + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+                File.WriteAllBytes(temp, new UTF8Encoding(false).GetBytes(desired));
+                File.Move(temp, full, overwrite: true);
+                wroteMcp = true;
+            }
+            output.Payload("mcp", new { file = McpConfig.FileName, up_to_date = upToDate, wrote = wroteMcp });
+            if (wroteMcp) output.WriteLine($"wrote {McpConfig.FileName} (the dbdatabuild server; Claude Code asks before it first uses a project server)");
+            else if (check && !upToDate) { error.Diag(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, new(McpConfig.FileName, 0, 0), $"`{McpConfig.FileName}` is missing the dbdatabuild server or differs from this version's.")); stale.Add(McpConfig.FileName); }
+            else if (!write && !check) output.WriteLine(upToDate ? $"{McpConfig.FileName}: the dbdatabuild server is already there." : $"{McpConfig.FileName}: --write would add the dbdatabuild server (`{ProductInfo.Cli} mcp --project .`).");
+        }
+
         if (write)
         {
             foreach (var w in wrote) output.WriteLine($"wrote {w}");
@@ -73,5 +97,46 @@ internal static class AgentKitCommand
         output.WriteLine();
         output.WriteLine($"{files.Count} file(s). `{ProductInfo.Cli} {spec.Name} --write` installs them in {rel}; point your agent at {rel}/SKILL.md.");
         return CliApp.ExitOk;
+    }
+}
+
+/// <summary>The entry `agent-kit --mcp` puts in a project's `.mcp.json`, and how it is merged with what is there.</summary>
+internal static class McpConfig
+{
+    public const string FileName = ".mcp.json";
+    public const string ServerName = "dbdatabuild";
+
+    /// <summary>
+    /// The server Claude Code starts from the project folder: `dbdatabuild mcp --project .`, read-only (no --allow-writes, no --allow-apply). Only the READ logins are passed on, by name: a value comes from the
+    /// environment Claude Code runs in, never from this file, and the write login is never here (a person who wants applying from a host sets that up by hand: docs/interfaces.md).
+    /// </summary>
+    public static JsonObject Entry() => new()
+    {
+        ["type"] = "stdio",
+        ["command"] = ProductInfo.Cli,
+        ["args"] = new JsonArray("mcp", "--project", "."),
+        ["env"] = new JsonObject(TargetNames.All.Select(t => new KeyValuePair<string, JsonNode?>(LoginName(t), "${" + LoginName(t) + ":-}"))),
+    };
+
+    private static string LoginName(string target) => $"DBDATABUILD_{target.ToUpperInvariant()}_READ";
+
+    /// <summary>The text of the file now (null when there is none), the text it should have, and a reason when the file cannot be merged (it is not a JSON object, or `mcpServers` is not an object).</summary>
+    public static (string? Current, string Desired, string? Problem) Plan(string projectRoot)
+    {
+        var path = Path.Combine(projectRoot, FileName);
+        JsonObject root;
+        string? current = null;
+        if (File.Exists(path))
+        {
+            current = File.ReadAllText(path).Replace("\r\n", "\n");
+            try { root = JsonNode.Parse(current) as JsonObject ?? throw new JsonException("not an object"); }
+            catch (JsonException) { return (current, "", $"`{FileName}` is not a JSON object, so the server is not added to it. Fix or remove the file, or add the server by hand (docs/interfaces.md)."); }
+        }
+        else root = new JsonObject();
+        if (root["mcpServers"] is not null and not JsonObject) return (current, "", $"`mcpServers` in `{FileName}` is not an object, so the server is not added to it.");
+        var servers = root["mcpServers"] as JsonObject ?? new JsonObject();
+        servers[ServerName] = Entry();
+        root["mcpServers"] = servers;
+        return (current, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IndentSize = 2, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n", null);
     }
 }

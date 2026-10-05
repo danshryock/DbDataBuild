@@ -2123,6 +2123,27 @@
           "items": {
             "type": "string"
           }
+        },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "With --mcp: the project's .mcp.json.",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "up_to_date": {
+              "type": "boolean"
+            },
+            "wrote": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "file",
+            "up_to_date",
+            "wrote"
+          ]
         }
       }
     },

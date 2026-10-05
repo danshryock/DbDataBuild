@@ -42,6 +42,21 @@ public class JsonOutputTests
     }
 
     [Fact]
+    public void Agent_kit_with_mcp_reports_the_config_file_and_satisfies_the_schema()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-kitjson-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (_, doc, _, _) = Run("agent-kit", "--project", dir, "--mcp");
+            Assert.False(doc["data"]!["mcp"]!["up_to_date"]!.GetValue<bool>());
+            var (_, written, _, _) = Run("agent-kit", "--project", dir, "--mcp", "--write");
+            Assert.True(written["data"]!["mcp"]!["wrote"]!.GetValue<bool>());
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void Validate_reports_counts_and_the_full_metadata_of_every_model()
     {
         var dir = Project();
