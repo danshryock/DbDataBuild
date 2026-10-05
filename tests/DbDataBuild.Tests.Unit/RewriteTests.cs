@@ -31,9 +31,10 @@ public class RewriteTests
     [Fact]
     public void Every_rewrite_the_target_rules_apply_is_in_the_catalog()
     {
-        foreach (var target in new[] { "sqlserver", "postgres", "fabric" })
-            foreach (var name in TargetRules.RulesOf(target))
-                Assert.Contains(name, RewriteCatalog.Names);
+        foreach (var target in new[] { "sqlserver", "postgres", "fabric", "oracle", "spark", "bigquery" })
+            foreach (var version in new int?[] { null, 16, 17 })
+                foreach (var name in TargetRules.RulesOf(target, version))
+                    Assert.Contains(name, RewriteCatalog.Names);
     }
 
     [Fact]

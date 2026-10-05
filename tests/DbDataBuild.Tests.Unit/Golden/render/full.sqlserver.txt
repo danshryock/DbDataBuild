@@ -5,7 +5,7 @@
 -- target:          sqlserver
 -- strategy:        full_replace
 -- definition hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
--- matrix version:  6daf14fc9cbf
+-- matrix version:  2f2b829662c9
 -- tool version:    0.1.0
 -- parameters:      none
 SET XACT_ABORT ON;
@@ -24,7 +24,7 @@ COMMIT TRANSACTION;
 model: marts.dim_customer
 target: sqlserver
 definition_hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
-matrix_version: 6daf14fc9cbf
+matrix_version: 2f2b829662c9
 tool_version: 0.1.0
 sources: [staging.customers]
 operations:
@@ -35,5 +35,5 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: 1fdc299ac1ceb81ec2e9de78b418bf69365eb1af0fdeba3ea7e729eed9bf3872
+    script_sha256: bf5cd3f71985b29c2123a853a427852391e2dfc9474ab3a05dc46fd3f48c87f2
     parameters: []

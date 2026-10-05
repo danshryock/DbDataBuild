@@ -64,15 +64,15 @@ public partial class ApplyConformanceTests
     private const string ViewYaml = "name: marts.v_orders\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n";
     private const string ViewSql = "SELECT order_id FROM marts.fct_orders\n";
 
-    private static async Task<Run> SetUp(string name)
+    private static async Task<Run> SetUp(string name, Func<Engine>? make = null, string extraConfig = "")
     {
-        var engine = EngineEnv.Require(name);
+        var engine = make?.Invoke() ?? EngineEnv.Require(name);
         await engine.StartAsync();
         var dir = Path.Combine(Path.GetTempPath(), "ddb-e2e-" + Guid.NewGuid().ToString("N"));
         var run = new Run(engine, dir, name);
         run.Write("dbdatabuild.yml", name == "postgres"
             ? "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
-            : "default_targets: [sqlserver]\n");
+            : "default_targets: [sqlserver]\n" + extraConfig);
         run.Write("sources/staging/orders.yml", Staging);
         run.Write("models/marts/fct_orders.yml", FctYaml);
         run.Write("models/marts/fct_orders.sql", FctSql);

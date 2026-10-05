@@ -25,6 +25,7 @@ public static class RewriteCatalog
     private static readonly string[] None = [];
     private static readonly string[] Spark = ["spark"];
     private static readonly string[] Oracle = ["oracle"];
+    private static readonly string[] SqlServer17 = [TargetNames.SqlServer];      // SQL Server 2025 and later: version 17 in `targets.sqlserver.version`
     private static readonly string[] BigQuery = ["bigquery"];
 
     public static readonly IReadOnlyList<RewriteRule> All =
@@ -47,8 +48,8 @@ public static class RewriteCatalog
         new("split-part", RewriteLayer.Target, [..Postgres, ..Spark], [..Postgres, ..Spark], "split_part is PostgreSQL's own", "the plan's array_extract(string_split(...)) does not exist on PostgreSQL"),
         new("json-extract-string", RewriteLayer.Target, Postgres, Postgres, "json_extract_string(x, '$.a.b[1]') with a simple literal path is the chain json_extract_path(json_extract_path(x::json, 'a'), 'b') ... json_extract_path_text(..., 1)", "polyglot writes `x ->> '$.a.b'`, which PostgreSQL rejects for text and which takes a key, not a path"),
         new("json-array-length", RewriteLayer.Target, Postgres, Postgres, "json_array_length(x) casts the text to json", "PostgreSQL's json_array_length takes json, not text"),
-        new("regexp-full-match", RewriteLayer.Target, [..Postgres, ..Spark], [..Postgres, ..Spark], "regexp_full_match(s, p) matches the whole text: the pattern is anchored", "polyglot writes the unanchored `~`, so a partial match counts"),
-        new("regexp-extract", RewriteLayer.Target, Postgres, Postgres, "regexp_extract(s, p, n) is the nth group of regexp_match, or '' when nothing matches", "PostgreSQL has no regexp_extract"),
+        new("regexp-full-match", RewriteLayer.Target, [..Postgres, ..Spark, ..SqlServer17], [..Postgres, ..Spark], "regexp_full_match(s, p) matches the whole text: the pattern is anchored", "polyglot writes the unanchored `~`, so a partial match counts"),
+        new("regexp-extract", RewriteLayer.Target, [..Postgres, ..SqlServer17], [..Postgres, ..SqlServer17], "regexp_extract(s, p, n) is the nth group of regexp_match (REGEXP_SUBSTR with the group on SQL Server 2025), or '' when nothing matches", "PostgreSQL has no regexp_extract"),
         new("division-by-zero", RewriteLayer.Target, Spark, None, "a / b is Infinity, -Infinity or NaN when b is 0, as DuckDB gives", "Spark 4 (ANSI mode) raises DIVIDE_BY_ZERO"),
         new("concat-skips-null", RewriteLayer.Target, Spark, Spark, "concat(a, b) treats NULL as empty text: written as concat_ws('', a, b)", "Spark's concat gives NULL when any argument is NULL"),
         new("regexp-replace-flags", RewriteLayer.Target, Spark, Spark, "regexp_replace with the 'g' flag drops it (Spark replaces every match) and writes group references as $1", "Spark reads the fourth argument as a start position, and \\1 as a literal"),
@@ -58,6 +59,7 @@ public static class RewriteCatalog
         new("varchar-length", RewriteLayer.Target, Oracle, Oracle, "CAST(x AS VARCHAR) is VARCHAR2(4000)", "a VARCHAR without a length is a CLOB on Oracle, which most functions refuse"),
         new("left-right-substr", RewriteLayer.Target, Oracle, Oracle, "left(s, n) and right(s, n) with a positive literal n are SUBSTR", "Oracle has no LEFT or RIGHT"),
         new("date-diff-argument-order", RewriteLayer.Target, BigQuery, BigQuery, "date_diff('day' | 'month' | 'quarter' | 'year', a, b) is DATE_DIFF(b, a, PART)", "the transpile writes DuckDB's argument order with the part as a column name"),
+        new("regexp-replace-first", RewriteLayer.Target, SqlServer17, None, "regexp_replace replaces the first match, or every match with the 'g' flag: the occurrence is written out (1, or 0)", "SQL Server's REGEXP_REPLACE replaces every match"),
         new("string-agg-array", RewriteLayer.Target, Postgres, Postgres, "string_agg is array_to_string(array_agg(... ORDER BY ...), sep)", "polyglot writes LISTAGG, which PostgreSQL does not have"),
     ];
 

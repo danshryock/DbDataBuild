@@ -54,7 +54,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         foreach (var targetName in targets.Distinct().Order(StringComparer.Ordinal))
         {
             var target = TargetRegistry.Get(targetName);
-            var lint = linter.Lint(Rules.TargetRules.Apply(bodySql, targetName, RewriteCatalog.For(config, def)).Sql, bodyFile ?? queryFile, [targetName], config);
+            var lint = linter.Lint(Rules.TargetRules.Apply(bodySql, targetName, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(targetName, out var tv) ? tv : null).Sql, bodyFile ?? queryFile, [targetName], config);
             var manifestOps = new List<ManifestOperation>();
 
             foreach (var op in LoadPlan.For(def, targetName))
@@ -106,7 +106,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
     {
         // The body, as a CTE named ddb_body, transpiled by polyglot. The support matrix decides what is allowed: polyglot's own
         // `unsupportedLevel: raise` is not used because it misses constructs and also rejects supported ones (REGEXP_LIKE on SQL Server 2025).
-        var ruled = Rules.TargetRules.Apply(bodySql, target.Name, RewriteCatalog.For(config, def));
+        var ruled = Rules.TargetRules.Apply(bodySql, target.Name, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(target.Name, out var targetVersion) ? targetVersion : null);
         bodySql = ruled.Sql;
         var wrapped = $"WITH {LoadersBodyName} AS ({bodySql.Trim().TrimEnd(';').TrimEnd()})\nSELECT * FROM {LoadersBodyName}";
         var (outcome, transpiled) = Polyglot.TranspileOne(wrapped, Dialects.Canonical, target.Dialect);

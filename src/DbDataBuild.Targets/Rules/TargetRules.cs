@@ -35,6 +35,7 @@ public static partial class TargetRules
     public const string DivisionByZeroIsInfinity = "division-by-zero";
     public const string ConcatSkipsNull = "concat-skips-null";
     public const string RegexpReplaceFlags = "regexp-replace-flags";
+    public const string RegexpReplaceFirst = "regexp-replace-first";
     public const string SubstringBounds = "substring-bounds";
     public const string WeekOfYear = "week-of-year";
     public const string ModAsFunction = "mod-function";
@@ -43,9 +44,10 @@ public static partial class TargetRules
     public const string DateDiffArgumentOrder = "date-diff-argument-order";
 
     /// <summary>Applies the rules of <paramref name="target"/> to a DuckDB-dialect query. Returns the text unchanged, byte for byte, when no rule fires.</summary>
-    public static Result Apply(string sql, string target, RewritePolicy? policy = null)
+    /// <param name="version">The configured engine version (`targets.<target>.version`), when one is: a rule that needs a newer engine only fires from that version on.</param>
+    public static Result Apply(string sql, string target, RewritePolicy? policy = null, int? version = null)
     {
-        var rules = RulesFor(target);
+        var rules = RulesFor(target, version);
         if (policy is { IsDefault: false }) rules.RemoveWhere(r => !policy.Allows(r));
         if (rules.Count == 0) return new(sql, []);
         var parsed = Polyglot.Parse(sql, Dialects.Canonical);
@@ -65,6 +67,7 @@ public static partial class TargetRules
     [
         (@"\bddb_mod\s*\(", "MOD(", "oracle"), (@"\bddb_mod\s*\(", "MOD(", "bigquery"),
         (@"\bddb_varchar\b", "VARCHAR2(4000)", "oracle"), (@"\bddb_date_diff\s*\(", "DATE_DIFF(", "bigquery"),
+        (@"\bddb_regexp_replace\s*\(", "REGEXP_REPLACE(", "sqlserver"),
     ];
 
     /// <summary>Replaces the markers of the rules of <paramref name="target"/> in the transpiled text. Returns the text unchanged when it holds none.</summary>
@@ -83,11 +86,16 @@ public static partial class TargetRules
     }
 
     /// <summary>The names of the rules applied for a target, before any policy.</summary>
-    public static IReadOnlyCollection<string> RulesOf(string target) => RulesFor(target);
+    public static IReadOnlyCollection<string> RulesOf(string target, int? version = null) => RulesFor(target, version);
 
-    private static HashSet<string> RulesFor(string target) => target switch
+    /// <summary>SQL Server 2025 (version 17: the T-SQL of database compatibility level 170) is the first with regular expressions. A project that says 16 gets none of these rules, and a query that needs them is reported by the matrix.</summary>
+    internal const int SqlServerWithRegularExpressions = 17;
+    private static readonly string[] SqlServerRegularExpressions = [RegexpFullMatch, RegexpExtract, RegexpReplaceFirst];
+
+    private static HashSet<string> RulesFor(string target, int? version = null) => target switch
     {
-        "sqlserver" or "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
+        "sqlserver" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks, ..(version >= SqlServerWithRegularExpressions ? SqlServerRegularExpressions : [])],
+        "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
         "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks, JsonExtractString, JsonArrayLength, RegexpFullMatch, RegexpExtract],
         "oracle" => [ModAsFunction, VarcharLength, LeftRightAsSubstr],
         "bigquery" => [ModAsFunction, DateDiffArgumentOrder, DateDiffWeeks],
@@ -181,10 +189,17 @@ public static partial class TargetRules
                 fired.Add(RegexpFullMatch);
                 return Template("regexp_matches(__s, ('^(?:' || __p || ')$'))", ("__s", fullText), ("__p", fullPattern));
             case "function" when rules.Contains(RegexpExtract) && IsRegexp(body, "regexp_extract", 2, out var extractText, out var extractPattern, out var extractGroup):
-                // PostgreSQL has no regexp_extract. regexp_match returns the groups of the first match as an array without the whole match; wrapping the pattern in one more group puts the whole match first,
-                // so group n is element n + 1. DuckDB gives '' when nothing matches (and NULL for a NULL text).
                 fired.Add(RegexpExtract);
-                return Template($"CASE WHEN __s IS NULL THEN NULL ELSE coalesce((regexp_match(__s, '(' || __p || ')'))[{extractGroup + 1}], '') END", ("__s", extractText), ("__p", extractPattern));
+                // DuckDB gives '' when nothing matches (and NULL for a NULL text). PostgreSQL has no regexp_extract: regexp_match returns the groups of the first match as an array without the whole match, so
+                // wrapping the pattern in one more group puts the whole match first and group n is element n + 1. SQL Server 2025's REGEXP_SUBSTR takes the group, and gives NULL for no match
+                // (and for a group that did not take part, which DuckDB also gives as '').
+                return target == "sqlserver"
+                    ? Template($"CASE WHEN __s IS NULL THEN NULL ELSE coalesce(regexp_substr(__s, __p, 1, 1, 'c', {extractGroup}), '') END", ("__s", extractText), ("__p", extractPattern))
+                    : Template($"CASE WHEN __s IS NULL THEN NULL ELSE coalesce((regexp_match(__s, '(' || __p || ')'))[{extractGroup + 1}], '') END", ("__s", extractText), ("__p", extractPattern));
+            case "function" when rules.Contains(RegexpReplaceFirst) && IsRegexpReplaceFirstOrAll(body):
+                // DuckDB replaces the first match, or every match with the 'g' flag. SQL Server's REGEXP_REPLACE replaces every match unless it is given the occurrence: 1 for the first, 0 for all.
+                fired.Add(RegexpReplaceFirst);
+                return RegexpReplaceWithOccurrence(o, body);
             case "div" when rules.Contains(DivisionByZeroIsInfinity) && body["left"] is { } dividend && body["right"] is { } divisor:
                 // DuckDB's double division by zero is Infinity (NaN for 0 / 0), never an error; Spark (ANSI mode, the default of 4.0) raises DIVIDE_BY_ZERO.
                 fired.Add(DivisionByZeroIsInfinity);
@@ -396,6 +411,25 @@ public static partial class TargetRules
         if (part is not ("day" or "month" or "year" or "quarter") || args[1] is not { } a || args[2] is not { } b) return false;
         unit = part.ToUpperInvariant(); from = a; to = b;
         return true;
+    }
+
+    /// <summary>`regexp_replace(s, p, r)` and `regexp_replace(s, p, r, 'g')`: the two forms whose meaning is settled. Any other option string is left as it is.</summary>
+    private static bool IsRegexpReplaceFirstOrAll(JsonObject f)
+    {
+        if (!string.Equals(f["name"]?.GetValue<string>(), "regexp_replace", StringComparison.OrdinalIgnoreCase) || f["args"] is not JsonArray args) return false;
+        return args.Count == 3 || args.Count == 4 && args[3]?["literal"]?["value"]?.GetValue<string>() == "g";
+    }
+
+    private static JsonNode RegexpReplaceWithOccurrence(JsonObject o, JsonObject f)
+    {
+        // written under a marker name: the transpile reads a call of regexp_replace as DuckDB's (text, pattern, replacement, options) and drops the arguments it does not know
+        var args = (JsonArray)f["args"]!;
+        var all = args.Count == 4;
+        if (all) args.RemoveAt(3);
+        args.Add(Template("1"));                   // start at the first character
+        args.Add(Template(all ? "0" : "1"));       // the occurrence: every match, or the first
+        f["name"] = "ddb_regexp_replace";
+        return o;
     }
 
     private static bool IsRegexpReplaceWithFlags(JsonObject f)

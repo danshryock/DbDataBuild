@@ -44,6 +44,28 @@ public class TargetRulesTests
         Assert.DoesNotContain("ddb_", text, StringComparison.OrdinalIgnoreCase);     // every marker is replaced
     }
 
+    private static string ForSqlServer(string sql, int? version) =>
+        TargetRules.Finish(Polyglot.TranspileOne(TargetRules.Apply(sql, "sqlserver", null, version).Sql, Dialects.Canonical, "tsql").Sql!, "sqlserver");
+
+    [Theory]
+    [InlineData("SELECT regexp_replace(s, 'a', 'x') AS v FROM t", "REGEXP_REPLACE(s, 'a', 'x', 1, 1)")]
+    [InlineData("SELECT regexp_replace(s, 'a', 'x', 'g') AS v FROM t", "REGEXP_REPLACE(s, 'a', 'x', 1, 0)")]
+    [InlineData("SELECT regexp_extract(s, 'a(b)', 1) AS v FROM t", "REGEXP_SUBSTR(s, 'a(b)', 1, 1, 'c', 1)")]
+    [InlineData("SELECT regexp_extract(s, 'ab') AS v FROM t", "REGEXP_SUBSTR(s, 'ab', 1, 1, 'c', 0)")]
+    [InlineData("SELECT regexp_full_match(s, 'a.c') AS v FROM t", "REGEXP_LIKE(s, ('^(?:' + 'a.c' + ')$'))")]
+    public void SQL_Server_2025_gets_regular_expressions_written_for_it_and_only_from_version_17(string sql, string expected)
+    {
+        Assert.Contains(expected.Replace(" ", ""), ForSqlServer(sql, 17).Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ddb_", ForSqlServer(sql, 17), StringComparison.OrdinalIgnoreCase);          // the marker is spelled out
+        foreach (var version in new int?[] { null, 16 }) Assert.Empty(TargetRules.Apply(sql, "sqlserver", null, version).Rules);      // a 2022 project (or one that does not say) is left alone
+        Assert.Empty(TargetRules.Apply(sql, "fabric", null, 17).Rules);                                    // Fabric has never been run: nothing is written for it on the strength of SQL Server's version
+    }
+
+    [Theory]
+    [InlineData("SELECT regexp_replace(s, 'a', 'x', 'i') AS v FROM t")]
+    [InlineData("SELECT regexp_extract(s, 'a(b)', n) AS v FROM t")]
+    public void SQL_Server_2025_leaves_the_forms_whose_meaning_is_not_settled_to_the_matrix(string sql) => Assert.Empty(TargetRules.Apply(sql, "sqlserver", null, 17).Rules);
+
     [Theory]
     [InlineData("SELECT substr(s, 2, 2) AS v FROM t")]
     [InlineData("SELECT substr(s, -2, 2147483647) AS v FROM t")]

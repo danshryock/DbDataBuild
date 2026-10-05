@@ -86,7 +86,7 @@
 - id: fn.regexp
   detect: [fn:REGEXP_MATCHES, fn:REGEXP_LIKE, node:regexp_like, node:regexp_i_like]
   duckdb: native
-  sqlserver: { status: translated, min_version: 17, test: spike/regexp, note: "REGEXP_LIKE exists from SQL Server 2025 (version 17). Not recognized on 2022." }
+  sqlserver: { status: translated, min_version: 17, test: spike/regexp, note: "REGEXP_LIKE exists from SQL Server 2025 at database compatibility level 170 (version 17). It is not recognized on 2022, nor on a 2025 server at level 160 (checked on both): set targets.sqlserver.version to the level you run, 16 or 17." }
   fabric:    { status: unverified, note: "Fabric support for REGEXP_LIKE not checked." }
   postgres:  { status: translated, test: spike/regexp, note: "Rewritten to the ~ operator." }
 
@@ -317,21 +317,21 @@
 - id: fn.regexp_full_match
   detect: [fn:REGEXP_FULL_MATCH, node:regexp_full_match]
   duckdb: native
-  sqlserver: { status: unsupported, test: spike/regexp_full_match_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_LIKE with its own flavor (not verified here)." }
+  sqlserver: { status: translated, min_version: 17, test: spike/regexp_full_match_fn, note: "SQL Server 2025 (version 17, database compatibility level 170) only: REGEXP_LIKE does not exist on 2022 nor on a 2025 server at level 160. A lowered query is rewritten by the target rule regexp-full-match (the pattern anchored, as DuckDB's full match is) and agrees with DuckDB on the probed patterns; the flavors (both RE2-like) are not compared beyond them." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: unsupported, test: spike/regexp_full_match_fn, note: "polyglot writes the unanchored `~` operator, so a partial match counts. A lowered query is rewritten by the target rule regexp-full-match (the pattern anchored) and no longer reports this. DuckDB's RE2 and PostgreSQL's ARE agree on common patterns, not on all." }
 
 - id: fn.regexp_extract
   detect: [fn:REGEXP_EXTRACT, node:regexp_extract]
   duckdb: native
-  sqlserver: { status: unsupported, test: spike/regexp_extract_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_SUBSTR (not verified here)." }
+  sqlserver: { status: translated, min_version: 17, test: spike/regexp_extract_fn, note: "SQL Server 2025 (version 17) only. A lowered query with a literal group number is rewritten by the target rule regexp-extract to REGEXP_SUBSTR with the group, and '' for no match or a group that did not take part (REGEXP_SUBSTR gives NULL; DuckDB gives '')." }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: unsupported, test: spike/regexp_extract_fn, note: "PostgreSQL has no regexp_extract. A lowered query with a literal group number is rewritten by the target rule regexp-extract (regexp_match, '' for no match) and no longer reports this." }
 
 - id: fn.regexp_replace
-  detect: [fn:REGEXP_REPLACE, node:regexp_replace]
+  detect: [fn:REGEXP_REPLACE, node:regexp_replace, fn:DDB_REGEXP_REPLACE]      # the last is how the target rule regexp-replace-first writes the call for SQL Server, until the transpile has run
   duckdb: native
-  sqlserver: { status: unsupported, test: spike/regexp_replace_fn, note: "SQL Server 2022 has no regular expressions; SQL Server 2025 has REGEXP_REPLACE (not verified here)." }
+  sqlserver: { status: translated, min_version: 17, test: spike/regexp_replace_fn, note: "SQL Server 2025 (version 17) only. REGEXP_REPLACE replaces every match unless it is given the occurrence; DuckDB replaces the first, or all with the 'g' flag. A lowered query is rewritten by the target rule regexp-replace-first (occurrence 1, or 0 for 'g'). Other option strings ('i', 's') are not translated. (A 2025 server at level 160 has REGEXP_REPLACE too; a project at version 16 does not use it.)" }
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres:  { status: native }
 

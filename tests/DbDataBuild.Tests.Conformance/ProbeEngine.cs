@@ -20,6 +20,12 @@ public interface IProbeEngine : IAsyncDisposable
     /// <summary>The target and dialect name: sqlserver, postgres, oracle, spark or bigquery.</summary>
     string Name { get; }
 
+    /// <summary>What the run is called in the report and the baselines: the target name, or one of its variants (a SQL Server 2025 at compatibility level 160).</summary>
+    string Label => Name;
+
+    /// <summary>The engine version the tool is told to generate for (`targets.sqlserver.version`), or null when none is configured.</summary>
+    int? Version => null;
+
     Task StartAsync();
 
     Task CreateProbeTableAsync(IReadOnlyList<ProbeRow> rows);

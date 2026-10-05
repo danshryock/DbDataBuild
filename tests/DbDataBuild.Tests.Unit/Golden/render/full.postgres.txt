@@ -5,7 +5,7 @@
 -- target:          postgres
 -- strategy:        full_replace
 -- definition hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
--- matrix version:  6daf14fc9cbf
+-- matrix version:  2f2b829662c9
 -- tool version:    0.1.0
 -- parameters:      none
 BEGIN;
@@ -23,7 +23,7 @@ COMMIT;
 model: marts.dim_customer
 target: postgres
 definition_hash: 9970ddfefea5fa892bb94d78ec2f541d47f716b063cc67638c23038b44c16922
-matrix_version: 6daf14fc9cbf
+matrix_version: 2f2b829662c9
 tool_version: 0.1.0
 sources: [staging.customers]
 operations:
@@ -34,5 +34,5 @@ operations:
     matrix: supported
     findings: []
     script: load.default.sql
-    script_sha256: f80548780aaf3378b89feb3e4260cf640a00f8b2bd833a9cbe6bd5e2a2a512fe
+    script_sha256: 0cb438461865465819fb5d466b71ba69cf6c84631300af874d8d6c8ca964209a
     parameters: []

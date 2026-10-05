@@ -59,6 +59,7 @@ public class EngineDifferenceProbes
         C("json_array_length", "json_array_length('[1, 2, 3]')"), C("json_valid", "json_valid('{\"a\": 1}')"),
         C("re_matches", "regexp_matches(s, '^a')"), C("re_matches_inner", "regexp_matches(s, 'b.')"), C("re_matches_case", "regexp_matches(s, 'ABC')"), C("re_full_match", "regexp_full_match(s, 'a.c')"),
         C("re_replace_first", "regexp_replace(s, 'a', 'x')"), C("re_replace_global", "regexp_replace(s, 'a', 'x', 'g')"), C("re_replace_group", "regexp_replace(s, '(a)(b)', '\\2\\1')"),
+        C("re_replace_first_multi", "regexp_replace(s, '[a-c]', 'x')"), C("re_replace_global_multi", "regexp_replace(s, '[a-c]', 'x', 'g')"), C("re_extract_unmatched_group", "regexp_extract(s, 'a(z)?b', 1)"), C("re_full_match_alt", "regexp_full_match(s, 'a|abc')"),
         C("re_extract_group", "regexp_extract(s, 'a(b)', 1)"), C("re_extract_whole", "regexp_extract(s, 'b.')"), C("re_extract_none", "regexp_extract(s, 'zzz')"),
         // window functions (ordered by the unique id unless the case is about ties or NULLs)
         C("w_row_number", "row_number() OVER (ORDER BY id)"), C("w_rank_ties", "rank() OVER (ORDER BY i)"), C("w_dense_rank_ties", "dense_rank() OVER (ORDER BY i)"),
@@ -118,6 +119,7 @@ public class EngineDifferenceProbes
         ["sqlserver:json_array_length"] = "fn.json_array_length", ["sqlserver:json_valid"] = "fn.json_other", ["postgres:json_valid"] = "fn.json_other",
         ["sqlserver:re_matches"] = "fn.regexp", ["sqlserver:re_matches_inner"] = "fn.regexp", ["sqlserver:re_matches_case"] = "fn.regexp", ["sqlserver:re_full_match"] = "fn.regexp_full_match",
         ["sqlserver:re_replace_first"] = "fn.regexp_replace", ["sqlserver:re_replace_global"] = "fn.regexp_replace", ["sqlserver:re_replace_group"] = "fn.regexp_replace",
+        ["sqlserver:re_replace_first_multi"] = "fn.regexp_replace", ["sqlserver:re_replace_global_multi"] = "fn.regexp_replace", ["sqlserver:re_extract_unmatched_group"] = "fn.regexp_extract", ["sqlserver:re_full_match_alt"] = "fn.regexp_full_match",
         ["sqlserver:re_extract_group"] = "fn.regexp_extract", ["sqlserver:re_extract_whole"] = "fn.regexp_extract", ["sqlserver:re_extract_none"] = "fn.regexp_extract",
         ["sqlserver:w_nth_value"] = "fn.nth_value",
         ["sqlserver:contains"] = "fn.contains", ["postgres:contains"] = "fn.contains",
@@ -125,11 +127,24 @@ public class EngineDifferenceProbes
         ["sqlserver:split_part"] = "fn.split_part", ["sqlserver:split_part_first"] = "fn.split_part", ["sqlserver:split_part_multichar"] = "fn.split_part", ["sqlserver:split_part_far"] = "fn.split_part", ["sqlserver:week"] = Undefined, ["postgres:week"] = Undefined, ["postgres:last_day"] = Undefined,
     };
 
+    /// <summary>Documented differences of SQL Server 2022 that a 2025 run at compatibility level 170 does not have: the regular expression functions exist there, and the tool writes them (target rules from version 17).</summary>
+    private static readonly HashSet<string> FixedOn2025 = ["re_matches", "re_matches_inner", "re_matches_case", "re_full_match", "re_full_match_alt", "re_replace_first", "re_replace_global", "re_replace_group", "re_replace_first_multi", "re_replace_global_multi", "re_extract_group", "re_extract_whole", "re_extract_none", "re_extract_unmatched_group"];
+    /// <summary>What a 2025 server does at level 160 that 2022 does not: REGEXP_REPLACE is there (REGEXP_LIKE and REGEXP_SUBSTR are not). A project at version 16 does not use it.</summary>
+    private static readonly HashSet<string> FixedOn2025At160 = ["re_replace_first", "re_replace_group"];
+
+    private static string KnownKey(string name, string id) =>
+        Known.ContainsKey($"{name}:{id}") ? $"{name}:{id}"
+        : name == "sqlserver2025" && FixedOn2025.Contains(id) ? $"{name}:{id}"
+        : name == "sqlserver2025-160" && FixedOn2025At160.Contains(id) ? $"{name}:{id}"
+        : name.StartsWith("sqlserver2025", StringComparison.Ordinal) ? $"sqlserver:{id}" : $"{name}:{id}";      // a 2025 run is held to the documented differences of SQL Server unless it has its own entry
+
     /// <summary>The checked-in lists of the cases that agree with DuckDB on the engines that are only probed (`Baselines/&lt;engine&gt;.txt`); `DDB_PROBE_BASELINE=update` rewrites them.</summary>
     private static string BaselineDirectory([System.Runtime.CompilerServices.CallerFilePath] string here = "") => Path.Combine(Path.GetDirectoryName(here)!, "Baselines");
 
     [SkippableTheory]
     [InlineData("sqlserver")]
+    [InlineData("sqlserver2025")]
+    [InlineData("sqlserver2025-160")]
     [InlineData("postgres")]
     [InlineData("oracle")]
     [InlineData("spark")]
@@ -164,7 +179,7 @@ public class EngineDifferenceProbes
             report.AppendLine($"{status,-13} {c.Id,-24} {c.Sql}\n{(detail.Length > 0 ? "        " + detail + "\n" : "")}");
             var bad = status is "DIFFERENT" or "engine-error" or "duckdb-errors" || (status == "refused" && detail.StartsWith("CRASH", StringComparison.Ordinal));
             statuses[c.Id] = status;
-            var key = $"{name}:{c.Id}";
+            var key = KnownKey(name, c.Id);
             if (preview) continue;
             if (bad && !Known.ContainsKey(key)) unexpected.Add($"{c.Id}: {status}");
             if (!bad && Known.ContainsKey(key) && status is "same") stale.Add(c.Id);

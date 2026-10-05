@@ -10,11 +10,14 @@ namespace DbDataBuild.Tests.Conformance;
 public abstract class Engine : IProbeEngine
 {
     public abstract string Name { get; }          // sqlserver | postgres (the target names)
+    public virtual string Label => Name;
+    public virtual int? Version => null;
     public abstract string ColumnType(string logical);
     public abstract string QuoteIdent(string name);
     protected abstract DbConnection Connect(string? database);
     protected abstract string CreateDatabaseSql(string name);
     protected abstract string DropDatabaseSql(string name);
+    protected virtual string? AfterCreateDatabaseSql(string name) => null;
 
     private DbConnection? connection;
     private string? database;
@@ -34,6 +37,7 @@ public abstract class Engine : IProbeEngine
         {
             await admin.OpenAsync();
             await ExecAsync(admin, CreateDatabaseSql(database));
+            if (AfterCreateDatabaseSql(database) is { } more) await ExecAsync(admin, more);
         }
         connection = Connect(database);
         await connection.OpenAsync();
@@ -145,13 +149,21 @@ public abstract class Engine : IProbeEngine
 /// <summary>A parameter value with an explicit type, so that a NULL still binds as the column's type (PostgreSQL will not cast text to numeric).</summary>
 public sealed record Typed(DbType Type, object? Value);
 
-public sealed class SqlServerEngine : Engine
+/// <param name="variable">The environment variable holding the connection (SQL Server 2022, or the 2025 container).</param>
+/// <param name="compatibilityLevel">The database compatibility level to set (160 is SQL Server 2022, 170 is 2025); null leaves the server's default.</param>
+/// <param name="label">What the run is called when it is not the plain `sqlserver`.</param>
+/// <param name="version">What `targets.sqlserver.version` would say for this run: 16 for T-SQL of SQL Server 2022 (or 2025 at level 160), 17 for 2025 at level 170.</param>
+public sealed class SqlServerEngine(string variable = EngineEnv.SqlServer, int? compatibilityLevel = null, string label = "sqlserver", int? version = null) : Engine
 {
-    private readonly SqlConnectionStringBuilder csb = new(EngineEnv.Get(EngineEnv.SqlServer) ?? "");
+    private readonly SqlConnectionStringBuilder csb = new(EngineEnv.Get(variable) ?? "");
+    private readonly bool checkedLoopback = Check(EngineEnv.Get(variable) ?? "");
 
-    public SqlServerEngine() => RequireLoopback(csb.DataSource.Split(',')[0].Replace("tcp:", ""));
+    private static bool Check(string connection) { RequireLoopback(new SqlConnectionStringBuilder(connection).DataSource.Split(',')[0].Replace("tcp:", "")); return true; }
 
     public override string Name => "sqlserver";
+    public override string Label => label;
+    public override int? Version => version;
+    protected override string? AfterCreateDatabaseSql(string name) => compatibilityLevel is { } level ? $"ALTER DATABASE [{name}] SET COMPATIBILITY_LEVEL = {level}" : null;
     public override string QuoteIdent(string name) => "[" + name + "]";
     public override string ColumnType(string logical) => logical switch
     {
