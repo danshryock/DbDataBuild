@@ -23,6 +23,9 @@ public interface IProbeEngine : IAsyncDisposable
     /// <summary>What the run is called in the report and the baselines: the target name, or one of its variants (a SQL Server 2025 at compatibility level 160).</summary>
     string Label => Name;
 
+    /// <summary>The engine has no empty string: it stores `''` as NULL (Oracle). A case whose answers differ only on the row that holds `''` is then a documented class of difference, not an undiagnosed one.</summary>
+    bool EmptyStringIsNull => false;
+
     /// <summary>The engine version the tool is told to generate for (`targets.sqlserver.version`), or null when none is configured.</summary>
     int? Version => null;
 

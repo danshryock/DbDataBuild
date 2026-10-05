@@ -527,3 +527,10 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: 1,486 unit tests; probes on 2022, 2025@170 and 2025@160 (every regular expression probe agrees with DuckDB at 170, and 2025@160 behaves as 2022 for a project at 16); `A_project_at_version_17_loads_regular_expressions_on_SQL_Server_2025_and_gets_DuckDBs_rows` (init, render, check, plan and apply on 2025@170 and the table equals DuckDB's rows).
 - **Not done**: the other things 2025 adds (a native JSON type, vectors) are not used, and the probes found no other difference (the probe corpus is what we have); the `i` and `s` regular expression options; Fabric.
 
+## 59. Oracle's empty string: measured, classified, designed
+
+- **Built**: the probes know an engine that has no empty string (`IProbeEngine.EmptyStringIsNull`, true for Oracle): a case whose answers differ only on the row that holds `''` (id 4) is reported as `empty-string`, a class apart from `DIFFERENT`; five probes about it (`s IS NULL`, `s = ''`, `coalesce`, a `CASE`).
+- **Measured** (Oracle 23ai Free): 90 probe cases differ from DuckDB; **36 of them differ only on the empty-string row**, 54 are something else (the summary was `DIFFERENT 91` before, with the cause hidden in all of them), 59 are errors. `Baselines/oracle.txt` unchanged in size (119 agree).
+- **Designed, not built** (DESIGN.md 7.4, "Empty strings"): Oracle cannot be made to keep `''`, so when it becomes a target it gets a matrix row `str.empty_string` that is `approximated`, an error unless the project accepts it (`string_semantics.empty_string: null`); a NOT NULL text column, and a unique key or grain over a text column, are refused for an Oracle target; a model test for it may say `empty_string: null`. Nothing here is implemented, because Oracle is not in the matrix (three target columns) and not a target.
+- **Left for Oracle**: the 54 other differences and the 59 errors (booleans in a select list, date parts, `split_part`, `regexp_extract`, `starts_with`, `concat_ws`, `json_*`, `greatest` with NULL); then the target itself.
+

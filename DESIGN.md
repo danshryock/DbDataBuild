@@ -491,6 +491,12 @@ A target whose configured collation cannot satisfy the project's declared profil
 
 The synthetic-data edge-case pack (section 15.2) includes every value these cases need.
 
+**Empty strings (measured on Oracle; the rules below are the plan for when Oracle becomes a target, not built).** Oracle has no empty string: it stores `''` as NULL. DuckDB, SQL Server and PostgreSQL keep them apart, and no rewrite can make Oracle do so: `length('')` is 0 in DuckDB and NULL on Oracle, `s = ''` is never true there, `coalesce(s, 'x')` replaces a `''` that DuckDB keeps, and any string function (`substr`, `replace`, `trim`, `concat` of nothing) can produce one. Measured with the probe suite (docs/research/engine-differences): of the 90 probe cases whose answer differs from DuckDB's on Oracle 23ai, **36 differ only in the row that holds `''`** (the probes report them as `empty-string`, a class apart from the undiagnosed `DIFFERENT`), so a quarter of the early Oracle noise was this one fact. The plan:
+- **A refusal, not an approximation.** A target that cannot hold the value never approximates silently (section 7.6). Oracle gets a matrix row `str.empty_string`, status `approximated`, reported whenever the query contains an empty string literal or a function that returns text from text that may be empty; the project accepts it for Oracle by setting `string_semantics.empty_string: null` (default: not accepted, an error, DDB-301), the way the collation profile is accepted for string comparison.
+- **Declared columns.** A text column declared `nullable: false` cannot be loaded into Oracle (a `''` would be a NULL in a NOT NULL column): `validate` refuses it for an Oracle target, with the column named.
+- **Keys and grain.** `''` and NULL are distinct DuckDB values and one on Oracle: a unique key or grain over a text column can collide there. `validate` reports it for an Oracle target.
+- **Tests.** Model tests and `sample` run in DuckDB and cannot see it; a model test for an Oracle target may say `empty_string: null`, which maps `''` in the expected and the given rows to NULL before comparing.
+
 ### 7.6 Lowering (as built)
 
 Every model query is bound by DuckDB and **lowered** to one explicit query before the matrix lint and the transpile (research: `docs/research/duckdb-plan-lowering/README.md`).

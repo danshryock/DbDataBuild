@@ -59,6 +59,7 @@ public class EngineDifferenceProbes
         C("json_array_length", "json_array_length('[1, 2, 3]')"), C("json_valid", "json_valid('{\"a\": 1}')"),
         C("re_matches", "regexp_matches(s, '^a')"), C("re_matches_inner", "regexp_matches(s, 'b.')"), C("re_matches_case", "regexp_matches(s, 'ABC')"), C("re_full_match", "regexp_full_match(s, 'a.c')"),
         C("re_replace_first", "regexp_replace(s, 'a', 'x')"), C("re_replace_global", "regexp_replace(s, 'a', 'x', 'g')"), C("re_replace_group", "regexp_replace(s, '(a)(b)', '\\2\\1')"),
+        C("empty_is_null", "s IS NULL"), C("empty_eq", "s = ''"), C("empty_coalesce", "coalesce(s, 'none')"), C("empty_count", "CASE WHEN s = '' THEN 1 ELSE 0 END"),
         C("re_replace_first_multi", "regexp_replace(s, '[a-c]', 'x')"), C("re_replace_global_multi", "regexp_replace(s, '[a-c]', 'x', 'g')"), C("re_extract_unmatched_group", "regexp_extract(s, 'a(z)?b', 1)"), C("re_full_match_alt", "regexp_full_match(s, 'a|abc')"),
         C("re_extract_group", "regexp_extract(s, 'a(b)', 1)"), C("re_extract_whole", "regexp_extract(s, 'b.')"), C("re_extract_none", "regexp_extract(s, 'zzz')"),
         // window functions (ordered by the unique id unless the case is about ties or NULLs)
@@ -138,6 +139,21 @@ public class EngineDifferenceProbes
         : name == "sqlserver2025-160" && FixedOn2025At160.Contains(id) ? $"{name}:{id}"
         : name.StartsWith("sqlserver2025", StringComparison.Ordinal) ? $"sqlserver:{id}" : $"{name}:{id}";      // a 2025 run is held to the documented differences of SQL Server unless it has its own entry
 
+    /// <summary>The probe row that holds the empty string (id 4: see <see cref="EngineProbe.Seed"/>).</summary>
+    private const string EmptyStringRow = "4|";
+
+    /// <summary>
+    /// For an engine that has no empty string: the answers differ, but only in the row that holds one (every row that is on one side only starts with the id of that row). That is the engine
+    /// storing `''` as NULL, a class of difference that is the same everywhere (docs/research/engine-differences), not a finding about the query.
+    /// </summary>
+    internal static bool OnlyTheEmptyStringRowDiffers(string expected, string actual)
+    {
+        var a = expected.Split("; ", StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+        var b = actual.Split("; ", StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+        var onlyOne = a.Except(b).Concat(b.Except(a)).ToList();
+        return onlyOne.Count > 0 && onlyOne.All(r => r.StartsWith(EmptyStringRow, StringComparison.Ordinal));
+    }
+
     /// <summary>The checked-in lists of the cases that agree with DuckDB on the engines that are only probed (`Baselines/&lt;engine&gt;.txt`); `DDB_PROBE_BASELINE=update` rewrites them.</summary>
     private static string BaselineDirectory([System.Runtime.CompilerServices.CallerFilePath] string here = "") => Path.Combine(Path.GetDirectoryName(here)!, "Baselines");
 
@@ -174,7 +190,11 @@ public class EngineDifferenceProbes
                 if (expected.Error != null) { status = actual.Error != null ? "both-error" : "duckdb-errors"; detail = $"duckdb: {expected.Error}; engine: {actual.Error ?? actual.Rows}"; }
                 else if (actual.Error != null) { status = "engine-error"; detail = $"{actual.Error}\n        sql    {rendered!.Replace("\n", " ")}"; }
                 else if (actual.Rows == expected.Rows) status = "same";
-                else { status = "DIFFERENT"; detail = $"duckdb [{expected.Rows}]\n        engine [{actual.Rows}]\n        sql    {rendered!.Replace("\n", " ")}"; }
+                else
+                {
+                    status = engine.EmptyStringIsNull && OnlyTheEmptyStringRowDiffers(expected.Rows, actual.Rows) ? "empty-string" : "DIFFERENT";
+                    detail = $"duckdb [{expected.Rows}]\n        engine [{actual.Rows}]\n        sql    {rendered!.Replace("\n", " ")}";
+                }
             }
             report.AppendLine($"{status,-13} {c.Id,-24} {c.Sql}\n{(detail.Length > 0 ? "        " + detail + "\n" : "")}");
             var bad = status is "DIFFERENT" or "engine-error" or "duckdb-errors" || (status == "refused" && detail.StartsWith("CRASH", StringComparison.Ordinal));

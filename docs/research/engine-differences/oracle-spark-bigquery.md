@@ -9,7 +9,7 @@ cases that agree); the test fails when a case that agreed stops agreeing, and `D
 |---|---|---|---|---|---|---|
 | Spark SQL 4.0 (ANSI on) | `apache/spark:4.0.0`, Thrift server in http mode, ADBC Spark driver | 253 (was 225) | 5 | 2 | 6 | 1 |
 | BigQuery emulator | `ghcr.io/goccy/bigquery-emulator`, REST `jobs.query` | 175 (was 163) | 45 | 40 | 2 | 5 |
-| Oracle 23ai Free | `gvenzl/oracle-free:23-slim`, Oracle.ManagedDataAccess | 119 (was 113) | 84 | 57 | 4 | 3 |
+| Oracle 23ai Free | `gvenzl/oracle-free:23-slim`, Oracle.ManagedDataAccess | 119 (was 113) | 54, and 36 more that differ only on the empty-string row | 59 | 4 | 3 |
 
 The first scoreboard (the "was" numbers) was polyglot's translation alone. Since then the first target rules for the three engines are in (`TargetRules`, listed in `RewriteCatalog`): Spark has
 `division-by-zero`, `concat-skips-null`, `split-part`, `date-diff-boundaries`, `date-diff-weeks`, `weekday-datefirst` (counted from a fixed Sunday, it is not only for `@@DATEFIRST`), `double-to-int`,
@@ -20,7 +20,7 @@ into DuckDB's order), the rule writes a `ddb_` marker and `TargetRules.Finish` s
 What is left, as the probes show it: **Spark** `upper('ß')`/`lower('İ')` (Unicode case mapping), `CAST(double AS VARCHAR)` (`1.0E10`), the wide decimal product, `json_valid`, a text with a decimal point cast
 to INTEGER, and `ORDER BY ... DESC` on ties (the order of equal rows is not defined). **BigQuery emulator**: most of what is left looks like the emulator (`INSTR` of an empty string raises, no unary minus,
 no `CAST('Infinity' AS FLOAT64)`), plus `concat_ws`, `array_extract`/`split_part`, `date_trunc` and `date_part` part names, `greatest` with NULL, and the `NUMERIC` type with no precision. **Oracle**: the empty
-string is NULL, which alone changes the answer of about forty probes (row 4 of the seed is `''`) and cannot be rewritten away: it has to be a matrix refusal or a documented difference; then booleans
+string is NULL. The probes now sort that out: a case whose answers differ only in the row that holds `''` (id 4 of the seed) is reported as `empty-string` (36 of the 90 that differ), not as an unexplained difference; it cannot be rewritten away, and DESIGN.md 7.4 says how it will be refused or accepted when Oracle is a target. What is left on Oracle: booleans
 in a select list, `date_trunc`/`date_part`/`EXTRACT` part names, `split_part`, `regexp_extract`, `starts_with`, `concat_ws`, `json_*`, `greatest` with NULL.
 
 (SQL Server and PostgreSQL are at 0 undocumented differences because their differences are rules, matrix rows or entries in `Known`.)

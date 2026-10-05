@@ -28,6 +28,7 @@ public sealed class OracleProbeEngine : IProbeEngine
     }
 
     public string Name => "oracle";
+    public bool EmptyStringIsNull => true;
 
     public async Task StartAsync()
     {
