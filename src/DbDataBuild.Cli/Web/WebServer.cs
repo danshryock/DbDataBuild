@@ -22,7 +22,7 @@ internal sealed class WebServer : IDisposable
     private const int MaxBodyBytes = 1 << 20;
 
     private readonly string projectRoot;
-    private readonly HttpListener listener = new();
+    private HttpListener listener = new();
     private readonly WebBackend backend;
     private readonly string page;
     private CancellationTokenSource? stop;
@@ -73,7 +73,9 @@ internal sealed class WebServer : IDisposable
             catch (HttpListenerException) when (portWasChosenHere && attempt < 10)
             {
                 Port = FreePort();
-                listener.Prefixes.Clear();
+                // a listener that failed to start cannot even remove its prefix again (it throws the same error): start over with a new one
+                try { listener.Close(); } catch (HttpListenerException) { }
+                listener = new HttpListener();
                 listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
             }
         }
@@ -90,7 +92,7 @@ internal sealed class WebServer : IDisposable
         });
     }
 
-    public void Dispose() { stop?.Cancel(); try { listener.Close(); } catch (ObjectDisposedException) { } }
+    public void Dispose() { stop?.Cancel(); try { listener.Close(); } catch (Exception ex) when (ex is ObjectDisposedException or HttpListenerException) { } }
 
     // ---- requests ---------------------------------------------------------------------------------------------------------------------------------------
 
