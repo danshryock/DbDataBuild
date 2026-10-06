@@ -10,16 +10,22 @@ For the people who run `dbdatabuild` against a real database: what it needs, wha
 - **win-x64**: builds from Linux (`TARGET_RID=win-x64 scripts/build-polyglot.sh` cross-compiles the SQL library with MinGW, then `scripts/publish.sh win-x64`). The Windows build has been run only under Wine (every offline command gave byte-identical output and identical rendered files to Linux, and the unit suite was run there; see `docs/progress/state-and-apply.md` entry 34). It has **not** been run on real Windows, the single-file form could not be run under Wine (a Wine limitation with single-file .NET), and the terminal interface has not been tried on a Windows console.
 - Other platforms are not built.
 
-## 2. Logins
+## 2. Connections and logins
 
-Connection strings come from environment variables, never from files in the repository:
+A **connection** is a named database endpoint: an engine (`sqlserver`, `postgres`, `fabric`) and optionally its version, declared under `connections:` in `dbdatabuild.yml`. A connection named after an engine (`sqlserver`) exists without being declared. Two servers of one engine are two connections (`warehouse_new`, `warehouse_old`), each with its own login and its own version, so each gets the rewrites its engine version needs.
+
+Connection strings come from environment variables, never from files in the repository, one pair per connection (the name in capitals):
 
 | Variable | Used by | Needs |
 |---|---|---|
-| `DBDATABUILD_SQLSERVER_READ`, `DBDATABUILD_POSTGRES_READ` | `check`, `plan`, `report`, and the read side of `apply` | catalog and tracking-table read |
-| `DBDATABUILD_SQLSERVER_WRITE`, `DBDATABUILD_POSTGRES_WRITE` | `init --apply`, `apply`, `run`, `ack`, `publish-metadata` | DDL and DML in the managed schemas, and insert/update on the tracking tables |
+| `DBDATABUILD_<CONNECTION>_READ` | `check`, `plan`, `report`, the read side of `apply`, `import`, and, for a copy, the origin connection's read | catalog and tracking-table read; a select on the origin's tables |
+| `DBDATABUILD_<CONNECTION>_WRITE` | `init --apply`, `apply`, `run`, `ack`, `publish-metadata` | DDL and DML in the managed schemas, and insert/update on the tracking tables |
 
-There is no fallback from one login to the other: a missing variable is an error that names it. Every command prints which variable and which user it used (never the password). Use two separate accounts; the read account should not be able to write at all.
+There is no fallback from one login to the other, or from one connection to another: a missing variable is an error that names it. Every command prints which variable and which user it used (never the password). Use two separate accounts; the read account should not be able to write at all.
+
+**Tracking** is a setting: `tracking: { connection: audit }` says which connection keeps the records of what the tool built for every connection it writes to (its read and write logins are used), and the tracking connection can be another one than the data's. With no `tracking:` the tool warns (DDB-232) and records nothing; `tracking: none` chooses that. Run `dbdatabuild init --connection <tracking connection> --apply` once.
+
+**Moving data between connections** is a copy: a model of `kind: {type: copy, from: schema.table}` on the destination connection, read from a model or a mapped model on the origin (a mapped model is `kind: {type: mapped}`: a table that exists and that the tool does not build; `dbdatabuild import` writes them from a connection's catalog). `apply` needs the origin's read login as well as the destination's. A copy of one application's table on several connections (`connections=: [store_017, store_018]`) uses a `slice` so each origin's rows are kept apart and a run replaces only its own.
 
 Offline commands (`validate`, `render`, `loads`, `matrix`, `explain`, `define`) connect to nothing.
 

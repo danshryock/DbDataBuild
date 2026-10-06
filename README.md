@@ -7,6 +7,7 @@ It is explicit, offline-first and plan-then-apply:
 - A model is a `SELECT` plus a YAML definition that declares its columns. DuckDB binds the query offline and the tool lowers it to one explicit query, then renders the load scripts for each target. The scripts are committed.
 - `plan` reads the target (read-only login) and writes a plan file: every statement, its risk, and the reasons. A person reads it. `apply` runs exactly what the plan recorded and refuses a plan that was edited, goes stale, or has drifted from the target.
 - Every statement to a database goes through one gate with a statement log. The write login is separate from the read login, and nothing falls back from one to the other.
+- Several **connections** (named endpoints, each with its engine and version) can be in one project; **mapped** models declare tables the tool does not build, a **copy** moves rows from a table on one connection to another (and from several systems of one application into one table), and **tracking** can be kept on a connection of its own. Nothing is joined across connections and no linked server is used.
 - Everything is data you can inspect: every command prints one JSON document (`--format json`) whose shape is a schema in `schemas/`.
 
 > **Status.** Pre-1.0 and not yet used in production. SQL Server 2022 and PostgreSQL 17 are verified by a real-engine test suite. **Fabric has never been run against a real engine**; its support is marked `unverified` throughout.
