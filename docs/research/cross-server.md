@@ -1,7 +1,17 @@
 # Running queries on one server and writing the results to another
 
-Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`). Nothing in the tool changes yet. The aim is to support these scenarios; this note says
-what each needs, what was measured, and proposes how to build it in steps.
+Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`), and the owner's direction (entry 63). Nothing in the tool changes yet. The aim is to support these
+scenarios; this note says what each needs, what was measured, and how to build it in steps. **Read "Direction" first: it supersedes the order and parts of the design further down.**
+
+## Direction (the owner's decisions)
+
+- **No linked servers or foreign servers** (steps A and B below are out): privileged, server-to-server, credentials on the server, and they differ per engine.
+- **No DuckDB in the middle** as a load path.
+- **The tool moves the data**: read on a source connection, bulk write on a target connection, through the gate (step D).
+- **Same-server cross-database is not a feature**: views or synonyms solve it outside the tool.
+- **Generalised connections** (step C), and above them a unit for composing flows, here called a **domain** (draft below).
+
+The order becomes: connections, then `transfer`, then domains and the edges between them, then compute at the source.
 
 ## Words
 
@@ -118,3 +128,66 @@ A and B are the smallest steps and give same-engine users most of what they ask 
 3. **Fabric.** Cross-warehouse queries and shortcuts exist, but Fabric has never been run, so nothing here can be promised for it.
 4. **Naming.** `connections:` as above, or `targets:` extended (the section that already carries `version`). The first keeps "target" meaning an engine for the matrix; the second is one concept fewer. I prefer the first.
 5. **Who creates links.** The tool checks them and documents the setup; it should not create linked servers or foreign servers (privileged, hold credentials). Say if a managed `link` step is wanted.
+
+
+## Domains (draft, after the owner's direction)
+
+An idea to test, not a decision. Several self-contained units in one repository, each with its own sources, models and targets, joined only at **edges** where the persisted output of one is the source of
+another.
+
+**Words.** *Connection*: a named endpoint, an engine and a login (`DBDATABUILD_<NAME>_<READ|WRITE>`). *Domain*: a folder with its own models, sources, tests, rendered files and plans, bound to
+connections; the unit of ownership and of planning. *Source*: an inbound table, on a connection. *Target*: a connection where a domain's models are stored (and computed). *Flow*: one explicit pairing
+of a source with a target. *Publish*: an output offered to other domains; the consumer's *import* is a source whose descriptor is generated from the producer's declared columns. (Other names for a
+domain: *context* (domain-driven design: a bounded context), *zone* (lakehouse: landing, curated), *stage* (if the flows are linear), *module*. Not *project*, which already means the whole repository
+here and in dbt, and not *workspace* or *pipeline*, which already mean other things.)
+
+```yaml
+# dbdatabuild.yml at the repository root: the connections, once, and the domains
+connections:
+  crm:       { engine: postgres }       # source-only: no write login is ever read for it
+  erp:       { engine: sqlserver }
+  warehouse: { engine: sqlserver }
+  lake:      { engine: postgres }
+domains:
+  ingest:    { path: domains/ingest }
+  analytics: { path: domains/analytics }
+
+# domains/ingest/domain.yml
+targets: [warehouse]                    # where this domain stores (and computes) its models; the only connection it may write
+sources:
+  crm: { connection: crm }              # tables described under domains/ingest/sources/crm/
+  erp: { connection: erp }
+# domains/ingest/sources/crm/customers.yml
+land: { into: warehouse, as: raw.customers, strategy: full_replace }      # this source goes to this target, nothing implicit
+# domains/ingest/models/marts/dim_customer.yml
+publish: [ { to: lake, as: curated.dim_customer } ]                       # compute once on the target, copy the result to the lake
+
+# domains/analytics/domain.yml
+targets: [lake]
+sources:
+  ingest: { from: domain }              # its sources are what `ingest` publishes: descriptors generated, not written
+```
+
+**Pairing is by declaration, never by product.** A source says where it lands (`land`), a model says where it is copied (`publish`) and where it is computed (`targets`, as today); a connection-level
+default (`lands_in:`) is shorthand for a long list, not a rule. With sources S1, S2 and targets T1, T2 the tool does nothing for S1-T2 until someone writes it. `validate` reports a source that lands
+nowhere and a published model with no consumer as notes.
+
+**Two different "multiple targets".** `targets: [sqlserver, postgres]` on a model means *computed natively on each engine* (portability, the matrix, results that can differ by engine). `publish: [to: lake]`
+means *computed once, then copied*: the data is identical on both sides. The first is what the tool does today; the second is fan-out. Both are needed and they must not be confused.
+
+**An edge is a contract.** A published model is persisted by definition (a table kind; a view cannot cross a connection), its declared columns are the contract, and the consumer's source descriptor is
+generated from them, so `validate` across the repository catches a producer's column change in the consumer **offline**, before any plan. `publish` could be required for any output that crosses a
+domain (a persisted raw copy of a landed source included): that is how raw data fans out and how a consumer is protected from a producer that is mid-rebuild.
+
+**What the draft must still answer** (my reading of the hard parts):
+
+1. *Names.* Models are `schema.table` per project today. A domain gives a third position: DuckDB already parses `catalog.schema.table`, so a domain can be a DuckDB catalog (`ingest.raw.customers`), the offline binder attaches an in-memory catalog per domain, and the lowering (which refuses catalog-qualified names today, DDB-324) learns to map catalog to domain. Physical names on a target must be unique across the domains that write to it: `validate` checks ownership.
+2. *Tracking tables.* One tracking schema per target connection records objects by name; with several domains writing to one connection the records need a domain (a column, or a schema each). A choice with consequences for `report`, `check` and drift.
+3. *Plans and order.* A plan is per domain and target; an edge makes plans depend on each other. The consumer's plan records the producer's published shape (a stale edge is a stale plan), and `run` over several domains orders them; a failed producer stops its consumers. Plans stay individually hashed and individually approved.
+4. *Credentials and least privilege.* Connections are defined once at the root; each domain lists the only connections it may write (`targets`) and may read (`sources`). The environment variable is shared, the permission to use it is not.
+5. *Incremental movement.* The first version copies in full. Incremental extraction (a watermark on the source query) comes after, and an edge between domains can use the producer's own key and time column.
+6. *Partial fan-out.* Publishing to two targets is two independent transfers; one can fail. Each edge's last good run is recorded in the tracking tables, a consumer's plan reads it, and `diff` between the published table and its copy (row counts, key-based differences) is the reconciliation.
+7. *Compatibility.* A repository with no `domains:` is one implicit domain at the root; every command that takes a project works unchanged, and `--domain` selects one otherwise (all by default).
+
+**Order of building**, each step useful alone: (C) connections and source-only connections; (D) `transfer` with the gate's bulk copy, first as `land:` on a source; domains as folders with `--domain`; `publish`
+and generated imports with offline validation across domains; run order and edge status; incremental extraction; compute at the source.
