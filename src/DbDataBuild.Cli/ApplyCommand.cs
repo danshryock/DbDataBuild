@@ -36,6 +36,24 @@ internal static class ApplyCommand
         }
     }
 
+    /// <summary>After a successful apply: the definitions of the routines `track_definition` lists, for the native models the plan's models use. A failure here never turns a good apply into a bad one.</summary>
+    private static void RecordDefinitions(Plan plan, string root, TrackingScope scope, LoginSettings read, LoginSettings write, Func<string, string?> env, string? commit, TextWriter output)
+    {
+        try
+        {
+            var ctx = ProjectContext.Load(root);
+            var names = plan.Steps.Select(s => s.Object).ToHashSet(StringComparer.Ordinal);
+            var uses = NativeDefinitions.InPlay(ctx, ctx.Project.Sources.Where(s => names.Contains(s.Definition.Name)).Select(s => (s.Definition, s.ReadQuery(ctx.Root, ctx.Config))), plan.Connection);
+            if (uses.Count == 0) return;
+            Task.Run(() => NativeDefinitions.RecordAsync(ctx, uses, scope, read, write, env, "apply-definitions", root, plan.Id, commit)).GetAwaiter().GetResult();
+            output.WriteLine($"Routine definitions recorded for {uses.Count} native model use(s).");
+        }
+        catch (Exception ex) when (ex is GateRefusedException or IOException or InvalidOperationException)
+        {
+            output.WriteLine($"note: the plan was applied, but the routine definitions were not recorded ({ex.GetType().Name}).");
+        }
+    }
+
     public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool resume, bool allowDirty,
         TextWriter output, TextWriter error, Func<string, string?> env)
     {
@@ -141,6 +159,7 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
+        if (result.Success && !dryRun && tracking.Target is { } definitionTarget) RecordDefinitions(plan, root, new TrackingScope(definitionTarget.Engine, definitionTarget.Schema, plan.Connection), trackRead!, trackWrite!, env, commit, output);
         if (result.Success && !dryRun && config.StoreMetadataOnApply)
         {
             if (tracking.Target is { } storeTarget) StoreMetadata(plan, root, new TrackingScope(storeTarget.Engine, storeTarget.Schema, plan.Connection), trackRead!, trackWrite!, commit, output, error);

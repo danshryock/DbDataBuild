@@ -157,6 +157,14 @@ public static class DiagnosticCatalog
         "a `reads:` list on the native model naming the tables its text reads (`reads: [dbo.orders, dbo.customers]`)",
         "Add `reads:` to the model's definition, listing the models or mapped tables the native text reads. It is not checked against the text; it only places the model in the graph.",
         "The text of a native model is the engine's own and the tool does not parse it, so without `reads:` the model has no ancestors: `graph` and `--column` impact stop at it, a selector such as `+model` does not reach what it is made from, and a model that reads it is not ordered after those tables.");
+    public static readonly DiagnosticDescriptor NativeDefinitionChanged = W("234", "A routine a native model uses has changed",
+        "the definition of every routine a native model lists under `track_definition` is the one recorded at the last apply",
+        "Look at the change (the routine is named, with the recorded and the current hash). If it is intended, apply: the new definition is recorded and the warning goes. `policy.severity.native_definition_changed: error` makes it stop the plan.",
+        "A native model's text is the engine's own, often only a call; the logic is in a function or procedure that lives in the database, where a change reaches no file of the project. `track_definition` names those routines; each apply records a hash of their definitions in the tracking tables, and `plan` compares the live definitions with the last record, so a change made in the database is seen before the table is loaded from it. The first plan after the list is added has nothing to compare with and says nothing.");
+    public static readonly DiagnosticDescriptor NativeDefinitionNotChecked = N("235", "A routine definition could not be checked",
+        "tracking configured for the connection, and a read login that can see the routine's definition (VIEW DEFINITION on SQL Server)",
+        "Configure `tracking:` for the connection, grant the read login permission to see the routine, or correct the name in `track_definition` (on PostgreSQL an overloaded function needs its argument types).",
+        "`track_definition` compares a routine's live definition with the one recorded at the last apply. Without tracking there is nowhere to keep the record; without permission, or with a name that matches no routine (or several), the engine returns no definition. The routine is then not checked, and nothing is recorded for it.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
         "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
         "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
@@ -396,7 +404,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, TrackingNotConfigured,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, NativeDefinitionChanged, NativeDefinitionNotChecked, TrackingNotConfigured,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

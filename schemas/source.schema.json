@@ -219,6 +219,15 @@
         "minLength": 1
       }
     },
+    "track_definition": {
+      "description": "Native models only: the routines (`schema.name`; on PostgreSQL an overloaded function with its argument types, `public.fn(date)`) whose definitions the tool hashes at each apply and compares at each plan, so a change made in the database is reported even though no file changed.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*){0,2}(\\([A-Za-z0-9_ ,\\[\\]]*\\))?$"
+      }
+    },
     "parameters": {
       "description": "Native models only: the model's own parameters, referenced as `${model.name}` in its text.",
       "type": "object",

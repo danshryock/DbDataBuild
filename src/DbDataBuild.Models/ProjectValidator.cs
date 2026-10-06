@@ -322,6 +322,7 @@ public static class ProjectValidator
             Problem("a T-SQL native select starts with SELECT: a WITH cannot sit inside the derived table it is inlined as. Wrap the common table expression in a table-valued function.");
         var withParameters = new NativeQuery(native.Access, native.Text, native.Reads, native.Parameters, native.Line, file)
         {
+            TrackDefinition = native.TrackDefinition,
             ProjectParameters = project,
             ConnectionParameterOverrides = overrides.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, ParameterValue>)kv.Value, StringComparer.Ordinal),
         };

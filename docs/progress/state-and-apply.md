@@ -664,4 +664,11 @@ Operator decision: correlated subqueries are a hard requirement.
 
 - **Built** (`DESIGN.md` 6.5.4): `reads:` puts a native model in the dependency graph (`graph`, selectors, `metadata_upstream`/`metadata_ancestors`) and in the build order of the models that read it; a native model without it gets a note (DDB-233, new). `plan` describes each native select it reads or copies on the engine (schema-only mode, nothing runs, `ReadSession.DescribeAsync`) and compares names and types with the declaration (DDB-230; `on_mismatch` applies); not nullability, not commands; an undescribable text is a warning. Native models are source documents with a `native` block in `metadata` (hash covers the text) and nodes of kind `native` in `graph`.
 - **Verified**: unit tests (graph edges, ordering helper, the note, metadata and graph documents against the schemas); real engines (`NativeConformanceTests`): the existing native tests show no false positives (SQL Server and PostgreSQL, a PostgreSQL origin copied to SQL Server), and a native whose text returns another type or lacks a column stops the plan on both.
-- **Not built**: `track_definition` (needs a decision: which routine, and where the baseline is kept), change feeds (backlog).
+- **Not built**: change feeds (backlog); `track_definition` is entry 80.
+
+## 80. `track_definition`
+
+- **Built** (`DESIGN.md` 6.5.4): `track_definition: [routine, ...]` on a native model (explicit list, `schema.name`, PostgreSQL overloads with argument types). `apply` records a hash of each routine's live definition in `metadata_document` (kind `native_definition`, subject `<model>@<connection>`, so no tracking layout change); `plan` reads the live definitions (`ReadSession.RoutineDefinitionAsync`) and compares: a change is DDB-234, a warning by default (`policy.severity.native_definition_changed`), a routine with no readable definition or no tracking is DDB-235, a note. The first plan has no record and is silent.
+- **Verified**: unit tests (names, the refusals, the policy default); real engines both (`NativeConformanceTests`: no warning before the first apply, DDB-235 for a missing routine, a function altered in the database gives DDB-234 and the policy makes it stop the plan, the next apply records the new definition and the warning goes).
+- **Not verified**: a SQL Server login without VIEW DEFINITION (returns no definition, handled as not checked, not exercised); a definition changed between plan and apply is recorded as of the apply.
+- **Not built**: change feeds (backlog).

@@ -20,6 +20,15 @@ public static class MetadataStore
         return rows.ToDictionary(r => $"{((string)r[0]!).Trim()}|{r[1]}", r => ((string)r[2]!).Trim(), StringComparer.Ordinal);
     }
 
+    /// <summary>The text of the newest document of a kind and subject, or null when there is none.</summary>
+    public static async Task<string?> LatestDocumentAsync(ReadSession read, TrackingScope scope, string kind, string subject, CancellationToken ct = default)
+    {
+        string c(string n) => C(scope.Engine, n);
+        var rows = await read.QueryAsync($"SELECT m.{c("document")} FROM {c(scope.Schema)}.{c("metadata_current")} m WHERE m.{c("connection")} = @connection AND m.{c("kind")} = @kind AND m.{c("subject")} = @subject",
+            [new GateParameter("connection", DbType.String, scope.Connection), new GateParameter("kind", DbType.String, kind), new GateParameter("subject", DbType.String, subject)], ct);
+        return rows.Count == 0 ? null : rows[0][0]?.ToString();
+    }
+
     public static string Key(string kind, string subject) => $"{kind}|{subject}";
 
     /// <summary>Stores one document. The JSON is bound as a parameter (cast to jsonb on PostgreSQL), never interpolated.</summary>

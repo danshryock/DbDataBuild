@@ -24,7 +24,8 @@ public static class PolicyKeys
     public const string Emulated = "emulated";
     public const string Unverified = "unverified";
     public const string NotCovered = "not_covered";
-    public static readonly IReadOnlyList<string> All = [Approximated, Emulated, Unverified, NotCovered];
+    public const string NativeDefinitionChanged = "native_definition_changed";
+    public static readonly IReadOnlyList<string> All = [Approximated, Emulated, Unverified, NotCovered, NativeDefinitionChanged];
 }
 
 /// <summary>
@@ -134,6 +135,7 @@ public sealed record ProjectConfig(
             [PolicyKeys.Emulated] = Severity.Note,
             [PolicyKeys.Unverified] = Severity.Warning,
             [PolicyKeys.NotCovered] = Severity.Warning,
+            [PolicyKeys.NativeDefinitionChanged] = Severity.Warning,
         });
 
     public string Describe() =>

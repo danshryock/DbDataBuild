@@ -35,6 +35,12 @@ public sealed record NativeQuery(string Access, string Text, IReadOnlyList<strin
     public const string Command = "command";
     public const string Kind = "native";
 
+    /// <summary>The routines the text depends on whose definitions the tool watches (`track_definition:`): `schema.name`, and on PostgreSQL the argument types of an overloaded function (`public.fn(date)`).</summary>
+    public IReadOnlyList<string> TrackDefinition { get; init; } = [];
+
+    /// <summary>A routine name as `track_definition` takes it: dotted identifiers, with PostgreSQL's argument types in parentheses.</summary>
+    public static bool IsRoutineName(string name) => System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){0,2}(\([A-Za-z0-9_ ,\[\]]*\))?$");
+
     /// <summary>The project parameters this model's file sees (set by the validator, like a model's).</summary>
     public IReadOnlyDictionary<string, ParameterValue> ProjectParameters { get; init; } = new Dictionary<string, ParameterValue>();
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterValue>> ConnectionParameterOverrides { get; init; } = new Dictionary<string, IReadOnlyDictionary<string, ParameterValue>>();
@@ -48,7 +54,7 @@ public sealed record SourceForeignKey(string Name, IReadOnlyList<string> Columns
 
 public static class SourceDescriptorLoader
 {
-    private static readonly string[] Keys = ["name", "kind", "connections", "columns", "grain", "indexes", "foreign_keys", "reads", "parameters"];
+    private static readonly string[] Keys = ["name", "kind", "connections", "columns", "grain", "indexes", "foreign_keys", "reads", "parameters", "track_definition"];
 
     /// <summary>The kind of a model that maps an existing table: no query, nothing built, everything declared.</summary>
     public const string MappedKind = "mapped";
@@ -90,7 +96,7 @@ public static class SourceDescriptorLoader
             {
                 if (top.Get("kind") is not YamlMapping kind || kind.Get("type") is not YamlScalar { Value: MappedKind } || kind.Entries.Count != 1)
                     Add(DiagnosticCatalog.InvalidValue, top.Get("kind") ?? top, "A mapped model's kind is `{type: mapped}` and nothing else.");
-                foreach (var k in new[] { "reads", "parameters" }.Where(k => top.Get(k) != null))
+                foreach (var k in new[] { "reads", "parameters", "track_definition" }.Where(k => top.Get(k) != null))
                     Add(DiagnosticCatalog.UnknownKey, top.Entries.First(e => e.Key.Value == k).Key, $"`{k}` belongs to a native model; a mapped model declares a table that exists.");
             }
             var connections = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
@@ -127,7 +133,10 @@ public static class SourceDescriptorLoader
             if (access == NativeQuery.Command && CommandProblem(text) is { } bad) Add(DiagnosticCatalog.InvalidValue, (YamlNode?)kind.Get("query") ?? kind, bad);
             var reads = StringList(top, "reads", required: false, allowEmpty: false, unique: true)?.Select(r => r.Value).ToList() ?? [];
             var own = top.Get("parameters") is { } pn ? ParameterReferences.Read(pn, "`parameters`", (d, n, f) => Add(d, n, f)) : null;
-            return new NativeQuery(access, text.Trim(), reads, own ?? new Dictionary<string, ParameterValue>(), kind.Line);
+            var tracked = StringList(top, "track_definition", required: false, allowEmpty: false, unique: true) ?? [];
+            foreach (var t in tracked.Where(t => !NativeQuery.IsRoutineName(t.Value)))
+                Add(DiagnosticCatalog.InvalidValue, t, $"`{t.Value}` is not a routine name: write `schema.name`, and for an overloaded PostgreSQL function its argument types, `public.fn(date)`.");
+            return new NativeQuery(access, text.Trim(), reads, own ?? new Dictionary<string, ParameterValue>(), kind.Line) { TrackDefinition = tracked.Select(t => t.Value).ToList() };
         }
 
         /// <summary>A command is one statement that calls something and returns rows: `EXEC proc ...`, `CALL proc(...)` (or a SELECT of a function). Anything longer is a script, and is refused.</summary>

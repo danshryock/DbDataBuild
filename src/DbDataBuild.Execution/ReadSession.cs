@@ -66,6 +66,23 @@ public sealed class ReadSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// The definition of a routine as the engine holds it (`OBJECT_DEFINITION` on SQL Server, `pg_get_functiondef` on PostgreSQL; the name of an overloaded PostgreSQL function carries its argument types), or null when
+    /// the engine returns none: no such routine, more than one, or no permission to see it. One catalog query on the read login.
+    /// </summary>
+    public async Task<string?> RoutineDefinitionAsync(string engine, string name, CancellationToken ct = default)
+    {
+        var sql = engine == "postgres"
+            ? $"SELECT pg_get_functiondef(CAST(@name AS {(name.Contains('(') ? "regprocedure" : "regproc")}))"
+            : "SELECT OBJECT_DEFINITION(OBJECT_ID(@name))";
+        try
+        {
+            var rows = await QueryAsync(sql, [new GateParameter("name", DbType.String, name)], ct);
+            return rows.Count == 1 ? rows[0][0] as string : null;
+        }
+        catch (DbException) { return null; }
+    }
+
+    /// <summary>
     /// The columns a SELECT would return, asked of the engine without running it (the driver's schema-only mode: `sp_describe_first_result_set` on SQL Server, a parse-and-describe on PostgreSQL). Guarded like
     /// every read. Null when the engine cannot say (dynamic SQL, a temporary table); the caller says it was not checked.
     /// </summary>

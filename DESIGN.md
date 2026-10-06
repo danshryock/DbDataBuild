@@ -359,7 +359,12 @@ connection (the text is that engine's dialect, never lowered or transpiled). The
   is not described; a text the engine cannot describe is a warning that it was not checked.
 - **Metadata**: a native model is a `source` document with a `native` block (`access`, `connections`, `text_hash`, `reads`); its `definition_hash` covers the text; an upstream entry of a model that reads one has kind
   `native`; `graph` nodes have kind `native` and show the `reads:` behind it.
-- **Not built**: change feeds with deletes (backlog, `OPEN-ITEMS.md` L) and `track_definition` (which routine to hash and where to keep the baseline are undecided).
+- **`track_definition: [dbo.fn_open_orders, public.fn_rates(date)]`** names the routines the text depends on (an explicit list; the text is never parsed for names). Each `apply` that uses the native model records
+  a hash of their live definitions (`OBJECT_DEFINITION` on SQL Server, `pg_get_functiondef` on PostgreSQL; line endings normalised) in the tracking tables, as a `native_definition` document per native model and
+  connection (`metadata_document`, no layout change); each `plan` compares the live definitions with the last record. A change is **DDB-234, a warning** (`policy.severity.native_definition_changed: error`
+  stops the plan). The first plan has nothing to compare with and says nothing. Without tracking, or when the engine returns no definition (no such routine, several of that name, no permission), the routine
+  is reported as not checked (DDB-235, a note) and nothing is recorded for it. Read-only: one catalog query per routine on the read login.
+- **Not built**: change feeds with deletes (backlog, `OPEN-ITEMS.md` L).
 
 ### 6.6 Load operations: paired with targets, committed, parameterized
 
@@ -736,6 +741,7 @@ policy:
     emulated: note                # DDB-303
     unverified: warning           # DDB-304
     not_covered: warning          # DDB-305
+    native_definition_changed: warning   # DDB-234
 ```
 
 - **What a SQL Server version means.** `targets.sqlserver.version` is the **T-SQL level the tool generates for**, which is the engine's major version unless the database runs at an older compatibility level: **16** is SQL Server 2022, and also a 2025 server whose database is at compatibility level 160; **17** is SQL Server 2025 with the database at its own level, 170. There is one setting, not a second one for the compatibility level, because a lower number is always safe: a 2025 server at level 160 runs everything that 2022 runs (checked: the probe suite and the loads agree on 2022 and on 2025 at 160), and what the newer engine adds is used only from the version that has it. Checked on a 2025 server at both levels: `REGEXP_LIKE` and `REGEXP_SUBSTR` exist at 170 only; `REGEXP_REPLACE` exists at 160 too, and a project at 16 does not use it. From 17 the target rules write the regular expression functions (`regexp-full-match`, `regexp-extract`, `regexp-replace-first`); at 16 (or with no version) a query that needs them is reported by the matrix (DDB-301 below the minimum, DDB-308 when no version is set). Fabric gets none of this: it has never been run.

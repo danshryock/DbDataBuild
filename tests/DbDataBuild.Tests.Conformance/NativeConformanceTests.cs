@@ -251,4 +251,68 @@ public partial class NativeConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_routine_changed_in_the_database_is_reported_by_the_next_plan_and_recorded_by_the_next_apply(string name)
+    {
+        var engine = EngineEnv.Require(name);
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-native-def-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v == LoginSettings.VariableName(name, Login.Read) || v == LoginSettings.VariableName(name, Login.Write) ? engine.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
+        string PlanOf(string output) => Path.Combine(dir, Regex.Match(output, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+        var schema = name == "postgres" ? "public" : "dbo";
+        string Function(string filter) => name == "postgres"
+            ? $"CREATE OR REPLACE FUNCTION public.fn_tracked(cutoff integer) RETURNS TABLE(n integer) LANGUAGE sql AS $$ SELECT x FROM generate_series(1, 5) AS x WHERE x {filter} cutoff $$"
+            : $"CREATE OR ALTER FUNCTION dbo.fn_tracked(@cutoff int) RETURNS TABLE AS RETURN SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2,3,4,5', ',') WHERE CAST(value AS int) {filter} @cutoff";
+        try
+        {
+            await engine.ExecAsync(Function(">"));
+            var routine = $"{schema}.fn_tracked";
+            Write("dbdatabuild.yml", Config(name));
+            Write("models/src/tracked.yml", $"name: src.tracked\ntrack_definition: [{routine}, {schema}.fn_missing]\nkind:\n  type: native\n  query: SELECT n FROM {routine}(2)\n" + Cols);
+            Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.tracked\n");
+
+            Ok(Cli("init", "--connection", name, "--apply"), "init");
+            Ok(Cli("render", "--write"), "render");
+            var first = Cli("plan", "--connection", name);
+            Ok(first, "first plan");
+            Assert.DoesNotContain("DDB-234", first.Err + first.Out);                                              // nothing recorded yet, nothing to compare with
+            Assert.Contains("fn_missing", first.Err + first.Out);                                                 // a routine the engine has no definition for is not checked (DDB-235)
+            Assert.Contains("DDB-235", first.Err + first.Out);
+            Ok(Cli("apply", PlanOf(first.Out)), "first apply");
+            Assert.Equal(["3", "4", "5"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
+
+            var same = Cli("plan", "--connection", name);
+            Ok(same, "plan after apply");
+            Assert.DoesNotContain("DDB-234", same.Err + same.Out);                                                // the record matches
+
+            await engine.ExecAsync(Function(">="));                                                               // someone changes the function; no file changes
+            var changed = Cli("plan", "--connection", name);
+            Ok(changed, "plan after a change");                                                                   // a warning, not a stop
+            Assert.Contains("DDB-234", changed.Err + changed.Out);
+            Assert.Contains($"the definition of `{routine}` changed since the last apply", changed.Err + changed.Out);
+
+            Write("dbdatabuild.yml", Config(name) + "policy:\n  severity:\n    native_definition_changed: error\n");
+            var refused = Cli("plan", "--connection", name);
+            Assert.NotEqual(0, refused.Exit);
+            Assert.Contains("DDB-234", refused.Err + refused.Out);
+            Write("dbdatabuild.yml", Config(name));
+
+            Ok(Cli("apply", PlanOf(changed.Out)), "apply after the change");
+            Assert.Equal(["2", "3", "4", "5"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
+            var settled = Cli("plan", "--connection", name);
+            Ok(settled, "plan after the second apply");
+            Assert.DoesNotContain("DDB-234", settled.Err + settled.Out);                                          // the new definition is the record now
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 }

@@ -180,6 +180,29 @@ internal sealed class PlanningSession
             error.Diag(new Diagnostic(DiagnosticCatalog.TrackingNotConfigured, new($"connection:{target}", 0, 0), $"Nothing is tracked for `{target}`: plans are made from the declared shape against the live one, every change to an existing object is marked risky, and nothing is recorded when the plan is applied."));
         DbDataBuild.State.TrackingScope? trackingScope = trackingResolution.Target is { } ts ? new DbDataBuild.State.TrackingScope(ts.Engine, ts.Schema, target) : null;
 
+        // the routines native models list under `track_definition`, against the last record in the tracking tables
+        var watched = NativeDefinitions.InPlay(ctx, mine.Select(m => (m.Source.Definition, m.Sql)), target);
+        if (watched.Count > 0)
+        {
+            var definitionFindings = new List<Diagnostic>();
+            try
+            {
+                Task.Run(async () =>
+                {
+                    await using var ownRead = trackingRead == null || trackingScope == null ? null : await ReadSession.OpenAsync(trackingRead);
+                    await using var targetRead = trackingScope != null && ownRead == null ? await ReadSession.OpenAsync(login!) : null;
+                    definitionFindings.AddRange(NativeDefinitions.Check(ctx, watched, trackingScope, ownRead ?? targetRead, env));
+                }).GetAwaiter().GetResult();
+            }
+            catch (GateRefusedException) { /* the tracking tables are reported as not ready by the snapshot just below */ }
+            foreach (var d in definitionFindings) error.Diag(d);
+            if (definitionFindings.Any(d => d.Severity == Severity.Error))
+            {
+                output.WriteLine("Nothing was planned: a routine a native model depends on changed (`policy.severity.native_definition_changed: error`).");
+                return (null, CliApp.ExitFindings);
+            }
+        }
+
         TargetSnapshot snapshot;
         var resolved = new Dictionary<string, ResolverOutcome>();
         var rangeBounds = new Dictionary<string, ColumnBounds>();

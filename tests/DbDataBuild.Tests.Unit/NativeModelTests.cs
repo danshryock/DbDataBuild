@@ -176,4 +176,27 @@ public class NativeModelTests
         Assert.Equal(["marts.stock:model", "marts.top:model", "src.a:native"], graph["nodes"]!.AsArray().Select(n => $"{(string?)n!["name"]}:{(string?)n["kind"]}").Order(StringComparer.Ordinal));
         Assert.Contains(graph["edges"]!.AsArray(), e => (string?)e!["from"] == "marts.stock" && (string?)e["to"] == "src.a");
     }
+
+    [Fact]
+    public void Track_definition_lists_routine_names_and_belongs_to_a_native_model()
+    {
+        var dir = Project();
+        Write(dir, "models/src/a.yml", "name: src.a\ntrack_definition: [dbo.fn_open, \"public.fn_open(date, int)\"]\nkind:\n  type: native\n  query: SELECT 1 AS n\n" + Cols);
+        var result = ProjectValidator.Validate(dir);
+        Assert.False(result.HasErrors, Diags(dir));
+        Assert.Equal(["dbo.fn_open", "public.fn_open(date, int)"], result.NativeModels.Single().Native!.TrackDefinition);
+
+        Write(dir, "models/src/a.yml", "name: src.a\ntrack_definition: [\"dbo.fn; DROP TABLE x\"]\nkind:\n  type: native\n  query: SELECT 1 AS n\n" + Cols);
+        Assert.Contains("is not a routine name", Diags(dir));
+
+        Write(dir, "models/src/m.yml", "name: src.m\ntrack_definition: [dbo.fn]\nkind: {type: mapped}\n" + Cols);
+        Assert.Contains("belongs to a native model", Diags(dir));
+    }
+
+    [Fact]
+    public void A_changed_definition_is_a_warning_unless_the_policy_says_error()
+    {
+        Assert.Equal(Severity.Warning, ProjectConfig.Default.Policy[PolicyKeys.NativeDefinitionChanged]);
+        Assert.Contains(PolicyKeys.NativeDefinitionChanged, PolicyKeys.All);
+    }
 }
