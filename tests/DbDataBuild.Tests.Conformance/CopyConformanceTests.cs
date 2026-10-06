@@ -175,4 +175,33 @@ public partial class CopyConformanceTests
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
     }
+
+    [SkippableTheory, MemberData(nameof(Directions))]
+    public async Task A_table_of_a_few_hundred_thousand_rows_moves_in_bulk(string origin, string destination)
+    {
+        var pair = await SetUp(origin, destination);
+        await using var fromEngine = pair.Origin;
+        await using var toEngine = pair.Destination;
+        try
+        {
+            const int Rows = 300_000;
+            await fromEngine.ExecAsync("DELETE FROM src.items");
+            await fromEngine.ExecAsync(origin == "postgres"
+                ? $"INSERT INTO src.items (id, n, price, code, notes, seen) SELECT g, g % 1000, g / 7.0, 'code-' || g, repeat('x', 100), TIMESTAMP '2024-01-01' + g * INTERVAL '1 second' FROM generate_series(1, {Rows}) g"
+                : $"INSERT INTO src.items (id, n, price, code, notes, seen) SELECT TOP ({Rows}) n, n % 1000, n / 7.0, 'code-' + CAST(n AS NVARCHAR(20)), REPLICATE(N'x', 100), DATEADD(SECOND, n, '2024-01-01') FROM (SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b) t");
+            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("render", "--write"), "render --write");
+            var plan = pair.Cli("plan", "--connection", destination);
+            Ok(plan, "plan");
+            var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            Ok(pair.Cli("apply", planFile), "apply");
+            clock.Stop();
+            Assert.Equal(Rows.ToString(), (await toEngine.RowsAsync("SELECT COUNT(*) FROM dst.items")).Single());
+            Assert.Equal((await fromEngine.RowsAsync("SELECT SUM(n) FROM src.items")).Single(), (await toEngine.RowsAsync("SELECT SUM(n) FROM dst.items")).Single());
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(90), $"{Rows} rows took {clock.Elapsed.TotalSeconds:0.0}s");
+            Console.WriteLine($"copy {origin} -> {destination}: {Rows} rows in {clock.Elapsed.TotalSeconds:0.0}s");
+        }
+        finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
+    }
 }
