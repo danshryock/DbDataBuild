@@ -246,7 +246,7 @@ public static class CliApp
                     cmd.Arguments.Add(graphModels); cmd.Options.Add(graphProject); cmd.Options.Add(graphColumns); cmd.Options.Add(graphColumn); cmd.Options.Add(graphDiagram);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => GraphCommand.Run(spec, pr.GetValue(graphProject)!.FullName, pr.GetValue(graphModels) ?? [], pr.GetValue(graphColumns), pr.GetValue(graphColumn), pr.GetValue(graphDiagram), o, e)));
                     break;
-                case "import-sources":
+                case "import":
                     var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
                     var impProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var impTarget = new Option<string?>("--connection") { Description = "Connection to read (default: the project's only default connection)" };

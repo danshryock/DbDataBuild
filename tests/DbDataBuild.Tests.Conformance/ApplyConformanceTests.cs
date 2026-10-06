@@ -759,7 +759,7 @@ public partial class ApplyConformanceTests
             await engine.ExecAsync("ALTER TABLE staging.imp ADD CONSTRAINT fk_imp_ref FOREIGN KEY (id) REFERENCES staging.ref (id)");
 
             // the preview shows the diff and writes nothing
-            var preview = Json(run.Cli("import-sources", "staging.imp", "--format", "json"));
+            var preview = Json(run.Cli("import", "staging.imp", "--format", "json"));
             var imp = preview["data"]!["sources"]!.AsArray().Single()!;
             Assert.Equal(("staging.imp", "table", "new", "models/staging/imp.yml", "preview"), ((string)imp["name"]!, (string)imp["kind"]!, (string)imp["status"]!, (string)imp["file"]!, (string)preview["data"]!["mode"]!));
             Assert.Equal(["id"], imp["grain"]!.AsArray().Select(x => (string)x!));
@@ -771,7 +771,7 @@ public partial class ApplyConformanceTests
             Assert.Equal(("VARCHAR", "lossy"), ((string)imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "j")!["logical_type"]!, (string)imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "j")!["fit"]!));
 
             // writing it
-            var written = Json(run.Cli("import-sources", "staging.imp", "--write", "--format", "json"));
+            var written = Json(run.Cli("import", "staging.imp", "--write", "--format", "json"));
             Assert.Equal(["models/staging/imp.yml"], written["data"]!["written"]!.AsArray().Select(x => (string)x!));
             Assert.Equal(
                 $"name: staging.imp\nkind:\n  type: mapped\nconnections=: [{name}]\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
@@ -781,13 +781,13 @@ public partial class ApplyConformanceTests
                 "foreign_keys:\n  - {name: fk_imp_ref, columns: [id], references: {table: staging.ref, columns: [id]}}\n",
                 File.ReadAllText(file("models/staging/imp.yml")));
             Ok(run.Cli("validate"), "the exported descriptor is valid");
-            var again = Json(run.Cli("import-sources", "staging.imp", "--check", "--format", "json"));
+            var again = Json(run.Cli("import", "staging.imp", "--check", "--format", "json"));
             Assert.Equal("unchanged", (string?)again["data"]!["sources"]![0]!["status"]);
 
             // the table changes: --check fails for CI, the preview shows the change, a refresh without arguments takes it
             await engine.ExecAsync(pg ? "ALTER TABLE staging.imp ADD extra integer" : "ALTER TABLE staging.imp ADD extra int");
             await engine.ExecAsync("CREATE INDEX ix_imp_extra ON staging.imp (extra)");
-            var stale = Json(run.Cli("import-sources", "--check", "--format", "json"), expectedExit: 1);
+            var stale = Json(run.Cli("import", "--check", "--format", "json"), expectedExit: 1);
             Assert.Contains("DDB-227", codes(stale));
             var changed = stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.imp")!;
             Assert.Equal("changed", (string?)changed["status"]);
@@ -798,7 +798,7 @@ public partial class ApplyConformanceTests
             // human knowledge survives: a grain, a length put on unlimited text, and a type for a column the catalog cannot type
             var text = File.ReadAllText(file("models/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n").Replace("indexes:\n", "  - {name: odd, type: VARCHAR(40)}\nindexes:\n");
             run.Write("models/staging/imp.yml", text);
-            var refreshed = Json(run.Cli("import-sources", "--write", "--format", "json"));
+            var refreshed = Json(run.Cli("import", "--write", "--format", "json"));
             Assert.Equal(["models/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
             var after = File.ReadAllText(file("models/staging/imp.yml"));
             Assert.Contains("grain: [id, code]", after);
@@ -814,7 +814,7 @@ public partial class ApplyConformanceTests
             Ok(run.Cli("init", "--apply"), "init");
             run.Write("models/staging/broken.yml", "name: staging.broken\nkind:\n  type: mapped\ncolumns: nope\n");
             await engine.ExecAsync("CREATE TABLE staging.broken (id bigint)");
-            var all = Json(run.Cli("import-sources", "staging.*", "dbdatabuild.*", "--write", "--format", "json"));
+            var all = Json(run.Cli("import", "staging.*", "dbdatabuild.*", "--write", "--format", "json"));
             var byName = all["data"]!["sources"]!.AsArray().ToDictionary(x => (string)x!["name"]!, x => x!);
             Assert.Equal(("view", "new"), ((string)byName["staging.imp_view"]["kind"]!, (string)byName["staging.imp_view"]["status"]!));
             Assert.Equal("invalid", (string?)byName["staging.broken"]["status"]);
@@ -825,7 +825,7 @@ public partial class ApplyConformanceTests
 
             // a descriptor whose table is gone is reported and kept
             run.Write("models/staging/ghost.yml", "name: staging.ghost\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: BIGINT}\n");
-            var ghost = Json(run.Cli("import-sources", "--format", "json"));
+            var ghost = Json(run.Cli("import", "--format", "json"));
             Assert.Equal("stale", (string?)ghost["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.ghost")!["status"]);
             Assert.Contains("DDB-228", codes(ghost));
             Assert.True(File.Exists(file("models/staging/ghost.yml")));
@@ -944,7 +944,7 @@ public partial class ApplyConformanceTests
                 : "INSERT INTO staging.docs VALUES (1, REPLICATE(CAST(N'x' AS nvarchar(max)), 6000), 'ab')");
 
             // exported as the source says it is: no length on the unlimited column
-            Ok(run.Cli("import-sources", "staging.docs", "--write"), "import");
+            Ok(run.Cli("import", "staging.docs", "--write"), "import");
             Assert.Equal($"name: staging.docs\nkind:\n  type: mapped\nconnections=: [{name}]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: body\n    type: VARCHAR\n  - name: tag\n    type: VARCHAR(10)\n", File.ReadAllText(Path.Combine(run.Dir, "models/staging/docs.yml")));
 
             // a model that passes it through and computes from it declares no length either, and `define` agrees with that

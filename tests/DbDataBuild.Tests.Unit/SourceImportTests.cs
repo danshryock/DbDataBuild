@@ -9,7 +9,7 @@ using static DbDataBuild.Tests.Unit.TestSupport;
 
 namespace DbDataBuild.Tests.Unit;
 
-/// <summary>`import-sources`: native types to logical types, merging with committed descriptors, and source documents in the metadata. The catalog reads are covered against real engines.</summary>
+/// <summary>`import`: native types to logical types, merging with committed descriptors, and source documents in the metadata. The catalog reads are covered against real engines.</summary>
 public class SourceImportTests
 {
     private static ColumnShape Col(string type, int? length = null, int? precision = null, int? scale = null, bool nullable = true, string name = "c") =>
@@ -232,7 +232,7 @@ public class SourceImportTests
     {
         var dir = Project(withSource: true);
         var before = Snapshot(dir);
-        var (exit, _, err) = Run("import-sources", "--project", dir, "--write");
+        var (exit, _, err) = Run("import", "--project", dir, "--write");
         Assert.Equal(1, exit);
         Assert.Contains("DDB-501", err);
         Assert.Equal(before, Snapshot(dir));
@@ -241,7 +241,7 @@ public class SourceImportTests
     [Fact]
     public void Import_without_patterns_and_without_descriptors_asks_for_a_pattern()
     {
-        var (exit, _, err) = Run("import-sources", "--project", Project(withSource: false));
+        var (exit, _, err) = Run("import", "--project", Project(withSource: false));
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("no mapped models yet", err);
     }
@@ -250,8 +250,8 @@ public class SourceImportTests
     public void Import_refuses_check_with_write_and_a_pattern_without_a_schema()
     {
         var dir = Project(withSource: true);
-        Assert.Equal(CliApp.ExitUsage, Run("import-sources", "--project", dir, "--check", "--write").Exit);
-        var (exit, _, err) = Run("import-sources", "--project", dir, "orders");
+        Assert.Equal(CliApp.ExitUsage, Run("import", "--project", dir, "--check", "--write").Exit);
+        var (exit, _, err) = Run("import", "--project", dir, "orders");
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("not `schema.table`", err);
     }

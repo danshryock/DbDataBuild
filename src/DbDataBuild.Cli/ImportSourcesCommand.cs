@@ -8,7 +8,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild import-sources` (effect: target read-only; with --write it also writes mapped models under `models/`). Reads the columns, types, nullability and primary key of tables and views in the
+/// `dbdatabuild import` (effect: target read-only; with --write it also writes mapped models under `models/`). Reads the columns, types, nullability and primary key of tables and views in the
 /// target through the read login and exports them as source descriptors (DESIGN.md 6.5.1), so models over those tables bind offline against what the tables really are. It never
 /// runs a query against the data and never changes the target. Without arguments it refreshes the descriptors the project already has.
 /// The live table wins for columns, types and nullability; a committed grain and a column the catalog cannot type are kept (SourceImport).

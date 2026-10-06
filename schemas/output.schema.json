@@ -464,7 +464,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "import-sources"
+            "const": "import"
           }
         },
         "required": [
@@ -474,7 +474,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_import_sources"
+            "$ref": "#/$defs/data_import"
           }
         }
       }
@@ -2205,7 +2205,7 @@
         }
       }
     },
-    "data_import_sources": {
+    "data_import": {
       "type": "object",
       "additionalProperties": false,
       "properties": {

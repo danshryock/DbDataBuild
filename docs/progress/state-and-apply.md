@@ -603,3 +603,8 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Not renamed yet**: the command `import-sources` (to `import`), the JSON key `sources`, the metadata document kind `dbdatabuild.source/1` and the `metadata_source*` views; the C# names.
 - **Not built**: a check that a model's connections have every mapped table it reads (`connections` of a mapped model is recorded, not enforced); that belongs with `copy`.
 - **Verified**: unit suite (1555) and all conformance groups on SQL Server 2022/2025 and PostgreSQL 17 (111 + 4 release, 2 skipped).
+
+## 70. `import-sources` is `import`
+
+- **Renamed** (no alias): the command that exports tables from a connection as mapped models is `dbdatabuild import`. Everything that named it follows (specs, schema, TUI, MCP tool, skill, docs). The JSON key `sources` of its document and the C# names stay for now.
+- **Verified**: unit suite and the import conformance test on SQL Server 2022 and PostgreSQL 17.

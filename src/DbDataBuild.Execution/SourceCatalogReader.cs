@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace DbDataBuild.Execution;
 
-/// <summary>What `import-sources` reads beyond the shapes <see cref="CatalogReader"/> gives: which schemas exist, and each table's primary key (it seeds a new descriptor's grain). Read session only.</summary>
+/// <summary>What `import` reads beyond the shapes <see cref="CatalogReader"/> gives: which schemas exist, and each table's primary key (it seeds a new descriptor's grain). Read session only.</summary>
 public static class SourceCatalogReader
 {
     // sys and INFORMATION_SCHEMA are the engine's; db_* are the schemas of fixed database roles; guest is empty. pg_* are PostgreSQL's catalogs and temp schemas.

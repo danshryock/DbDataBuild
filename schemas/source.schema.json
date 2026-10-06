@@ -96,7 +96,7 @@
       }
     },
     "indexes": {
-      "description": "The indexes the table has, as exported by `import-sources`. The tool reads them and never creates them; the index that backs the primary key is the grain, not listed here.",
+      "description": "The indexes the table has, as exported by `import`. The tool reads them and never creates them; the index that backs the primary key is the grain, not listed here.",
       "type": "array",
       "items": {
         "type": "object",
@@ -145,7 +145,7 @@
       }
     },
     "foreign_keys": {
-      "description": "The foreign keys of the table, as exported by `import-sources`.",
+      "description": "The foreign keys of the table, as exported by `import`.",
       "type": "array",
       "items": {
         "type": "object",
