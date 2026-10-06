@@ -185,7 +185,8 @@ internal sealed class PlanningSession
         try
         {
             using var cts = new CancellationTokenSource();
-            (snapshot, resolved, rangeBounds) = Task.Run(async () =>
+            Dictionary<string, string?> marks;
+            (snapshot, resolved, rangeBounds, marks) = Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
                 await using var ownTrackingRead = trackingRead == null ? null : await ReadSession.OpenAsync(trackingRead);
@@ -213,8 +214,20 @@ internal sealed class PlanningSession
                     var (min, max, err) = await TargetSnapshotReader.ColumnBoundsAsync(read, engine, op.Model, column, type);
                     bounds[PlanInput.ResolverKey(op.Model, op.Operation)] = new ColumnBounds(min, max, err);
                 }
-                return (snap, results, bounds);
+                // an incremental copy reads each origin from the newest value the destination holds for it (less its lookback); nothing there yet reads everything
+                var marks = new Dictionary<string, string?>();
+                foreach (var copy in planned.Where(p => p.Definition.IsCopy && p.Definition.Watermark != null && snap.Live.ContainsKey(p.Definition.Name)))
+                    foreach (var origin in copy.OriginList)
+                    {
+                        var def = copy.Definition;
+                        var type = def.Columns.First(c => string.Equals(c.Name, def.Watermark!.Column, StringComparison.OrdinalIgnoreCase)).Type;
+                        var max = await TargetSnapshotReader.MaxAsync(read, engine, def.Name, def.Watermark!.Column, type, def.Slice?.Column, origin.SliceValue);
+                        if (max.Error != null) throw new GateRefusedException(new Diagnostic(DiagnosticCatalog.ResolverResultInvalid, new(def.Name, 0, 0), $"{def.Name}: the newest `{def.Watermark.Column}` in the destination {max.Error}."));
+                        marks[$"{def.Name}|{origin.Connection}"] = WatermarkBound(max.Value, type, def.Watermark.Lookback);
+                    }
+                return (snap, results, bounds, marks);
             }).GetAwaiter().GetResult();
+            planned = planned.Select(p => p.Definition.Watermark == null ? p : p with { Origins = p.OriginList.Select(o => marks.TryGetValue($"{p.Definition.Name}|{o.Connection}", out var bound) ? o with { WatermarkValue = bound } : o).ToList() }).ToList();
         }
         catch (GateRefusedException ex)
         {
@@ -227,6 +240,15 @@ internal sealed class PlanningSession
         var input = new PlanInput(target, ctx.Config, planned, snapshot.Live, snapshot.Schemas, snapshot.RecordedShapeHashes, snapshot.LastViewStatementHashes,
             snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills, rangeBounds) { Tracked = trackingScope != null };
         return (new PlanningSession { Root = root, Target = target, Context = ctx, Input = input, Warnings = distinct.Where(d => d.Severity != Severity.Error).ToList() }, CliApp.ExitOk);
+    }
+
+    /// <summary>The lower bound of an incremental copy: the newest value the destination holds, less the lookback for a date or a time (rows that arrive late or change). Null (no row yet) reads everything.</summary>
+    private static string? WatermarkBound(string? newest, string type, string? lookback)
+    {
+        if (newest == null) return null;
+        if (lookback == null || LoadDuration.TryParse(lookback) is not { } duration || !duration.FitsColumnType(type)) return newest;
+        var at = duration.Before(DateTime.Parse(newest, System.Globalization.CultureInfo.InvariantCulture));
+        return type.Trim().Equals("DATE", StringComparison.OrdinalIgnoreCase) ? at.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : at.ToString("yyyy-MM-dd HH:mm:ss.FFFFFF", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string DdlSchema(string model) => DbDataBuild.Targets.Ddl.DdlGenerator.Split(model).Schema;

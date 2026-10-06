@@ -72,6 +72,16 @@ public static class TargetSnapshotReader
         return (min.Value, max.Value, min.Error ?? max.Error);
     }
 
+    /// <summary>`MAX` of one column of the destination of an incremental copy, as plan-time text; with a slice, only of the rows of that origin (the value is quoted as a literal: it comes from the project's own files).</summary>
+    public static async Task<ResolverValue> MaxAsync(ReadSession read, string target, string objectName, string column, string parameterType, string? sliceColumn, string? sliceValue, CancellationToken ct = default)
+    {
+        var ddl = TrackingDdl.For(target);
+        var dot = objectName.LastIndexOf('.');
+        var table = dot < 0 ? ddl.Quote(objectName) : $"{ddl.Quote(objectName[..dot])}.{ddl.Quote(objectName[(dot + 1)..])}";
+        var where = sliceColumn == null ? "" : $" WHERE {ddl.Quote(sliceColumn)} = '{(sliceValue ?? "").Replace("'", "''")}'";
+        return await RunResolverAsync(read, $"SELECT MAX({ddl.Quote(column)}) FROM {table}{where}", parameterType, ct);
+    }
+
     public static async Task<ResolverValue> RunResolverAsync(ReadSession read, string resolverText, string parameterType, CancellationToken ct = default)
     {
         IReadOnlyList<IReadOnlyList<object?>> rows;

@@ -35,6 +35,12 @@ public sealed record CopySlice(string Column, string Value, string? Type = null,
     public const string Skip = "skip";
 }
 
+/// <summary>
+/// An incremental copy: only the rows of the origin whose <see cref="Column"/> is at or after the newest value the destination holds (minus <see cref="Lookback"/>, for rows that arrive late or change) are read
+/// and loaded, replacing the rows with the same unique key. The first run, with nothing in the destination, reads everything.
+/// </summary>
+public sealed record CopyWatermark(string Column, string? Lookback, int Line = 0);
+
 public sealed record ModelDefinition(
     string Name,
     string KindType,
@@ -54,7 +60,8 @@ public sealed record ModelDefinition(
     int FromLine = 0,
     CopySlice? Slice = null,
     string OnMismatch = CopySlice.Fail,
-    bool SliceColumnAdded = false)
+    bool SliceColumnAdded = false,
+    CopyWatermark? Watermark = null)
 {
     /// <summary>True for a model that copies another one (<see cref="ModelKinds.Copy"/>): `From` is the model it copies.</summary>
     public bool IsCopy => KindType == ModelKinds.Copy;

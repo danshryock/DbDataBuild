@@ -88,6 +88,25 @@ public class CopyTransferTests
         Assert.Equal(new PlanSlice("store_id", "018", true), parsed.Steps.Single(s => s.Transfer?.Origin == "store_18").Transfer!.Slice);
     }
 
+    [Fact]
+    public void An_incremental_copy_reads_each_origin_from_its_bound_and_binds_it()
+    {
+        var def = Copy("dst.orders") with { UniqueKey = ["id"], Watermark = new CopyWatermark("id", null) };
+        var model = new PlannedModel(def, "SELECT 1", "models/dst/orders.yml", "h", [], Origins: [new CopyOrigin("crm", "postgres", "src.items", WatermarkValue: "41")]);
+        var transfer = Planner.Plan(Input(model), []).Steps.Single(s => s.Type == StepType.Transfer);
+        Assert.Equal("SELECT \"id\", \"label\" FROM \"src\".\"items\" WHERE \"id\" >= @watermark", transfer.Transfer!.ReadText);       // the value is bound by the driver, not in the text
+        Assert.Equal(new PlanWatermark("id", "BIGINT", "41"), transfer.Transfer.Watermark);
+        Assert.DoesNotContain("41", transfer.Transfer.ReadText);
+
+        var first = new PlannedModel(def, "SELECT 1", "models/dst/orders.yml", "h", [], Origins: [new CopyOrigin("crm", "postgres", "src.items")]);      // nothing in the destination yet: everything is read
+        var all = Planner.Plan(Input(first), []).Steps.Single(s => s.Type == StepType.Transfer);
+        Assert.DoesNotContain("WHERE", all.Transfer!.ReadText);
+        Assert.Null(all.Transfer.Watermark);
+
+        var text = PlanDocument.Serialize(new Plan("2026-10-12-00000000", "sqlserver", null, false, "0.1.0", [], [], [transfer], []));
+        Assert.Equal(new PlanWatermark("id", "BIGINT", "41"), PlanDocument.Parse(text, "p.yml", [])!.Steps.Single().Transfer!.Watermark);
+    }
+
     [Theory]
     [InlineData("BIGINT", 5, typeof(long))]
     [InlineData("INTEGER", 5L, typeof(int))]

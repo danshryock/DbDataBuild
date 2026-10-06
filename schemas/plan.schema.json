@@ -326,6 +326,30 @@
                     "type": "boolean"
                   }
                 }
+              },
+              "watermark": {
+                "description": "For an incremental copy: the read is limited to rows whose `column` is at or after `value` (bound to `@watermark`). Absent: everything is read.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "column",
+                  "type",
+                  "value"
+                ],
+                "properties": {
+                  "column": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "type": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             }
           }

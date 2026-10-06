@@ -204,6 +204,13 @@ public static class ProjectValidator
                 }
                 if (grain.Count > 0 && !grain.Contains(def.Slice.Column, StringComparer.OrdinalIgnoreCase)) grain = [.. grain, def.Slice.Column];       // the rows of different origins may share a key: the origin's value is part of it
             }
+            foreach (var named in def.UniqueKey.Select(k => ("unique_key", k)).Concat(def.Watermark == null ? [] : [("watermark.column", def.Watermark.Column)]))
+                if (!columns.Any(x => string.Equals(x.Name, named.Item2, StringComparison.OrdinalIgnoreCase)))
+                {
+                    diags.Add(new Diagnostic(DiagnosticCatalog.UnknownColumnReference, At(), $"{named.Item1} refers to `{named.Item2}`, which `{def.From}` does not have."));
+                    failed.Add(def.Name);
+                    return null;
+                }
             var resolved = def with { Columns = columns, Grain = grain, SliceColumnAdded = sliceAdded };
             done[def.Name] = resolved;
             return resolved;

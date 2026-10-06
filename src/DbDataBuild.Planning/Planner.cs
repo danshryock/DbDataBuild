@@ -13,8 +13,8 @@ namespace DbDataBuild.Planning;
 public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash);
 
 /// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
-/// <summary>Where a copy's rows come from: the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
-public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null);
+/// <summary>Where a copy's rows come from (<see cref="WatermarkValue"/>: for an incremental copy, the lower bound this origin is read from, worked out at plan time from what the destination holds; null reads everything): the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
+public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null, string? WatermarkValue = null);
 
 public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null)
 {
@@ -563,7 +563,14 @@ public static class Planner
         // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row
         var read = $"SELECT {string.Join(", ", def.Columns.Where(x => !(def.SliceColumnAdded && string.Equals(x.Name, def.Slice!.Column, StringComparison.OrdinalIgnoreCase))).Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {originDdl.Qualified(originSchema, originName)}";
         var slice = def.Slice != null && origin.SliceValue != null ? new PlanSlice(def.Slice.Column, origin.SliceValue, def.SliceColumnAdded) : null;
-        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice);
+        PlanWatermark? watermark = null;
+        if (def.Watermark != null && origin.WatermarkValue != null)
+        {
+            // an incremental copy reads only the rows at or after the bound (the value is bound by the driver, never written into the text)
+            read += $" WHERE {originDdl.QuoteIdentifier(def.Watermark.Column)} >= @watermark";
+            watermark = new PlanWatermark(def.Watermark.Column, def.Columns.First(x => string.Equals(x.Name, def.Watermark.Column, StringComparison.OrdinalIgnoreCase)).Type, origin.WatermarkValue);
+        }
+        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice, watermark);
         return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, [slice == null ? "copy.transfer" : "copy.transfer.slice"], null, [], Transfer: spec);
     }
 

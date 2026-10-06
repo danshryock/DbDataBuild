@@ -126,6 +126,53 @@
               "description": "The model to copy: a model, a mapped model or another copy, `schema.table`, on exactly one connection other than this model's.",
               "type": "string",
               "pattern": "^[^.\\s/\\\\]+\\.[^.\\s/\\\\]+$"
+            },
+            "slice": {
+              "description": "For a copy from several connections (or one that adds a column): which rows are an origin's. `value` may use `${origin.name}` (the origin connection's parameter) or `${connection.name}` (the destination's). When the origin has no `column`, the copy adds it (give it a `type`) and writes the value into every row; a run replaces only the rows of the origin it loads.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "column",
+                "value"
+              ],
+              "properties": {
+                "column": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "value": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "type": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              }
+            },
+            "on_mismatch": {
+              "description": "What `plan` does about an origin whose table differs from its declaration: stop (`fail`, the default) or leave that origin out (`skip`), never silently.",
+              "enum": [
+                "fail",
+                "skip"
+              ]
+            },
+            "unique_key": {
+              "description": "The rows an incremental copy reads again replace the rows with these key columns.",
+              "$ref": "#/$defs/columnList"
+            },
+            "watermark": {
+              "description": "Makes the copy incremental: only rows whose `column` is at or after the newest value the destination holds (less `lookback`, for rows that arrive late or change) are read. Needs `unique_key`. The first run, with nothing in the destination, reads everything.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "column"
+              ],
+              "properties": {
+                "column": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "lookback": {
+                  "$ref": "#/$defs/duration"
+                }
+              }
             }
           }
         }

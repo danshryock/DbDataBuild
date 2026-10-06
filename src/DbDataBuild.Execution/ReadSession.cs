@@ -97,12 +97,20 @@ public sealed class ReadSession : IAsyncDisposable
     /// Opens a streaming read: one SELECT, the rows handed over as they arrive instead of being collected (a copy reads whole tables). Guarded like every read. The stream owns the command and the reader
     /// and must be disposed.
     /// </summary>
-    public async Task<RowStream> OpenStreamAsync(string sql, CancellationToken ct = default)
+    public async Task<RowStream> OpenStreamAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
     {
         if (ReadGuard.Check(sql) is { } refused) throw new GateRefusedException(refused);
         var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
         cmd.CommandTimeout = 0;
+        foreach (var p in parameters ?? [])
+        {
+            var dp = cmd.CreateParameter();
+            dp.ParameterName = p.Name.StartsWith('@') ? p.Name : "@" + p.Name;
+            dp.DbType = p.Type;
+            dp.Value = p.Value ?? DBNull.Value;
+            cmd.Parameters.Add(dp);
+        }
         try { return new RowStream(cmd, await cmd.ExecuteReaderAsync(System.Data.CommandBehavior.SequentialAccess, ct)); }
         catch { await cmd.DisposeAsync(); throw; }
     }

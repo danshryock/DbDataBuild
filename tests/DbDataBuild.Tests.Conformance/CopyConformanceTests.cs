@@ -275,4 +275,51 @@ public partial class CopyConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    [SkippableTheory, MemberData(nameof(Directions))]
+    public async Task An_incremental_copy_reads_only_what_changed_since_the_newest_row_it_holds(string origin, string destination)
+    {
+        var from = EngineEnv.Require(origin);
+        var to = EngineEnv.Require(destination);
+        await from.StartAsync(); await to.StartAsync();
+        await using var _f = from; await using var _t = to;
+        var pair = new Pair(from, to, Path.Combine(Path.GetTempPath(), "ddb-incr-" + Guid.NewGuid().ToString("N")));
+        try
+        {
+            pair.Write("dbdatabuild.yml", $"defaults: {{connections: [{destination}]}}\ntracking: {{ connection: {destination} }}\n" + Sensitive(destination));
+            pair.Write("models/src/events.yml", $"name: src.events\nkind: {{type: mapped}}\nconnections=: [{origin}]\ngrain: [id]\ncolumns:\n  - {{name: id, type: BIGINT, nullable: false}}\n  - {{name: note, type: \"VARCHAR(40)\"}}\n  - {{name: updated_at, type: TIMESTAMP, nullable: false}}\n");
+            pair.Write("models/dst/events.yml", "name: dst.events\nkind:\n  type: copy\n  from: src.events\n  unique_key: [id]\n  watermark: {column: updated_at, lookback: 1 hour}\n");
+            await from.ExecAsync(origin == "postgres" ? "CREATE SCHEMA src" : "EXEC('CREATE SCHEMA src')");
+            var q = from.QuoteIdent;
+            await from.ExecAsync($"CREATE TABLE src.events ({q("id")} BIGINT NOT NULL, {q("note")} {from.ColumnType("VARCHAR(40)")}, {q("updated_at")} {from.ColumnType("TIMESTAMP")} NOT NULL)");
+            await from.ExecAsync("INSERT INTO src.events VALUES (1, N'one', '2024-01-01 10:00:00'), (2, N'two', '2024-01-01 11:00:00'), (3, N'three', '2024-01-01 12:00:00')".Replace("N'", origin == "postgres" ? "'" : "N'"));
+
+            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("render", "--write"), "render");
+            async Task<string> Applied(string what)
+            {
+                var plan = pair.Cli("plan", "--connection", destination);
+                Ok(plan, what + " plan");
+                var file = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+                var text = File.ReadAllText(file);
+                Ok(pair.Cli("apply", file), what + " apply");
+                return text;
+            }
+            async Task<List<string>> Dest() => await to.RowsAsync($"SELECT CAST({to.QuoteIdent("id")} AS VARCHAR(10)) + '|' + {to.QuoteIdent("note")} FROM dst.events".Replace(" + '|' + ", destination == "postgres" ? " || '|' || " : " + '|' + ").Replace("VARCHAR(10)", destination == "postgres" ? "VARCHAR(10)" : "NVARCHAR(10)"));
+
+            var first = await Applied("first");
+            Assert.DoesNotContain("@watermark", first);                                                      // nothing in the destination yet: everything is read
+            Assert.Equal(["1|one", "2|two", "3|three"], await Dest());
+
+            // a row changes (within the lookback of the newest one), one is added, one is deleted at the origin
+            await from.ExecAsync("UPDATE src.events SET note = 'three, edited', updated_at = '2024-01-01 12:30:00' WHERE id = 3");
+            await from.ExecAsync("INSERT INTO src.events VALUES (4, 'four', '2024-01-01 13:00:00')");
+            await from.ExecAsync("UPDATE src.events SET note = 'one, edited' WHERE id = 1");                 // old: its updated_at did not move, so it is not read again
+            var second = await Applied("second");
+            Assert.Contains("@watermark", second);
+            Assert.Contains("value: \"2024-01-01 11:00:00", second);                                          // the newest row held (12:00) less the lookback (1 hour)
+            Assert.Equal(["1|one", "2|two", "3|three, edited", "4|four"], await Dest());                     // read: 2 (11:00 is at the bound), 3, 4. Not read: 1
+        }
+        finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
+    }
 }

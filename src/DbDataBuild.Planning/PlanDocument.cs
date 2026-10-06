@@ -93,6 +93,13 @@ public static class PlanDocument
                 sb.Append("      origin: ").AppendLineLf(Q(t.Origin));
                 sb.Append("      staging: ").AppendLineLf(Q(t.Staging));
                 sb.Append("      read: ").AppendLineLf(Q(t.ReadText));
+                if (t.Watermark is { } wm)
+                {
+                    sb.AppendLineLf("      watermark:");
+                    sb.Append("        column: ").AppendLineLf(Q(wm.Column));
+                    sb.Append("        type: ").AppendLineLf(Q(wm.Type));
+                    sb.Append("        value: ").AppendLineLf(Q(wm.Value));
+                }
                 if (t.Slice is { } sl)
                 {
                     sb.AppendLineLf("      slice:");
@@ -202,14 +209,16 @@ public static class PlanDocument
                 TransferSpec? transfer = null;
                 if (m.Get("transfer") is YamlMapping tm)
                 {
-                    Keys(tm, ["origin", "staging", "read", "columns", "slice"], "a transfer");
+                    Keys(tm, ["origin", "staging", "read", "columns", "slice", "watermark"], "a transfer");
                     var columns = new List<PlanColumn>();
                     foreach (var cn in (tm.Get("columns") as YamlSequence)?.Items ?? [])
                         if (cn is YamlMapping cm) { Keys(cm, ["name", "type"], "a transfer column"); columns.Add(new(Req(cm, "name"), Req(cm, "type"))); }
                         else Bad(cn, "Each transfer column must be a mapping.");
                     PlanSlice? slice = null;
                     if (tm.Get("slice") is YamlMapping sm) { Keys(sm, ["column", "value", "added"], "a slice"); slice = new PlanSlice(Req(sm, "column"), Req(sm, "value"), Bool(sm, "added")); }
-                    transfer = new TransferSpec(Req(tm, "origin"), Req(tm, "read"), Req(tm, "staging"), columns, slice);
+                    PlanWatermark? watermark = null;
+                    if (tm.Get("watermark") is YamlMapping wm) { Keys(wm, ["column", "type", "value"], "a watermark"); watermark = new PlanWatermark(Req(wm, "column"), Req(wm, "type"), Req(wm, "value")); }
+                    transfer = new TransferSpec(Req(tm, "origin"), Req(tm, "read"), Req(tm, "staging"), columns, slice, watermark);
                 }
                 steps.Add(new PlanStep(Req(m, "id"), EnumOf<StepType>(m, "type"), Req(m, "object"), Req(m, "description"), Req(m, "text"), EnumOf<RiskClass>(m, "risk"), reasons,
                     S(m, "hash_after"), parameters, resolverText, resolverResult, hasResolver, S(m, "file_hash"), S(m, "operation"), S(m, "shape_source"), S(m, "definition_hash"), S(m, "expect"), S(m, "hook"), S(m, "effect"), transfer));

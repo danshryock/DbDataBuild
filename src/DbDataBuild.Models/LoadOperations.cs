@@ -27,6 +27,16 @@ public sealed record LoadDuration(int Amount, DurationUnit Unit)
         return new LoadDuration(n, Enum.Parse<DurationUnit>(m.Groups[2].Value, ignoreCase: true));
     }
 
+    /// <summary>The moment this long before <paramref name="value"/> (a lookback applied to a watermark).</summary>
+    public DateTime Before(DateTime value) => Unit switch
+    {
+        DurationUnit.Minute => value.AddMinutes(-Amount),
+        DurationUnit.Hour => value.AddHours(-Amount),
+        DurationUnit.Day => value.AddDays(-Amount),
+        DurationUnit.Week => value.AddDays(-7 * Amount),
+        _ => value.AddMonths(-Amount),
+    };
+
     /// <summary>Canonical text, for example "3 days".</summary>
     public override string ToString() => $"{Amount} {Unit.ToString().ToLowerInvariant()}{(Amount == 1 ? "" : "s")}";
 
@@ -83,7 +93,8 @@ public static class LoadPlan
     private static LoadOperation Implicit(ModelDefinition m) => m.KindType switch
     {
         // a copy from several connections replaces only the rows of the origin it is loading: delete by the slice column, then insert
-        ModelKinds.Copy when m.Slice != null => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey, [m.Slice.Column], null, null, [], null, null, Declared: false),
+        ModelKinds.Copy when m.Slice != null || m.UniqueKey.Count > 0 => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey,
+            m.Slice != null && !m.UniqueKey.Contains(m.Slice.Column, StringComparer.OrdinalIgnoreCase) ? [.. m.UniqueKey, m.Slice.Column] : m.UniqueKey, null, null, [], null, null, Declared: false),
         ModelKinds.Full or ModelKinds.Copy => new(ImplicitName, true, LoadStrategies.FullReplace, [], null, null, [], null, null, Declared: false),
         ModelKinds.IncrementalByUniqueKey => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey, m.UniqueKey, null, null, [], null, null, Declared: false),
         // the range comes from MAX(time_column) in the target minus the lookback, never from a state table; an empty target needs a value

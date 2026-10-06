@@ -240,4 +240,45 @@ public class CopyModelTests
         var (exit, text) = CliValidate(dir);
         Assert.True(exit == 0, text);
     }
+
+    // ---- incremental copies ----
+
+    [Fact]
+    public void An_incremental_copy_names_a_unique_key_and_a_watermark_column_and_loads_by_key()
+    {
+        var dir = Project();
+        Write(dir, "models/warehouse/customers.yml", "name: warehouse.customers\nkind:\n  type: copy\n  from: crm.customers\n  unique_key: [customer_id]\n  watermark: {column: born, lookback: 3 days}\n");
+        var (result, text) = Validate(dir);
+        Assert.False(result.HasErrors, text);
+        var copy = result.Sources.Single().Definition;
+        Assert.Equal(("born", "3 days"), (copy.Watermark!.Column, copy.Watermark.Lookback));
+        var load = Assert.Single(LoadPlan.For(copy, "wh"));
+        Assert.Equal($"{LoadStrategies.DeleteInsertByKey} customer_id", $"{load.Strategy} {string.Join(",", load.Key)}");
+    }
+
+    [Theory]
+    [InlineData("  watermark: {column: born}\n", "needs a `unique_key`")]
+    [InlineData("  unique_key: [customer_id]\n  watermark: {column: nowhere}\n", "watermark.column refers to `nowhere`")]
+    [InlineData("  unique_key: [ghost]\n  watermark: {column: born}\n", "unique_key refers to `ghost`")]
+    [InlineData("  unique_key: [customer_id]\n  watermark: {column: born, lookback: soon}\n", "lookback is `soon`")]
+    [InlineData("  unique_key: [customer_id]\n  watermark: [born]\n", "`watermark` is a mapping")]
+    public void An_incremental_copy_that_cannot_work_says_why(string kindExtra, string expected)
+    {
+        var dir = Project();
+        Write(dir, "models/warehouse/customers.yml", "name: warehouse.customers\nkind:\n  type: copy\n  from: crm.customers\n" + kindExtra);
+        var (result, text) = Validate(dir);
+        Assert.True(result.HasErrors);
+        Assert.Contains(expected, text);
+    }
+
+    [Fact]
+    public void A_sliced_incremental_copy_loads_by_its_key_and_the_slice()
+    {
+        var dir = StoreProject();
+        Write(dir, "models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  unique_key: [order_id]\n  watermark: {column: order_id}\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
+        var (result, text) = Validate(dir);
+        Assert.False(result.HasErrors, text);
+        var load = Assert.Single(LoadPlan.For(result.Sources.Single(s => s.Definition.Name == "warehouse.orders").Definition, "wh"));
+        Assert.Equal(["order_id", "store_id"], load.Key);                                                 // two stores may use one order number
+    }
 }

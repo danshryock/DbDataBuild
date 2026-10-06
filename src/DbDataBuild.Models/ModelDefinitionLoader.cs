@@ -70,6 +70,7 @@ public static class ModelDefinitionLoader
             var isCopy = kindType?.Value == ModelKinds.Copy;
             YamlScalar? from = null;
             CopySlice? slice = null;
+            CopyWatermark? watermark = null;
             var onMismatch = CopySlice.Fail;
             if (isCopy)
             {
@@ -78,6 +79,7 @@ public static class ModelDefinitionLoader
                     Add(DiagnosticCatalog.InvalidValue, (YamlNode?)from ?? kindNode ?? top, "A copy names the model it copies, `kind: {type: copy, from: schema.table}`.");
                 if (top.Get("columns") is { } own) Add(DiagnosticCatalog.InvalidValue, own, "A copy has no `columns`: it has the columns of the model it copies.", "Remove `columns:`.");
                 (slice, onMismatch) = ReadCopySettings(kindNode as YamlMapping);
+                watermark = ReadCopyWatermark(kindNode as YamlMapping, uniqueKey);
             }
             var grain = StringList(top, "grain", required: false);
             var targets = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
@@ -127,7 +129,22 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0, slice, onMismatch);
+                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0, slice, onMismatch, false, watermark);
+        }
+
+        /// <summary>`watermark: {column, lookback}` of an incremental copy. It needs a `unique_key` (the rows it reads again replace the ones with the same key).</summary>
+        private CopyWatermark? ReadCopyWatermark(YamlMapping? kind, List<YamlScalar>? uniqueKey)
+        {
+            if (kind?.Get("watermark") is not { } node) return null;
+            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, "`watermark` is a mapping: `{column: updated_at, lookback: 3 days}`."); return null; }
+            CheckKeys(map, ["column", "lookback"], "`watermark`");
+            var column = Scalar(map, "column", required: true, at: map);
+            var lookback = map.Get("lookback") as YamlScalar;
+            if (lookback != null && LoadDuration.TryParse(lookback.Value) == null)
+                Add(DiagnosticCatalog.InvalidValue, lookback, $"lookback is `{lookback.Value}`.", "A number and a unit, for example `3 days` (minutes, hours, days, weeks or months).");
+            if (kind.Get("unique_key") == null || uniqueKey is { Count: 0 })
+                Add(DiagnosticCatalog.MissingUniqueKey, map, "An incremental copy (`watermark`) needs a `unique_key`: the rows it reads again replace the rows with the same key.", fix: "add under `kind:`  unique_key: [order_id]");
+            return column == null ? null : new CopyWatermark(column.Value, lookback?.Value, map.Line);
         }
 
         private static readonly System.Text.RegularExpressions.Regex Reference = new(@"\$\{([a-z]+)\.([a-z][a-z0-9_]*)\}");
@@ -174,7 +191,7 @@ public static class ModelDefinitionLoader
             var allowed = new List<string> { "type" };
             if (type?.Value == ModelKinds.IncrementalByUniqueKey) allowed.Add("unique_key");
             if (type?.Value == ModelKinds.IncrementalByTimeRange) { allowed.Add("time_column"); allowed.Add("lookback"); }
-            if (type?.Value == ModelKinds.Copy) { allowed.Add("from"); allowed.Add("slice"); allowed.Add("on_mismatch"); }
+            if (type?.Value == ModelKinds.Copy) { allowed.Add("from"); allowed.Add("slice"); allowed.Add("on_mismatch"); allowed.Add("unique_key"); allowed.Add("watermark"); }
             if (valid) CheckKeys(kind, allowed, $"kind `{type!.Value}`");
 
             var uniqueKey = StringList(kind, "unique_key", required: false);

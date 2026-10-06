@@ -307,8 +307,14 @@ and one load per origin, in the order of the `connections` list, and a staging t
 can now be NULL where the declaration says it cannot; an added column is no difference) and names every origin that differs (DDB-230): `on_mismatch: fail` (the default) stops the plan, `skip` leaves that origin's steps out with a
 warning. An origin whose login is not in the environment is reported as not checked, and `apply` refuses to start unless every origin can be opened.
 
-Not built: incremental copies (a watermark on the origin), `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, project parameters and folder-level
-connection parameters, the origin check for an origin that is a built model.
+**Incremental copies.** `unique_key: [id]` and `watermark: {column: updated_at, lookback: 3 days}` under `kind` make a copy read only what changed:
+the origin read gains `WHERE <column> >= @watermark`, the bound being the newest value of that column the destination holds (for the origin's own rows when there is a slice) less the lookback (days, weeks, months
+for a DATE; any unit for a TIMESTAMP), computed at plan time and recorded in the plan's transfer step (`watermark: {column, type, value}`; the value is bound by the driver, never in the text). With nothing in the
+destination yet the bound is absent and everything is read. The rows read replace the rows with the same `unique_key` (`delete_insert_by_key`; with a slice the key gains the slice column); **rows deleted at the origin are
+not deleted in the destination** (an incremental copy cannot see them: plan a full copy, a copy with no `watermark`, to reconcile).
+
+Not built: `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, project parameters and folder-level connection parameters, the origin check
+for an origin that is a built model, a full refresh of one incremental copy without removing its `watermark`.
 
 ### 6.6 Load operations: paired with targets, committed, parameterized
 

@@ -355,7 +355,7 @@ public static class ApplyEngine
         try
         {
             await using var origin = await o.OpenOrigin!(spec.Origin, ct);
-            await using var stream = await origin.OpenStreamAsync(spec.ReadText, ct);
+            await using var stream = await origin.OpenStreamAsync(spec.ReadText, spec.Watermark == null ? null : [ToGate(new PlanParameter("watermark", spec.Watermark.Type, "resolver", spec.Watermark.Value))], ct);
             var names = stream.Names;
             // what the origin returns: every column of the copy, except the slice column the copy adds (that one is written here, not read)
             var read = spec.Slice is { Added: true } added ? columns.Where(c => !string.Equals(c.Name, added.Column, StringComparison.OrdinalIgnoreCase)).ToList() : columns.ToList();
