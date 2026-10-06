@@ -249,9 +249,8 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 
 ## Still open
 
-T1. **A plan with no baseline.** With no tracking a change to an existing object cannot be told from a model change, so the decision table has no "recorded shape". My default: plan from declared against live, classify as the table does, and mark an
-    `ALTER` or a drop of an existing object as risky (so apply needs `--allow-risky`) while tracking is off. T2. Whether `tracking: none` (explicit, silences the warning) is the right spelling. T3. Which of the tracking tables the first
-    version ships to `copy_to` (my default: none; the feature waits).
+T1 to T3 are **decided** (the owner accepted the defaults): with no tracking, plans are made from declared against live and an `ALTER` or a drop of an existing object is marked risky; `tracking: none` is the explicit
+    opt-out; the first version ships no tracking copies to further connections (`copy_to` waits).
 0. Which keys of a connection a folder file may not change (my list: the connection's existence, its `engine`, the tracking schema) and whether anything else in a project file should be root-only.
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
 2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
