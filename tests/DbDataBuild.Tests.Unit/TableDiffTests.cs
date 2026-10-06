@@ -127,7 +127,7 @@ public class TableDiffTests
     {
         var o = new StringWriter(); var e = new StringWriter();
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
         File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         File.WriteAllText(Path.Combine(dir, "sources/staging/loose.yml"), "name: staging.loose\ncolumns:\n  - {name: a, type: BIGINT}\n");

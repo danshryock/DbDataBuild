@@ -15,7 +15,7 @@ public static class PlanReport
         void L(string s = "") => sb.Append(s).Append('\n');
         L($"# PLAN {plan.Id}");
         L();
-        L($"Target: `{plan.Target}` | commit: `{plan.GitCommit ?? "none"}`{(plan.GitDirty ? " (working tree dirty)" : "")} | tool: {plan.ToolVersion} | content hash: `{PlanDocument.ContentHash(plan)[..16]}`");
+        L($"Target: `{plan.Connection}` | commit: `{plan.GitCommit ?? "none"}`{(plan.GitDirty ? " (working tree dirty)" : "")} | tool: {plan.ToolVersion} | content hash: `{PlanDocument.ContentHash(plan)[..16]}`");
         L();
         var counts = plan.Steps.GroupBy(s => s.Type).OrderBy(g => g.Key).Select(g => $"{g.Count()} {Label(g.Key)} step{(g.Count() == 1 ? "" : "s")}").ToList();
         L(plan.Steps.Count == 0 ? "Summary: nothing to do. No statements will run." : $"Summary: {string.Join(", ", counts)}. Nothing else will run.");

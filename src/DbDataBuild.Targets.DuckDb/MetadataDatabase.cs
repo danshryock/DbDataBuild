@@ -33,7 +33,7 @@ WHERE m.kind IN ('model', 'source');
 CREATE VIEW metadata_models AS
 SELECT m.subject AS model, m.document->'kind'->>'type' AS kind_type,
   CAST(m.document->'kind'->'unique_key' AS VARCHAR[]) AS unique_key, m.document->'kind'->>'time_column' AS time_column, m.document->'kind'->>'lookback' AS lookback,
-  CAST(m.document->'grain' AS VARCHAR[]) AS grain, CAST(m.document->'targets' AS VARCHAR[]) AS targets,
+  CAST(m.document->'grain' AS VARCHAR[]) AS grain, CAST(m.document->'connections' AS VARCHAR[]) AS connections,
   m.document->'files'->>'definition' AS definition_file, m.document->'files'->>'query' AS query_file, m.document->>'definition_hash' AS definition_hash,
   json_array_length(m.document->'columns') AS column_count
 FROM metadata_current m WHERE m.kind = 'model';
@@ -63,14 +63,14 @@ FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c),
 WHERE m.kind = 'model';
 
 CREATE VIEW metadata_native_types AS
-SELECT m.subject AS model, c->>'name' AS column_name, target, json_extract_string(c->'native', '$."' || target || '"."type"') AS native_type,
-  json_extract_string(c->'native', '$."' || target || '"."collation"') AS collation, json_extract_string(c->'native', '$."' || target || '"."error"') AS error
-FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c), unnest(json_keys(c->'native')) AS k(target)
+SELECT m.subject AS model, c->>'name' AS column_name, connection, json_extract_string(c->'native', '$."' || connection || '"."type"') AS native_type,
+  json_extract_string(c->'native', '$."' || connection || '"."collation"') AS collation, json_extract_string(c->'native', '$."' || connection || '"."error"') AS error
+FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c), unnest(json_keys(c->'native')) AS k(connection)
 WHERE m.kind = 'model';
 
 CREATE VIEW metadata_indexes AS
 SELECT m.subject AS model, i->>'name' AS index_name, CAST(i->'columns' AS VARCHAR[]) AS columns, (i->>'unique')::BOOLEAN AS is_unique,
-  CAST(i->'include' AS VARCHAR[]) AS include, CAST(i->'targets' AS VARCHAR[]) AS targets
+  CAST(i->'include' AS VARCHAR[]) AS include, CAST(i->'connections' AS VARCHAR[]) AS connections
 FROM metadata_current m, unnest(CAST(m.document->'indexes' AS JSON[])) AS t(i) WHERE m.kind = 'model';
 
 CREATE VIEW metadata_source_indexes AS
@@ -82,14 +82,14 @@ SELECT m.subject AS source, f->>'name' AS foreign_key_name, CAST(f->'columns' AS
 FROM metadata_current m, unnest(CAST(m.document->'foreign_keys' AS JSON[])) AS t(f) WHERE m.kind = 'source';
 
 CREATE VIEW metadata_loads AS
-SELECT m.subject AS model, l->>'target' AS target, l->>'operation' AS operation, l->>'strategy' AS strategy, (l->>'is_default')::BOOLEAN AS is_default,
+SELECT m.subject AS model, l->>'connection' AS connection, l->>'operation' AS operation, l->>'strategy' AS strategy, (l->>'is_default')::BOOLEAN AS is_default,
   l->>'matrix_status' AS matrix_status, CAST(l->'findings' AS VARCHAR[]) AS findings, l->>'script_path' AS script_path, l->>'script_hash' AS script_hash
 FROM metadata_current m, unnest(CAST(m.document->'loads' AS JSON[])) AS t(l) WHERE m.kind = 'model';
 
 CREATE VIEW metadata_hooks AS
-SELECT m.subject AS model, k.target, h->>'name' AS hook_name, h->>'event' AS event, h->>'group' AS hook_group, h->>'script' AS script, h->>'effect' AS effect, h->>'risk' AS risk
-FROM metadata_current m, unnest(json_keys(m.document->'hooks')) AS k(target),
-  unnest(CAST(json_extract(m.document, '$.hooks."' || k.target || '"') AS JSON[])) AS t(h) WHERE m.kind = 'model';
+SELECT m.subject AS model, k.connection, h->>'name' AS hook_name, h->>'event' AS event, h->>'group' AS hook_group, h->>'script' AS script, h->>'effect' AS effect, h->>'risk' AS risk
+FROM metadata_current m, unnest(json_keys(m.document->'hooks')) AS k(connection),
+  unnest(CAST(json_extract(m.document, '$.hooks."' || k.connection || '"') AS JSON[])) AS t(h) WHERE m.kind = 'model';
 
 CREATE VIEW metadata_index_advice AS
 SELECT m.subject AS model, a->>'code' AS code, a->>'severity' AS severity, a->>'reason' AS reason, CAST(a->'columns' AS VARCHAR[]) AS columns,

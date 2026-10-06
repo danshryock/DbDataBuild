@@ -14,8 +14,8 @@ internal static class ReviewCommand
 {
     public static int Run(CommandSpec spec, string projectRoot, string? planFile, string? target, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
-        if (target != null && !TargetNames.All.Contains(target)) { error.WriteLine($"Unknown target `{target}`. One of: {string.Join(", ", TargetNames.All)}."); return CliApp.ExitUsage; }
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        if (target != null && CommandTargets.NamesOf(projectRoot) is var names && !names.Contains(target)) { error.WriteLine($"Unknown connection `{target}`. One of: {string.Join(", ", names)}."); return CliApp.ExitUsage; }
         return planFile == null ? List(projectRoot, target, output) : Show(projectRoot, planFile, output, error);
     }
 
@@ -27,8 +27,8 @@ internal static class ReviewCommand
             var relative = Path.GetRelativePath(projectRoot, path).Replace('\\', '/');
             var (browser, problems) = PlanBrowser.Load(path);
             rows.Add(browser != null
-                ? new { path = relative, id = browser.Plan.Id, target = browser.Plan.Target, steps = browser.Plan.Steps.Count, risky = browser.Risky, destructive = browser.Destructive, intact = true, problems = Array.Empty<string>() }
-                : new { path = relative, id = Path.GetFileName(path).Replace(".plan.yml", ""), target = Path.GetFileName(Path.GetDirectoryName(path)) ?? "", steps = 0, risky = 0, destructive = 0, intact = false, problems = problems.Select(DiagnosticFormatter.Format).ToArray() });
+                ? new { path = relative, id = browser.Plan.Id, connection = browser.Plan.Connection, steps = browser.Plan.Steps.Count, risky = browser.Risky, destructive = browser.Destructive, intact = true, problems = Array.Empty<string>() }
+                : new { path = relative, id = Path.GetFileName(path).Replace(".plan.yml", ""), connection = Path.GetFileName(Path.GetDirectoryName(path)) ?? "", steps = 0, risky = 0, destructive = 0, intact = false, problems = problems.Select(DiagnosticFormatter.Format).ToArray() });
             output.WriteLine(browser != null ? $"{relative}  {browser.Summary}" : $"{relative}  NOT INTACT: {problems.FirstOrDefault()?.Found}");
         }
         output.Payload("plans", rows);
@@ -39,7 +39,7 @@ internal static class ReviewCommand
     private static int Show(string projectRoot, string planFile, TextWriter output, TextWriter error)
     {
         var path = Path.GetFullPath(Path.Combine(projectRoot, planFile));
-        if (!path.EndsWith(".plan.yml", StringComparison.Ordinal) || !File.Exists(path)) { error.WriteLine($"`{planFile}` is not a plan file of this project (plans/<target>/<id>.plan.yml)."); return CliApp.ExitUsage; }
+        if (!path.EndsWith(".plan.yml", StringComparison.Ordinal) || !File.Exists(path)) { error.WriteLine($"`{planFile}` is not a plan file of this project (plans/<connection>/<id>.plan.yml)."); return CliApp.ExitUsage; }
         var (browser, problems) = PlanBrowser.Load(path);
         if (browser == null)
         {

@@ -343,7 +343,7 @@ public class McpServerTests : IDisposable
         Assert.True((bool)Call(s, "ui_file", new JsonObject { ["path"] = "../x.sql" })["isError"]!);
         var yml = Call(s, "ui_file", new JsonObject { ["path"] = "dbdatabuild.yml" });
         Assert.False((bool)yml["isError"]!);
-        Assert.Contains("targets", (string)JsonNode.Parse(Text(yml))!["text"]!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("connections", (string)JsonNode.Parse(Text(yml))!["text"]!, StringComparison.OrdinalIgnoreCase);
         Assert.False((bool)JsonNode.Parse(Text(Call(s, "ui_capabilities")))!["apply"]!);
     }
 
@@ -367,7 +367,7 @@ public class McpServerTests : IDisposable
             [new DbDataBuild.Planning.ObjectBase("marts.fct", DbDataBuild.State.ObjectState.InSync, new string('a', 64), new string('a', 64))], [],
             [new DbDataBuild.Planning.PlanStep("1", DbDataBuild.Planning.StepType.Ddl, "marts.fct", "add column", "ALTER TABLE marts.fct ADD x int;", DbDataBuild.Planning.RiskClass.Safe, ["col.added"], new string('b', 64), [])], [])));
         var relative = $"plans/postgres/{id}.plan.yml";
-        var confirm = new JsonObject { ["target"] = "postgres", ["plan_id"] = id };
+        var confirm = new JsonObject { ["connection"] = "postgres", ["plan_id"] = id };
 
         // the server was not started with --allow-apply: refused, nothing runs
         var off = UiServer(host, allowApply: false);
@@ -375,7 +375,7 @@ public class McpServerTests : IDisposable
         Assert.Empty(host.Ran);
 
         var on = UiServer(host, allowApply: true);
-        Assert.True((bool)Call(on, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = "nope", ["plan_id"] = id } })["isError"]!);       // not confirmed
+        Assert.True((bool)Call(on, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["connection"] = "nope", ["plan_id"] = id } })["isError"]!);       // not confirmed
         Assert.Empty(host.Ran);
         var started = Call(on, "ui_apply", new JsonObject { ["plan"] = relative, ["confirm"] = confirm.DeepClone() });
         Assert.False((bool)started["isError"]!);

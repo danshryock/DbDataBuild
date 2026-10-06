@@ -86,7 +86,7 @@ npx -y supergateway --stdio "node scripts/mcp-advertise-ui.mjs -- dbdatabuild mc
 (cd examples/basic-host && SERVERS='["http://localhost:3001/mcp"]' bun serve.ts)     # open http://localhost:8080
 ```
 
-Pick the tool `show` with `{"screen": "plans"}`, or `review` with `{"plan": "plans/<target>/<id>.plan.yml"}`.
+Pick the tool `show` with `{"screen": "plans"}`, or `review` with `{"plan": "plans/<connection>/<id>.plan.yml"}`.
 
 ### A checklist for a real host
 

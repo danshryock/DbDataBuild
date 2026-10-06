@@ -93,7 +93,7 @@ public class DefinitionWriterTests
               type: incremental_by_unique_key
               unique_key: [order_id]
             grain: [order_id]
-            targets: [sqlserver, fabric]
+            connections: [sqlserver, fabric]
             columns:
               - name: order_id
                 type: BIGINT
@@ -165,7 +165,7 @@ public class DefinitionEditorTests
           unique_key: [order_id]
 
         grain: [order_id]
-        targets: [sqlserver, fabric]
+        connections: [sqlserver, fabric]
         columns:
           # identifiers
           - name: order_id
@@ -252,7 +252,7 @@ public class DefinitionEditorTests
         var result = Edit(Text,
             new SetColumnType("amount", "DECIMAL(18, 2)"), new SetColumnNullable("customer_id", false), new RemoveColumn("discount_code"),
             new AddColumn("net", "BIGINT", true), new RenameColumn("order_id", "id"));
-        foreach (var kept in new[] { "# Orders fact table (hand-written comment)", "# keyed upsert", "# identifiers", "# money", "# trailing comment", "unique_key: [id]", "targets: [sqlserver, fabric]" })
+        foreach (var kept in new[] { "# Orders fact table (hand-written comment)", "# keyed upsert", "# identifiers", "# money", "# trailing comment", "unique_key: [id]", "connections: [sqlserver, fabric]" })
             Assert.Contains(kept, result);
         var diags = new List<Diagnostic>();
         var def = ModelDefinitionLoader.Load(result, "models/marts/fct_orders.yml", "marts.fct_orders", diags)!;
@@ -280,7 +280,7 @@ public class DefinitionEditorTests
     {
         var result = Edit(Text, new AddColumn("net", "BIGINT", true), new RenameColumn("amount", "total"));
         var keys = result.Split('\n').Where(l => l.Length > 0 && char.IsLetter(l[0])).Select(l => l.Split(':')[0]).ToList();
-        Assert.Equal(["name", "kind", "grain", "targets", "columns", "renames"], keys);
+        Assert.Equal(["name", "kind", "grain", "connections", "columns", "renames"], keys);
     }
 
     private const string FlowItems = "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: INTEGER}\n  - {name: b, type: VARCHAR(5), nullable: false}\n";

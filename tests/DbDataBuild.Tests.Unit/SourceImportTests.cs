@@ -216,13 +216,13 @@ public class SourceImportTests
     private static string Project(bool withSource)
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
         if (withSource)
         {
             Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
             File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n");
         }
-        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), "name: marts.fct_orders\nkind: {type: view}\ntargets: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), "name: marts.fct_orders\nkind: {type: view}\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id FROM staging.orders o\n");
         return dir;
     }

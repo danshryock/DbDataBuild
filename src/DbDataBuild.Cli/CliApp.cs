@@ -72,7 +72,7 @@ public static class CliApp
                 case "render":
                     var renderModels = new Argument<string[]>("models") { Description = "Model names (marts.fct_orders), model files, or directories (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var renderProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var renderTarget = new Option<string[]>("--target") { Description = "Only these targets (sqlserver, fabric, postgres)", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
+                    var renderTarget = new Option<string[]>("--connection") { Description = "Only these connections", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
                     var renderWrite = new Option<bool>("--write") { Description = "Write the committed rendered/ files (and remove stale generated ones)" };
                     var renderCheck = new Option<bool>("--check") { Description = "CI: fail if the committed rendered/ files differ from a fresh render; writes nothing" };
                     var renderContent = new Option<bool>("--content") { Description = "With --format json: put each rendered file's text in the document (files[].content), so a client can show the lowered and rendered scripts without writing them" };
@@ -91,7 +91,7 @@ public static class CliApp
                     break;
                 case "tui":
                     var tuiProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var tuiTarget = new Option<string?>("--target") { Description = "Target to work on (default: the project's only default target)" };
+                    var tuiTarget = new Option<string?>("--connection") { Description = "Connection to work on (default: the project's only default connection)" };
                     cmd.Options.Add(tuiProject); cmd.Options.Add(tuiTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => TuiCommand.Run(spec, pr.GetValue(tuiProject)!.FullName, pr.GetValue(tuiTarget), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
@@ -105,7 +105,7 @@ public static class CliApp
                 case "web":
                     var webProject = new Option<DirectoryInfo>("--project") { Description = "Project root to show", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var webPort = new Option<int>("--port") { Description = "Port on the loopback address (default: a free one)", DefaultValueFactory = _ => 0 };
-                    var webApply = new Option<bool>("--allow-apply") { Description = "Let the page apply plans (a person confirms each one by typing the plan's id and target; needs the write login in this environment). Off by default: the page reads and plans only." };
+                    var webApply = new Option<bool>("--allow-apply") { Description = "Let the page apply plans (a person confirms each one by typing the plan's id and connection; needs the write login in this environment). Off by default: the page reads and plans only." };
                     cmd.Options.Add(webProject); cmd.Options.Add(webPort); cmd.Options.Add(webApply);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => Web.WebCommand.Run(Path.GetFullPath(pr.GetValue(webProject)!.FullName), pr.GetValue(webPort), pr.GetValue(webApply), o.IsJson(), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
@@ -143,7 +143,7 @@ public static class CliApp
                     break;
                 case "load-seeds":
                     var lsProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var lsTarget = new Option<string?>("--target") { Description = "Target to load (default: the project's only default target)" };
+                    var lsTarget = new Option<string?>("--connection") { Description = "Connection to load (default: the project's only default connection)" };
                     var lsSeed = new Option<int>("--seed") { Description = "The variable `seed` the seeds read: the same seed and scale give the same rows", DefaultValueFactory = _ => 1 };
                     var lsScale = new Option<int?>("--scale") { Description = "The variable `scale` the seeds read, usually how many of the main entity (default: the project's own)" };
                     var lsReplace = new Option<bool>("--replace") { Description = "Drop and recreate a source table that already exists (default: stop at the first table that exists)" };
@@ -153,18 +153,18 @@ public static class CliApp
                     break;
                 case "init":
                     var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var initTarget = new Option<string?>("--target") { Description = "Target to initialize (default: the project's only default target)" };
+                    var initTarget = new Option<string?>("--connection") { Description = "Connection to initialize (default: the project's only default connection)" };
                     var initApply = new Option<bool>("--apply") { Description = "Run the script on the write login (default: print it for review and connect to nothing)" };
                     cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "plan":
-                    var planModels = new Argument<string[]>("models") { Description = "Model names, files or directories to plan (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var planModels = new Argument<string[]>("models") { Description = "Model names, files or directories to plan (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
                     var planProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var planTarget = new Option<string?>("--target") { Description = "Target to plan for (default: the project's only default target)" };
+                    var planTarget = new Option<string?>("--connection") { Description = "Connection to plan for (default: the project's only default connection)" };
                     var planAnswers = new Option<FileInfo?>("--answers") { Description = "Answers file for the questions (see schemas/answers.schema.json)" };
                     var planAccept = new Option<bool>("--accept-inferred") { Description = "Accept inferred proposals marked high certainty" };
-                    var planOut = new Option<DirectoryInfo?>("--output") { Description = "Where to write the plan files (default: plans/<target>/)" };
+                    var planOut = new Option<DirectoryInfo?>("--output") { Description = "Where to write the plan files (default: plans/<connection>/)" };
                     var planOp = new Option<string[]>("--op") { Description = "model=operation: load this model with a non-default operation (repeatable)", DefaultValueFactory = _ => [] };
                     var planBackfill = new Option<string[]>("--backfill") { Description = "model=operation: plan that operation as a backfill (risky; needs --allow-risky at apply); the model has no routine load in this plan (repeatable)", DefaultValueFactory = _ => [] };
                     var planParam = new Option<string[]>("--param") { Description = "model.operation.parameter=value: the value of a runtime parameter of a load operation, instead of an answers file (repeatable)", DefaultValueFactory = _ => [] };
@@ -175,15 +175,15 @@ public static class CliApp
                         o, e, input, interactive && !o.IsJson(), environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "check":
-                    var checkModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var checkModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
                     var checkProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var checkTarget = new Option<string?>("--target") { Description = "Target to check (default: the project's only default target)" };
+                    var checkTarget = new Option<string?>("--connection") { Description = "Connection to check (default: the project's only default connection)" };
                     cmd.Arguments.Add(checkModels);
                     cmd.Options.Add(checkProject); cmd.Options.Add(checkTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Check(spec, pr.GetValue(checkProject)!.FullName, pr.GetValue(checkTarget), pr.GetValue(checkModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "apply":
-                    var applyPlan = new Argument<FileInfo>("plan") { Description = "Plan file written by `plan` (plans/<target>/<id>.plan.yml)" };
+                    var applyPlan = new Argument<FileInfo>("plan") { Description = "Plan file written by `plan` (plans/<connection>/<id>.plan.yml)" };
                     var applyProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var applyDry = new Option<bool>("--dry-run") { Description = "Run every check and print every statement; execute nothing" };
                     var applyRisky = new Option<bool>("--allow-risky") { Description = "Allow the plan's risky steps" };
@@ -199,16 +199,16 @@ public static class CliApp
                     var ackKind = new Argument<string>("kind") { Description = "drift (an object changed outside the tool), definition (an incremental model's query changed), or history (a recorded backfill that never happened; name is model.column)" };
                     var ackName = new Argument<string>("name") { Description = "The object (marts.fct) or model name" };
                     var ackReason = new Option<string?>("--reason") { Description = "Why the change is accepted (required; recorded with your login)" };
-                    var ackTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var ackTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var ackProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Arguments.Add(ackKind); cmd.Arguments.Add(ackName);
                     cmd.Options.Add(ackReason); cmd.Options.Add(ackTarget); cmd.Options.Add(ackProject);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "run":
-                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the target)", Arity = ArgumentArity.ZeroOrMore };
+                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
                     var runProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var runTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var runTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
                     cmd.Arguments.Add(runModels);
                     cmd.Options.Add(runProject); cmd.Options.Add(runTarget); cmd.Options.Add(runDirty);
@@ -216,7 +216,7 @@ public static class CliApp
                     break;
                 case "report":
                     var reportProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var reportTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var reportTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var reportLast = new Option<int>("--last") { Description = "How many recent rows of each history to show", DefaultValueFactory = _ => 10 };
                     cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
@@ -224,7 +224,7 @@ public static class CliApp
                 case "diff":
                     var diffTable = new Argument<string>("table") { Description = "The table or view to compare, as schema.table (a model's table, for example)" };
                     var diffProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var diffTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var diffTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var diffAgainst = new Option<string?>("--against") { Description = "The table or view to compare it with, as schema.table" };
                     var diffAgainstSchema = new Option<string?>("--against-schema") { Description = "Compare with the table of the same name in this schema (a development copy, for example)" };
                     var diffKey = new Option<string[]>("--key") { Description = "Columns that identify a row (default: the model's grain or unique key, or a source's grain)", AllowMultipleArgumentsPerToken = true };
@@ -238,7 +238,7 @@ public static class CliApp
                         pr.GetValue(diffKey) ?? [], pr.GetValue(diffOnly) ?? [], pr.GetValue(diffExcept) ?? [], pr.GetValue(diffValues), pr.GetValue(diffLimit), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "graph":
-                    var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `target:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
+                    var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `connection:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
                     var graphProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var graphColumns = new Option<bool>("--columns") { Description = "Also show which column of which table each output column comes from" };
                     var graphColumn = new Option<string?>("--column") { Description = "Follow one column (model.column) up to the columns it comes from and down to the columns built from it" };
@@ -249,7 +249,7 @@ public static class CliApp
                 case "import-sources":
                     var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
                     var impProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var impTarget = new Option<string?>("--target") { Description = "Target to read (default: the project's only default target)" };
+                    var impTarget = new Option<string?>("--connection") { Description = "Connection to read (default: the project's only default connection)" };
                     var impWrite = new Option<bool>("--write") { Description = "Write the new and changed descriptors under sources/ (without it the command only shows the diff)" };
                     var impCheck = new Option<bool>("--check") { Description = "CI: fail if a descriptor differs from the table it describes; writes nothing" };
                     cmd.Arguments.Add(impTables); cmd.Options.Add(impProject); cmd.Options.Add(impTarget); cmd.Options.Add(impWrite); cmd.Options.Add(impCheck);
@@ -274,14 +274,14 @@ public static class CliApp
                 case "publish-metadata":
                     var pubModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var pubProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var pubTarget = new Option<string?>("--target") { Description = "Target (default: the project's only default target)" };
+                    var pubTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     cmd.Arguments.Add(pubModels); cmd.Options.Add(pubProject); cmd.Options.Add(pubTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PublishMetadataCommand.Run(spec, pr.GetValue(pubProject)!.FullName, pr.GetValue(pubTarget), pr.GetValue(pubModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "review":
-                    var reviewPlan = new Argument<string?>("plan") { Description = "A plan file (plans/<target>/<id>.plan.yml); omit to list the project's plans", Arity = ArgumentArity.ZeroOrOne };
+                    var reviewPlan = new Argument<string?>("plan") { Description = "A plan file (plans/<connection>/<id>.plan.yml); omit to list the project's plans", Arity = ArgumentArity.ZeroOrOne };
                     var reviewProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
-                    var reviewTarget = new Option<string?>("--target") { Description = "When listing, only the plans of this target" };
+                    var reviewTarget = new Option<string?>("--connection") { Description = "When listing, only the plans of this connection" };
                     cmd.Arguments.Add(reviewPlan); cmd.Options.Add(reviewProject); cmd.Options.Add(reviewTarget);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReviewCommand.Run(spec, pr.GetValue(reviewProject)!.FullName, pr.GetValue(reviewPlan), pr.GetValue(reviewTarget), o, e)));
                     break;
@@ -310,7 +310,7 @@ public static class CliApp
     }
 
     private static void WriteHeader(CommandSpec spec, TextWriter output) =>
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
 
     private static int Validate(CommandSpec spec, string projectRoot, TextWriter output, TextWriter error)
     {
@@ -355,7 +355,7 @@ public static class CliApp
             foreach (var d in diags) error.Diag(d);
             return ExitFindings;
         }
-        output.Payload("rewrites", RewriteCatalog.All.Select(r => new { name = r.Name, layer = r.Layer.ToString().ToLowerInvariant(), targets = r.Targets, required_on = r.RequiredOn, exact = r.Exact, native = r.Native }).ToList());
+        output.Payload("rewrites", RewriteCatalog.All.Select(r => new { name = r.Name, layer = r.Layer.ToString().ToLowerInvariant(), engines = r.Targets, required_on = r.RequiredOn, exact = r.Exact, native = r.Native }).ToList());
         if (rewrites)
         {
             output.WriteLine($"{"rewrite",-24} {"layer",-9} {"required on",-24} what it does");
@@ -382,7 +382,7 @@ public static class CliApp
         output.Payload("constructs", matrix.Rows.Select(r => new
         {
             id = r.Id,
-            targets = r.Targets.ToDictionary(t => t.Key, t => new { status = t.Value.Status.ToString().ToLowerInvariant(), min_version = t.Value.MinVersion, note = t.Value.Note }),
+            engines = r.Targets.ToDictionary(t => t.Key, t => new { status = t.Value.Status.ToString().ToLowerInvariant(), min_version = t.Value.MinVersion, note = t.Value.Note }),
         }).ToList());
         output.Payload("covered_entries", matrix.Covered.Count);
         output.WriteLine($"\n{matrix.Rows.Count} construct row(s); {matrix.Covered.Count} verified node/function/type entries (anything else is reported as DDB-305).");

@@ -315,7 +315,7 @@ internal sealed class McpServer
         if (plan == null) return "";
         var (browser, _) = PlanBrowser.Load(plan);
         return browser == null ? "\nThe plan does not parse or was edited: apply will refuse it.\n"
-            : $"\nPlan {browser.Plan.Id} on {browser.Plan.Target}: {browser.Plan.Steps.Count} steps, {browser.Risky} risky, {browser.Destructive} destructive" +
+            : $"\nPlan {browser.Plan.Id} on {browser.Plan.Connection}: {browser.Plan.Steps.Count} steps, {browser.Risky} risky, {browser.Destructive} destructive" +
               (browser.DestructiveObjects.Count > 0 ? $" (on {string.Join(", ", browser.DestructiveObjects)})" : "") + ".\n" +
               string.Join("\n", browser.Plan.Steps.Take(12).Select(s => $"  {s.Id}. [{s.Risk.ToString().ToLowerInvariant()}] {s.Description}")) + (browser.Plan.Steps.Count > 12 ? $"\n  … and {browser.Plan.Steps.Count - 12} more" : "") + "\n";
     }

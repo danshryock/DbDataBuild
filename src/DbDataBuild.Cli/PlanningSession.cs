@@ -11,11 +11,15 @@ namespace DbDataBuild.Cli;
 
 internal static class CommandTargets
 {
+    /// <summary>The connection names of the project (the engine-named ones included), for checks that run before the project is fully loaded. A damaged project file gives the engine names; the command that reads it reports the damage.</summary>
+    public static IReadOnlyList<string> NamesOf(string projectRoot) =>
+        [.. ProjectConfigLoader.LoadFromProject(projectRoot, []).Connections.Keys.Order(StringComparer.Ordinal)];
+
     /// <summary>The connection a command works on: the flag, or the project's only default connection.</summary>
     public static ConnectionConfig? Resolve(ProjectConfig config, string? arg, TextWriter error)
     {
-        var name = arg ?? (config.DefaultTargets.Count == 1 ? config.DefaultTargets[0] : null);
-        if (name == null) { error.WriteLine($"--target is required: the project has {config.DefaultTargets.Count} default connections ({string.Join(", ", config.DefaultTargets)})."); return null; }
+        var name = arg ?? (config.DefaultConnections.Count == 1 ? config.DefaultConnections[0] : null);
+        if (name == null) { error.WriteLine($"--connection is required: the project has {config.DefaultConnections.Count} default connections ({string.Join(", ", config.DefaultConnections)})."); return null; }
         if (!config.Connections.TryGetValue(name, out var connection)) { error.WriteLine($"Unknown connection `{name}`. One of: {string.Join(", ", config.Connections.Keys.Order(StringComparer.Ordinal))}."); return null; }
         return connection;
     }
@@ -101,7 +105,7 @@ internal sealed class PlanningSession
         var target = connection.Name; var engine = connection.Engine;
 
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         output.Payload("effect", spec.Effect.Describe());
         output.Payload("login", login?.Describe());
         output.WriteLine($"Effective: {ctx.Config.Describe()}");

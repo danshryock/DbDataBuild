@@ -30,7 +30,7 @@ internal static class InitCommand
             var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
-                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: none");
+                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: none");
                 error.Diag(missing);
                 return CliApp.ExitFindings;
             }
@@ -39,11 +39,11 @@ internal static class InitCommand
 
         var ddl = TrackingDdl.For(engine);
         var script = ddl.InitScript(config.TrackingSchema, ProductInfo.Version);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
         output.WriteLine($"Tracking schema: {config.TrackingSchema}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
-        output.Payload("target", target);
+        output.Payload("connection", target);
         output.Payload("tracking_schema", config.TrackingSchema);
         output.Payload("layout_version", DbDataBuild.State.TrackingSchema.Version);
         output.Payload("unverified", ddl.Unverified);
@@ -53,7 +53,7 @@ internal static class InitCommand
         {
             output.WriteLine();
             output.Write(TrackingDdl.Render(script));
-            output.WriteLine($"Review the script above, then run `{ProductInfo.Cli} {spec.Name} --target {target} --apply` with the write login configured.");
+            output.WriteLine($"Review the script above, then run `{ProductInfo.Cli} {spec.Name} --connection {target} --apply` with the write login configured.");
             return CliApp.ExitOk;
         }
 

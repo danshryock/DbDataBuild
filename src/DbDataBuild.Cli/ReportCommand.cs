@@ -23,7 +23,7 @@ internal static class ReportCommand
         var target = connection.Name; var engine = connection.Engine;
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var schema = config.TrackingSchema;
@@ -97,7 +97,7 @@ internal static class ReportCommand
             foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} ack drift {d} --reason ...`, or restore it)");
             output.WriteLine();
             output.Payload("needs_attention", open);
-            output.Payload("target", target);
+            output.Payload("connection", target);
             output.WriteLine($"Needs attention ({open.Count})");
             foreach (var o in open) output.WriteLine("  - " + o);
             if (open.Count == 0) output.WriteLine("  nothing");

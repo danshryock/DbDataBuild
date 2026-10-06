@@ -53,7 +53,7 @@
                 }
               ]
             },
-            "targets": {
+            "connections": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -100,7 +100,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "default_targets": {
+            "default_connections": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -240,7 +240,7 @@
               "kind": {
                 "type": "string"
               },
-              "targets": {
+              "connections": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -364,7 +364,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "operation": {
@@ -422,7 +422,7 @@
         }
       },
       "required": [
-        "target",
+        "connection",
         "operation",
         "strategy",
         "is_default"
@@ -450,7 +450,7 @@
             "type": "string"
           }
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "items": {
             "type": "string"
@@ -535,7 +535,7 @@
         "existing_index": {
           "type": "string"
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "items": {
             "type": "string"
@@ -552,7 +552,7 @@
         "columns",
         "unique",
         "suggested",
-        "targets",
+        "connections",
         "silenced"
       ]
     },
@@ -601,7 +601,7 @@
             "type": "string"
           }
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "items": {
             "type": "string"
@@ -776,7 +776,7 @@
         "name",
         "kind",
         "grain",
-        "targets",
+        "connections",
         "files",
         "columns",
         "loads",

@@ -57,7 +57,7 @@ public sealed record ResolvedHook(string Name, string Event, string ScriptPath, 
 
 public static partial class HookReader
 {
-    private static readonly string[] Keys = ["name", "event", "script", "targets", "effect", "risk", "use"];
+    private static readonly string[] Keys = ["name", "event", "script", "connections", "effect", "risk", "use"];
     public static readonly IReadOnlyList<string> Effects = ["ddl", "data"];
     public static readonly IReadOnlyList<string> Risks = ["safe", "risky", "destructive"];
 
@@ -125,7 +125,7 @@ public static partial class HookReader
             }
 
             List<string>? targets = null;
-            if (m.Get("targets") is { } tn)
+            if (m.Get("connections") is { } tn)
             {
                 if (tn is YamlSequence ts && ts.Items.Count > 0 && ts.Items.All(i => i is YamlScalar))
                 {

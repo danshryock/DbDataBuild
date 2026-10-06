@@ -150,7 +150,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         var notes = new List<string>();
         var answers = new List<ResolvedAnswer>();
 
-        var round1 = new List<Question> { DefineQuestions.Name(t.ModelName, t.QueryFile), DefineQuestions.Kind(t.ModelName), DefineQuestions.Targets(t.ModelName, config.DefaultTargets, Portability(t)) };
+        var round1 = new List<Question> { DefineQuestions.Name(t.ModelName, t.QueryFile), DefineQuestions.Kind(t.ModelName), DefineQuestions.Targets(t.ModelName, config.DefaultConnections, Portability(t)) };
         foreach (var c in inf.Columns)
         {
             round1.Add(DefineQuestions.ColumnType(t.ModelName, c));
@@ -169,7 +169,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         var a1 = answers.ToDictionary(a => a.QuestionId);
         var name = a1[QuestionIds.Define(t.ModelName, "name")].Value!;
         var kind = a1[QuestionIds.Define(t.ModelName, "kind")].Choice;
-        var targets = ParseTargets(a1[QuestionIds.Define(t.ModelName, "targets")], out var targetProblem);
+        var targets = ParseTargets(a1[QuestionIds.Define(t.ModelName, "connections")], out var targetProblem);
         if (targetProblem != null) return Failed(t, answers, notes, targetProblem);
 
         var columns = new List<ColumnDefinition>();
@@ -232,7 +232,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         var def = new ModelDefinition(name, kind, uniqueKey, timeColumn, lookback, grain, targets, columns, []);
 
         // round 3: indexes the loads would use (advice from IndexAdvisor; never added without an answer, and never by --accept-inferred, which takes only high-certainty proposals)
-        var advice = IndexAdvisor.For(def, targets ?? config.DefaultTargets);
+        var advice = IndexAdvisor.For(def, targets ?? config.DefaultConnections);
         if (advice.Count > 0)
         {
             var r3 = session.Ask([DefineQuestions.Indexes(t.ModelName, advice)]);

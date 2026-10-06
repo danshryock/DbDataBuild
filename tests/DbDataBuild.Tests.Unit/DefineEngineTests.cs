@@ -45,7 +45,7 @@ public class DefineEngineTests
     {
         Accept(Id(model, "name")),
         Choice(Id(model, "kind"), "incremental_by_unique_key"),
-        Choice(Id(model, "targets"), "choose_targets", "sqlserver, fabric"),
+        Choice(Id(model, "connections"), "choose_targets", "sqlserver, fabric"),
         Accept(Id(model, "grain")),
         Accept(Id(model, "unique_key")),
         Choice(Id(model, "indexes"), "add_suggested"),
@@ -108,7 +108,7 @@ public class DefineEngineTests
         var ids = o.Unanswered.Select(q => q.Id).ToList();
         Assert.Contains(Id("marts.fct_orders", "name"), ids);
         Assert.Contains(Id("marts.fct_orders", "kind"), ids);
-        Assert.Contains(Id("marts.fct_orders", "targets"), ids);
+        Assert.Contains(Id("marts.fct_orders", "connections"), ids);
         foreach (var c in OrderColumns)
         {
             Assert.Contains(Id("marts.fct_orders", $"columns.{c}.type"), ids);
@@ -128,14 +128,14 @@ public class DefineEngineTests
         Assert.All(o.Answers, a => Assert.Equal(AnswerSource.AcceptedProposalByFlag, a.Source));
         Assert.Contains(o.Answers, a => a.QuestionId == Id("marts.fct_orders", "name"));
         Assert.Equal(OrderColumns.Length * 2 + 1, o.Answers.Count);                  // name + every column's type and nullability
-        Assert.Equal([Id("marts.fct_orders", "kind"), Id("marts.fct_orders", "targets")], o.Unanswered.Select(q => q.Id).Order(StringComparer.Ordinal));
+        Assert.Equal([Id("marts.fct_orders", "connections"), Id("marts.fct_orders", "kind")], o.Unanswered.Select(q => q.Id).Order(StringComparer.Ordinal));
     }
 
     [Fact]
     public void Second_round_questions_appear_once_the_kind_is_answered()
     {
         var m = "marts.fct_orders";
-        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "incremental_by_unique_key"), Accept(Id(m, "targets")) };
+        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "incremental_by_unique_key"), Accept(Id(m, "connections")) };
         answers.AddRange(Columns(m, OrderColumns));
         var o = One(Run(Engine(), [Target(m, Orders)], answers.ToArray()));
         Assert.Equal(DefineStatus.Incomplete, o.Status);
@@ -147,18 +147,18 @@ public class DefineEngineTests
     public void A_full_model_has_no_second_round_and_omits_targets_when_the_project_default_is_used()
     {
         var m = "marts.dim_customer";
-        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "targets")) };
+        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "connections")) };
         answers.AddRange(Columns(m, ["customer_id", "name"]));
         var o = One(Run(Engine(), [Target(m, "SELECT c.customer_id, c.name FROM staging.customers c")], answers.ToArray()));
         Assert.Equal(DefineStatus.Created, o.Status);
-        GoldenFile.Assert("define/new_full_default_targets.yml", o.NewText!);
+        GoldenFile.Assert("define/new_full_default_connections.yml", o.NewText!);
     }
 
     [Fact]
     public void A_view_is_defined_without_grain()
     {
         var m = "marts.v_orders";
-        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "view"), Accept(Id(m, "targets")) };
+        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "view"), Accept(Id(m, "connections")) };
         answers.AddRange(Columns(m, ["order_id", "amount"]));
         var o = One(Run(Engine(), [Target(m, "SELECT o.order_id, o.amount FROM staging.orders o")], answers.ToArray()));
         Assert.Equal(DefineStatus.Created, o.Status);
@@ -172,7 +172,7 @@ public class DefineEngineTests
         const string sql = "SELECT o.order_date, o.created_at, COUNT(*) AS n FROM staging.orders o GROUP BY o.order_date, o.created_at";
         var answers = new List<Answer>
         {
-            Accept(Id(m, "name")), Choice(Id(m, "kind"), "incremental_by_time_range"), Accept(Id(m, "targets")),
+            Accept(Id(m, "name")), Choice(Id(m, "kind"), "incremental_by_time_range"), Accept(Id(m, "connections")),
             Accept(Id(m, "grain")), Choice(Id(m, "time_column"), "use_column", "ORDER_DATE"), Choice(Id(m, "lookback"), "use_lookback", "3 days"),
             Choice(Id(m, "indexes"), "no_indexes"),
         };
@@ -187,7 +187,7 @@ public class DefineEngineTests
     {
         Question TimeQuestion(string model, string sql, params string[] columns)
         {
-            var answers = new List<Answer> { Accept(Id(model, "name")), Choice(Id(model, "kind"), "incremental_by_time_range"), Accept(Id(model, "targets")) };
+            var answers = new List<Answer> { Accept(Id(model, "name")), Choice(Id(model, "kind"), "incremental_by_time_range"), Accept(Id(model, "connections")) };
             answers.AddRange(Columns(model, columns));
             return One(Run(Engine(), [Target(model, sql)], answers.ToArray())).Unanswered.Single(q => q.Id == Id(model, "time_column"));
         }
@@ -209,12 +209,12 @@ public class DefineEngineTests
         Assert.Equal("VARCHAR", q.Proposal!.Value);                 // no length declared or written: the proposal is unlimited text
         Assert.Contains("unlimited", string.Join(" ", q.Context));
 
-        var unlimited = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "targets")), Accept(Id(m, "columns.tagged.type")) };
+        var unlimited = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "connections")), Accept(Id(m, "columns.tagged.type")) };
         unlimited.AddRange(Columns(m, ["order_id"]));
         unlimited.Add(Choice(Id(m, "columns.tagged.nullable"), "nullable"));
         Assert.Contains("  - name: tagged\n    type: VARCHAR\n", One(Run(Engine(), [Target(m, sql)], unlimited.ToArray())).NewText);
 
-        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "targets")), Choice(Id(m, "columns.tagged.type"), "use_type", "varchar(30)") };
+        var answers = new List<Answer> { Accept(Id(m, "name")), Choice(Id(m, "kind"), "full"), Accept(Id(m, "connections")), Choice(Id(m, "columns.tagged.type"), "use_type", "varchar(30)") };
         answers.AddRange(Columns(m, ["order_id"]));
         answers.Add(Choice(Id(m, "columns.tagged.nullable"), "nullable"));          // lineage cannot show it for an expression, so it is an explicit answer
         var o = One(Run(Engine(), [Target(m, sql)], answers.ToArray()));
@@ -233,7 +233,7 @@ public class DefineEngineTests
         Assert.Equal(DefineStatus.Failed, badName.Status);
         Assert.Contains(badName.Diagnostics, d => d.Code == "DDB-107");
 
-        var badTarget = One(Run(Engine(), [Target(m, Orders)], With(Choice(Id(m, "targets"), "choose_targets", "oracle"))));
+        var badTarget = One(Run(Engine(), [Target(m, Orders)], With(Choice(Id(m, "connections"), "choose_targets", "oracle"))));
         Assert.Contains(badTarget.Diagnostics, d => d.Code == "DDB-106" && d.Found.Contains("oracle"));
 
         var badType = One(Run(Engine(), [Target(m, Orders)], With(Choice(Id(m, "columns.amount.type"), "use_type", "INT); DROP TABLE x; --"))));
@@ -280,7 +280,7 @@ public class DefineEngineTests
           unique_key: [order_id]
 
         grain: [order_id]
-        targets: [sqlserver, fabric]
+        connections: [sqlserver, fabric]
         columns:
           # identifiers
           - name: order_id
@@ -493,8 +493,8 @@ public class DefineEngineTests
         var b = "marts.b_report";
         var answers = new List<Answer>
         {
-            Accept(Id(a, "name")), Choice(Id(a, "kind"), "full"), Accept(Id(a, "targets")),
-            Accept(Id(b, "name")), Choice(Id(b, "kind"), "view"), Accept(Id(b, "targets")),
+            Accept(Id(a, "name")), Choice(Id(a, "kind"), "full"), Accept(Id(a, "connections")),
+            Accept(Id(b, "name")), Choice(Id(b, "kind"), "view"), Accept(Id(b, "connections")),
         };
         answers.AddRange(Columns(a, ["order_id", "amount"]));
         answers.AddRange(Columns(b, ["order_id", "amount"]));
@@ -563,7 +563,7 @@ public class DefineEngineTests
         answers.AddRange(Columns(m, ["customer_id", "name"]));
         var o = One(Run(Engine(), [Target(m, sql)], answers.ToArray(), prompter));
         Assert.Equal(DefineStatus.Created, o.Status);
-        Assert.Equal([Id(m, "name"), Id(m, "targets")], prompter.Asked.Order(StringComparer.Ordinal));
+        Assert.Equal([Id(m, "connections"), Id(m, "name")], prompter.Asked.Order(StringComparer.Ordinal));
     }
 
     private sealed class RecordingPrompter : IPrompter

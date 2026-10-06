@@ -41,7 +41,7 @@ public class FuzzTests
     }
 
     private const string Config = """
-        default_targets: [sqlserver, postgres]
+        default_connections: [sqlserver, postgres]
         connections:
           sqlserver: { version: 17 }
         string_semantics:

@@ -19,7 +19,7 @@ internal static class TestCommand
 
     public static int Run(CommandSpec spec, string root, string[] names, string[] tags, string? kind, int limit, bool strict, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (limit < 0) { error.WriteLine("--limit must not be negative."); return CliApp.ExitUsage; }
         if (kind is not (null or "metadata" or "model")) { error.WriteLine("--kind is `metadata` or `model`."); return CliApp.ExitUsage; }
 

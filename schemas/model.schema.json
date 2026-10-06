@@ -22,8 +22,8 @@
       "description": "Columns that uniquely identify an output row. Required for incremental kinds; for incremental_by_unique_key it must equal unique_key.",
       "$ref": "#/$defs/columnList"
     },
-    "targets": {
-      "description": "Connections the model is on: built natively on each. The project's default_targets apply if omitted.",
+    "connections": {
+      "description": "Connections the model is on: built natively on each. The project's default_connections apply if omitted.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -393,7 +393,7 @@
               "description": "The operation `run` uses when `--op` is not given. At most one per target.",
               "$ref": "#/$defs/boolish"
             },
-            "targets": {
+            "connections": {
               "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
               "type": "array",
               "minItems": 1,
@@ -420,7 +420,7 @@
               "description": "The operation `run` uses when `--op` is not given. At most one per target.",
               "$ref": "#/$defs/boolish"
             },
-            "targets": {
+            "connections": {
               "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
               "type": "array",
               "minItems": 1,
@@ -456,7 +456,7 @@
               "description": "The operation `run` uses when `--op` is not given. At most one per target.",
               "$ref": "#/$defs/boolish"
             },
-            "targets": {
+            "connections": {
               "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
               "type": "array",
               "minItems": 1,
@@ -492,7 +492,7 @@
               "description": "The operation `run` uses when `--op` is not given. At most one per target.",
               "$ref": "#/$defs/boolish"
             },
-            "targets": {
+            "connections": {
               "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
               "type": "array",
               "minItems": 1,
@@ -545,7 +545,7 @@
               "description": "The operation `run` uses when `--op` is not given. At most one per target.",
               "$ref": "#/$defs/boolish"
             },
-            "targets": {
+            "connections": {
               "description": "Restrict the operation to these targets. Without it the operation applies to every target the model declares.",
               "type": "array",
               "minItems": 1,
@@ -662,7 +662,7 @@
             "minLength": 1
           }
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -723,7 +723,7 @@
             }
           ]
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,

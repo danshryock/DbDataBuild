@@ -34,14 +34,14 @@ internal static class DefineQuestions
         ]);
 
     public static Question Targets(string model, IReadOnlyList<string> projectDefault, IReadOnlyList<string> portability) => new(
-        QuestionIds.Define(model, "targets"),
+        QuestionIds.Define(model, "connections"),
         $"Which engines must `{model}` be valid for?",
-        [$"Project default targets: {string.Join(", ", projectDefault)}", .. portability],
+        [$"Project default connections: {string.Join(", ", projectDefault)}", .. portability],
         [
-            new("use_project_default", "Use the project default", $"`targets:` is omitted and the project default ({string.Join(", ", projectDefault)}) applies"),
+            new("use_project_default", "Use the project default", $"`connections:` is omitted and the project default ({string.Join(", ", projectDefault)}) applies"),
             new("choose_targets", "Name the targets", TakesValue: true, ValueHint: "comma-separated: sqlserver, fabric, postgres"),
         ],
-        new Proposal("use_project_default", null, ProposalCertainty.Normal, [$"project default_targets: {string.Join(", ", projectDefault)}"]));
+        new Proposal("use_project_default", null, ProposalCertainty.Normal, [$"project default_connections: {string.Join(", ", projectDefault)}"]));
 
     public static Question ColumnType(string model, InferredColumn c, string? declaredType = null)
     {

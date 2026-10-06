@@ -18,7 +18,7 @@ public static class DefinitionWriter
         if (d.TimeColumn != null) sb.Append("  time_column: ").Append(YamlText.Scalar(d.TimeColumn)).Append('\n');
         if (d.Lookback != null) sb.Append("  lookback: ").Append(YamlText.Scalar(d.Lookback)).Append('\n');
         if (d.Grain.Count > 0) sb.Append("grain: ").Append(YamlText.FlowList(d.Grain)).Append('\n');
-        if (d.Targets is { Count: > 0 }) sb.Append("targets: ").Append(YamlText.FlowList(d.Targets)).Append('\n');
+        if (d.Targets is { Count: > 0 }) sb.Append("connections: ").Append(YamlText.FlowList(d.Targets)).Append('\n');
 
         sb.Append("columns:\n");
         foreach (var c in d.Columns)
@@ -42,7 +42,7 @@ public static class DefinitionWriter
                 sb.Append("  - {name: ").Append(YamlText.Scalar(i.Name)).Append(", columns: ").Append(YamlText.FlowList(i.Columns));
                 if (i.Unique) sb.Append(", unique: true");
                 if (i.Include.Count > 0) sb.Append(", include: ").Append(YamlText.FlowList(i.Include));
-                if (i.Targets is { Count: > 0 }) sb.Append(", targets: ").Append(YamlText.FlowList(i.Targets));
+                if (i.Targets is { Count: > 0 }) sb.Append(", connections: ").Append(YamlText.FlowList(i.Targets));
                 sb.Append("}\n");
             }
         }

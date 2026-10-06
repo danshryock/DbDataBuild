@@ -80,7 +80,7 @@ public sealed class DependencyGraph
     }
 }
 
-/// <summary>One term of a model selector: `[N+]core[+N]` or `@core`, where core is a name, a path, or `kind:`, `target:`, `path:`, `changed:`.</summary>
+/// <summary>One term of a model selector: `[N+]core[+N]` or `@core`, where core is a name, a path, or `kind:`, `connection:`, `path:`, `changed:`.</summary>
 public sealed record SelectorTerm(string Core, bool Upstream, int? UpstreamDepth, bool Downstream, int? DownstreamDepth, bool At);
 
 public static class ModelSelector

@@ -84,7 +84,7 @@ internal static class PlanCommand
             return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
         }
 
-        output.Payload("target", session.Target);
+        output.Payload("connection", session.Target);
         output.Payload("questions_asked", asked.Count);
         output.Payload("answers", result.UsedAnswers);
         output.Payload("noticed", result.Noticed);
@@ -169,7 +169,7 @@ internal static class PlanCommand
         foreach (var d in liveCollation) error.Diag(d);
 
         var stepsNow = result.Steps;
-        output.Payload("target", session.Target);
+        output.Payload("connection", session.Target);
         output.Payload("objects", result.Bases.OrderBy(b => b.Object, StringComparer.Ordinal).Select(b => new { name = b.Object, state = b.State, live_shape_hash = b.LiveShapeHash, recorded_shape_hash = b.RecordedShapeHash }).ToList());
         output.Payload("preview", new
         {

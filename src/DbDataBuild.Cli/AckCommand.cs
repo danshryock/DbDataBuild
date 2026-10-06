@@ -24,7 +24,7 @@ internal static class AckCommand
 
         var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
         foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
         if (read == null || write == null) return CliApp.ExitFindings;
 

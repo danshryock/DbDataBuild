@@ -70,7 +70,7 @@ public class LoadRendererTests
           replace_keys:
             strategy: delete_insert_by_key
             key: [event_id]
-            targets: [postgres]
+            connections: [postgres]
           everything:
             strategy: full_replace
         """;
@@ -120,7 +120,7 @@ public class LoadRendererTests
             Assert.StartsWith("-- dbdatabuild ", lines[0]);
             Assert.Contains(lines, l => l.StartsWith("-- model:           marts.fct_events"));
             Assert.Contains(lines, l => l.StartsWith("-- operation:       "));
-            Assert.Contains(lines, l => l.StartsWith("-- target:          " + f.Path.Split('/')[0]));
+            Assert.Contains(lines, l => l.StartsWith("-- connection:      " + f.Path.Split('/')[0]));
             Assert.Contains(lines, l => l.StartsWith("-- strategy:        "));
             Assert.Contains(lines, l => l == "-- definition hash: " + hash);
             Assert.DoesNotContain(lines, l => l.Contains("version", StringComparison.OrdinalIgnoreCase) && !l.Contains("definition"));      // nothing that changes with a release: a file changes when its text does
@@ -174,7 +174,7 @@ public class LoadRendererTests
     {
         var r = Render(Def(AllOpsYaml), AllOpsSql, ["sqlserver"]);
         var manifest = r.Files.Single(f => f.Path.EndsWith("manifest.yml", StringComparison.Ordinal)).Content;
-        Assert.Contains("model: marts.fct_events\ntarget: sqlserver\n", manifest);
+        Assert.Contains("model: marts.fct_events\nconnection: sqlserver\n", manifest);
         Assert.Contains("sources: [staging.events]", manifest);
         Assert.Contains("  - name: daily\n    default: true\n    strategy: watermark_append\n    transactional: true\n", manifest);
         Assert.Contains("    resolver: load.daily.resolve.sql\n", manifest);

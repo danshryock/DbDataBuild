@@ -13,7 +13,7 @@ internal static class SampleCommand
 {
     public static int Run(CommandSpec spec, string projectRoot, string[] models, int rows, int seed, int limit, int? scale, string? dataDir, bool showSources, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (rows < 1 || rows > 100_000) { error.WriteLine("--rows must be between 1 and 100000."); return CliApp.ExitUsage; }
         if (limit < 0) { error.WriteLine("--limit cannot be negative."); return CliApp.ExitUsage; }
         if (dataDir != null && !Directory.Exists(dataDir)) { error.WriteLine($"--data directory `{dataDir}` does not exist."); return CliApp.ExitUsage; }

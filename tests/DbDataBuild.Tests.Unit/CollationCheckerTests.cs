@@ -69,7 +69,7 @@ public class CollationCheckerTests
     private static ModelSource Model(string targets, string columns = "  - {name: a, type: INT}")
     {
         var diags = new List<Diagnostic>();
-        var yaml = $"name: marts.fct_orders\nkind: {{type: full}}\n{(targets == "" ? "" : $"targets: {targets}\n")}columns:\n{columns}\n";
+        var yaml = $"name: marts.fct_orders\nkind: {{type: full}}\n{(targets == "" ? "" : $"connections: {targets}\n")}columns:\n{columns}\n";
         var def = ModelDefinitionLoader.Load(yaml, "models/marts/fct_orders.yml", "marts.fct_orders", diags);
         Assert.Empty(diags.Select(DiagnosticFormatter.Format));
         return new ModelSource(def!, "models/marts/fct_orders.yml", "models/marts/fct_orders.sql");
@@ -166,9 +166,9 @@ public class CollationCheckerTests
     {
         // postgres is unconfigured, but no model targets it and it is not a default target
         Assert.Empty(Check(ProjectConfig.Default, Model("[sqlserver]")));
-        Assert.Contains(Check(Config("default_targets: [postgres]\n"), Model("")), d => d.Code == "DDB-312");   // a model relies on the default
-        Assert.Empty(Check(Config("default_targets: [postgres]\n"), Model("[sqlserver]")));                    // none does
-        Assert.Contains(Check(Config("default_targets: [postgres]\n")), d => d.Code == "DDB-312");             // no models yet
+        Assert.Contains(Check(Config("default_connections: [postgres]\n"), Model("")), d => d.Code == "DDB-312");   // a model relies on the default
+        Assert.Empty(Check(Config("default_connections: [postgres]\n"), Model("[sqlserver]")));                    // none does
+        Assert.Contains(Check(Config("default_connections: [postgres]\n")), d => d.Code == "DDB-312");             // no models yet
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class CollationCheckerTests
     [Fact]
     public void Check_is_deterministic_and_reads_nothing_from_disk_or_a_target()
     {
-        var cfg = Config("default_targets: [sqlserver, postgres, fabric]\n");
+        var cfg = Config("default_connections: [sqlserver, postgres, fabric]\n");
         Assert.Equal(Check(cfg, Model("")).Select(DiagnosticFormatter.Format), Check(cfg, Model("")).Select(DiagnosticFormatter.Format));
     }
 }

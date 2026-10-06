@@ -12,7 +12,7 @@ public partial class ApplyConformanceTests
     private static readonly string[] Names = ["abc", "ABC", "a,b,c", "", "xabbc"];
 
     /// <summary>
-    /// SQL Server 2025 at its own compatibility level (170), told to the tool as `targets: sqlserver: {version: 17}`: the whole loop (render, plan, apply) writes the regular expression functions and the table
+    /// SQL Server 2025 at its own compatibility level (170), told to the tool as `connections: sqlserver: {version: 17}`: the whole loop (render, plan, apply) writes the regular expression functions and the table
     /// holds what DuckDB computes. The same project at version 16 is the matrix's to refuse (unit tests: CliTests).
     /// </summary>
     [SkippableFact]

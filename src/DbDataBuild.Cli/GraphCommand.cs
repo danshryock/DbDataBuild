@@ -13,7 +13,7 @@ internal static class GraphCommand
 {
     public static int Run(CommandSpec spec, string root, string[] models, bool columns, string? column, string? diagram, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (diagram is not (null or "dot" or "mermaid")) { error.WriteLine("--diagram is `dot` or `mermaid`."); return CliApp.ExitUsage; }
         var ctx = ProjectContext.Load(root);
         var selected = ctx.Select(models, error);
@@ -38,7 +38,7 @@ internal static class GraphCommand
             name = n, kind = KindOf(n), level = levels.GetValueOrDefault(n),
             file = byName.TryGetValue(n, out var m) ? m.QueryFile : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
             model_kind = byName.TryGetValue(n, out var mk) ? mk.Definition.KindType : null,
-            targets = byName.TryGetValue(n, out var mt) ? ctx.TargetsOf(mt.Definition) : (IReadOnlyList<string>)[],
+            connections = byName.TryGetValue(n, out var mt) ? ctx.TargetsOf(mt.Definition) : (IReadOnlyList<string>)[],
         }).ToList();
         var edges = chosen.OrderBy(n => n, StringComparer.Ordinal).SelectMany(n => graph.Reads(n).Select(r => (From: r, To: n))).ToList();
 

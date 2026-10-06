@@ -9,10 +9,10 @@ public class RenderCommandTests
 {
     private const string Orders = "name: staging.orders\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: order_date, type: DATE, nullable: false}\n";
 
-    private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\ntargets: [sqlserver, postgres]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
+    private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\nconnections: [sqlserver, postgres]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string FctSql = "SELECT o.order_id, o.amount FROM staging.orders o\n";
 
-    private static string Project(string? config = "default_targets: [sqlserver]\n")
+    private static string Project(string? config = "default_connections: [sqlserver]\n")
     {
         var dir = NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
@@ -63,19 +63,19 @@ public class RenderCommandTests
     }
 
     [Fact]
-    public void Render_uses_the_default_targets_for_models_without_targets_and_target_filters_them()
+    public void Render_uses_the_default_connections_for_models_without_targets_and_target_filters_them()
     {
-        var dir = Project("default_targets: [postgres]\n");
-        Model(dir, "marts.fct_orders", FctYaml.Replace("targets: [sqlserver, postgres]\n", ""), FctSql);
+        var dir = Project("default_connections: [postgres]\n");
+        Model(dir, "marts.fct_orders", FctYaml.Replace("connections: [sqlserver, postgres]\n", ""), FctSql);
         Assert.DoesNotContain("rendered/sqlserver", Render(dir).Out);
         Assert.Contains("rendered/postgres/marts.fct_orders/load.default.sql", Render(dir).Out);
 
         var dir2 = Project();
         Model(dir2, "marts.fct_orders", FctYaml, FctSql);
-        var only = Render(dir2, "--target", "postgres").Out;
+        var only = Render(dir2, "--connection", "postgres").Out;
         Assert.DoesNotContain("rendered/sqlserver", only);
         Assert.Contains("rendered/postgres", only);
-        Assert.Equal(CliApp.ExitUsage, Render(dir2, "--target", "oracle").Exit);
+        Assert.Equal(CliApp.ExitUsage, Render(dir2, "--connection", "oracle").Exit);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class RenderCommandTests
     {
         var dir = Project();
         Model(dir, "marts.fct_orders", FctYaml, FctSql);
-        Model(dir, "marts.dim_customer", "name: marts.dim_customer\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n", "SELECT o.customer_id FROM staging.orders o");
+        Model(dir, "marts.dim_customer", "name: marts.dim_customer\nkind: {type: full}\nconnections: [sqlserver]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n", "SELECT o.customer_id FROM staging.orders o");
         Assert.DoesNotContain("dim_customer", Render(dir, "marts.fct_orders").Out);
         Assert.DoesNotContain("fct_orders", Render(dir, "models/marts/dim_customer.sql").Out);
         Assert.DoesNotContain("fct_orders", Render(dir, "models/marts/dim_customer.yml").Out);
@@ -157,8 +157,8 @@ public class RenderCommandTests
     [Fact]
     public void Write_with_errors_writes_nothing()
     {
-        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
+        var dir = Project("default_connections: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\nconnections: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         Model(dir, "marts.fct_orders", FctYaml, FctSql);
         var before = Snapshot(dir);
         var (exit, output, err) = Render(dir, "--write");
@@ -248,8 +248,8 @@ public class RenderCommandTests
     public void Loads_prints_the_pairing_table_with_matrix_status()
     {
         var dir = Project();
-        Model(dir, "marts.fct_orders", FctYaml + "loads:\n  merge:\n    default: true\n    strategy: merge_by_key\n  rebuild:\n    strategy: full_replace\n    targets: [postgres]\n", FctSql);
-        Model(dir, "marts.v_orders", "name: marts.v_orders\nkind: {type: view}\ntargets: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT}\n", "SELECT o.order_id FROM staging.orders o");
+        Model(dir, "marts.fct_orders", FctYaml + "loads:\n  merge:\n    default: true\n    strategy: merge_by_key\n  rebuild:\n    strategy: full_replace\n    connections: [postgres]\n", FctSql);
+        Model(dir, "marts.v_orders", "name: marts.v_orders\nkind: {type: view}\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT}\n", "SELECT o.order_id FROM staging.orders o");
         var (exit, output, err) = Run("loads", "--project", dir);
         Assert.Equal((CliApp.ExitOk, ""), (exit, err));
         Assert.Contains("effect: Offline only", output);
@@ -264,8 +264,8 @@ public class RenderCommandTests
     [Fact]
     public void Loads_shows_unsupported_pairs_and_fails()
     {
-        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
+        var dir = Project("default_connections: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\nconnections: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, output, err) = Run("loads", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Matches(@"marts\.bad\s+sqlserver\s+default\s+full_replace\s+default\s+unsupported", output);
@@ -287,8 +287,8 @@ public class RenderCommandTests
     [Fact]
     public void Validate_reports_a_pair_that_cannot_render_by_name()
     {
-        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
-        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
+        var dir = Project("default_connections: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
+        Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\nconnections: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, _, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-317", err);

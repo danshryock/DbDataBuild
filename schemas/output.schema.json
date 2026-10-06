@@ -827,7 +827,7 @@
         "id": {
           "type": "string"
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "git_commit": {
@@ -890,7 +890,7 @@
       },
       "required": [
         "id",
-        "target",
+        "connection",
         "git_dirty",
         "tool_version",
         "bases",
@@ -927,7 +927,7 @@
         "model": {
           "type": "string"
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "operation": {
@@ -945,7 +945,7 @@
       },
       "required": [
         "model",
-        "target",
+        "connection",
         "operation",
         "strategy",
         "is_default",
@@ -1091,7 +1091,7 @@
               "id": {
                 "type": "string"
               },
-              "targets": {
+              "engines": {
                 "type": "object",
                 "additionalProperties": {
                   "type": "object",
@@ -1122,7 +1122,7 @@
             },
             "required": [
               "id",
-              "targets"
+              "engines"
             ]
           }
         },
@@ -1145,7 +1145,7 @@
                   "both"
                 ]
               },
-              "targets": {
+              "engines": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -1167,7 +1167,7 @@
             "required": [
               "name",
               "layer",
-              "targets",
+              "engines",
               "required_on",
               "exact",
               "native"
@@ -1357,7 +1357,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "tracking_schema": {
@@ -1410,7 +1410,7 @@
             "null"
           ]
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "objects": {
@@ -1511,7 +1511,7 @@
             "$ref": "#/$defs/question"
           }
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "questions_asked": {
@@ -1569,7 +1569,7 @@
         "effect": {
           "type": "string"
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "dry_run": {
@@ -1684,7 +1684,7 @@
             "$ref": "#/$defs/question"
           }
         },
-        "target": {
+        "connection": {
           "type": "string"
         },
         "questions_asked": {
@@ -1830,7 +1830,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "applied_plans": {
@@ -2188,7 +2188,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "written": {
@@ -2209,7 +2209,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "mode": {
@@ -2620,7 +2620,7 @@
                   "null"
                 ]
               },
-              "targets": {
+              "connections": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -2631,7 +2631,7 @@
               "name",
               "kind",
               "level",
-              "targets"
+              "connections"
             ]
           }
         },
@@ -2767,7 +2767,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "left": {
@@ -3225,7 +3225,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target": {
+        "connection": {
           "type": "string"
         },
         "seed": {
@@ -3285,7 +3285,7 @@
               "id": {
                 "type": "string"
               },
-              "target": {
+              "connection": {
                 "type": "string"
               },
               "steps": {
@@ -3310,7 +3310,7 @@
             "required": [
               "path",
               "id",
-              "target",
+              "connection",
               "steps",
               "risky",
               "destructive",

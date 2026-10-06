@@ -23,7 +23,7 @@ internal static class ProjectChecks
         foreach (var source in sources)
         {
             var sql = File.ReadAllText(Path.Combine(projectRoot ?? Directory.GetCurrentDirectory(), source.QueryFile));
-            var targets = (source.Definition.Targets ?? config.DefaultTargets).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
+            var targets = (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
             // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
             var body = sql;
             string? bodyFile = null;
@@ -44,7 +44,7 @@ internal static class ProjectChecks
         }
         if (config.LintIndexes)
             foreach (var source in sources)
-                diagnostics.AddRange(IndexAdvice(source, (source.Definition.Targets ?? config.DefaultTargets).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList()));
+                diagnostics.AddRange(IndexAdvice(source, (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList()));
         diagnostics.AddRange(CollationChecker.Check(config, sources));
         return diagnostics;
     }

@@ -14,7 +14,7 @@ internal static class TuiCommand
         if (json) { error.WriteLine("`tui` is interactive and has no JSON form. Use the other commands with --format json."); return CliApp.ExitUsage; }
         if (Console.IsOutputRedirected || Console.IsInputRedirected) { error.WriteLine("`tui` needs a terminal: standard input and output must not be redirected."); return CliApp.ExitUsage; }
         if (!Directory.Exists(projectRoot)) { error.WriteLine($"The project directory `{projectRoot}` does not exist."); return CliApp.ExitUsage; }
-        if (target != null && !TargetNames.All.Contains(target)) { error.WriteLine($"Unknown target `{target}`. One of: {string.Join(", ", TargetNames.All)}."); return CliApp.ExitUsage; }
+        if (target != null && CommandTargets.NamesOf(projectRoot) is var names && !names.Contains(target)) { error.WriteLine($"Unknown connection `{target}`. One of: {string.Join(", ", names)}."); return CliApp.ExitUsage; }
         return TuiApp.Run(new CliHost(env), new TuiOptions(Path.GetFullPath(projectRoot), target));
     }
 
@@ -56,7 +56,7 @@ internal static class TuiCommand
             var kind = type == typeof(bool) ? OptionKind.Flag : type == typeof(int) || type == typeof(int?) ? OptionKind.Integer
                 : type == typeof(DirectoryInfo) || type == typeof(FileInfo) ? OptionKind.Path : type == typeof(string[]) ? OptionKind.List : OptionKind.Text;
             string? def = o.HasDefaultValue ? o.GetDefaultValue() switch { null => null, string[] a => string.Join(",", a), var v => v.ToString() } : null;
-            var choices = o.Name == "--target" ? TargetNames.All : [];
+            IReadOnlyList<string> choices = [];   // the connections are the project's own, so a form takes the name as text (the target chooser lists them)
             if (choices.Count > 0 && kind == OptionKind.Text) kind = OptionKind.Choice;
             return new OptionInfo(o.Name, o.Description ?? "", kind, def, choices);
         }

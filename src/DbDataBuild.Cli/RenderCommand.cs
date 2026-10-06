@@ -16,7 +16,7 @@ internal static class RenderCommand
 
     public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, bool content, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (content && (write || check))
         {
             error.WriteLine("--content only goes with a plain render: --write and --check have their own documents.");
@@ -178,7 +178,7 @@ internal static class RenderCommand
 
     public static int Loads(CommandSpec spec, string projectRoot, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         var ctx = ProjectContext.Load(projectRoot);
         var rows = new List<string[]>();
         var diags = new List<Diagnostic>();
@@ -198,10 +198,10 @@ internal static class RenderCommand
         }
         foreach (var d in diags.DistinctBy(d => (d.Code, d.Found))) error.Diag(d);
 
-        string[] header = ["model", "target", "operation", "strategy", "default", "matrix status"];
+        string[] header = ["model", "connection", "operation", "strategy", "default", "matrix status"];
         var widths = Enumerable.Range(0, header.Length).Select(i => Math.Max(header[i].Length, rows.Count == 0 ? 0 : rows.Max(r => r[i].Length))).ToArray();
         string Line(string[] cells) => string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))).TrimEnd();
-        output.Payload("operations", rows.Select(r => new { model = r[0], target = r[1], operation = r[2], strategy = r[3], is_default = r[4] == "default", matrix_status = r[5] }).ToList());
+        output.Payload("operations", rows.Select(r => new { model = r[0], connection = r[1], operation = r[2], strategy = r[3], is_default = r[4] == "default", matrix_status = r[5] }).ToList());
         output.WriteLine(Line(header));
         foreach (var r in rows) output.WriteLine(Line(r));
         var unsupported = rows.Count(r => r[5].StartsWith("unsupported", StringComparison.Ordinal));

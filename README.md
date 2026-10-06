@@ -31,7 +31,7 @@ dbdatabuild diff marts.fct_orders --against-schema dev   # compare two tables of
 dbdatabuild sample marts.fct_orders       # run a model on generated sample data, offline
 dbdatabuild new adventureworks my-project   # a complete example project (seeds, models, tests) to explore offline; also starter, retail, chinook
 dbdatabuild render --write                # write the committed load scripts
-dbdatabuild plan --target postgres        # read the target, write a plan file
+dbdatabuild plan --connection postgres        # read the target, write a plan file
 dbdatabuild apply plans/postgres/<id>.plan.yml --dry-run
 dbdatabuild test                          # run the project's tests (metadata rules in tests/metadata/)
 dbdatabuild tui                           # the same, interactively

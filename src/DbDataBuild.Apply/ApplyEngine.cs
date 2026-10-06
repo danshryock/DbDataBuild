@@ -184,7 +184,7 @@ public static class ApplyEngine
     private static async Task FinishMigration(MutationGate gate, Plan plan, string planHash, string planText, ApplyOptions o, string status, CancellationToken ct)
     {
         if (gate.DryRun) return;
-        try { await AuditLog.MigrationAsync(gate, plan.Target, o.TrackingSchema, "migration:" + status, plan.Id, planHash, planText, o.GitCommit, o.Invoker, status, null, null, ct); }
+        try { await AuditLog.MigrationAsync(gate, plan.Connection, o.TrackingSchema, "migration:" + status, plan.Id, planHash, planText, o.GitCommit, o.Invoker, status, null, null, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* the failure that got us here matters more; the statement log has what ran */ }
     }
 

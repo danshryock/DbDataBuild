@@ -153,7 +153,7 @@ public static class DiagnosticCatalog
     // 3xx: matrix / portability
     public static readonly DiagnosticDescriptor ConstructUnsupported = E("301", "Construct unsupported on a declared target",
         "Constructs whose matrix status for every declared target is native, translated, emulated, approximated or unverified.",
-        "Rewrite the model without the construct, or remove the target from `targets:`.",
+        "Rewrite the model without the construct, or remove the target from `connections:`.",
         "The support matrix marks this construct `unsupported` for a target the model declares, so the build would fail or give wrong results there.");
     public static readonly DiagnosticDescriptor ConstructApproximated = W("302", "Construct approximated on a declared target",
         "A rewrite with a documented semantic difference (see the note).",
@@ -181,7 +181,7 @@ public static class DiagnosticCatalog
         "A model body is a single query that load strategies can wrap.");
     public static readonly DiagnosticDescriptor PairUnsupported = E("317", "Load operation has no supported rendering",
         "Every declared model x target x operation pair renders: its strategy and every construct in the query are supported on the target.",
-        "Change the strategy or the query, or remove the target from the model or from the operation's `targets:`.",
+        "Change the strategy or the query, or remove the target from the model or from the operation's `connections:`.",
         "There are no silent gaps: a pair that cannot be rendered is reported by name, never skipped.");
     public static readonly DiagnosticDescriptor RenderedScriptInvalid = E("318", "Rendered script failed offline validation",
         "A rendered script that the target's parser accepts (ScriptDOM for T-SQL, the polyglot parser for PostgreSQL).",
@@ -220,7 +220,7 @@ public static class DiagnosticCatalog
 
     public static readonly DiagnosticDescriptor IndexNotSupported = E("322", "Index not supported on a target",
         "Declared indexes only for targets that create them: SQL Server and PostgreSQL.",
-        "Remove the index, restrict it with `targets: [...]`, or remove the target from the model.",
+        "Remove the index, restrict it with `connections: [...]`, or remove the target from the model.",
         "Fabric Warehouse has no CREATE INDEX (its constraints are metadata only), so a declared index there is refused rather than skipped. Indexed views are out of scope.");
 
     public static readonly DiagnosticDescriptor HookScriptInvalid = E("323", "Hook script missing, invalid, or attached to an event the model cannot have",

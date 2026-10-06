@@ -31,7 +31,7 @@ public class TemplateConformanceTests
         return data;
     }
 
-    private const string PostgresConfig = "default_targets: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\npolicy:\n  severity:\n    approximated: note\n";
+    private const string PostgresConfig = "default_connections: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\npolicy:\n  severity:\n    approximated: note\n";
 
     [SkippableTheory, MemberData(nameof(Cases))]
     public Task A_template_builds_on_the_engine_and_every_mart_matches_duckdb(string name, string template) => BuildAndCompare(name, template, native: false);

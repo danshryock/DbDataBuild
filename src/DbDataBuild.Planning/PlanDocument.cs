@@ -40,7 +40,7 @@ public static class PlanDocument
     {
         var sb = new StringBuilder();
         sb.Append("  id: ").AppendLineLf(Q(p.Id));
-        sb.Append("  target: ").AppendLineLf(Q(p.Target));
+        sb.Append("  connection: ").AppendLineLf(Q(p.Connection));
         sb.Append("  tool_version: ").AppendLineLf(Q(p.ToolVersion));
         if (p.GitCommit != null) sb.Append("  git_commit: ").AppendLineLf(Q(p.GitCommit));
         sb.Append("  git_dirty: ").AppendLineLf(B(p.GitDirty));
@@ -111,7 +111,7 @@ public static class PlanDocument
     // ------------------------------------------------------------------------------------------------------------------------------------
 
     private static readonly string[] TopKeys = ["plan", "bases", "answers", "steps", "noticed"];
-    private static readonly string[] PlanKeys = ["id", "hash", "target", "tool_version", "git_commit", "git_dirty"];
+    private static readonly string[] PlanKeys = ["id", "hash", "connection", "tool_version", "git_commit", "git_dirty"];
     private static readonly string[] BaseKeys = ["object", "state", "live_shape_hash", "recorded_shape_hash"];
     private static readonly string[] AnswerKeys = ["id", "choice", "value", "note", "source"];
     private static readonly string[] StepKeys = ["id", "type", "object", "description", "risk", "reasons", "hash_after", "operation", "file_hash", "shape_source", "definition_hash", "expect", "hook", "effect", "resolver", "parameters", "text"];
@@ -184,7 +184,7 @@ public static class PlanDocument
             }
         var noticed = (top.Get("noticed") as YamlSequence)?.Items.OfType<YamlScalar>().Select(x => x.Value).ToList() ?? [];
 
-        var plan = new Plan(Req(header, "id"), Req(header, "target"), S(header, "git_commit"), Bool(header, "git_dirty"), Req(header, "tool_version"), bases, answers, steps, noticed);
+        var plan = new Plan(Req(header, "id"), Req(header, "connection"), S(header, "git_commit"), Bool(header, "git_dirty"), Req(header, "tool_version"), bases, answers, steps, noticed);
         if (diags.Count > before) return null;
 
         // integrity: the stored hash must be the hash of what is in the file. Re-serializing is not enough (it would hide edits that normalize away),

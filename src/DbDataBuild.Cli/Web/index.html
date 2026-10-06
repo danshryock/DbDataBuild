@@ -323,7 +323,7 @@ async function lineageView(selected) {
     const p = pos.get(n.name);
     const label = n.name.length > 31 ? n.name.slice(0, 30) + "…" : n.name;
     const el = s("g", { class: "node " + n.kind, transform: `translate(${p.x},${p.y})` }, s("rect", { width: W, height: H }), s("text", { x: 8, y: 17 }, document.createTextNode(label)));
-    el.append(s("title", {}, document.createTextNode(n.name + (n.targets?.length ? "  (" + n.targets.join(", ") + ")" : ""))));
+    el.append(s("title", {}, document.createTextNode(n.name + (n.connections?.length ? "  (" + n.connections.join(", ") + ")" : ""))));
     el.addEventListener("click", () => select(selectedName === n.name ? null : n.name));
     makeKeyboardOperable(el);
     el.setAttribute("aria-label", n.name + " (" + n.kind + ")");
@@ -393,13 +393,13 @@ function sourceDetail(s) {
 }
 
 async function modelDetail(root, m, tab) {
-  const targets = m.targets || [];
-  const tabs = [["columns", "Columns"], ["sql", "Query"], ["lowered", "Lowered"], ...targets.map((t) => ["target:" + t, t])];
+  const targets = m.connections || [];
+  const tabs = [["columns", "Columns"], ["sql", "Query"], ["lowered", "Lowered"], ...targets.map((t) => ["connection:" + t, t])];
   const body = h("div");
   root.append(
     h("div", { class: "panel" }, h("h2", null, m.name, " ", badge(m.kind?.type ?? m.kind, "note")),
       h("div", null, h("span", { class: "muted" }, "grain "), (m.grain || []).length ? m.grain.map((g) => h("span", { class: "tag" }, g)) : h("span", { class: "warn" }, "not declared")),
-      h("div", null, h("span", { class: "muted" }, "targets "), targets.map((t) => h("span", { class: "tag" }, t))),
+      h("div", null, h("span", { class: "muted" }, "connections "), targets.map((t) => h("span", { class: "tag" }, t))),
       h("div", null, h("span", { class: "muted" }, "reads "), (m.upstream || []).map((u) => [h("span", { class: "tag" }, u.kind === "model" ? modelLink(u.name) : h("a", { class: "link", href: "#/models/" + encodeURIComponent(u.name) }, u.name)), " "])),
       (m.rewrites_off || []).length ? h("div", null, h("span", { class: "muted" }, "rewrites off "), m.rewrites_off.map((r) => h("span", { class: "tag" }, r))) : null),
     h("div", { class: "panel" }, h("div", { class: "tabs" }, tabs.map(([id, label]) => h("a", { class: id === tab ? "on" : null, href: "#/models/" + encodeURIComponent(m.name) + "/" + id, "aria-current": id === tab ? "page" : null }, label))), body));
@@ -408,9 +408,9 @@ async function modelDetail(root, m, tab) {
   else if (tab === "lowered") {
     if (m.lowered?.rules?.length) body.append(h("div", null, h("span", { class: "muted" }, "type rules that fired "), m.lowered.rules.map((r) => h("span", { class: "tag" }, r))));
     await showRendered(body, m.name, (f) => f.path.startsWith("rendered/lowered/"));
-  } else if (tab.startsWith("target:")) {
-    const t = tab.slice(7);
-    const ops = (m.loads || []).filter((l) => !l.target || l.target === t);
+  } else if (tab.startsWith("connection:")) {
+    const t = tab.slice(11);
+    const ops = (m.loads || []).filter((l) => !l.connection || l.connection === t);
     if (ops.length) body.append(h("div", { class: "muted" }, "load: " + ops.map((o) => `${o.operation ?? o.name ?? "default"} (${o.strategy ?? ""})`).join(", ")));
     await showRendered(body, m.name, (f) => f.path.startsWith(`rendered/${t}/`));
   }
@@ -473,16 +473,16 @@ async function matrixView() {
   const holder = h("div");
   function draw() {
     const q = filter.value.trim().toLowerCase(), st = only.value;
-    const rows = m.constructs.filter((c) => c.id.toLowerCase().includes(q) && (!st || targets.some((t) => c.targets[t]?.status === st)));
+    const rows = m.constructs.filter((c) => c.id.toLowerCase().includes(q) && (!st || targets.some((t) => c.engines[t]?.status === st)));
     holder.replaceChildren(h("table", null, h("thead", null, h("tr", null, h("th", null, "construct"), targets.map((t) => h("th", null, t)))),
-      h("tbody", null, rows.map((c) => h("tr", null, h("td", null, h("code", null, c.id)), targets.map((t) => { const x = c.targets[t]; return h("td", { title: x?.note || "" }, x ? badge(x.status, tone[x.status]) : ""); }))))));
+      h("tbody", null, rows.map((c) => h("tr", null, h("td", null, h("code", null, c.id)), targets.map((t) => { const x = c.engines[t]; return h("td", { title: x?.note || "" }, x ? badge(x.status, tone[x.status]) : ""); }))))));
   }
   draw();
   return h("div", null, h("div", { class: "muted", style: "margin-bottom:8px" }, `Matrix ${m.version}: ${m.constructs.length} constructs. Hover a status for the note.`),
     h("div", { class: "panel" }, h("div", { class: "bar" }, filter, only), holder),
     h("div", { class: "panel" }, h("h2", null, "Rewrites that make an engine give DuckDB's answers"),
-      h("table", null, h("thead", null, h("tr", null, h("th", null, "rewrite"), h("th", null, "targets"), h("th", null, "required on"), h("th", null, "with it"), h("th", null, "without it"))),
-        h("tbody", null, m.rewrites.map((r) => h("tr", null, h("td", null, h("code", null, r.name)), h("td", null, r.targets.join(", ")), h("td", null, r.required_on.join(", ")), h("td", null, r.exact), h("td", { class: "muted" }, r.native)))))));
+      h("table", null, h("thead", null, h("tr", null, h("th", null, "rewrite"), h("th", null, "connections"), h("th", null, "required on"), h("th", null, "with it"), h("th", null, "without it"))),
+        h("tbody", null, m.rewrites.map((r) => h("tr", null, h("td", null, h("code", null, r.name)), h("td", null, r.engines.join(", ")), h("td", null, r.required_on.join(", ")), h("td", null, r.exact), h("td", { class: "muted" }, r.native)))))));
 }
 
 // ---- plans ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -497,7 +497,7 @@ async function plansView(file) {
   const list = (await run("review", {}, true)).data.plans;
   const side = h("div", { class: "list" },
     h("div", { class: !file ? "on" : null, onclick: () => go("plans") }, "+ New plan"),
-    list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) }, (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.target)) : h("div", { class: "muted" }, "No plans yet."));
+    list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) }, (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.connection)) : h("div", { class: "muted" }, "No plans yet."));
   const detail = h("div");
   if (file) await planDetail(detail, file);
   else detail.append(await newPlanPanel());
@@ -512,13 +512,13 @@ const planState = { answers: new Map() };
 
 async function newPlanPanel() {
   const out = h("div");
-  const target = h("select", { "aria-label": "Target" }, h("option", { value: "" }, "the project's default target"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
+  const target = h("select", { "aria-label": "Connection" }, h("option", { value: "" }, "the project's default connection"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
   const models = h("input", { type: "text", placeholder: "selectors, e.g. changed:HEAD+ or marts.fct_orders (default: every model)", "aria-label": "Models or selectors", style: "min-width:340px" });
   async function make() {
     out.replaceChildren(h("div", { class: "spin" }, "Planning: reading the target…"));
     try {
       const args = {};
-      if (target.value) args.target = target.value;
+      if (target.value) args.connection = target.value;
       if (models.value.trim()) args.models = models.value.trim().split(/\s+/);
       if (planState.answers.size) { const saved = await api("/api/answers", { answers: [...planState.answers.values()] }); args.answers = saved.path; }
       const doc = await run("plan", args, true);
@@ -570,7 +570,7 @@ async function planDetail(root, file) {
   const plan = d.plan;
   const needs = [d.apply_needs.allow_risky ? "--allow-risky" : null, ...d.apply_needs.allow_destructive.map((o) => "--allow-destructive " + o)].filter(Boolean);
   root.append(...[
-    h("div", { class: "cards" }, card(plan.steps.length, "steps"), card(d.risky, "risky", d.risky ? "warn" : ""), card(d.destructive, "destructive", d.destructive ? "bad" : ""), card(plan.target, "target")),
+    h("div", { class: "cards" }, card(plan.steps.length, "steps"), card(d.risky, "risky", d.risky ? "warn" : ""), card(d.destructive, "destructive", d.destructive ? "bad" : ""), card(plan.connection, "target")),
     h("div", { class: "panel" }, h("h2", null, plan.id, " ", badge("intact", "ok")),
       h("div", { class: "muted" }, `tool ${plan.tool_version}` + (plan.git_commit ? `, commit ${plan.git_commit}${plan.git_dirty ? " (working tree was dirty)" : ""}` : "")),
       h("div", null, h("span", { class: "muted" }, "a person applies it with "), h("code", null, `dbdatabuild apply ${file}` + (needs.length ? " " + needs.join(" ") : ""))),
@@ -605,14 +605,14 @@ function applyPanel(file, plan, d) {
   const out = h("div");
   const risky = h("input", { type: "checkbox", "aria-label": "Allow the risky steps", onchange: () => update() });
   const destructive = d.apply_needs.allow_destructive.map((o) => ({ o, box: h("input", { type: "checkbox", "aria-label": "Allow destructive steps on " + o, onchange: () => update() }) }));
-  const typed = h("input", { type: "text", placeholder: "type " + plan.target + " to confirm", "aria-label": "Type the target name to confirm", oninput: () => update(), autocomplete: "off", spellcheck: "false" });
+  const typed = h("input", { type: "text", placeholder: "type " + plan.connection + " to confirm", "aria-label": "Type the target name to confirm", oninput: () => update(), autocomplete: "off", spellcheck: "false" });
   const dry = h("button", { onclick: () => start(true) }, "Dry run (changes nothing)");
-  const go1 = h("button", { disabled: true, onclick: () => start(false), style: "font-weight:600" }, "Apply to " + plan.target);
-  function update() { go1.disabled = !(typed.value === plan.target && (!d.apply_needs.allow_risky || risky.checked) && destructive.every((x) => x.box.checked)); }
+  const go1 = h("button", { disabled: true, onclick: () => start(false), style: "font-weight:600" }, "Apply to " + plan.connection);
+  function update() { go1.disabled = !(typed.value === plan.connection && (!d.apply_needs.allow_risky || risky.checked) && destructive.every((x) => x.box.checked)); }
   async function start(dryRun) {
     out.replaceChildren(h("div", { class: "spin" }, "Starting…"));
     try {
-      const { job } = await api("/api/apply", { plan: file, dry_run: dryRun, allow_risky: risky.checked, allow_destructive: destructive.filter((x) => x.box.checked).map((x) => x.o), confirm: { target: typed.value, plan_id: plan.id } });
+      const { job } = await api("/api/apply", { plan: file, dry_run: dryRun, allow_risky: risky.checked, allow_destructive: destructive.filter((x) => x.box.checked).map((x) => x.o), confirm: { connection: typed.value, plan_id: plan.id } });
       // the confirmation is for this run only: the next one has to be confirmed again
       typed.value = ""; risky.checked = false; destructive.forEach((x) => { x.box.checked = false; }); update(); dry.disabled = true;
       await follow(out, job, dryRun);
@@ -620,7 +620,7 @@ function applyPanel(file, plan, d) {
     } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
   }
   return h("div", { class: "panel" }, h("h2", null, "Apply"),
-    h("div", { class: "muted" }, "Runs exactly the statements of this plan on " + plan.target + ", with the write login of the server's environment. A dry run runs every check and changes nothing."),
+    h("div", { class: "muted" }, "Runs exactly the statements of this plan on " + plan.connection + ", with the write login of the server's environment. A dry run runs every check and changes nothing."),
     d.apply_needs.allow_risky ? h("label", { style: "display:block;margin:6px 0" }, risky, " I allow the ", h("b", null, d.risky + " risky step" + (d.risky === 1 ? "" : "s"))) : null,
     destructive.map((x) => h("label", { style: "display:block;margin:6px 0" }, x.box, " I allow the destructive steps on ", h("code", null, x.o))),
     h("div", { class: "bar", style: "margin-top:8px" }, typed, dry, go1), out);
@@ -659,7 +659,7 @@ async function diffView() {
   const against = h("input", { type: "text", placeholder: "dev.fct_orders", "aria-label": "Compare with table", style: "min-width:220px" });
   const schema = h("input", { type: "text", placeholder: "dev", "aria-label": "Compare with the same table in this schema", style: "min-width:140px" });
   const key = h("input", { type: "text", placeholder: "default: the grain", "aria-label": "Key columns, separated by commas", style: "min-width:180px" });
-  const target = h("select", { "aria-label": "Target" }, h("option", { value: "" }, "default target"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
+  const target = h("select", { "aria-label": "Connection" }, h("option", { value: "" }, "default connection"), ["sqlserver", "postgres", "fabric"].map((t) => h("option", { value: t }, t)));
   const values = h("input", { type: "checkbox", "aria-label": "Show values" });
   async function compare() {
     out.replaceChildren(h("div", { class: "spin" }, "Comparing inside the engine…"));
@@ -667,7 +667,7 @@ async function diffView() {
       const args = { table: table.value.trim() };
       if (against.value.trim()) args.against = against.value.trim(); else if (schema.value.trim()) args.against_schema = schema.value.trim();
       if (key.value.trim()) args.key = key.value.split(",").map((x) => x.trim()).filter(Boolean);
-      if (target.value) args.target = target.value;
+      if (target.value) args.connection = target.value;
       if (values.checked) args.show_values = true;
       const doc = await run("diff", args, true);
       out.replaceChildren(doc.data?.left ? diffResult(doc.data) : outcome(doc));
@@ -675,7 +675,7 @@ async function diffView() {
   }
   return h("div", null, h("div", { class: "panel" }, h("h2", null, "Compare two tables"),
     h("div", { class: "muted" }, "Counts are computed inside the engine and only counts are read. Values are read only if you tick the box, and are shown to you here, never to an agent."),
-    h("div", { class: "bar", style: "margin-top:8px;align-items:flex-end" }, field("Table", table), field("Compare with table", against), field("or the same table in schema", schema), field("Key", key), field("Target", target)),
+    h("div", { class: "bar", style: "margin-top:8px;align-items:flex-end" }, field("Table", table), field("Compare with table", against), field("or the same table in schema", schema), field("Key", key), field("Connection", target)),
     h("div", { class: "bar" }, h("label", null, values, " Show values (reads real data from the target)"), h("button", { onclick: compare }, "Compare"))), out);
 }
 
@@ -685,7 +685,7 @@ function diffResult(d) {
   const list = (items) => items.length ? items.map((c) => h("span", { class: "tag" }, c)) : h("span", { class: "muted" }, "none");
   return h("div", null,
     h("div", { class: "cards" }, card(d.left.rows.toLocaleString(), d.left.table), card(d.right.rows.toLocaleString(), d.right.table),
-      card(same ? "identical" : "differ", `on ${d.target}`, same ? "ok" : "warn"),
+      card(same ? "identical" : "differ", `on ${d.connection}`, same ? "ok" : "warn"),
       r.compared ? [card(r.matched.toLocaleString(), "rows match", "ok"), card(r.differing.toLocaleString(), "rows differ", r.differing ? "bad" : ""), card(r.only_left.toLocaleString(), "only in " + d.left.table, r.only_left ? "bad" : ""), card(r.only_right.toLocaleString(), "only in " + d.right.table, r.only_right ? "bad" : "")] : null),
     h("div", { class: "panel" }, h("h2", null, "Key"), h("div", null, list(d.key.columns), " ", h("span", { class: "muted" }, "from " + d.key.source.replace("_", " "))),
       d.duplicate_keys && (d.duplicate_keys.left || d.duplicate_keys.right) ? h("div", { class: "warn" }, `Duplicate keys: ${d.duplicate_keys.left} on the left, ${d.duplicate_keys.right} on the right; rows are not compared.`) : null),

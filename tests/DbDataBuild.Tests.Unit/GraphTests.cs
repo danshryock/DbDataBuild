@@ -76,7 +76,7 @@ public class GraphTests
         var dir = NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
         Directory.CreateDirectory(Path.Combine(dir, "models/stg"));
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [postgres, sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [postgres, sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n");
         File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: customer_id, type: BIGINT}\n");
         File.WriteAllText(Path.Combine(dir, "sources/staging/customers.yml"), "name: staging.customers\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n  - {name: name, type: \"VARCHAR(50)\"}\n");
         Model(dir, "stg/orders", "stg.orders", "view", "SELECT order_id, amount, customer_id FROM staging.orders", "  - {name: order_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: customer_id, type: BIGINT}\n");
@@ -90,7 +90,7 @@ public class GraphTests
     private static void Model(string dir, string path, string name, string kind, string sql, string columns, string? targets = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(dir, "models", path))!);
-        File.WriteAllText(Path.Combine(dir, "models", path + ".yml"), $"name: {name}\nkind: {{type: {kind}}}\n{(targets != null ? $"targets: [{targets}]\n" : "")}columns:\n{columns}");
+        File.WriteAllText(Path.Combine(dir, "models", path + ".yml"), $"name: {name}\nkind: {{type: {kind}}}\n{(targets != null ? $"connections: [{targets}]\n" : "")}columns:\n{columns}");
         File.WriteAllText(Path.Combine(dir, "models", path + ".sql"), sql + "\n");
     }
 
@@ -117,7 +117,7 @@ public class GraphTests
             doc["data"]!["edges"]!.AsArray().Select(e => $"{(string)e!["from"]!}>{(string)e["to"]!}").Order());
         var big = nodes.Single(n => (string?)n!["name"] == "marts.big")!;
         Assert.Equal(("model", "full", "marts/big.sql"), ((string)big["kind"]!, (string)big["model_kind"]!, ((string)big["file"]!).Replace("models/", "")));
-        Assert.Equal(["sqlserver"], big["targets"]!.AsArray().Select(t => (string)t!));
+        Assert.Equal(["sqlserver"], big["connections"]!.AsArray().Select(t => (string)t!));
     }
 
     [Theory]
@@ -129,8 +129,8 @@ public class GraphTests
     [InlineData("@stg.orders", "marts.big,marts.fct_orders,stg.customers,stg.orders")]
     [InlineData("kind:full", "marts.big")]
     [InlineData("kind:view,stg.orders+", "marts.fct_orders,stg.orders")]
-    [InlineData("target:postgres", "marts.fct_orders,stg.customers,stg.orders")]       // marts.big is built for SQL Server only
-    [InlineData("target:sqlserver", "marts.big,marts.fct_orders,stg.customers,stg.orders")]
+    [InlineData("connection:postgres", "marts.fct_orders,stg.customers,stg.orders")]       // marts.big is built for SQL Server only
+    [InlineData("connection:sqlserver", "marts.big,marts.fct_orders,stg.customers,stg.orders")]
     [InlineData("path:models/stg", "stg.customers,stg.orders")]
     [InlineData("models/marts", "marts.big,marts.fct_orders")]
     [InlineData("stg.customers marts.big", "marts.big,stg.customers")]

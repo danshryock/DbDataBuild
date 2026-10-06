@@ -39,16 +39,16 @@ public sealed class TuiSession(IApplication app, ICommandHost host, TuiOptions o
 
     /// <summary>
     /// The target to work on. A project with one default target needs no question; with several, the person chooses once and the choice is kept for the session.
-    /// The commands would refuse to guess (`--target is required`), so the TUI asks before they have to.
+    /// The commands would refuse to guess (`--connection is required`), so the TUI asks before they have to.
     /// </summary>
     public string? EnsureTarget()
     {
         if (Target != null) return Target;
         var config = DbDataBuild.Models.ProjectConfigLoader.LoadFromProject(ProjectRoot, new List<DbDataBuild.Core.Diagnostic>());
-        if (config.DefaultTargets.Count == 1) return Target = config.DefaultTargets[0];
-        if (config.DefaultTargets.Count == 0) return null;
-        var choice = MessageBox.Query(App, "Which target?", "This project builds for several targets. Work on:", [.. config.DefaultTargets]);
-        if (choice is >= 0 and var i) Target = config.DefaultTargets[i];
+        if (config.DefaultConnections.Count == 1) return Target = config.DefaultConnections[0];
+        if (config.DefaultConnections.Count == 0) return null;
+        var choice = MessageBox.Query(App, "Which target?", "This project builds for several targets. Work on:", [.. config.DefaultConnections]);
+        if (choice is >= 0 and var i) Target = config.DefaultConnections[i];
         return Target;
     }
 

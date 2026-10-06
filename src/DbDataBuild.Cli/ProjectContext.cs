@@ -47,8 +47,8 @@ internal sealed class ProjectContext
         return (result with { Files = files }, lowered.Sql);
     }
 
-    /// <summary>The targets a model is built for: its own `targets:`, else the project default.</summary>
-    public IReadOnlyList<string> TargetsOf(ModelDefinition model) => model.Targets ?? Config.DefaultTargets;
+    /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>
+    public IReadOnlyList<string> TargetsOf(ModelDefinition model) => model.Targets ?? Config.DefaultConnections;
 
     private DependencyGraph? graph;
 
@@ -57,7 +57,7 @@ internal sealed class ProjectContext
 
     /// <summary>
     /// The models the arguments select, as selectors (DESIGN.md 9.9): a model name, a `.sql` or `.yml` path, or a directory under models/, with the graph operators `+model`, `model+`, `2+model`, `model+1`, `@model`, the filters
-    /// `kind:`, `target:`, `path:` and `changed:<git ref>`, a comma for an intersection, and `exclude:<selector>` to take models out again. Several arguments are a union; every model when none are given.
+    /// `kind:`, `connection:`, `path:` and `changed:<git ref>`, a comma for an intersection, and `exclude:<selector>` to take models out again. Several arguments are a union; every model when none are given.
     /// Returns null and writes the problem when a term selects nothing.
     /// </summary>
     public List<LoadedModel>? Select(IReadOnlyList<string> args, TextWriter error)
@@ -109,7 +109,7 @@ internal sealed class ProjectContext
         }
         if (core is "all" or "*") return all.Select(s => s.Definition.Name).ToList();
         if (core.StartsWith("kind:", StringComparison.Ordinal)) { var k = core[5..]; return Found(all.Where(s => string.Equals(s.Definition.KindType, k, StringComparison.OrdinalIgnoreCase)), $"no model has the kind `{k}`"); }
-        if (core.StartsWith("target:", StringComparison.Ordinal)) { var t = core[7..]; return Found(all.Where(s => TargetsOf(s.Definition).Contains(t, StringComparer.OrdinalIgnoreCase)), $"no model is built for `{t}`"); }
+        if (core.StartsWith("connection:", StringComparison.Ordinal)) { var t = core[11..]; return Found(all.Where(s => TargetsOf(s.Definition).Contains(t, StringComparer.OrdinalIgnoreCase)), $"no model is built for `{t}`"); }
         if (core.StartsWith("path:", StringComparison.Ordinal)) { var d = core[5..].Replace('\\', '/').Trim('/'); return Found(all.Where(s => s.QueryFile.StartsWith(d + "/", StringComparison.Ordinal)), $"no model is under `{d}/`"); }
         if (core.StartsWith("changed:", StringComparison.Ordinal))
         {

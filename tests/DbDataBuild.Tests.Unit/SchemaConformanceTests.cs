@@ -75,7 +75,7 @@ public class SchemaConformanceTests
             "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: VARCHAR(20), nullable: false, collation: default}\n  - {name: b, type: INT, nullable: \"true\"}\n"),
         Ok("time range with lookback", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: 3 days}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n"),
         Ok("composite key", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a, b]}\ngrain: [b, a]\ncolumns:\n  - {name: a, type: INT}\n  - {name: b, type: INT}\n"),
-        Ok("all three targets", "name: marts.fct_orders\nkind: {type: full}\ntargets: [sqlserver, fabric, postgres]\n" + Cols),
+        Ok("all three targets", "name: marts.fct_orders\nkind: {type: full}\nconnections: [sqlserver, fabric, postgres]\n" + Cols),
         Ok("renames", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "renames:\n  - from: old\n    to: a\n"),
         Ok("loads mapping", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  daily:\n    default: true\n    strategy: full_replace\n"),
 
@@ -92,9 +92,9 @@ public class SchemaConformanceTests
         Bad("grain missing on incremental", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a]}\n" + Cols, "DDB-216"),
         Bad("grain empty on incremental", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a]}\ngrain: []\n" + Cols, "DDB-216"),
         Bad("grain not a list", "name: marts.fct_orders\nkind: {type: full}\ngrain: a\n" + Cols, "DDB-106"),
-        Bad("invalid connection name", "name: marts.fct_orders\nkind: {type: full}\ntargets: [\"9 bad\"]\n" + Cols, "DDB-106"),
-        Bad("empty targets", "name: marts.fct_orders\nkind: {type: full}\ntargets: []\n" + Cols, "DDB-106"),
-        Bad("duplicate targets", "name: marts.fct_orders\nkind: {type: full}\ntargets: [sqlserver, sqlserver]\n" + Cols, "DDB-106"),
+        Bad("invalid connection name", "name: marts.fct_orders\nkind: {type: full}\nconnections: [\"9 bad\"]\n" + Cols, "DDB-106"),
+        Bad("empty targets", "name: marts.fct_orders\nkind: {type: full}\nconnections: []\n" + Cols, "DDB-106"),
+        Bad("duplicate targets", "name: marts.fct_orders\nkind: {type: full}\nconnections: [sqlserver, sqlserver]\n" + Cols, "DDB-106"),
         Bad("empty columns", "name: marts.fct_orders\nkind: {type: full}\ncolumns: []\n", "DDB-106"),
         Bad("columns not a list", "name: marts.fct_orders\nkind: {type: full}\ncolumns: a\n", "DDB-106"),
         Bad("column without type", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - name: a\n", "DDB-105"),
@@ -109,7 +109,7 @@ public class SchemaConformanceTests
         Ok("loads: every strategy", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: 3 days}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n  - {name: id, type: BIGINT}\n" +
             "loads:\n  daily:\n    default: true\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: 3 days, on_null: initial, initial: \"2020-01-01\", overridable: true}\n" +
             "  reload_period:\n    strategy: delete_insert_by_range\n    params: {start: DATE, end: DATE}\n    max_span: 400 days\n" +
-            "  by_key:\n    strategy: merge_by_key\n    key: [id]\n    targets: [sqlserver]\n  everything:\n    strategy: full_replace\n  replace_keys:\n    strategy: delete_insert_by_key\n    key: [id, d]\n"),
+            "  by_key:\n    strategy: merge_by_key\n    key: [id]\n    connections: [sqlserver]\n  everything:\n    strategy: full_replace\n  replace_keys:\n    strategy: delete_insert_by_key\n    key: [id, d]\n"),
         Ok("loads: key defaults from the kind", "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [a]}\ngrain: [a]\n" + Cols + "loads:\n  m:\n    strategy: merge_by_key\n"),
         Ok("loads: range column defaults from the kind", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  r:\n    strategy: delete_insert_by_range\n"),
         Bad("loads: unknown strategy", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: upsert_magic\n", "DDB-106"),
@@ -125,17 +125,17 @@ public class SchemaConformanceTests
         Bad("loads: lookback not a duration", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: three days}\n", "DDB-106"),
         Bad("loads: params without end", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: delete_insert_by_range\n    column: d\n    params: {start: DATE}\n", "DDB-105"),
         Bad("loads: max_span not a duration", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  x:\n    strategy: delete_insert_by_range\n    column: d\n    max_span: forever\n", "DDB-106"),
-        Bad("loads: targets invalid", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n    targets: [\"9 bad\"]\n", "DDB-106"),
+        Bad("loads: targets invalid", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n    connections: [\"9 bad\"]\n", "DDB-106"),
         Bad("loads: on a view", "name: marts.fct_orders\nkind: {type: view}\n" + Cols + "loads:\n  x:\n    strategy: full_replace\n", "DDB-106"),
         Bad("kind lookback not a duration", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: soon}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n", "DDB-106"),
 
         // indexes (declared by the operator; never implied by unique_key)
-        Ok("indexes: unique, covering, per target", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: INT}\n  - {name: b, type: INT}\n  - {name: c, type: INT}\nindexes:\n  - {name: uq_a, columns: [a], unique: true}\n  - {name: ix_b, columns: [b, a], include: [c], targets: [sqlserver]}\n"),
+        Ok("indexes: unique, covering, per target", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: a, type: INT}\n  - {name: b, type: INT}\n  - {name: c, type: INT}\nindexes:\n  - {name: uq_a, columns: [a], unique: true}\n  - {name: ix_b, columns: [b, a], include: [c], connections: [sqlserver]}\n"),
         Bad("indexes: columns missing", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix}\n", "DDB-105"),
         Bad("indexes: unknown key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], clustered: true}\n", "DDB-104"),
         Bad("indexes: bad name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: \"my index\", columns: [a]}\n", "DDB-106"),
         Bad("indexes: unique maybe", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], unique: maybe}\n", "DDB-106"),
-        Bad("indexes: invalid target", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], targets: [\"9 bad\"]}\n", "DDB-106"),
+        Bad("indexes: invalid target", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], connections: [\"9 bad\"]}\n", "DDB-106"),
         Semantic("indexes: column not declared", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [ghost]}\n", "DDB-217"),
         Semantic("indexes: duplicate name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a]}\n  - {name: IX, columns: [a]}\n", "DDB-102"),
         Semantic("indexes: key column also included", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "indexes:\n  - {name: ix, columns: [a], include: [a]}\n", "DDB-106"),
@@ -143,7 +143,7 @@ public class SchemaConformanceTests
         // hooks: ordered, named, per-event, per-target; groups are referenced with `use`
         Ok("hooks: every form", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: grant, event: post_create, script: hooks/grant.sql}\n" +
             "  - name: stats\n    event: post_load\n    script: {sqlserver: hooks/sqlserver/stats.sql, postgres: hooks/postgres/stats.sql}\n    effect: data\n" +
-            "  - {name: only_pg, event: pre_alter, script: hooks/lock.sql, targets: [postgres], risk: risky}\n  - {use: standard}\n"),
+            "  - {name: only_pg, event: pre_alter, script: hooks/lock.sql, connections: [postgres], risk: risky}\n  - {use: standard}\n"),
         Ok("lint_ignore: both codes", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "lint_ignore: [DDB-223, DDB-224]\n"),
         Bad("lint_ignore: an unknown code", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "lint_ignore: [DDB-999]\n", "DDB-106"),
         Bad("hooks: not a list", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks: nope\n", "DDB-106"),
@@ -159,7 +159,7 @@ public class SchemaConformanceTests
         Bad("hooks: bad risk", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql, risk: yolo}\n", "DDB-106"),
         Bad("hooks: use with other keys", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {use: standard, name: x}\n", "DDB-106"),
         Semantic("hooks: duplicate name", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: hooks/x.sql}\n  - {name: x, event: pre_load, script: hooks/y.sql}\n", "DDB-102"),
-        Semantic("hooks: targets and per-target script together", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: {postgres: hooks/x.sql}, targets: [postgres]}\n", "DDB-106"),
+        Semantic("hooks: targets and per-target script together", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "hooks:\n  - {name: x, event: post_load, script: {postgres: hooks/x.sql}, connections: [postgres]}\n", "DDB-106"),
 
         // Semantic rules: the schema cannot express them, so it accepts and the loader rejects.
         Semantic("name does not match path", "name: marts.other\nkind: {type: full}\n" + Cols, "DDB-107"),
@@ -176,7 +176,7 @@ public class SchemaConformanceTests
         Semantic("loads: lookback unit does not fit a DATE", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  w:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, lookback: 3 hours}\n", "DDB-106"),
         Semantic("loads: initial is not a valid literal for the column", "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: d, type: DATE}\nloads:\n  w:\n    strategy: watermark_append\n    watermark: {column: d, resolver: target_max, on_null: initial, initial: yesterday}\n", "DDB-106"),
         Semantic("loads: two defaults for one target", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  a:\n    default: true\n    strategy: full_replace\n  b:\n    default: true\n    strategy: delete_insert_by_key\n    key: [a]\n", "DDB-106"),
-        Semantic("loads: defaults on different targets are fine only when targets differ", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  a:\n    default: true\n    strategy: full_replace\n    targets: [sqlserver]\n  b:\n    default: true\n    strategy: full_replace\n    targets: [sqlserver, postgres]\n", "DDB-106"),
+        Semantic("loads: defaults on different targets are fine only when targets differ", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "loads:\n  a:\n    default: true\n    strategy: full_replace\n    connections: [sqlserver]\n  b:\n    default: true\n    strategy: full_replace\n    connections: [sqlserver, postgres]\n", "DDB-106"),
         Semantic("kind lookback unit does not fit the time column", "name: marts.fct_orders\nkind: {type: incremental_by_time_range, time_column: d, lookback: 2 hours}\ngrain: [d]\ncolumns:\n  - {name: d, type: DATE}\n", "DDB-106"),
         Semantic("rename to an undeclared column", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "renames:\n  - {from: old, to: ghost}\n", "DDB-217"),
     ];

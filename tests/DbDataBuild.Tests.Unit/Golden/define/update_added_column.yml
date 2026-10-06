@@ -5,7 +5,7 @@ kind:
   unique_key: [order_id]
 
 grain: [order_id]
-targets: [sqlserver, fabric]
+connections: [sqlserver, fabric]
 columns:
   # identifiers
   - name: order_id

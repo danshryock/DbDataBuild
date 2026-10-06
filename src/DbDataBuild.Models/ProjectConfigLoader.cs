@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["default_targets", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["default_connections", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] ConnectionKeys = ["engine", "version"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -48,7 +48,7 @@ public static class ProjectConfigLoader
             var d = ProjectConfig.Default;
 
             var connections = ReadConnections(top);
-            var targets = ReadDefaultTargets(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.DefaultTargets;
+            var targets = ReadDefaultConnections(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.DefaultConnections;
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
@@ -101,9 +101,9 @@ public static class ProjectConfigLoader
             return result;
         }
 
-        private List<string>? ReadDefaultTargets(YamlMapping top, IReadOnlySet<string> connections)
+        private List<string>? ReadDefaultConnections(YamlMapping top, IReadOnlySet<string> connections)
         {
-            var list = StringList(top, "default_targets", required: false, allowEmpty: false, unique: true);
+            var list = StringList(top, "default_connections", required: false, allowEmpty: false, unique: true);
             if (list == null) return null;
             foreach (var t in list.Where(t => !connections.Contains(t.Value)))
                 Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");

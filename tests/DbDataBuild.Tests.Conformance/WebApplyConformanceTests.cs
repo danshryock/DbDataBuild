@@ -49,7 +49,7 @@ public partial class ApplyConformanceTests
             }
 
             // not confirmed: refused, and the database has nothing
-            var refused = await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = "somewhere", ["plan_id"] = id } });
+            var refused = await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["connection"] = "somewhere", ["plan_id"] = id } });
             Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
             Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
 
@@ -60,7 +60,7 @@ public partial class ApplyConformanceTests
             Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
 
             // confirmed: applied, as the command line would have done it
-            var started = await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = name, ["plan_id"] = id } });
+            var started = await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["connection"] = name, ["plan_id"] = id } });
             Assert.Equal(HttpStatusCode.Accepted, started.Status);
             var done = await Finished((string)JsonNode.Parse(started.Body)!["job"]!);
             Assert.True((int)done["exit"]! == 0, done.ToJsonString());
@@ -89,7 +89,7 @@ public partial class ApplyConformanceTests
             Assert.Equal("99", ((string)shown["samples"]!["differing"]![0]!["columns"]!["amount"]!["right"]!).TrimEnd('0').TrimEnd('.'));
 
             // the plan has been used: a second apply is refused by the command itself
-            var again = (string)JsonNode.Parse((await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["target"] = name, ["plan_id"] = id } })).Body)!["job"]!;
+            var again = (string)JsonNode.Parse((await Post("/api/apply", new JsonObject { ["plan"] = relative, ["confirm"] = new JsonObject { ["connection"] = name, ["plan_id"] = id } })).Body)!["job"]!;
             Assert.NotEqual(0, (int)(await Finished(again))["exit"]!);
         }
         finally { try { Directory.Delete(run.Dir, true); } catch (IOException) { } }

@@ -31,5 +31,5 @@ public sealed record PlanStep(
 public sealed record ObjectBase(string Object, ObjectState State, string? LiveShapeHash, string? RecordedShapeHash);
 
 public sealed record Plan(
-    string Id, string Target, string? GitCommit, bool GitDirty, string ToolVersion,
+    string Id, string Connection, string? GitCommit, bool GitDirty, string ToolVersion,
     IReadOnlyList<ObjectBase> Bases, IReadOnlyList<ResolvedAnswer> Answers, IReadOnlyList<PlanStep> Steps, IReadOnlyList<string> Noticed);

@@ -33,7 +33,7 @@ internal static class AgentKitCommand
 
     public static int Run(CommandSpec spec, string projectRoot, string? dir, bool write, bool check, bool mcp, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (write && check) { error.WriteLine("--write and --check cannot be combined: --check writes nothing."); return CliApp.ExitUsage; }
         var target = Path.GetFullPath(Path.Combine(projectRoot, dir ?? DefaultDir));
         var rel = Path.GetRelativePath(projectRoot, target).Replace('\\', '/');
@@ -110,12 +110,12 @@ internal static class McpConfig
     /// The server Claude Code starts from the project folder: `dbdatabuild mcp --project .`, read-only (no --allow-writes, no --allow-apply). Only the READ logins are passed on, by name: a value comes from the
     /// environment Claude Code runs in, never from this file, and the write login is never here (a person who wants applying from a host sets that up by hand: docs/interfaces.md).
     /// </summary>
-    public static JsonObject Entry() => new()
+    public static JsonObject Entry(IEnumerable<string>? connections = null) => new()
     {
         ["type"] = "stdio",
         ["command"] = ProductInfo.Cli,
         ["args"] = new JsonArray("mcp", "--project", "."),
-        ["env"] = new JsonObject(TargetNames.All.Select(t => new KeyValuePair<string, JsonNode?>(LoginName(t), "${" + LoginName(t) + ":-}"))),
+        ["env"] = new JsonObject((connections ?? TargetNames.All).Select(t => new KeyValuePair<string, JsonNode?>(LoginName(t), "${" + LoginName(t) + ":-}"))),
     };
 
     private static string LoginName(string target) => $"DBDATABUILD_{target.ToUpperInvariant()}_READ";
@@ -135,7 +135,7 @@ internal static class McpConfig
         else root = new JsonObject();
         if (root["mcpServers"] is not null and not JsonObject) return (current, "", $"`mcpServers` in `{FileName}` is not an object, so the server is not added to it.");
         var servers = root["mcpServers"] as JsonObject ?? new JsonObject();
-        servers[ServerName] = Entry();
+        servers[ServerName] = Entry(CommandTargets.NamesOf(projectRoot));
         root["mcpServers"] = servers;
         return (current, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IndentSize = 2, NewLine = "\n", Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n", null);       // LF on every platform (the default is the platform's line ending)
     }

@@ -16,7 +16,7 @@ public class HookResolutionTests
         return m!;
     }
 
-    private const string Groups = "  standard:\n    - {name: grant, event: post_create, script: hooks/grant.sql}\n    - {name: stats, event: post_load, script: {sqlserver: hooks/s.sql, postgres: hooks/p.sql}}\n    - {name: lock, event: pre_alter, script: hooks/lock.sql, targets: [postgres]}\n";
+    private const string Groups = "  standard:\n    - {name: grant, event: post_create, script: hooks/grant.sql}\n    - {name: stats, event: post_load, script: {sqlserver: hooks/s.sql, postgres: hooks/p.sql}}\n    - {name: lock, event: pre_alter, script: hooks/lock.sql, connections: [postgres]}\n";
 
     private static IReadOnlyList<ResolvedHook> Resolve(ModelDefinition m, ProjectConfig c, string target, List<Diagnostic>? diags = null) =>
         HookReader.Resolve(m, c, target, "models/marts/fct.yml", diags ?? []);

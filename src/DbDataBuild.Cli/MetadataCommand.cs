@@ -10,7 +10,7 @@ internal static class MetadataCommand
 {
     public static int Run(CommandSpec spec, string root, string[] models, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         var ctx = ProjectContext.Load(root);
         var selected = ctx.Select(models, error);
         if (selected == null) return CliApp.ExitUsage;
@@ -28,7 +28,7 @@ internal static class MetadataCommand
         output.Payload("sources", MetadataBuilder.Sources(ctx, models.Length == 0 ? null : selected.Select(m => m.Source.Definition.Name)));
         output.Payload("models", documents);
 
-        output.WriteLine($"{"model",-32} {"kind",-26} {"targets",-22} columns  definition hash");
+        output.WriteLine($"{"model",-32} {"kind",-26} {"connections",-22} columns  definition hash");
         foreach (var m in selected)
         {
             var hash = DbDataBuild.Sql.Analysis.AstHasher.Hash(m.Sql).Hash ?? "";

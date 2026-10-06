@@ -36,7 +36,7 @@ internal static class MetadataBuilder
             matrix_version = MatrixLoader.EmbeddedVersion(),
             config = new
             {
-                default_targets = cfg.DefaultTargets,
+                default_connections = cfg.DefaultConnections,
                 connections = cfg.Connections.OrderBy(c => c.Key, StringComparer.Ordinal).ToDictionary(c => c.Key, c => c.Value.Version is { } v ? (object)new { engine = c.Value.Engine, version = v } : new { engine = c.Value.Engine }),
                 target_versions = cfg.TargetVersions,
                 tracking_schema = cfg.TrackingSchema,
@@ -61,7 +61,7 @@ internal static class MetadataBuilder
             {
                 name = s.Definition.Name,
                 kind = s.Definition.KindType,
-                targets = ctx.TargetsOf(s.Definition),
+                connections = ctx.TargetsOf(s.Definition),
                 definition_hash = AstHasher.Hash(File.ReadAllText(Path.Combine(ctx.Root, s.QueryFile))).Hash,
             }).ToList(),
         };
@@ -69,7 +69,7 @@ internal static class MetadataBuilder
 
     private static object HookJson(HookDefinition h) => h.IsReference
         ? new { use = h.Use }
-        : new { name = h.Name, @event = h.Event, script = (object?)h.Script ?? h.ScriptByTarget, targets = h.Targets, effect = h.Effect, risk = h.Risk };
+        : new { name = h.Name, @event = h.Event, script = (object?)h.Script ?? h.ScriptByTarget, connections = h.Targets, effect = h.Effect, risk = h.Risk };
 
     /// <summary>The declared columns of everything a model could read, for lineage and nullability.</summary>
     public static IReadOnlyList<SchemaTableSpec> UpstreamSchema(ProjectContext ctx, string modelName) => UpstreamSpecs(ctx, modelName);
@@ -172,7 +172,7 @@ internal static class MetadataBuilder
             var op = render.Loads.FirstOrDefault(l => l.Target == o.Target && l.Operation == o.Operation);
             return new
             {
-                target = o.Target, operation = o.Operation, strategy = o.Strategy, is_default = o.IsDefault, matrix_status = o.Status, findings = o.Findings,
+                connection = o.Target, operation = o.Operation, strategy = o.Strategy, is_default = o.IsDefault, matrix_status = o.Status, findings = o.Findings,
                 script_path = op?.ScriptPath, script_hash = op == null ? null : Hashing.ScriptHash(op.Script),
                 resolver_path = op?.ResolverPath, resolver_hash = op?.Resolver == null ? null : Hashing.ScriptHash(op.Resolver),
                 parameters = op?.Parameters.Select(p => new { name = p.Name, type = p.Type, source = p.Source, constraint = p.Constraint }).ToList(),
@@ -196,7 +196,7 @@ internal static class MetadataBuilder
             name = def.Name,
             kind = new { type = def.KindType, unique_key = def.UniqueKey, time_column = def.TimeColumn, lookback = def.Lookback },
             grain = def.Grain,
-            targets,
+            connections = targets,
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             definition_hash = hash,
             upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
@@ -214,12 +214,12 @@ internal static class MetadataBuilder
             expected_shape_hash = shapeHashes,
             renames = def.Renames.Select(r => new { from = r.From, to = r.To }).ToList(),
             loads = rendered,
-            indexes = def.Indexes.Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include, targets = i.Targets }).ToList(),
+            indexes = def.Indexes.Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include, connections = i.Targets }).ToList(),
             hooks,
             index_advice = IndexAdvisor.For(def, targets).Select(a => new
             {
                 code = a.Code, severity = a.Severity, reason = a.Reason, columns = a.Columns, unique = a.WantUnique,
-                suggested = a.SuggestedName, existing_index = a.Existing, targets = a.Targets, silenced = def.LintIgnore.Contains(a.Code) || !ctx.Config.LintIndexes,
+                suggested = a.SuggestedName, existing_index = a.Existing, connections = a.Targets, silenced = def.LintIgnore.Contains(a.Code) || !ctx.Config.LintIndexes,
             }).ToList(),
         };
     }

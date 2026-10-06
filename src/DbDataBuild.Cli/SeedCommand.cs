@@ -15,7 +15,7 @@ internal static class SeedCommand
 
     public static int Run(CommandSpec spec, string root, int seed, int? scale, string? outFile, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         var ctx = ProjectContext.Load(root);
         var seeds = SeedLoader.Load(root);
         if (seeds.Seeds.Count == 0) { error.WriteLine($"The project has no seeds: put a DuckDB query per source in {SeedLoader.Directory}/<schema>/<table>.sql."); return CliApp.ExitUsage; }

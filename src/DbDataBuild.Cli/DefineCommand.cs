@@ -17,7 +17,7 @@ internal static class DefineCommand
     public static int Run(CommandSpec spec, string projectRoot, string[] paths, FileInfo? answersFile, bool write, bool check, bool acceptInferred,
         TextWriter output, TextWriter error, TextReader input, bool interactive)
     {
-        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
 
         if (check && (write || answersFile != null || acceptInferred))
         {

@@ -6,8 +6,8 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "default_targets": {
-      "description": "Connections a model is validated for when it declares no `targets:`. Default: [sqlserver].",
+    "default_connections": {
+      "description": "Connections a model is validated for when it declares no `connections:`. Default: [sqlserver].",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -388,7 +388,7 @@
             }
           ]
         },
-        "targets": {
+        "connections": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,

@@ -74,10 +74,10 @@ internal sealed class WebActions(string projectRoot, ICommandHost host, Semaphor
 
         var dryRun = body?["dry_run"] is JsonValue d && d.TryGetValue<bool>(out var dry) && dry;
         var confirm = body?["confirm"] as JsonObject;
-        var typedTarget = confirm?["target"] is JsonValue t && t.TryGetValue<string>(out var tt) ? tt : null;
+        var typedTarget = confirm?["connection"] is JsonValue t && t.TryGetValue<string>(out var tt) ? tt : null;
         var planId = confirm?["plan_id"] is JsonValue i && i.TryGetValue<string>(out var ii) ? ii : null;
-        if (!dryRun && (typedTarget != browser.Plan.Target || planId != browser.Plan.Id))
-            return Refuse(400, $"To apply, type the plan's id and its target ({browser.Plan.Target}) as shown. Nothing was run.");
+        if (!dryRun && (typedTarget != browser.Plan.Connection || planId != browser.Plan.Id))
+            return Refuse(400, $"To apply, type the plan's id and its target ({browser.Plan.Connection}) as shown. Nothing was run.");
 
         var allowRisky = body?["allow_risky"] is JsonValue r && r.TryGetValue<bool>(out var rr) && rr;
         var destructive = (body?["allow_destructive"] as JsonArray)?.Select(x => x is JsonValue v && v.TryGetValue<string>(out var o) ? o : "").ToList() ?? [];

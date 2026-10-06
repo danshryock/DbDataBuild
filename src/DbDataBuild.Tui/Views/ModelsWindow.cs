@@ -72,7 +72,7 @@ public sealed class ModelsWindow : Ui.Modal
         var sb = new StringBuilder();
         var kind = m["kind"]!;
         sb.AppendLineLf($"{(string?)m["name"]}   {(string?)kind["type"]}");
-        sb.AppendLineLf($"targets: {Join(m["targets"])}    grain: {Join(m["grain"])}");
+        sb.AppendLineLf($"connections: {Join(m["connections"])}    grain: {Join(m["grain"])}");
         if (kind["unique_key"] is JsonArray { Count: > 0 } uk) sb.AppendLineLf($"unique key: {Join(uk)}");
         if ((string?)kind["time_column"] is { } tc) sb.AppendLineLf($"time column: {tc}{((string?)kind["lookback"] is { } lb ? ", lookback " + lb : "")}");
         sb.AppendLineLf($"files: {(string?)m["files"]!["query"]}");
@@ -86,7 +86,7 @@ public sealed class ModelsWindow : Ui.Modal
         if (m["loads"] is JsonArray { Count: > 0 } loads)
         {
             sb.AppendLineLf().AppendLineLf("Loads");
-            foreach (var l in loads) sb.AppendLineLf($"  {(string?)l!["target"],-10} {(string?)l["operation"],-14} {(string?)l["strategy"],-24} {(string?)l["matrix_status"]}{((bool?)l["is_default"] == true ? "  (default)" : "")}");
+            foreach (var l in loads) sb.AppendLineLf($"  {(string?)l!["connection"],-10} {(string?)l["operation"],-14} {(string?)l["strategy"],-24} {(string?)l["matrix_status"]}{((bool?)l["is_default"] == true ? "  (default)" : "")}");
         }
         if (m["indexes"] is JsonArray { Count: > 0 } ix)
         {

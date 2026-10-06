@@ -54,7 +54,7 @@ public sealed class MainWindow : Window
         right.Add(details);
 
         status = new Ui.PlainLabel { X = 0, Y = Pos.AnchorEnd(2), Width = Dim.Fill(), Text = "Enter: open   Ctrl+Q: quit   ● changes something (asks first)" };
-        var hint = new Ui.PlainLabel { X = 0, Y = Pos.AnchorEnd(1), Width = Dim.Fill(), Text = "F1 keys   F2 models   F3 plans   F4 target   F5 last result" };
+        var hint = new Ui.PlainLabel { X = 0, Y = Pos.AnchorEnd(1), Width = Dim.Fill(), Text = "F1 keys   F2 models   F3 plans   F4 connection   F5 last result" };
         Add(left, right, status, hint);
         session.Status = s => status.Text = s;
 
@@ -79,19 +79,19 @@ public sealed class MainWindow : Window
         "Up/Down        choose an action (Models and Plans browse, the rest are commands)\n" +
         "Enter          open the action: a form with every option of the command\n" +
         "Tab            move between fields and buttons; Esc closes a screen\n" +
-        "F2 / F3        models / plans        F4 target        F5 last result\n" +
+        "F2 / F3        models / plans        F4 connection        F5 last result\n" +
         "Ctrl+Q         quit\n\n" +
         "Every action runs the same command you could type; the form shows that line.\n" +
         "A ● action asks before it changes anything. Plans are read before they are applied.";
 
     private void ChooseTarget()
     {
-        var targets = DbDataBuild.Models.TargetNames.All;
-        var choice = MessageBox.Query(session.App, "Target", $"Work on which target?{(session.Target != null ? $" (now {session.Target})" : "")}", [.. targets, "Cancel"]);
+        var targets = DbDataBuild.Models.ProjectConfigLoader.LoadFromProject(session.ProjectRoot, []).Connections.Keys.Order(StringComparer.Ordinal).ToList();
+        var choice = MessageBox.Query(session.App, "Connection", $"Work on which connection?{(session.Target != null ? $" (now {session.Target})" : "")}", [.. targets, "Cancel"]);
         if (choice is >= 0 and var i && i < targets.Count) { session.Target = targets[i]; Title = TitleText(); }
     }
 
-    private string TitleText() => $"dbdatabuild  |  {session.ProjectRoot}{(session.Target != null ? "  |  target " + session.Target : "")}";
+    private string TitleText() => $"dbdatabuild  |  {session.ProjectRoot}{(session.Target != null ? "  |  connection " + session.Target : "")}";
 
     private static string Mark(CommandInfo c) => c.Impact == Impact.None ? " " : "●";
 

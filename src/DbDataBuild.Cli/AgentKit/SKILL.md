@@ -27,14 +27,14 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `test [names] [--tag t] [--strict]` | offline | run the project's tests: metadata rules in `tests/metadata/*.sql` (DuckDB SELECTs over the `metadata_*` views that return violations); exit 1 if an error-severity rule returns rows |
 | `graph [selectors] [--columns \| --column m.c \| --diagram dot\|mermaid]` | offline | the dependency graph and column lineage; what a change to a model or a column reaches |
 | `new [template] [dir]` | repo files | list the built-in project templates, or create a ready-to-run example project (sources, seeds, staging, marts, tests) |
-| `load-seeds [--target t --scale n --replace --apply]` | target writes | create the seeded source tables on a sandbox target and fill them from the seeds (prints the plan unless `--apply`; write login) |
+| `load-seeds [--connection t --scale n --replace --apply]` | target writes | create the seeded source tables on a sandbox target and fill them from the seeds (prints the plan unless `--apply`; write login) |
 | `seed [--seed n --scale n]` | repo files | run `seeds/` (DuckDB queries that generate the source data) into `.dbdatabuild/seed.duckdb`; `sample` uses the same seeds |
 | `metadata`, `loads`, `matrix`, `explain <code>` | offline | what the tool knows: types per target, load operations, what differs per engine, a code's meaning |
 | `define [paths] --check` / `--write --answers f` | repo files | keep the `.yml` definition in sync with the query; `--check` writes nothing |
 | `render [--write \| --check]` | repo files | regenerate (or verify) `rendered/` |
 | `import-sources [schema.table ...] [--write \| --check]` | database, read-only (files only with `--write`) | export tables and views from the target as `sources/` descriptors; with no arguments refresh the existing ones; the default shows a diff and writes nothing |
 | `diff <schema.table> --against <schema.table> \| --against-schema <schema> [--key a,b] [--show-values]` | database, read-only | compare the data of two tables of one target: schema, row counts and a key-based row diff done in the engine; counts only unless `--show-values` (ask the person before using it: it prints real data) |
-| `review [plan file] [--target t]` | offline | list the project's plans, or show one: steps with risk, reasons, parameters and exact statements, the report, whether it is intact, and what `apply` would need to be allowed. Use it to summarize a plan; it applies nothing |
+| `review [plan file] [--connection t]` | offline | list the project's plans, or show one: steps with risk, reasons, parameters and exact statements, the report, whether it is intact, and what `apply` would need to be allowed. Use it to summarize a plan; it applies nothing |
 | `check`, `plan`, `report` | database, read-only | drift and blocks; write a plan file; history |
 | `apply <plan>`, `run`, `ack`, `init --apply`, `publish-metadata` | **changes the database** | only with the person's go-ahead; `apply --dry-run` changes nothing |
 
@@ -50,7 +50,7 @@ When the host has started `dbdatabuild mcp` for this project, the commands above
 
 ## Choosing models
 
-Every command that takes models takes selectors: `+model` (it and what it reads), `model+` (it and what depends on it), `2+model`, `@model`, `kind:full`, `target:postgres`, `path:models/marts`, `changed:origin/main` (what differs from a git ref; add `+` for what depends on it), `a,b` for an intersection, `exclude:<selector>`. `graph --column m.c` shows what a column change reaches. After editing a model, `plan changed:HEAD+` plans it and everything downstream.
+Every command that takes models takes selectors: `+model` (it and what it reads), `model+` (it and what depends on it), `2+model`, `@model`, `kind:full`, `connection:postgres`, `path:models/marts`, `changed:origin/main` (what differs from a git ref; add `+` for what depends on it), `a,b` for an intersection, `exclude:<selector>`. `graph --column m.c` shows what a column change reaches. After editing a model, `plan changed:HEAD+` plans it and everything downstream.
 
 ## The loop for a model change
 
@@ -71,7 +71,7 @@ kind:
   type: incremental_by_unique_key      # view | full | incremental_by_unique_key | incremental_by_time_range
   unique_key: [order_id]               # must equal grain for incremental_by_unique_key
 grain: [order_id]                      # the columns that identify one row; required for incremental kinds
-targets: [sqlserver, postgres]         # optional; default_targets in dbdatabuild.yml otherwise
+connections: [sqlserver, postgres]         # optional; default_connections in dbdatabuild.yml otherwise
 columns:
   - {name: order_id, type: BIGINT, nullable: false}
   - {name: amount, type: "DECIMAL(14, 2)"}

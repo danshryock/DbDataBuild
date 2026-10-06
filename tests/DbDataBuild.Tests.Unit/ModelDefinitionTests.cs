@@ -45,7 +45,7 @@ public class ModelDefinitionTests
             surprise: 1
             kind:
               type: incremental_by_unique_key
-            targets: [oracle]
+            connections: [oracle]
             columns:
               - name: a
                 type: INT
@@ -92,7 +92,7 @@ public class ModelDefinitionTests
     public void Malformed_inputs_never_throw()
     {
         string[] inputs = ["", ":", "[", "{{", "a: &x\n  - *x", "name: [1, [2]]", "kind: 3", "columns: x", "\t\t", "a: |\n  block\n", "a: [1, 2\nb: : :\n", "---\n---\n",
-            "name: n\nkind: {type: full}\ncolumns:\n  - 1\n  - [a]\n  - {name: [x]}\nrenames: 5\ntargets: {a: b}\n"];
+            "name: n\nkind: {type: full}\ncolumns:\n  - 1\n  - [a]\n  - {name: [x]}\nrenames: 5\nconnections: {a: b}\n"];
         foreach (var input in inputs)
         {
             var ex = Record.Exception(() => Load(input));

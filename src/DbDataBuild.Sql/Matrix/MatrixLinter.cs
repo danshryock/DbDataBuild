@@ -92,7 +92,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         {
             yield return new Diagnostic(DiagnosticCatalog.ConstructUnsupported, loc,
                 $"`{row.Id}` needs {target} version {min} or later, but the project configures version {version}.{note}",
-                Fix: $"Raise `connections.{target}.version` if the engine is newer, avoid `{row.Id}`, or remove `{target}` from `targets:`.");
+                Fix: $"Raise `connections.{target}.version` if the engine is newer, avoid `{row.Id}`, or remove `{target}` from `connections:`.");
             yield break;
         }
 
@@ -100,7 +100,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         {
             case SupportStatus.Unsupported:
                 yield return new Diagnostic(DiagnosticCatalog.ConstructUnsupported, loc, Found("unsupported"),
-                    Fix: $"Rewrite the model without `{row.Id}`, or remove `{target}` from `targets:`.");
+                    Fix: $"Rewrite the model without `{row.Id}`, or remove `{target}` from `connections:`.");
                 break;
             case SupportStatus.Approximated:
                 yield return new Diagnostic(DiagnosticCatalog.ConstructApproximated, loc, Found("approximated"), SeverityOverride: Policy(PolicyKeys.Approximated));

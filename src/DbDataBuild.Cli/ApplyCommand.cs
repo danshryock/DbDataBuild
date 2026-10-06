@@ -25,7 +25,7 @@ internal static class ApplyCommand
             }
             var touched = plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal).ToList();
             var docs = MetadataPublisher.Collect(ctx, touched, plan);
-            var stored = Task.Run(() => MetadataPublisher.PublishAsync(docs, plan.Target, config.TrackingSchema, read, write, "apply-metadata", root, plan.Id, commit)).GetAwaiter().GetResult();
+            var stored = Task.Run(() => MetadataPublisher.PublishAsync(docs, plan.Connection, config.TrackingSchema, read, write, "apply-metadata", root, plan.Id, commit)).GetAwaiter().GetResult();
             output.WriteLine($"Metadata stored: {stored.Written.Count} document(s) written, {stored.Unchanged.Count} unchanged.");
             output.Payload("metadata_stored", stored.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         }
@@ -53,17 +53,17 @@ internal static class ApplyCommand
         foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (configDiags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
-        if (!config.Connections.TryGetValue(plan.Target, out var connection))
+        if (!config.Connections.TryGetValue(plan.Connection, out var connection))
         {
-            error.WriteLine($"The plan is for the connection `{plan.Target}`, which this project does not have. Connections: {string.Join(", ", config.Connections.Keys.Order(StringComparer.Ordinal))}.");
+            error.WriteLine($"The plan is for the connection `{plan.Connection}`, which this project does not have. Connections: {string.Join(", ", config.Connections.Keys.Order(StringComparer.Ordinal))}.");
             return CliApp.ExitFindings;
         }
         var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  target: {plan.Target}  |  login: {logins}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());
-        output.Payload("target", plan.Target);
+        output.Payload("connection", plan.Connection);
         output.Payload("dry_run", dryRun);
         output.Payload("plan_id", plan.Id);
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");

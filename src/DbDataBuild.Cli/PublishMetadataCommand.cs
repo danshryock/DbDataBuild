@@ -17,7 +17,7 @@ internal static class PublishMetadataCommand
         var target = connection.Name; var engine = connection.Engine;
         var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
         foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
         if (read == null || write == null) return CliApp.ExitFindings;
 
@@ -37,7 +37,7 @@ internal static class PublishMetadataCommand
         try { result = Task.Run(() => MetadataPublisher.PublishAsync(documents, engine, ctx.Config.TrackingSchema, read, write, spec.Name, root, null, commit)).GetAwaiter().GetResult(); }
         catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
 
-        output.Payload("target", target);
+        output.Payload("connection", target);
         output.Payload("written", result.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         output.Payload("unchanged", result.Unchanged.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         output.WriteLine($"Stored {result.Written.Count} document(s); {result.Unchanged.Count} already up to date. Query `{ctx.Config.TrackingSchema}.metadata_current` and `{ctx.Config.TrackingSchema}.metadata_columns`.");

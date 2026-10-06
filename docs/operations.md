@@ -27,7 +27,7 @@ Offline commands (`validate`, `render`, `loads`, `matrix`, `explain`, `define`) 
 
 1. `dbdatabuild validate` and `dbdatabuild render --check` in CI. The first reads models and sources, lowers each query with DuckDB, and lints it per target; the second fails when the committed `rendered/` files differ from a fresh render. Run `render --write` and commit the result when a model changes.
 2. `dbdatabuild check` (read-only) shows drift: objects whose live shape no longer matches what the tool last recorded.
-3. `dbdatabuild plan` writes `plans/<target>/<id>.plan.yml`. Commit it. The plan records every statement, its risk class and a SHA-256 of its own content; **`apply` refuses a plan that was edited by hand**.
+3. `dbdatabuild plan` writes `plans/<connection>/<id>.plan.yml`. Commit it. The plan records every statement, its risk class and a SHA-256 of its own content; **`apply` refuses a plan that was edited by hand**.
 4. `dbdatabuild apply <plan>` runs exactly the recorded statements. `--dry-run` runs every check and prints every statement without executing anything. Risky steps need `--allow-risky`; destructive steps need `--allow-destructive <object>` for each object. `--allow-dirty` permits a working tree with uncommitted changes (recorded).
 5. `dbdatabuild run` is `plan` + `apply` for routine loads only. It refuses (and points at `plan`) when the plan would contain DDL, a question or a risky step. This is the command to schedule.
 
@@ -42,7 +42,7 @@ Exit codes: `0` ok, `1` findings (a diagnostic with an error severity, a refused
 SQL Agent job step (type: operating system command, run as a proxy account that holds the two connection strings in its environment):
 
 ```
-dbdatabuild run --project D:\etl\project --target sqlserver --format json > D:\etl\logs\run.json
+dbdatabuild run --project D:\etl\project --connection sqlserver --format json > D:\etl\logs\run.json
 ```
 
 Make the working directory or `--project` a checkout of the repository: the tool reads the committed `rendered/` files and records the git commit with each plan.

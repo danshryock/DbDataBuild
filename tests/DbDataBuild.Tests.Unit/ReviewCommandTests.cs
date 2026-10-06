@@ -46,7 +46,7 @@ public class ReviewCommandTests : IDisposable
         Assert.False((bool)plans[0]!["intact"]!);
         Assert.NotEmpty(plans[0]!["problems"]!.AsArray());
         Assert.True((bool)plans[1]!["intact"]!);
-        Assert.Empty(((JsonArray)(Review("--project", dir, "--target", "sqlserver").Doc["data"]!["plans"]!)));
+        Assert.Empty(((JsonArray)(Review("--project", dir, "--connection", "sqlserver").Doc["data"]!["plans"]!)));
     }
 
     [Fact]

@@ -32,7 +32,7 @@ public class SourceDescriptorTests
         new("indexes", "name: staging.orders\n" + Cols + "indexes:\n  - {name: IX_orders-amount, columns: [amount], include: [order_id]}\n  - {name: ux_orders, columns: [order_id, amount], unique: true}\n", true),
         new("index on an undeclared column", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [ghost]}\n", true, "DDB-217"),
         new("index without columns", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix}\n", false, "DDB-105"),
-        new("index with an unknown key", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [amount], targets: [sqlserver]}\n", false, "DDB-104"),
+        new("index with an unknown key", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [amount], connections: [sqlserver]}\n", false, "DDB-104"),
         new("duplicate index names", "name: staging.orders\n" + Cols + "indexes:\n  - {name: ix, columns: [amount]}\n  - {name: IX, columns: [order_id]}\n", true, "DDB-102"),
         new("foreign keys", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk_orders_customer, columns: [order_id], references: {table: staging.customers, columns: [customer_id]}}\n", true),
         new("foreign key without references", "name: staging.orders\n" + Cols + "foreign_keys:\n  - {name: fk, columns: [order_id]}\n", false, "DDB-105"),

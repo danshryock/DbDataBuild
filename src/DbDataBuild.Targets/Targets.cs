@@ -47,7 +47,7 @@ public sealed class PostgresTarget : ITarget
     }
 }
 
-/// <summary>The engines the tool knows. Looked up by the names used in `targets:`.</summary>
+/// <summary>The engines the tool knows. Looked up by the names used in `connections:`.</summary>
 public static class TargetRegistry
 {
     private static readonly IReadOnlyDictionary<string, ITarget> Targets = new Dictionary<string, ITarget>

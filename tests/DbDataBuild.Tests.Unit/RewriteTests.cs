@@ -72,7 +72,7 @@ public class RewriteTests
         Assert.DoesNotContain("split-part", sqlServer.Disabled);               // nothing to do on SQL Server at all
         Assert.DoesNotContain("round-double", RewriteCatalog.Resolve(S("native"), null, ["postgres"], "m", null).Disabled);   // PostgreSQL has no round(double, n)
         Assert.Contains("round-double", sqlServer.Disabled);                  // and on SQL Server it is only fidelity
-        Assert.DoesNotContain("round-double", RewriteCatalog.Resolve(S("native"), null, ["sqlserver", "postgres"], "m", null).Disabled);   // one model, both targets: the stricter wins
+        Assert.DoesNotContain("round-double", RewriteCatalog.Resolve(S("native"), null, ["sqlserver", "postgres"], "m", null).Disabled);   // one model, both connections: the stricter wins
     }
 
     [Fact]

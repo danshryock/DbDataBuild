@@ -41,7 +41,7 @@ public sealed record ConnectionConfig(string Name, string Engine, int? Version =
 
 /// <summary>Project configuration (<c>dbdatabuild.yml</c>). Offline settings only: credentials never live here (DESIGN.md 9.2).</summary>
 public sealed record ProjectConfig(
-    IReadOnlyList<string> DefaultTargets,
+    IReadOnlyList<string> DefaultConnections,
     IReadOnlyDictionary<string, ConnectionConfig> Connections,
     string TrackingSchema,
     StringSemantics StringSemantics,
@@ -90,7 +90,7 @@ public sealed record ProjectConfig(
         });
 
     public string Describe() =>
-        $"default targets: {string.Join(", ", DefaultTargets)}; string semantics: {StringSemantics.Describe()}; " +
+        $"default connections: {string.Join(", ", DefaultConnections)}; string semantics: {StringSemantics.Describe()}; " +
         $"target versions: {(TargetVersions.Count == 0 ? "not set" : string.Join(", ", TargetVersions.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} {v.Value}")))}" +
         (Connections.Any(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key)
             ? $"; connections: {string.Join(", ", Connections.Where(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} ({c.Value.Engine})"))}" : "");

@@ -13,14 +13,14 @@ public class JsonOutputTests
     private static readonly JsonSchema Schema = SchemaConformanceTests.LoadSchema("output");
 
     private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
-    private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\ntargets: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\nindexes:\n  - {name: ix_amount, columns: [amount]}\n";
+    private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\nindexes:\n  - {name: ix_amount, columns: [amount]}\n";
 
     private static string Project()
     {
         var dir = NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
         File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Orders);
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), FctYaml);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, o.amount FROM staging.orders o\n");
         return dir;
@@ -102,7 +102,7 @@ public class JsonOutputTests
         var dir = Project();
         var matrix = Run("matrix");
         Assert.True(matrix.Doc["data"]!["constructs"]!.AsArray().Count > 10);
-        Assert.NotNull(matrix.Doc["data"]!["constructs"]![0]!["targets"]!["sqlserver"]!["status"]);
+        Assert.NotNull(matrix.Doc["data"]!["constructs"]![0]!["engines"]!["sqlserver"]!["status"]);
 
         var explain = Run("explain", "DDB-430");
         Assert.Equal("DDB-430", explain.Doc["data"]!["code"]!["code"]!.GetValue<string>());

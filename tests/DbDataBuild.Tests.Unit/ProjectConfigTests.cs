@@ -7,7 +7,7 @@ namespace DbDataBuild.Tests.Unit;
 public class ProjectConfigTests
 {
     private const string Full = """
-        default_targets: [sqlserver, postgres]
+        default_connections: [sqlserver, postgres]
         connections:
           sqlserver: { version: 16 }
           postgres: { version: "17" }
@@ -40,13 +40,13 @@ public class ProjectConfigTests
     [
         new("full example", Full, true),
         new("empty mapping", "{}", true),
-        new("only default targets", "default_targets: [fabric]\n", true),
+        new("only default connections", "default_connections: [fabric]\n", true),
         new("version as integer and string", "connections:\n  sqlserver: { version: 17 }\n  postgres: { version: \"16\" }\n", true),
         new("unknown key", "surprise: 1\n", false, "DDB-104"),
-        new("invalid default connection name", "default_targets: [\"9 bad\"]\n", false, "DDB-106"),
-        new("empty default targets", "default_targets: []\n", false, "DDB-106"),
-        new("duplicate default targets", "default_targets: [fabric, fabric]\n", false, "DDB-106"),
-        new("default targets not a list", "default_targets: sqlserver\n", false, "DDB-106"),
+        new("invalid default connection name", "default_connections: [\"9 bad\"]\n", false, "DDB-106"),
+        new("empty default connections", "default_connections: []\n", false, "DDB-106"),
+        new("duplicate default connections", "default_connections: [fabric, fabric]\n", false, "DDB-106"),
+        new("default connections not a list", "default_connections: sqlserver\n", false, "DDB-106"),
         new("connection without an engine", "connections:\n  oracle: { version: 19 }\n", false, "DDB-105"),
         new("unknown target setting", "connections:\n  sqlserver: { edition: enterprise }\n", false, "DDB-104"),
         new("version zero", "connections:\n  sqlserver: { version: 0 }\n", false, "DDB-106"),
@@ -99,7 +99,7 @@ public class ProjectConfigTests
     public void Full_example_is_read_completely()
     {
         var cfg = ProjectConfigLoader.Load(Full, "dbdatabuild.yml", [])!;
-        Assert.Equal(["sqlserver", "postgres"], cfg.DefaultTargets);
+        Assert.Equal(["sqlserver", "postgres"], cfg.DefaultConnections);
         Assert.Equal(16, cfg.TargetVersions["sqlserver"]);
         Assert.Equal(17, cfg.TargetVersions["postgres"]);
         Assert.False(cfg.TargetVersions.ContainsKey("fabric"));
@@ -120,7 +120,7 @@ public class ProjectConfigTests
     {
         var cfg = ProjectConfigLoader.Load("tracking_schema: x\n", "dbdatabuild.yml", [])!;
         var d = ProjectConfig.Default;
-        Assert.Equal(["sqlserver"], cfg.DefaultTargets);
+        Assert.Equal(["sqlserver"], cfg.DefaultConnections);
         Assert.Empty(cfg.TargetVersions);
         Assert.Equal(CaseSensitivity.Insensitive, d.StringSemantics.Case);
         Assert.Equal(AccentSensitivity.Sensitive, d.StringSemantics.Accent);
@@ -143,7 +143,7 @@ public class ProjectConfigTests
     public void Problems_are_reported_together_with_positions()
     {
         var diags = new List<Diagnostic>();
-        var cfg = ProjectConfigLoader.Load("default_targets: [oracle]\ntracking_schema: a-b\nsurprise: 1\n", "dbdatabuild.yml", diags);
+        var cfg = ProjectConfigLoader.Load("default_connections: [oracle]\ntracking_schema: a-b\nsurprise: 1\n", "dbdatabuild.yml", diags);
         Assert.Null(cfg);
         Assert.Equal(["DDB-104", "DDB-106"], diags.Select(d => d.Code).Distinct().Order());
         Assert.Equal(3, diags.Count);
@@ -165,7 +165,7 @@ public class ProjectConfigTests
     public void Broken_file_reports_errors_and_falls_back_to_defaults()
     {
         var dir = TestSupport.NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [oracle]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [oracle]\n");
         var diags = new List<Diagnostic>();
         Assert.Equal(ProjectConfig.Default, ProjectConfigLoader.LoadFromProject(dir, diags));
         Assert.Contains(diags, d => d.Code == "DDB-106" && d.Location.File == "dbdatabuild.yml");
@@ -174,7 +174,7 @@ public class ProjectConfigTests
     [Fact]
     public void Malformed_config_never_throws()
     {
-        string[] inputs = [":", "[", "- a", "a: &x 1\nb: *x", "default_targets: {a: b}", "targets: 5", "targets: [a]", "string_semantics: x",
+        string[] inputs = [":", "[", "- a", "a: &x 1\nb: *x", "default_connections: {a: b}", "connections: 5", "connections: [a]", "string_semantics: x",
             "string_semantics: {collations: [a]}", "policy: [a]", "policy: {severity: 3}", "---\n---\n", "tracking_schema: [a]"];
         foreach (var input in inputs)
             Assert.Null(Record.Exception(() => ProjectConfigLoader.Load(input, "dbdatabuild.yml", [])));
@@ -184,7 +184,7 @@ public class ProjectConfigTests
     public void Describe_prints_the_effective_settings()
     {
         var text = ProjectConfigLoader.Load(Full, "dbdatabuild.yml", [])!.Describe();
-        Assert.Contains("default targets: sqlserver, postgres", text);
+        Assert.Contains("default connections: sqlserver, postgres", text);
         Assert.Contains("case=sensitive, accent=insensitive, trailing_space=significant", text);
         Assert.Contains("postgres 17, sqlserver 16", text);
         Assert.Contains("target versions: not set", ProjectConfig.Default.Describe());

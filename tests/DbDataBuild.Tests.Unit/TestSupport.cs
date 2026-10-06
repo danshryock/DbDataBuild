@@ -11,7 +11,7 @@ internal static class TestSupport
           type: incremental_by_unique_key
           unique_key: [order_id]
         grain: [order_id]
-        targets: [sqlserver, fabric]
+        connections: [sqlserver, fabric]
         columns:
           - name: order_id
             type: BIGINT

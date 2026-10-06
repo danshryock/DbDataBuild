@@ -59,7 +59,7 @@ public class LoadSeedsTests
     [InlineData("postgres", "\"raw\".\"customers\"", "\"id\", \"name\"")]
     public void An_insert_binds_every_value_and_puts_none_in_the_text(string target, string table, string columns)
     {
-        var config = ProjectConfigLoader.Load("default_targets: [sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS, postgres: C }\n", "dbdatabuild.yml", []);
+        var config = ProjectConfigLoader.Load("default_connections: [sqlserver]\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS, postgres: C }\n", "dbdatabuild.yml", []);
         var ddl = TargetRegistry.Get(target).CreateDdl(config!);
         var source = new SourceDescriptor("raw.customers", [new ColumnDefinition("id", "INTEGER", false), new ColumnDefinition("name", "VARCHAR(20)")], []);
         var native = source.Columns.Select(c => ddl.Map(source.Name, c)).ToList();

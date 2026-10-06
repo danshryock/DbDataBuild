@@ -83,7 +83,7 @@ public sealed class WebActionsTests : IDisposable
     }
 
     private object Request(string plan, string? target = "postgres", string? planId = "2026-10-05-eeee0005", bool risky = true, string[]? destructive = null, bool dryRun = false) =>
-        new { plan, dry_run = dryRun, allow_risky = risky, allow_destructive = destructive ?? ["marts.fct"], confirm = new { target, plan_id = planId } };
+        new { plan, dry_run = dryRun, allow_risky = risky, allow_destructive = destructive ?? ["marts.fct"], confirm = new { connection = target, plan_id = planId } };
 
     [Fact]
     public async Task Without_allow_apply_a_plan_cannot_be_applied_and_nothing_is_run()

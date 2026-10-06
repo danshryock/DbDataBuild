@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads and validates one model definition (.yml). All problems are reported in one pass.</summary>
 public static class ModelDefinitionLoader
 {
-    private static readonly string[] TopKeys = ["name", "kind", "grain", "targets", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore", "rewrites"];
+    private static readonly string[] TopKeys = ["name", "kind", "grain", "connections", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore", "rewrites"];
     private static readonly string[] RenameKeys = ["from", "to"];
 
     /// <param name="file">Path shown in diagnostics.</param>
@@ -46,7 +46,7 @@ public static class ModelDefinitionLoader
 
             var (kindType, uniqueKey, timeColumn, lookback, kindNode) = ReadKind(top);
             var grain = StringList(top, "grain", required: false);
-            var targets = StringList(top, "targets", required: false, allowEmpty: false, unique: true);
+            var targets = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
             if (targets != null)
                 foreach (var t in targets.Where(t => !connections.Contains(t.Value)))
                     Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
@@ -127,7 +127,7 @@ public static class ModelDefinitionLoader
             return (type, uniqueKey, timeColumn, lookback, kind);
         }
 
-        private static readonly string[] LoadKeys = ["default", "strategy", "key", "column", "watermark", "params", "max_span", "targets"];
+        private static readonly string[] LoadKeys = ["default", "strategy", "key", "column", "watermark", "params", "max_span", "connections"];
         private static readonly string[] WatermarkKeys = ["column", "resolver", "lookback", "on_null", "initial", "overridable"];
         private static readonly System.Text.RegularExpressions.Regex OpName = new("^[a-z][a-z0-9_]*$");
 
@@ -155,7 +155,7 @@ public static class ModelDefinitionLoader
                     if (d.Value is "true" or "false") isDefault = d.Value == "true";
                     else Add(DiagnosticCatalog.InvalidValue, d, $"default is `{d.Value}`.", "true or false (lowercase).");
                 }
-                var targets = StringList(op, "targets", required: false, allowEmpty: false, unique: true);
+                var targets = StringList(op, "connections", required: false, allowEmpty: false, unique: true);
                 foreach (var t in targets ?? [])
                     if (!connections.Contains(t.Value)) Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
 
@@ -306,7 +306,7 @@ public static class ModelDefinitionLoader
             var result = new List<IndexDefinition>();
             if (top.Get("indexes") is not { } node) return result;
             if (node is not YamlSequence seq) { Add(DiagnosticCatalog.InvalidValue, node, "`indexes` must be a list."); return result; }
-            string[] keys = ["name", "columns", "unique", "include", "targets"];
+            string[] keys = ["name", "columns", "unique", "include", "connections"];
             var declared = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in seq.Items)
@@ -316,7 +316,7 @@ public static class ModelDefinitionLoader
                 var name = Scalar(m, "name", required: true, at: m);
                 var cols = StringList(m, "columns", required: true, allowEmpty: false, unique: true);
                 var include = StringList(m, "include", required: false, allowEmpty: false, unique: true);
-                var idxTargets = StringList(m, "targets", required: false, allowEmpty: false, unique: true);
+                var idxTargets = StringList(m, "connections", required: false, allowEmpty: false, unique: true);
                 var unique = false;
                 if (Scalar(m, "unique", required: false, at: m) is { } u)
                 {

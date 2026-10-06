@@ -62,7 +62,7 @@ public class IndexAdvisorTests
     [Fact]
     public void An_index_restricted_to_one_target_does_not_cover_the_other()
     {
-        const string indexes = "indexes:\n  - {name: u, columns: [order_id], unique: true, targets: [sqlserver]}\n";
+        const string indexes = "indexes:\n  - {name: u, columns: [order_id], unique: true, connections: [sqlserver]}\n";
         var a = Assert.Single(Advise(KeyModel + indexes));
         Assert.Equal(["postgres"], a.Targets);
         Assert.Empty(Advise(KeyModel + indexes, "sqlserver"));
@@ -112,7 +112,7 @@ public class IndexAdvisorTests
 
     // ---- through the CLI ----
 
-    private static string Project(string modelYaml, string config = "default_targets: [sqlserver]\n")
+    private static string Project(string modelYaml, string config = "default_connections: [sqlserver]\n")
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
@@ -144,7 +144,7 @@ public class IndexAdvisorTests
     public void An_operator_can_silence_one_code_for_a_model_or_all_index_advice_for_the_project()
     {
         Assert.DoesNotContain("DDB-223", Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-223]\n")).Err);
-        Assert.DoesNotContain("DDB-223", Cli("validate", "--project", Project(KeyModel, "default_targets: [sqlserver]\nlint:\n  indexes: false\n")).Err);
+        Assert.DoesNotContain("DDB-223", Cli("validate", "--project", Project(KeyModel, "default_connections: [sqlserver]\nlint:\n  indexes: false\n")).Err);
         // silencing 224 does not silence 223
         Assert.Contains("DDB-223", Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-224]\n")).Err);
     }
@@ -155,7 +155,7 @@ public class IndexAdvisorTests
         var model = Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-999]\n"));
         Assert.Equal(CliApp.ExitFindings, model.Exit);
         Assert.Contains("`DDB-999` is not an advisory lint code", model.Err);
-        var cfg = Cli("validate", "--project", Project(KeyModel, "default_targets: [sqlserver]\nlint:\n  indexes: maybe\n"));
+        var cfg = Cli("validate", "--project", Project(KeyModel, "default_connections: [sqlserver]\nlint:\n  indexes: maybe\n"));
         Assert.Equal(CliApp.ExitFindings, cfg.Exit);
         Assert.Contains("`lint.indexes` must be true or false", cfg.Err);
     }

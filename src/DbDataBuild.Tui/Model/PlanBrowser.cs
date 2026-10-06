@@ -28,7 +28,7 @@ public sealed class PlanBrowser
     public IReadOnlyList<string> DestructiveObjects => Plan.Steps.Where(s => s.Risk == RiskClass.Destructive).Select(s => s.Object).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 
     public string Summary =>
-        $"{Plan.Id}  |  target {Plan.Target}  |  {Plan.Steps.Count} step(s): " +
+        $"{Plan.Id}  |  target {Plan.Connection}  |  {Plan.Steps.Count} step(s): " +
         string.Join(", ", Enum.GetValues<StepType>().Select(t => (t, n: Plan.Steps.Count(s => s.Type == t))).Where(x => x.n > 0).Select(x => $"{x.n} {x.t.ToString().ToLowerInvariant()}")) +
         $"  |  {Risky} risky, {Destructive} destructive" + (Plan.GitDirty ? "  |  working tree was dirty" : "");
 

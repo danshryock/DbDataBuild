@@ -41,7 +41,7 @@ public class PlanDocumentTests
         Assert.Equal(plan.Bases, parsed.Bases);
         Assert.Equal(plan.Answers, parsed.Answers);
         Assert.Equal(plan.Noticed, parsed.Noticed);
-        Assert.Equal((plan.Id, plan.Target, plan.GitCommit, plan.GitDirty, plan.ToolVersion), (parsed.Id, parsed.Target, parsed.GitCommit, parsed.GitDirty, parsed.ToolVersion));
+        Assert.Equal((plan.Id, plan.Connection, plan.GitCommit, plan.GitDirty, plan.ToolVersion), (parsed.Id, parsed.Connection, parsed.GitCommit, parsed.GitDirty, parsed.ToolVersion));
         Assert.Equal(text, PlanDocument.Serialize(parsed));                                         // serialization is a fixed point
         Assert.Matches("^plan:\n  hash: [0-9a-f]{64}\n", text);
     }
@@ -159,7 +159,7 @@ public class PlanDocumentTests
     [InlineData("unknown key", "    risk: safe\n", "    risk: safe\n    shell: rm\n")]
     [InlineData("bad step type", "type: ddl", "type: banana")]
     [InlineData("bad risk", "risk: safe", "risk: reckless")]
-    [InlineData("bad connection name", "target: \"sqlserver\"", "target: \"9 bad\"")]
+    [InlineData("bad connection name", "connection: \"sqlserver\"", "connection: \"9 bad\"")]
     [InlineData("bad state", "state: in_sync", "state: fine")]
     [InlineData("short hash", "hash_after: \"" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"", "hash_after: \"abc\"")]
     public void Structural_damage_fails_the_schema_and_the_parser(string name, string from, string to)

@@ -48,7 +48,7 @@ internal static class DiffCommand
         }
 
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}  |  values: {(showValues ? "shown (requested)" : "not read")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}  |  values: {(showValues ? "shown (requested)" : "not read")}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         DiffPlan? plan = null;
@@ -90,7 +90,7 @@ internal static class DiffCommand
     private static void Report(TextWriter output, DiffPlan p, DiffOutcome o, string keySource, bool showValues, int limit, string target)
     {
         var others = p.Compared.Where(c => !p.Key.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList();
-        output.Payload("target", target);
+        output.Payload("connection", target);
         output.Payload("left", new { table = p.Left.Qualified, rows = o.LeftRows, columns = p.Left.Columns.Count });
         output.Payload("right", new { table = p.Right.Qualified, rows = o.RightRows, columns = p.Right.Columns.Count });
         output.Payload("key", new { columns = p.Key, source = keySource });

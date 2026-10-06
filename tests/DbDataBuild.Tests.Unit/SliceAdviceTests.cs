@@ -50,7 +50,7 @@ public class SliceAdviceTests
 
     private const string Cols = "columns:\n  - {name: order_date, type: DATE, nullable: false}\n  - {name: modified_at, type: TIMESTAMP}\n  - {name: total, type: \"DECIMAL(38, 2)\"}\n";
 
-    private static string Project(string sql, string loads = "", string extra = "", string config = "default_targets: [sqlserver]\nlint:\n  indexes: false\n")
+    private static string Project(string sql, string loads = "", string extra = "", string config = "default_connections: [sqlserver]\nlint:\n  indexes: false\n")
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
@@ -104,9 +104,9 @@ public class SliceAdviceTests
     public void An_operator_can_silence_the_advice_for_a_model_or_the_project_and_an_unknown_code_is_an_error()
     {
         Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-225]\n")).Err);
-        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "default_targets: [sqlserver]\nlint:\n  indexes: false\n  slices: false\n")).Err);
+        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "default_connections: [sqlserver]\nlint:\n  indexes: false\n  slices: false\n")).Err);
         Assert.Contains("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-223]\n")).Err);
-        Assert.Contains("must be true or false", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "default_targets: [sqlserver]\nlint:\n  slices: sometimes\n")).Err);
+        Assert.Contains("must be true or false", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "default_connections: [sqlserver]\nlint:\n  slices: sometimes\n")).Err);
     }
 
     [Fact]

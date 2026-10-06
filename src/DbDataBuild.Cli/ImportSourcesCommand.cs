@@ -49,7 +49,7 @@ internal static class ImportSourcesCommand
                 wanted.Add((Glob(st.Schema), Glob(st.Table), st.Schema.AsSpan().IndexOfAny('*', '?') < 0 ? st.Schema : null));
             }
 
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes sources/" : "")}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes sources/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var rows = new List<Row>();
@@ -100,7 +100,7 @@ internal static class ImportSourcesCommand
         rows = rows.OrderBy(r => r.Name, StringComparer.Ordinal).ToList();
         foreach (var d in diags) error.Diag(d);
 
-        output.Payload("target", target);
+        output.Payload("connection", target);
         output.Payload("mode", write ? "write" : check ? "check" : "preview");
         output.Payload("sources", rows.Select(r => new
         {

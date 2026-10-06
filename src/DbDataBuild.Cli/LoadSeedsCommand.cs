@@ -38,13 +38,13 @@ internal static class LoadSeedsCommand
             var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
-                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: none");
+                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: none");
                 error.Diag(missing);
                 return CliApp.ExitFindings;
             }
             write = settings;
         }
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
 
         var ctx = ProjectContext.Load(root);
         var seeds = SeedLoader.Load(root);
@@ -70,7 +70,7 @@ internal static class LoadSeedsCommand
             catch (DdlUnsupportedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
 
             var summary = tables.Select(t => new { name = t.Seeded.Name, rows = t.Seeded.Rows, statements = Statements(t.Seeded.Rows, t.Columns.Count) + (replace ? 3 : 2) }).ToList();
-            output.Payload("target", target);
+            output.Payload("connection", target);
             output.Payload("seed", seed);
             output.Payload("scale", scale);
             output.Payload("replace", replace);
@@ -90,7 +90,7 @@ internal static class LoadSeedsCommand
                     output.WriteLine($"-- then {Statements(t.Seeded.Rows, t.Columns.Count)} INSERT statement(s) of up to {RowsPerStatement(t.Columns.Count)} rows");
                 }
                 output.WriteLine();
-                output.WriteLine($"Nothing was executed. Run `{ProductInfo.Cli} {spec.Name} --target {target} --apply` with the write login configured to create and fill these tables{(replace ? "" : " (it stops at a table that already exists; --replace drops and recreates)")}.");
+                output.WriteLine($"Nothing was executed. Run `{ProductInfo.Cli} {spec.Name} --connection {target} --apply` with the write login configured to create and fill these tables{(replace ? "" : " (it stops at a table that already exists; --replace drops and recreates)")}.");
                 return CliApp.ExitOk;
             }
 

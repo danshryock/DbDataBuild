@@ -10,7 +10,7 @@ internal static class NewCommand
 {
     public static int Run(CommandSpec spec, string? template, string? directory, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         output.Payload("templates", TemplateStore.All.Select(t => new { name = t.Name, description = t.Description, files = t.Files.Count }).ToList());
         if (template == null)
         {
