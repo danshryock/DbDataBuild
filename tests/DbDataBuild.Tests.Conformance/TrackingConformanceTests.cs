@@ -117,7 +117,7 @@ public class TrackingConformanceTests
         await using (var g = await GateAsync(engine, StatementKind.Tracking)) await TrackingStore.InitAsync(g, name, Schema);
 
         ObjectShape? Live(IReadOnlyDictionary<string, ObjectShape> all) => all.GetValueOrDefault("marts.fct");
-        var recorded = await TrackingStore.LatestShapeHashesAsync(read, name, Schema);
+        var recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
         var shapes = await CatalogReader.ReadSchemaAsync(read, name, "marts");
         Assert.Equal(ObjectState.Untracked, Drift.Classify(Live(shapes), recorded.GetValueOrDefault("marts.fct")));
         Assert.Equal(ObjectState.Missing, Drift.Classify(null, null));
@@ -125,9 +125,9 @@ public class TrackingConformanceTests
         var log = new MemoryStatementLog();
         await using (var gate = await GateAsync(engine, StatementKind.Tracking, log))
         {
-            await TrackingStore.RecordSchemaVersionAsync(gate, name, Schema, "rec-1", "marts.fct", Live(shapes)!.ShapeHash, Live(shapes)!.PhysicalHash, "tool", "plan-1", "abc123");
+            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, Schema, "data"), "rec-1", "marts.fct", Live(shapes)!.ShapeHash, Live(shapes)!.PhysicalHash, "tool", "plan-1", "abc123");
         }
-        recorded = await TrackingStore.LatestShapeHashesAsync(read, name, Schema);
+        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
         Assert.Equal(ObjectState.InSync, Drift.Classify(Live(shapes), recorded["marts.fct"]));
         Assert.Equal(Live(shapes)!.ShapeHash, recorded["marts.fct"]);
 
@@ -138,8 +138,8 @@ public class TrackingConformanceTests
 
         // recording the new state as out_of_band makes it the newest record, even when written immediately after the first
         await using (var gate = await GateAsync(engine, StatementKind.Tracking))
-            await TrackingStore.RecordSchemaVersionAsync(gate, name, Schema, "rec-2", "marts.fct", Live(shapes)!.ShapeHash, null, "out_of_band", null, null);
-        recorded = await TrackingStore.LatestShapeHashesAsync(read, name, Schema);
+            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, Schema, "data"), "rec-2", "marts.fct", Live(shapes)!.ShapeHash, null, "out_of_band", null, null);
+        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
         Assert.Equal(ObjectState.InSync, Drift.Classify(Live(shapes), recorded["marts.fct"]));
         var sources = await engine.RowsAsync($"SELECT source FROM {q(Schema)}.{q("schema_version")}");
         Assert.Equal(["out_of_band", "tool"], sources);
@@ -182,7 +182,7 @@ public class TrackingConformanceTests
         Directory.CreateDirectory(dir);
         try
         {
-            File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), $"defaults: {{connections: [{name}]}}\ntracking_schema: ddb_cli\n");
+            File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), $"defaults: {{connections: [{name}]}}\ntracking: {{ connection: {name}, schema: ddb_cli }}\n");
             Func<string, string?> env = v => v == LoginSettings.VariableName(name, DbDataBuild.Execution.Login.Write) ? engine.ConnectionString : null;
             for (var run = 1; run <= 2; run++) // the second run is a no-op, not an error
             {

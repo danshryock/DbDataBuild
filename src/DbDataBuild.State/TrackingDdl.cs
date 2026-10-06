@@ -132,12 +132,12 @@ internal static class TrackingViews
 {
     public static IEnumerable<(string Description, string Text)> TSql(string schema, bool fabric)
     {
-        yield return ("view metadata_current: the latest document per kind and subject",
-            $"CREATE OR ALTER VIEW {schema}.[metadata_current] AS\nSELECT m.[kind], m.[subject], m.[document], m.[document_hash], m.[recorded_utc], m.[tool_version], m.[plan_id], m.[git_commit]\n" +
-            $"FROM {schema}.[metadata_document] m\nWHERE m.[recorded_utc] = (SELECT MAX(x.[recorded_utc]) FROM {schema}.[metadata_document] x WHERE x.[kind] = m.[kind] AND x.[subject] = m.[subject]);");
+        yield return ("view metadata_current: the latest document per connection, kind and subject",
+            $"CREATE OR ALTER VIEW {schema}.[metadata_current] AS\nSELECT m.[connection], m.[kind], m.[subject], m.[document], m.[document_hash], m.[recorded_utc], m.[tool_version], m.[plan_id], m.[git_commit]\n" +
+            $"FROM {schema}.[metadata_document] m\nWHERE m.[recorded_utc] = (SELECT MAX(x.[recorded_utc]) FROM {schema}.[metadata_document] x WHERE x.[connection] = m.[connection] AND x.[kind] = m.[kind] AND x.[subject] = m.[subject]);");
         if (fabric) yield break; // OPENJSON on Fabric is not verified
         yield return ("view metadata_columns: one row per model or source column, from the latest documents",
-            $"CREATE OR ALTER VIEW {schema}.[metadata_columns] AS\nSELECT m.[subject] AS [model], c.[name] AS [column_name], c.[logical_type], c.[nullable], c.[collation],\n" +
+            $"CREATE OR ALTER VIEW {schema}.[metadata_columns] AS\nSELECT m.[connection], m.[subject] AS [model], c.[name] AS [column_name], c.[logical_type], c.[nullable], c.[collation],\n" +
             "  JSON_VALUE(c.[native], '$.sqlserver.type') AS [sqlserver_type], JSON_VALUE(c.[native], '$.postgres.type') AS [postgres_type], JSON_VALUE(c.[native], '$.fabric.type') AS [fabric_type],\n" +
             "  JSON_VALUE(c.[lineage], '$.inferred_nullability') AS [inferred_nullability], JSON_QUERY(c.[lineage], '$.upstream') AS [upstream], m.[kind]\n" +
             $"FROM {schema}.[metadata_current] m\nCROSS APPLY OPENJSON(m.[document], '$.columns') WITH (\n  [name] nvarchar(256) '$.name', [logical_type] nvarchar(128) '$.logical_type', [nullable] bit '$.nullable', [collation] nvarchar(128) '$.collation',\n" +
@@ -146,11 +146,11 @@ internal static class TrackingViews
 
     public static IEnumerable<(string Description, string Text)> Postgres(string schema)
     {
-        yield return ("view metadata_current: the latest document per kind and subject",
-            $"CREATE OR REPLACE VIEW {schema}.\"metadata_current\" AS\nSELECT m.\"kind\", m.\"subject\", m.\"document\", m.\"document_hash\", m.\"recorded_utc\", m.\"tool_version\", m.\"plan_id\", m.\"git_commit\"\n" +
-            $"FROM {schema}.\"metadata_document\" m\nWHERE m.\"recorded_utc\" = (SELECT MAX(x.\"recorded_utc\") FROM {schema}.\"metadata_document\" x WHERE x.\"kind\" = m.\"kind\" AND x.\"subject\" = m.\"subject\");");
+        yield return ("view metadata_current: the latest document per connection, kind and subject",
+            $"CREATE OR REPLACE VIEW {schema}.\"metadata_current\" AS\nSELECT m.\"connection\", m.\"kind\", m.\"subject\", m.\"document\", m.\"document_hash\", m.\"recorded_utc\", m.\"tool_version\", m.\"plan_id\", m.\"git_commit\"\n" +
+            $"FROM {schema}.\"metadata_document\" m\nWHERE m.\"recorded_utc\" = (SELECT MAX(x.\"recorded_utc\") FROM {schema}.\"metadata_document\" x WHERE x.\"connection\" = m.\"connection\" AND x.\"kind\" = m.\"kind\" AND x.\"subject\" = m.\"subject\");");
         yield return ("view metadata_columns: one row per model or source column, from the latest documents",
-            $"CREATE OR REPLACE VIEW {schema}.\"metadata_columns\" AS\nSELECT m.\"subject\" AS \"model\", c ->> 'name' AS \"column_name\", c ->> 'logical_type' AS \"logical_type\", (c ->> 'nullable')::boolean AS \"nullable\", c ->> 'collation' AS \"collation\",\n" +
+            $"CREATE OR REPLACE VIEW {schema}.\"metadata_columns\" AS\nSELECT m.\"connection\", m.\"subject\" AS \"model\", c ->> 'name' AS \"column_name\", c ->> 'logical_type' AS \"logical_type\", (c ->> 'nullable')::boolean AS \"nullable\", c ->> 'collation' AS \"collation\",\n" +
             "  c -> 'native' -> 'sqlserver' ->> 'type' AS \"sqlserver_type\", c -> 'native' -> 'postgres' ->> 'type' AS \"postgres_type\", c -> 'native' -> 'fabric' ->> 'type' AS \"fabric_type\",\n" +
             "  c -> 'lineage' ->> 'inferred_nullability' AS \"inferred_nullability\", c -> 'lineage' -> 'upstream' AS \"upstream\", m.\"kind\"\n" +
             $"FROM {schema}.\"metadata_current\" m\nCROSS JOIN LATERAL jsonb_array_elements(m.\"document\" -> 'columns') AS c\nWHERE m.\"kind\" IN ('model', 'source');");

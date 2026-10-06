@@ -6,9 +6,9 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["defaults", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["defaults", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters"];
+    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -50,10 +50,10 @@ public static class ProjectConfigLoader
             var connections = ReadConnections(top);
             var (declared, defaults) = ReadDefaults(top, connections.Keys.ToHashSet(StringComparer.Ordinal));
             IReadOnlyList<string> targets = declared ?? d.DefaultConnections;
-            var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
+            var tracking = ReadTracking(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.Tracking;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, schema, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults };
+            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults };
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -156,6 +156,7 @@ public static class ProjectConfigLoader
             if (top.Get("connections") is not { } node) return result;
             if (node is not YamlMapping connections) { Add(DiagnosticCatalog.InvalidValue, node, "`connections` must map connection names to settings."); return result; }
             var upper = new Dictionary<string, string>(StringComparer.Ordinal);
+            var declared = new HashSet<string>(TargetNames.All.Concat(connections.Entries.Select(x => x.Key.Value)), StringComparer.Ordinal);     // a tracking connection may be declared later in the file
             foreach (var e in connections.Entries)
             {
                 var name = e.Key.Value;
@@ -185,21 +186,48 @@ public static class ProjectConfigLoader
                     else Add(DiagnosticCatalog.InvalidValue, v, "`version` must be the engine's major version as a positive integer (SQL Server 2022 is 16, 2025 is 17).");
                 }
                 var parameters = ReadParameters(settings, $"`connections.{name}.parameters`");
-                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters);
+                var ownTracking = ReadConnectionTracking(settings, name, declared);
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking);
             }
             return result;
         }
 
-        private string? ReadTrackingSchema(YamlMapping top)
+        private static readonly System.Text.RegularExpressions.Regex Identifier = new("^[A-Za-z_][A-Za-z0-9_]*$");
+
+        /// <summary>`tracking: { connection: audit, schema: dbdatabuild }`, or `tracking: none`. The connection must be one the project has; the schema a plain identifier.</summary>
+        private TrackingConfig? ReadTracking(YamlMapping top, IReadOnlySet<string> connections)
         {
-            var s = Scalar(top, "tracking_schema", required: false, at: top);
-            if (s == null) return null;
-            if (!System.Text.RegularExpressions.Regex.IsMatch(s.Value, "^[A-Za-z_][A-Za-z0-9_]*$"))
+            if (top.Get("tracking") is not { } node) return null;
+            if (node is YamlScalar { Value: "none" }) return new TrackingConfig(null, ProductInfo.TrackingSchema, Disabled: true);
+            var t = ReadTrackingMapping(node, connections, "`tracking`");
+            return t == null ? null : new TrackingConfig(t.Value.Connection, t.Value.Schema ?? ProductInfo.TrackingSchema);
+        }
+
+        private (string? Connection, string? Schema)? ReadTrackingMapping(YamlNode node, IReadOnlySet<string> connections, string where)
+        {
+            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, $"{where} is `none`, or a mapping with `connection` and `schema`."); return null; }
+            CheckKeys(map, ["connection", "schema"], where);
+            string? connection = null, schema = null;
+            if (map.Get("connection") is { } c)
             {
-                Add(DiagnosticCatalog.InvalidValue, s, $"`tracking_schema` is `{s.Value}`.", "A plain identifier: letters, digits and underscores, not starting with a digit.");
-                return null;
+                if (c is YamlScalar { Value.Length: > 0 } cs && connections.Contains(cs.Value)) connection = cs.Value;
+                else Add(DiagnosticCatalog.InvalidValue, c, $"{where}.connection is not a connection of this project.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
             }
-            return s.Value;
+            if (map.Get("schema") is { } s)
+            {
+                if (s is YamlScalar ss && Identifier.IsMatch(ss.Value)) schema = ss.Value;
+                else Add(DiagnosticCatalog.InvalidValue, s, $"{where}.schema must be a plain identifier.", "Letters, digits and underscores, not starting with a digit.");
+            }
+            return (connection, schema);
+        }
+
+        /// <summary>A connection's own `tracking:`: `none`, or another tracking connection (and schema).</summary>
+        private ConnectionTracking? ReadConnectionTracking(YamlMapping settings, string name, IReadOnlySet<string> connections)
+        {
+            if (settings.Get("tracking") is not { } node) return null;
+            if (node is YamlScalar { Value: "none" }) return new ConnectionTracking(true, null, null);
+            var t = ReadTrackingMapping(node, connections, $"`connections.{name}.tracking`");
+            return t == null ? null : new ConnectionTracking(false, t.Value.Connection, t.Value.Schema);
         }
 
         private StringSemantics ReadSemantics(YamlMapping top, StringSemantics defaults)

@@ -15,8 +15,8 @@ public sealed record TrackingTable(string Name, string Purpose, IReadOnlyList<Tr
 /// </summary>
 public static class TrackingSchema
 {
-    /// <summary>Layout version. 2 added `metadata_document` and its views; 3 made `metadata_columns` cover source descriptors too (a `kind` column); `init` upgrades an older layout by creating what is missing.</summary>
-    public const int Version = 3;
+    /// <summary>Layout version. 2 added `metadata_document` and its views; 3 made `metadata_columns` cover source descriptors too (a `kind` column); 4 keyed every record by the `connection` it describes, so one tracking store can hold any number of connections' records; `init` upgrades an older layout by creating what is missing.</summary>
+    public const int Version = 4;
 
     private static TrackingColumn C(string n, TrackingType t, bool nullable = false) => new(n, t, nullable);
 
@@ -28,17 +28,20 @@ public static class TrackingSchema
         ], ["version"]),
         new("schema_version", "Every distinct shape an object has had, and whether the tool or an out-of-band change produced it.",
         [
+            C("connection", TrackingType.Name),
             C("object_name", TrackingType.Name), C("shape_hash", TrackingType.Hash), C("physical_hash", TrackingType.Hash, true),
             C("first_seen_utc", TrackingType.TimestampUtc), C("source", TrackingType.Short), C("plan_id", TrackingType.Short, true), C("git_commit", TrackingType.Short, true),
-        ], ["object_name", "first_seen_utc"]),
+        ], ["connection", "object_name", "first_seen_utc"]),
         new("ddl_log", "Every DDL statement the tool issued, written before execution and updated with the outcome.",
         [
+            C("connection", TrackingType.Name),
             C("ddl_id", TrackingType.Guid), C("object_name", TrackingType.Name), C("statement_hash", TrackingType.Hash), C("statement_text", TrackingType.Long),
             C("hash_before", TrackingType.Hash, true), C("hash_after", TrackingType.Hash, true), C("invoker", TrackingType.Name), C("plan_id", TrackingType.Short, true),
             C("git_commit", TrackingType.Short, true), C("executed_utc", TrackingType.TimestampUtc), C("status", TrackingType.Short),
         ], ["ddl_id"]),
         new("run_log", "One row per executed step: what ran, with which parameters, and the hashes around it.",
         [
+            C("connection", TrackingType.Name),
             C("run_id", TrackingType.Guid), C("step_id", TrackingType.Short), C("model", TrackingType.Name), C("operation", TrackingType.Short),
             C("rows_affected", TrackingType.BigInt, true), C("status", TrackingType.Short), C("plan_id", TrackingType.Short, true), C("git_commit", TrackingType.Short, true),
             C("definition_hash", TrackingType.Hash, true), C("shape_hash_start", TrackingType.Hash, true), C("shape_hash_end", TrackingType.Hash, true),
@@ -48,26 +51,36 @@ public static class TrackingSchema
         ], ["run_id", "step_id"]),
         new("operation_interval", "Which range of data each load or backfill produced, under which shape.",
         [
+            C("connection", TrackingType.Name),
             C("interval_id", TrackingType.Guid), C("model", TrackingType.Name), C("run_id", TrackingType.Guid), C("range_start", TrackingType.Short, true),
             C("range_end", TrackingType.Short, true), C("shape_hash", TrackingType.Hash), C("operation", TrackingType.Short),
         ], ["interval_id"]),
         new("block_log", "Blocks raised by planning and the human acknowledgement that cleared them.",
         [
+            C("connection", TrackingType.Name),
             C("block_id", TrackingType.Guid), C("model", TrackingType.Name), C("code", TrackingType.Short), C("detail", TrackingType.Long),
             C("created_utc", TrackingType.TimestampUtc), C("ack_by", TrackingType.Name, true), C("ack_reason", TrackingType.Long, true), C("ack_utc", TrackingType.TimestampUtc, true),
         ], ["block_id"]),
         new("migration_log", "Every applied plan: its hash and text, so the target's audit trail is self-contained.",
         [
+            C("connection", TrackingType.Name),
             C("plan_id", TrackingType.Short), C("plan_hash", TrackingType.Hash), C("plan_text", TrackingType.Long), C("git_commit", TrackingType.Short, true),
             C("applied_by", TrackingType.Name), C("applied_utc", TrackingType.TimestampUtc), C("hash_before", TrackingType.Hash, true), C("hash_after", TrackingType.Hash, true),
             C("status", TrackingType.Short),
-        ], ["plan_id", "applied_utc"]),
+        ], ["connection", "plan_id", "applied_utc"]),
         new("metadata_document", "Project, source, model and plan metadata as JSON documents, for introspection with SQL. Append-only; the views metadata_current and metadata_columns show the latest.",
         [
+            C("connection", TrackingType.Name),
             C("kind", TrackingType.Short), C("subject", TrackingType.Name), C("document", TrackingType.Json), C("document_hash", TrackingType.Hash),
             C("recorded_utc", TrackingType.TimestampUtc), C("tool_version", TrackingType.Short), C("plan_id", TrackingType.Short, true), C("git_commit", TrackingType.Short, true),
-        ], ["kind", "subject", "recorded_utc"]),
+        ], ["connection", "kind", "subject", "recorded_utc"]),
     ];
 
     public static TrackingTable Table(string name) => Tables.First(t => t.Name == name);
 }
+
+/// <summary>
+/// Where the records about one data connection are kept: the engine and schema of its tracking store, and the name of the data connection, which is part of every record's key. The engine is the
+/// tracking connection's (it can differ from the data connection's: that is what central tracking is).
+/// </summary>
+public sealed record TrackingScope(string Engine, string Schema, string Connection);

@@ -21,11 +21,12 @@ public sealed record ResolverValue(string? Value, string? Error);
 
 public static class TargetSnapshotReader
 {
-    public static async Task<TargetSnapshot> ReadAsync(ReadSession read, string target, string trackingSchema, IEnumerable<string> managedSchemas, CancellationToken ct = default)
+    /// <summary>
+    /// What planning reads: the live shapes from the data connection (<paramref name="read"/>), and the tool's records about that connection from its tracking store (<paramref name="trackingRead"/>, which may be another
+    /// connection, or the same session). With no tracking (<paramref name="scope"/> null) there are no records: every object that exists is judged against the declaration alone.
+    /// </summary>
+    public static async Task<TargetSnapshot> ReadAsync(ReadSession read, ReadSession? trackingRead, TrackingScope? scope, string target, IEnumerable<string> managedSchemas, CancellationToken ct = default)
     {
-        string C(string n) => TrackingDdl.For(target).Quote(n);
-        var t = (string table) => $"{C(trackingSchema)}.{C(table)}";
-
         var schemaRows = await read.QueryAsync(target == "postgres" ? "SELECT schema_name FROM information_schema.schemata" : "SELECT name FROM sys.schemas", null, ct);
         var schemas = schemaRows.Select(r => (string)r[0]!).ToHashSet(StringComparer.Ordinal);
 
@@ -33,19 +34,26 @@ public static class TargetSnapshotReader
         foreach (var schema in managedSchemas.Distinct(StringComparer.Ordinal).Where(schemas.Contains))
             foreach (var (name, shape) in await CatalogReader.ReadSchemaAsync(read, target, schema, ct)) live[name] = shape;
 
-        var recorded = await TrackingStore.LatestShapeHashesAsync(read, target, trackingSchema, ct);
+        if (trackingRead == null || scope == null)
+            return new TargetSnapshot(live, schemas, new Dictionary<string, string>(), new Dictionary<string, string>(), new Dictionary<string, string>(), new HashSet<string>());
 
-        var ddl = await read.QueryAsync(
-            $"SELECT d.{C("object_name")}, d.{C("statement_hash")} FROM {t("ddl_log")} d WHERE d.{C("status")} = 'ok' " +
-            $"AND d.{C("executed_utc")} = (SELECT MAX(x.{C("executed_utc")}) FROM {t("ddl_log")} x WHERE x.{C("object_name")} = d.{C("object_name")} AND x.{C("status")} = 'ok')", null, ct);
+        string C(string n) => TrackingDdl.For(scope.Engine).Quote(n);
+        var t = (string table) => $"{C(scope.Schema)}.{C(table)}";
+        var byConnection = new[] { new GateParameter("connection", DbType.String, scope.Connection) };
+
+        var recorded = await TrackingStore.LatestShapeHashesAsync(trackingRead, scope, ct);
+
+        var ddl = await trackingRead.QueryAsync(
+            $"SELECT d.{C("object_name")}, d.{C("statement_hash")} FROM {t("ddl_log")} d WHERE d.{C("connection")} = @connection AND d.{C("status")} = 'ok' " +
+            $"AND d.{C("executed_utc")} = (SELECT MAX(x.{C("executed_utc")}) FROM {t("ddl_log")} x WHERE x.{C("connection")} = d.{C("connection")} AND x.{C("object_name")} = d.{C("object_name")} AND x.{C("status")} = 'ok')", byConnection, ct);
         var views = ddl.ToDictionary(r => (string)r[0]!, r => ((string)r[1]!).Trim(), StringComparer.Ordinal);
 
-        var runs = await read.QueryAsync(
-            $"SELECT r.{C("model")}, r.{C("definition_hash")} FROM {t("run_log")} r WHERE r.{C("status")} = 'ok' AND r.{C("definition_hash")} IS NOT NULL " +
-            $"AND r.{C("started_utc")} = (SELECT MAX(x.{C("started_utc")}) FROM {t("run_log")} x WHERE x.{C("model")} = r.{C("model")} AND x.{C("status")} = 'ok' AND x.{C("definition_hash")} IS NOT NULL)", null, ct);
+        var runs = await trackingRead.QueryAsync(
+            $"SELECT r.{C("model")}, r.{C("definition_hash")} FROM {t("run_log")} r WHERE r.{C("connection")} = @connection AND r.{C("status")} = 'ok' AND r.{C("definition_hash")} IS NOT NULL " +
+            $"AND r.{C("started_utc")} = (SELECT MAX(x.{C("started_utc")}) FROM {t("run_log")} x WHERE x.{C("connection")} = r.{C("connection")} AND x.{C("model")} = r.{C("model")} AND x.{C("status")} = 'ok' AND x.{C("definition_hash")} IS NOT NULL)", byConnection, ct);
         var loads = runs.ToDictionary(r => (string)r[0]!, r => ((string)r[1]!).Trim(), StringComparer.Ordinal);
 
-        var acks = await read.QueryAsync($"SELECT b.{C("code")}, b.{C("model")}, b.{C("detail")} FROM {t("block_log")} b WHERE b.{C("ack_utc")} IS NOT NULL", null, ct);
+        var acks = await trackingRead.QueryAsync($"SELECT b.{C("code")}, b.{C("model")}, b.{C("detail")} FROM {t("block_log")} b WHERE b.{C("connection")} = @connection AND b.{C("ack_utc")} IS NOT NULL", byConnection, ct);
         var acknowledged = acks.Select(r => $"{r[0]}|{r[1]}|{r[2]}").ToHashSet(StringComparer.Ordinal);
 
         return new TargetSnapshot(live, schemas, recorded, views, loads, acknowledged);

@@ -153,6 +153,10 @@ public static class DiagnosticCatalog
         "every table a query reads exists on the connection the model is built on: a mapped model or a model built there, or a copy of the table to that connection",
         "Copy the table to the model's connection (`kind: {type: copy, from: ...}`) and read the copy, or build the model on the connection where the table is.",
         "A query runs on one connection and never reaches across to another; moving rows between connections is a copy. A model that reads a table declared (or built) only on other connections would fail when it runs, so it is refused when the project is checked.");
+    public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
+        "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
+        "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
+        "Without tracking the tool keeps no records: a change made outside it is indistinguishable from a model change (plans are made from the declared shape against the live one, and every change to an existing object is marked risky), an incremental model is not blocked when its query changes, `ack`, the column history, `report` and `publish-metadata` have nothing to work with, and an interrupted apply cannot be resumed. Planning and applying still work. `tracking: none` is the explicit choice and does not warn.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -388,7 +392,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, TrackingNotConfigured,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

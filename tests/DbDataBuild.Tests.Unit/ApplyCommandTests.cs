@@ -136,7 +136,7 @@ public class ApplyCommandTests
     public void Allowance_checks_are_exact_per_object()
     {
         var plan = PlanWith(Step("1", RiskClass.Destructive, "marts.a"), Step("2", RiskClass.Safe, "marts.b"));
-        ApplyOptions Opts(params string[] allowed) => new(false, false, allowed.ToHashSet(), false, "dbdatabuild", null, false, "me");
+        ApplyOptions Opts(params string[] allowed) => new(false, false, allowed.ToHashSet(), false, null, false, "me");
         Assert.Single(ApplyEngine.CheckAllowances(plan, Opts()));
         Assert.Single(ApplyEngine.CheckAllowances(plan, Opts("marts.b")));
         Assert.Empty(ApplyEngine.CheckAllowances(plan, Opts("marts.a")));

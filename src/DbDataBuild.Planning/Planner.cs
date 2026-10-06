@@ -52,6 +52,9 @@ public sealed record PlanInput(
     IReadOnlySet<string>? Backfills = null,
     IReadOnlyDictionary<string, ColumnBounds>? RangeBounds = null)
 {
+    /// <summary>False when nothing is tracked for the connection: no record says what the tool built, so an existing object is judged against the declaration alone, and a change to it is risky.</summary>
+    public bool Tracked { get; init; } = true;
+
     /// <summary>The engine of the connection being planned: what the SQL is written for.</summary>
     public string Engine => Config.EngineOf(Target) ?? Target;
 
@@ -123,6 +126,13 @@ public static class Planner
         }
 
         var steps = ddlSteps.Concat(loadSteps).Select((s, i) => s with { Id = (i + 1).ToString(CultureInfo.InvariantCulture) }).ToList();
+        if (!input.Tracked)
+        {
+            // nothing records what the tool built, so a change to an object that exists is not known to be safe: it needs the person's allowance (an index added to it changes no data, and stays safe)
+            const string why = "untracked: no record says what the tool built, so a change to an existing object is not known to be safe";
+            steps = steps.Select(s => s.Type == StepType.Ddl && s.Risk == RiskClass.Safe && input.Live.ContainsKey(s.Object) && !s.Reasons.Any(r => r.StartsWith("index.added", StringComparison.Ordinal))
+                ? s with { Risk = RiskClass.Risky, Reasons = [.. s.Reasons, why] } : s).ToList();
+        }
         if (input.Engine == TargetNames.Fabric) noticed.Add("Fabric support is unverified: no Fabric engine has been available to run these statements.");
         return new PlanResult(questions.OrderBy(q => q.Id, StringComparer.Ordinal).ToList(), blocks, skipped, bases, steps, used.Values.OrderBy(a => a.QuestionId, StringComparer.Ordinal).ToList(), noticed);
     }
@@ -160,7 +170,8 @@ public static class Planner
     {
         var obj = c.Def.Name;
         var recorded = c.Input.RecordedShapeHashes.GetValueOrDefault(obj);
-        state = Drift.Classify(live, recorded);
+        // with no tracking there is no baseline to drift from: an object that exists is judged against the declaration alone (and what changes in it is risky, below)
+        state = c.Input.Tracked ? Drift.Classify(live, recorded) : live == null ? ObjectState.Missing : ObjectState.InSync;
         bases.Add(new ObjectBase(obj, state, live?.ShapeHash, recorded));
         switch (state)
         {
@@ -545,7 +556,8 @@ public static class Planner
     {
         var def = c.Def;
         var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
-        var create = c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
+        // the staging table lives in the tracking schema's name, which a connection that is not tracked itself (central tracking) may not have yet
+        var create = c.Ddl.CreateSchema(stagingSchema) + "\n" + c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
         var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config);
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);
         // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row

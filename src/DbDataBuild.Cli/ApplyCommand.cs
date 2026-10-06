@@ -1,3 +1,4 @@
+using DbDataBuild.State;
 using DbDataBuild.Apply;
 using DbDataBuild.Core;
 using DbDataBuild.Execution;
@@ -13,7 +14,7 @@ namespace DbDataBuild.Cli;
 internal static class ApplyCommand
 {
     /// <summary>`metadata.store_on_apply`: after a successful apply, store the project, the touched models and the plan as JSON documents. A failure here never turns a good apply into a bad one.</summary>
-    private static void StoreMetadata(Plan plan, string root, ProjectConfig config, LoginSettings read, LoginSettings write, string? commit, TextWriter output, TextWriter error)
+    private static void StoreMetadata(Plan plan, string root, TrackingScope scope, LoginSettings read, LoginSettings write, string? commit, TextWriter output, TextWriter error)
     {
         try
         {
@@ -25,7 +26,7 @@ internal static class ApplyCommand
             }
             var touched = plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal).ToList();
             var docs = MetadataPublisher.Collect(ctx, touched, plan);
-            var stored = Task.Run(() => MetadataPublisher.PublishAsync(docs, plan.Connection, config.TrackingSchema, read, write, "apply-metadata", root, plan.Id, commit)).GetAwaiter().GetResult();
+            var stored = Task.Run(() => MetadataPublisher.PublishAsync(docs, scope, read, write, "apply-metadata", root, plan.Id, commit)).GetAwaiter().GetResult();
             output.WriteLine($"Metadata stored: {stored.Written.Count} document(s) written, {stored.Unchanged.Count} unchanged.");
             output.Payload("metadata_stored", stored.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         }
@@ -69,6 +70,24 @@ internal static class ApplyCommand
             var (originLogin, missingLogin) = LoginSettings.FromEnvironment(originConnection.Name, originConnection.Engine, Login.Read, env);
             if (originLogin != null) originLogins[origin] = originLogin; else if (missingLogin != null) originMissing.Add(missingLogin);
         }
+        // where the records go: this connection, another one (central tracking), or nowhere (untracked, with a warning unless that was chosen)
+        var tracking = config.TrackingOf(plan.Connection);
+        LoginSettings? trackRead = null, trackWrite = null;
+        var trackMissing = new List<Diagnostic>();
+        if (tracking.Target is { } trackTarget)
+        {
+            if (trackTarget.Connection == connection.Name) { trackRead = read; trackWrite = write; }
+            else
+            {
+                var (tr, trm) = LoginSettings.FromEnvironment(trackTarget.Connection, trackTarget.Engine, Login.Read, env);
+                var (tw, twm) = LoginSettings.FromEnvironment(trackTarget.Connection, trackTarget.Engine, Login.Write, env);
+                (trackRead, trackWrite) = (tr, tw);
+                if (trm != null) trackMissing.Add(trm);
+                if (!dryRun && twm != null) trackMissing.Add(twm);
+            }
+        }
+        else if (!tracking.Explicit)
+            error.Diag(new Diagnostic(DiagnosticCatalog.TrackingNotConfigured, new($"connection:{plan.Connection}", 0, 0), $"Nothing is tracked for `{plan.Connection}`: this apply records nothing (no drift baseline, no history, no resume)."));
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());
@@ -78,7 +97,7 @@ internal static class ApplyCommand
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested,
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested,
             (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"));
 
         // refusals that need no connection come first
@@ -89,6 +108,7 @@ internal static class ApplyCommand
             if (dryRun) error.Diag(dirtyDiag with { SeverityOverride = Severity.Warning }); else offline.Add(dirtyDiag);
         }
         if (readMissing != null) offline.Add(readMissing);
+        offline.AddRange(trackMissing);
         if (!dryRun) offline.AddRange(originMissing);
         if (!dryRun && writeMissing != null) offline.Add(writeMissing);
         if (offline.Count > 0)
@@ -106,7 +126,7 @@ internal static class ApplyCommand
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
             logPath = Path.GetRelativePath(root, log.Path);
             output.WriteLine($"Statement log: {logPath}");
-            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
+            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, tracking.Target is { } tt ? new ApplyTracking(trackRead!, trackWrite, tt.Schema) : null, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
         }
 
         if (dryRun)
@@ -117,7 +137,11 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
-        if (result.Success && !dryRun && config.StoreMetadataOnApply) StoreMetadata(plan, root, config, read!, write!, commit, output, error);
+        if (result.Success && !dryRun && config.StoreMetadataOnApply)
+        {
+            if (tracking.Target is { } storeTarget) StoreMetadata(plan, root, new TrackingScope(storeTarget.Engine, storeTarget.Schema, plan.Connection), trackRead!, trackWrite!, commit, output, error);
+            else output.WriteLine("note: metadata was not stored: nothing is tracked for this connection.");
+        }
         output.Payload("outcomes", result.Outcomes.Select(o => new { step = o.StepId, description = o.Description, status = o.Status, detail = o.Detail }).ToList());
         output.Payload("statement_log", logPath?.Replace('\\', '/'));
         output.Payload("success", result.Success);

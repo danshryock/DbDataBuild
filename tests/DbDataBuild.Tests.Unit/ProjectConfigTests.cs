@@ -12,7 +12,7 @@ public class ProjectConfigTests
           sqlserver: { version: 16 }
           postgres: { version: "17" }
           fabric: {}
-        tracking_schema: ddb_meta
+        tracking: { connection: sqlserver, schema: ddb_meta }
         string_semantics:
           case: sensitive
           accent: insensitive
@@ -53,8 +53,12 @@ public class ProjectConfigTests
         new("version not a number", "connections:\n  sqlserver: { version: sixteen }\n", false, "DDB-106"),
         new("version with a fraction", "connections:\n  sqlserver: { version: 16.5 }\n", false, "DDB-106"),
         new("target settings not a mapping", "connections:\n  sqlserver: 16\n", false, "DDB-106"),
-        new("tracking schema with a dash", "tracking_schema: my-schema\n", false, "DDB-106"),
-        new("tracking schema starting with a digit", "tracking_schema: 1abc\n", false, "DDB-106"),
+        new("tracking schema with a dash", "tracking: { schema: my-schema }\n", false, "DDB-106"),
+        new("tracking schema starting with a digit", "tracking: { schema: 1abc }\n", false, "DDB-106"),
+        new("tracking: none", "tracking: none\n", true),
+        new("tracking on a connection that does not exist", "tracking: { connection: nowhere }\n", true, "DDB-106"),     // a name the schema cannot know is missing
+        new("tracking with an unknown key", "tracking: { place: sqlserver }\n", false, "DDB-104"),
+        new("a connection's own tracking", "connections:\n  scratch: { engine: postgres, tracking: none }\n  vendor: { engine: sqlserver, tracking: { connection: scratch, schema: audit } }\n", true),
         new("bad case value", "string_semantics: { case: maybe }\n", false, "DDB-106"),
         new("bad trailing_space value", "string_semantics: { trailing_space: yes }\n", false, "DDB-106"),
         new("unknown string_semantics key", "string_semantics: { unicode: nfc }\n", false, "DDB-104"),
@@ -118,7 +122,7 @@ public class ProjectConfigTests
     [Fact]
     public void Absent_keys_take_the_documented_defaults()
     {
-        var cfg = ProjectConfigLoader.Load("tracking_schema: x\n", "dbdatabuild.yml", [])!;
+        var cfg = ProjectConfigLoader.Load("tracking: { schema: x }\n", "dbdatabuild.yml", [])!;
         var d = ProjectConfig.Default;
         Assert.Equal(["sqlserver"], cfg.DefaultConnections);
         Assert.Empty(cfg.TargetVersions);
@@ -143,7 +147,7 @@ public class ProjectConfigTests
     public void Problems_are_reported_together_with_positions()
     {
         var diags = new List<Diagnostic>();
-        var cfg = ProjectConfigLoader.Load("defaults: {connections: [oracle]}\ntracking_schema: a-b\nsurprise: 1\n", "dbdatabuild.yml", diags);
+        var cfg = ProjectConfigLoader.Load("defaults: {connections: [oracle]}\ntracking: { schema: a-b }\nsurprise: 1\n", "dbdatabuild.yml", diags);
         Assert.Null(cfg);
         Assert.Equal(["DDB-104", "DDB-106"], diags.Select(d => d.Code).Distinct().Order());
         Assert.Equal(3, diags.Count);
@@ -175,7 +179,7 @@ public class ProjectConfigTests
     public void Malformed_config_never_throws()
     {
         string[] inputs = [":", "[", "- a", "a: &x 1\nb: *x", "defaults: {connections: {a: b}}", "connections: 5", "connections: [a]", "string_semantics: x",
-            "string_semantics: {collations: [a]}", "policy: [a]", "policy: {severity: 3}", "---\n---\n", "tracking_schema: [a]"];
+            "string_semantics: {collations: [a]}", "policy: [a]", "policy: {severity: 3}", "---\n---\n", "tracking: [a]"];
         foreach (var input in inputs)
             Assert.Null(Record.Exception(() => ProjectConfigLoader.Load(input, "dbdatabuild.yml", [])));
     }

@@ -71,8 +71,8 @@ public partial class ApplyConformanceTests
         var dir = Path.Combine(Path.GetTempPath(), "ddb-e2e-" + Guid.NewGuid().ToString("N"));
         var run = new Run(engine, dir, name);
         run.Write("dbdatabuild.yml", name == "postgres"
-            ? "defaults: {connections: [postgres]}\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
-            : "defaults: {connections: [sqlserver]}\n" + extraConfig);
+            ? "defaults: {connections: [postgres]}\ntracking: { connection: postgres }\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
+            : "defaults: {connections: [sqlserver]}\ntracking: { connection: sqlserver }\n" + extraConfig);
         run.Write("models/staging/orders.yml", Staging);
         run.Write("models/marts/fct_orders.yml", FctYaml);
         run.Write("models/marts/fct_orders.sql", FctSql);
@@ -995,7 +995,7 @@ public partial class ApplyConformanceTests
             Refused(old, "DDB-505", "planning against an older layout");
             Assert.Contains("layout version 1", old.Err);
             Ok(run.Cli("init", "--apply"), "init upgrades");
-            Assert.Equal(["1", "3"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
+            Assert.Equal(["1", "4"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
             Ok(run.Cli("plan"), "plan after the upgrade");
 
             // metadata.store_on_apply: a successful apply also stores the project, the models it touched and the plan

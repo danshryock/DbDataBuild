@@ -36,12 +36,13 @@ internal static class MetadataPublisher
         return docs;
     }
 
-    public static async Task<Result> PublishAsync(IReadOnlyList<Document> documents, string target, string schema, LoginSettings read, LoginSettings write, string command, string root, string? planId, string? gitCommit)
+    /// <param name="scope">Where the records go: the tracking store of the connection the documents describe. <paramref name="read"/> and <paramref name="write"/> are the logins of that tracking connection.</param>
+    public static async Task<Result> PublishAsync(IReadOnlyList<Document> documents, TrackingScope scope, LoginSettings read, LoginSettings write, string command, string root, string? planId, string? gitCommit)
     {
         await using var reader = await ReadSession.OpenAsync(read);
-        var status = await TrackingStore.StatusAsync(reader, target, schema);
-        if (status.AsDiagnostic(schema) is { } notReady) throw new GateRefusedException(notReady);
-        var latest = await MetadataStore.LatestHashesAsync(reader, target, schema);
+        var status = await TrackingStore.StatusAsync(reader, scope.Engine, scope.Schema);
+        if (status.AsDiagnostic(scope.Schema) is { } notReady) throw new GateRefusedException(notReady);
+        var latest = await MetadataStore.LatestHashesAsync(reader, scope);
 
         var written = new List<Document>();
         var unchanged = new List<Document>();
@@ -55,7 +56,7 @@ internal static class MetadataPublisher
         var n = 0;
         foreach (var d in changed)
         {
-            await MetadataStore.StoreAsync(gate, target, schema, $"metadata-{++n:000}", d.Kind, d.Subject, d.Json, d.Hash, ProductInfo.Version, planId, gitCommit);
+            await MetadataStore.StoreAsync(gate, scope, $"metadata-{++n:000}", d.Kind, d.Subject, d.Json, d.Hash, ProductInfo.Version, planId, gitCommit);
             written.Add(d);
         }
         return new Result(written, unchanged);

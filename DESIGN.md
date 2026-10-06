@@ -670,7 +670,9 @@ connections:                      # named database endpoints; one named after an
   sqlserver: { version: 16 }      # the T-SQL level to generate for (see below); resolves matrix `min_version` rows
   # warehouse: { engine: postgres }   # any other name says its engine; its logins are DBDATABUILD_WAREHOUSE_READ and _WRITE
   postgres:  { version: 17 }
-tracking_schema: dbdatabuild      # default: dbdatabuild
+tracking:                         # where the records of what the tool built are kept (section 12). Default: nowhere, with a warning
+  connection: sqlserver           # a connection of the project, which may be another one than the data's (central tracking); or `tracking: none`
+  schema: dbdatabuild             # default: dbdatabuild
 string_semantics:                 # section 7.4. Defaults shown
   case: insensitive               # sensitive | insensitive
   accent: sensitive               # sensitive | insensitive
@@ -950,6 +952,20 @@ Rows are (model kind x target condition). Every cell is an operation, a question
 Populate the full table during implementation and keep it in `matrix/decision-table.yml`.
 
 ## 12. Tracking tables
+
+**Where they live (as built).** Tracking is a setting, not a property of the connection it describes: `tracking: { connection: audit, schema: dbdatabuild }` at the project, overridable per connection
+(`connections.<name>.tracking`: `none`, or another connection and schema). **Nothing is tracked unless a project says where**; a connection that is written and has no tracking earns a warning (DDB-232) on `plan` and `apply`,
+and `tracking: none` is the explicit choice that does not. The tracking connection can be another connection than the one the data is on (central tracking): it is opened with its own read and write logins, and a connection
+that is only read is never tracked. **Every record names the connection it is about**: each table has a `connection` column, part of the key where a key has one (layout version 4; an older layout cannot be upgraded in place and is
+refused by name), so one tracking connection holds the records of any number of connections and `metadata_current` over it is one catalogue. `init --connection <tracking connection>` creates the tables once there (once per
+connection that keeps records, however many connections write to it); a connection that keeps no records has nothing to initialize. `plan` reads the live shapes from the data connection and the records from the tracking one;
+`apply` holds a session and a gate for each (the data gate runs the steps, the tracking gate records them: "started" before and the outcome after, as before), checks both before the first statement, and takes the
+application lock on the data connection. `ack`, `report` and `publish-metadata` work on the records through the tracking connection and refuse a connection that has none.
+
+**With no tracking** the tool cannot detect drift (there is no baseline: a change made outside it is indistinguishable from a model change), so plans are made from the declared shape against the live one, an object that exists is
+neither adopted nor blocked, and **every DDL change to an existing object is marked risky** (an added index is not); an incremental model is not blocked when its query changes, `ack`, the column history, `report` and
+`publish-metadata` have nothing to work with, and an interrupted apply cannot be resumed. Planning and applying otherwise work. A copy's staging table is created in the tracking schema's name on the destination whether or not
+the connection is tracked.
 
 A dedicated schema (default `dbdatabuild`). Append-only by convention and permission. **[VERIFY]** each construct on Fabric. The T-SQL below is illustrative: each target generates its tracking-table DDL from one logical definition (column names, logical types, keys), since `nvarchar(max)`, `IDENTITY`, and `datetime2` have different equivalents on PostgreSQL.
 

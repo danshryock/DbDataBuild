@@ -78,6 +78,29 @@
                   ]
                 }
               }
+            },
+            "tracking": {
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "oneOf": [
+                {
+                  "const": "none"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "connection": {
+                      "description": "The connection that keeps the records of what the tool built (a connection of this project: its read and write logins are used). Without it, nothing is tracked and every command that would record something warns.",
+                      "$ref": "#/$defs/connectionName"
+                    },
+                    "schema": {
+                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              ]
             }
           }
         },
@@ -115,6 +138,29 @@
                   ]
                 }
               }
+            },
+            "tracking": {
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "oneOf": [
+                {
+                  "const": "none"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "connection": {
+                      "description": "The connection that keeps the records of what the tool built (a connection of this project: its read and write logins are used). Without it, nothing is tracked and every command that would record something warns.",
+                      "$ref": "#/$defs/connectionName"
+                    },
+                    "schema": {
+                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              ]
             }
           }
         },
@@ -152,6 +198,29 @@
                   ]
                 }
               }
+            },
+            "tracking": {
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "oneOf": [
+                {
+                  "const": "none"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "connection": {
+                      "description": "The connection that keeps the records of what the tool built (a connection of this project: its read and write logins are used). Without it, nothing is tracked and every command that would record something warns.",
+                      "$ref": "#/$defs/connectionName"
+                    },
+                    "schema": {
+                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              ]
             }
           }
         }
@@ -163,10 +232,28 @@
       },
       "additionalProperties": false
     },
-    "tracking_schema": {
-      "description": "Schema for the tracking tables. Default: dbdatabuild.",
-      "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    "tracking": {
+      "description": "Where the records of what the tool built are kept (drift baselines, the DDL and run logs, acknowledgements, plan history, metadata), for every connection that is written; each record names the connection it is about, so one tracking connection can hold many. Default: nothing is tracked, with a warning on the commands that would have recorded something. `none` is the explicit choice: not tracked, no warning. A connection can say its own (`connections.<name>.tracking`).",
+      "oneOf": [
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection": {
+              "description": "The connection that keeps the records of what the tool built (a connection of this project: its read and write logins are used). Without it, nothing is tracked and every command that would record something warns.",
+              "$ref": "#/$defs/connectionName"
+            },
+            "schema": {
+              "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        }
+      ]
     },
     "string_semantics": {
       "description": "The project's string comparison profile (DESIGN.md 7.4). Default: case-insensitive, accent-sensitive, trailing spaces ignored (SQL Server style).",
@@ -529,6 +616,29 @@
               ]
             }
           }
+        },
+        "tracking": {
+          "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+          "oneOf": [
+            {
+              "const": "none"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "connection": {
+                  "description": "The connection that keeps the records of what the tool built (a connection of this project: its read and write logins are used). Without it, nothing is tracked and every command that would record something warns.",
+                  "$ref": "#/$defs/connectionName"
+                },
+                "schema": {
+                  "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                }
+              }
+            }
+          ]
         }
       }
     }

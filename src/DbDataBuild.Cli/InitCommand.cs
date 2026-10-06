@@ -24,6 +24,17 @@ internal static class InitCommand
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
 
+        // the tables go where records are kept: a connection that keeps the records of any connection (itself, or others: central tracking), in the schema each of them names
+        var schemas = config.Connections.Keys.Select(c => config.TrackingOf(c).Target).Where(t => t?.Connection == connection.Name).Select(t => t!.Schema).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (schemas.Count == 0)
+        {
+            var elsewhere = config.TrackingOf(target).Target;
+            error.WriteLine(elsewhere != null
+                ? $"`{target}` keeps no records of its own: they go to `{elsewhere.Connection}`. Initialize that one: `{ProductInfo.Cli} {spec.Name} --connection {elsewhere.Connection}`."
+                : $"`{target}` keeps no records: no connection has `tracking: {{ connection: {target} }}` (in {ProductInfo.ConfigFile}, for the project or for a connection), so there is nothing to initialize on it.");
+            return CliApp.ExitFindings;
+        }
+
         LoginSettings? write = null;
         if (apply)
         {
@@ -38,13 +49,13 @@ internal static class InitCommand
         }
 
         var ddl = TrackingDdl.For(engine);
-        var script = ddl.InitScript(config.TrackingSchema, ProductInfo.Version);
+        var script = schemas.SelectMany(s => ddl.InitScript(s, ProductInfo.Version)).ToList();
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
-        output.WriteLine($"Tracking schema: {config.TrackingSchema}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
+        output.WriteLine($"Tracking schema: {string.Join(", ", schemas)}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
         output.Payload("connection", target);
-        output.Payload("tracking_schema", config.TrackingSchema);
+        output.Payload("tracking_schema", string.Join(", ", schemas));
         output.Payload("layout_version", DbDataBuild.State.TrackingSchema.Version);
         output.Payload("unverified", ddl.Unverified);
         output.Payload("applied", apply);
@@ -63,7 +74,7 @@ internal static class InitCommand
             using var log = new FileStatementLog(Path.Combine(projectRoot, StatementLogDir), spec.Name, runId);
             output.WriteLine($"Statement log: {Path.GetRelativePath(projectRoot, log.Path)}");
             var gate = Task.Run(() => MutationGate.OpenAsync(write!, spec.Name, StatementKind.Tracking, log, runId)).GetAwaiter().GetResult();
-            try { Task.Run(() => TrackingStore.InitAsync(gate, engine, config.TrackingSchema)).GetAwaiter().GetResult(); }
+            try { foreach (var schema in schemas) Task.Run(() => TrackingStore.InitAsync(gate, engine, schema)).GetAwaiter().GetResult(); }
             finally { gate.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
         }
         catch (GateRefusedException ex)

@@ -137,7 +137,7 @@ public class ConnectionsTests
     [Fact]
     public void A_command_that_needs_one_connection_names_it_in_its_header_and_asks_for_that_connections_login()
     {
-        var dir = Project("defaults: {connections: [wh_sql]}\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n");
+        var dir = Project("defaults: {connections: [wh_sql]}\ntracking: { connection: wh_pg }\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n");
         var (exit, output, err) = Run("init", "--project", dir, "--connection", "wh_pg", "--apply");
         Assert.NotEqual(0, exit);
         Assert.Contains("connection: wh_pg", output);

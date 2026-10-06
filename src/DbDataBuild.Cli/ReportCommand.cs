@@ -23,19 +23,25 @@ internal static class ReportCommand
         var target = connection.Name; var engine = connection.Engine;
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
+        var tracking = CommandTracking.Require(config, connection, env, needWrite: false, error, spec.Name);
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
+        if (tracking == null) return CliApp.ExitFindings;
 
-        var schema = config.TrackingSchema;
-        var ddl = TrackingDdl.For(engine);
+        var scope = tracking.Scope;
+        var schema = scope.Schema;
+        var ddl = TrackingDdl.For(scope.Engine);
         string C(string n) => ddl.Quote(n);
         string T(string t) => $"{C(schema)}.{C(t)}";
-        string Top(string cols, string from, string order) => engine == "postgres" ? $"SELECT {cols} FROM {from} ORDER BY {order} LIMIT {last}" : $"SELECT TOP ({last}) {cols} FROM {from} ORDER BY {order}";
+        string Top(string cols, string from, string order) => scope.Engine == "postgres" ? $"SELECT {cols} FROM {from} WHERE {C("connection")} = @connection ORDER BY {order} LIMIT {last}" : $"SELECT TOP ({last}) {cols} FROM {from} WHERE {C("connection")} = @connection ORDER BY {order}";
+        var byConnection = new[] { new GateParameter("connection", System.Data.DbType.String, scope.Connection) };
 
         return Task.Run(async () =>
         {
             await using var read = await ReadSession.OpenAsync(login!);
-            var status = await TrackingStore.StatusAsync(read, engine, schema);
+            await using var ownTrackingReader = tracking.Read.Connection == login!.Connection ? null : await ReadSession.OpenAsync(tracking.Read);
+            var trackRead = ownTrackingReader ?? read;
+            var status = await TrackingStore.StatusAsync(trackRead, scope.Engine, schema);
             if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             string Cell(object? v) => v switch { null => "", DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), string s => s.Trim(), _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" };
@@ -52,22 +58,22 @@ internal static class ReportCommand
                 foreach (var r in list) output.WriteLine("  " + string.Join("  ", r.Select((c, i) => c.PadRight(widths[i]))).TrimEnd());
             }
 
-            var migrations = await read.QueryAsync(Top($"{C("applied_utc")}, {C("plan_id")}, {C("status")}, {C("applied_by")}, {C("git_commit")}", T("migration_log"), $"{C("applied_utc")} DESC"));
+            var migrations = await trackRead.QueryAsync(Top($"{C("applied_utc")}, {C("plan_id")}, {C("status")}, {C("applied_by")}, {C("git_commit")}", T("migration_log"), $"{C("applied_utc")} DESC"), byConnection);
             Table("applied_plans", "Applied plans (newest first)", ["when (UTC)", "plan", "status", "by", "commit"], migrations.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
 
-            var ddlRows = await read.QueryAsync(Top($"{C("executed_utc")}, {C("object_name")}, {C("status")}, {C("plan_id")}, {C("statement_hash")}", T("ddl_log"), $"{C("executed_utc")} DESC"));
+            var ddlRows = await trackRead.QueryAsync(Top($"{C("executed_utc")}, {C("object_name")}, {C("status")}, {C("plan_id")}, {C("statement_hash")}", T("ddl_log"), $"{C("executed_utc")} DESC"), byConnection);
             Table("ddl", "DDL (newest first)", ["when (UTC)", "object", "status", "plan", "statement"], ddlRows.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
 
-            var runs = await read.QueryAsync(Top($"{C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("plan_id")}", T("run_log"), $"{C("started_utc")} DESC"));
+            var runs = await trackRead.QueryAsync(Top($"{C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("plan_id")}", T("run_log"), $"{C("started_utc")} DESC"), byConnection);
             Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
 
-            var versions = await read.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} GROUP BY {C("object_name")} ORDER BY {C("object_name")}");
-            var recorded = await TrackingStore.LatestShapeHashesAsync(read, engine, schema);
+            var versions = await trackRead.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} WHERE {C("connection")} = @connection GROUP BY {C("object_name")} ORDER BY {C("object_name")}", byConnection);
+            var recorded = await TrackingStore.LatestShapeHashesAsync(trackRead, scope);
             var schemas = recorded.Keys.Select(k => DdlGenerator.Split(k).Schema).Distinct(StringComparer.Ordinal).ToList();
             var live = new Dictionary<string, ObjectShape>();
             foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, engine, s)) live[k] = v;
             var drifted = new List<string>();
-            var accepted = (await TargetSnapshotReader.ReadAsync(read, engine, schema, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
+            var accepted = (await TargetSnapshotReader.ReadAsync(read, trackRead, scope, engine, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
             bool Accepted(string name) => live.TryGetValue(name, out var l) && accepted.Contains(Acknowledgements.Key(DiagnosticCatalog.ObjectChangedOutsideTool.Code, name, l.ShapeHash));
             Table("objects", "Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
             {
@@ -78,7 +84,7 @@ internal static class ReportCommand
             }));
 
             // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----
-            var (history, unreadable) = await HistoryReader.ReadAsync(read, engine, schema);
+            var (history, unreadable) = await HistoryReader.ReadAsync(trackRead, scope);
             output.WriteLine();
             output.Payload("column_history", history.Select(h => new { model = h.Model, column = h.Column, decision = h.Disposition, text = h.Text, needs_attention = h.NeedsAttention, acknowledgement = h.Acknowledgement == null ? null : new { by = h.Acknowledgement.By, reason = h.Acknowledgement.Reason, utc = h.Acknowledgement.Utc } }).ToList());
             output.WriteLine($"Column history ({history.Count})");
@@ -88,11 +94,11 @@ internal static class ReportCommand
             var open = new List<string>();
             foreach (var h in history.Where(h => h.NeedsAttention)) open.Add($"{h.Model}.{h.Column}: a backfill was requested and none is recorded (`{ProductInfo.Cli} plan --backfill {h.Model}=<operation>`, or `{ProductInfo.Cli} ack history {h.Model}.{h.Column} --reason ...` to accept it)");
             foreach (var id in unreadable) open.Add($"the plan text recorded for {id} cannot be read back (edited or damaged); its decisions are not in this report");
-            foreach (var r in await read.QueryAsync($"SELECT {C("plan_id")}, MAX({C("applied_utc")}) FROM {T("migration_log")} GROUP BY {C("plan_id")} HAVING SUM(CASE WHEN {C("status")} = 'completed' THEN 1 ELSE 0 END) = 0"))
+            foreach (var r in await trackRead.QueryAsync($"SELECT {C("plan_id")}, MAX({C("applied_utc")}) FROM {T("migration_log")} WHERE {C("connection")} = @connection GROUP BY {C("plan_id")} HAVING SUM(CASE WHEN {C("status")} = 'completed' THEN 1 ELSE 0 END) = 0", byConnection))
                 open.Add($"plan {Cell(r[0])} never completed (last record {Cell(r[1])} UTC): resume it with `{ProductInfo.Cli} apply --resume`, or plan again");
-            foreach (var r in await read.QueryAsync($"SELECT {C("object_name")}, {C("plan_id")} FROM {T("ddl_log")} WHERE {C("status")} <> 'ok'"))
+            foreach (var r in await trackRead.QueryAsync($"SELECT {C("object_name")}, {C("plan_id")} FROM {T("ddl_log")} WHERE {C("connection")} = @connection AND {C("status")} <> 'ok'", byConnection))
                 open.Add($"DDL on {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
-            foreach (var r in await read.QueryAsync($"SELECT {C("model")}, {C("plan_id")} FROM {T("run_log")} WHERE {C("status")} <> 'ok'"))
+            foreach (var r in await trackRead.QueryAsync($"SELECT {C("model")}, {C("plan_id")} FROM {T("run_log")} WHERE {C("connection")} = @connection AND {C("status")} <> 'ok'", byConnection))
                 open.Add($"load of {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
             foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} ack drift {d} --reason ...`, or restore it)");
             output.WriteLine();

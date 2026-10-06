@@ -20,7 +20,7 @@ public class JsonOutputTests
         var dir = NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
         File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Orders);
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\ntracking: { connection: sqlserver }\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), FctYaml);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, o.amount FROM staging.orders o\n");
         return dir;

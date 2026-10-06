@@ -20,11 +20,11 @@ public sealed record RuleRun(RuleOutcome Outcome, string? Message, IReadOnlyList
 /// </summary>
 public sealed class MetadataDatabase : IDisposable
 {
-    private const string Table = "CREATE TABLE metadata_current(kind VARCHAR, subject VARCHAR, document JSON, document_hash VARCHAR, recorded_utc TIMESTAMP, tool_version VARCHAR, plan_id VARCHAR, git_commit VARCHAR)";
+    private const string Table = "CREATE TABLE metadata_current(connection VARCHAR, kind VARCHAR, subject VARCHAR, document JSON, document_hash VARCHAR, recorded_utc TIMESTAMP, tool_version VARCHAR, plan_id VARCHAR, git_commit VARCHAR)";
 
     private const string Views = """
 CREATE VIEW metadata_columns AS
-SELECT m.subject AS model, c->>'name' AS column_name, c->>'logical_type' AS logical_type, (c->>'nullable')::BOOLEAN AS nullable, c->>'collation' AS collation,
+SELECT m.connection AS connection, m.subject AS model, c->>'name' AS column_name, c->>'logical_type' AS logical_type, (c->>'nullable')::BOOLEAN AS nullable, c->>'collation' AS collation,
   c->'native'->'sqlserver'->>'type' AS sqlserver_type, c->'native'->'postgres'->>'type' AS postgres_type, c->'native'->'fabric'->>'type' AS fabric_type,
   c->'lineage'->>'inferred_nullability' AS inferred_nullability, c->'lineage'->'upstream' AS upstream, m.kind AS kind
 FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c)
@@ -63,9 +63,9 @@ FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c),
 WHERE m.kind = 'model';
 
 CREATE VIEW metadata_native_types AS
-SELECT m.subject AS model, c->>'name' AS column_name, connection, json_extract_string(c->'native', '$."' || connection || '"."type"') AS native_type,
-  json_extract_string(c->'native', '$."' || connection || '"."collation"') AS collation, json_extract_string(c->'native', '$."' || connection || '"."error"') AS error
-FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c), unnest(json_keys(c->'native')) AS k(connection)
+SELECT m.subject AS model, c->>'name' AS column_name, k.conn AS connection, json_extract_string(c->'native', '$."' || k.conn || '"."type"') AS native_type,
+  json_extract_string(c->'native', '$."' || k.conn || '"."collation"') AS collation, json_extract_string(c->'native', '$."' || k.conn || '"."error"') AS error
+FROM metadata_current m, unnest(CAST(m.document->'columns' AS JSON[])) AS t(c), unnest(json_keys(c->'native')) AS k(conn)
 WHERE m.kind = 'model';
 
 CREATE VIEW metadata_indexes AS
@@ -119,7 +119,7 @@ FROM metadata_current m, unnest(CAST(m.document->'index_advice' AS JSON[])) AS t
             foreach (var d in documents)
             {
                 using var cmd = db.CreateCommand();
-                cmd.CommandText = "INSERT INTO metadata_current VALUES ($kind, $subject, CAST($document AS JSON), $hash, NULL, $version, NULL, NULL)";
+                cmd.CommandText = "INSERT INTO metadata_current VALUES (NULL, $kind, $subject, CAST($document AS JSON), $hash, NULL, $version, NULL, NULL)";
                 cmd.Parameters.Add(new DuckDBParameter("kind", d.Kind));
                 cmd.Parameters.Add(new DuckDBParameter("subject", d.Subject));
                 cmd.Parameters.Add(new DuckDBParameter("document", d.Json));

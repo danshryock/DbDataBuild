@@ -106,7 +106,7 @@ public class ProjectTestsTests
         }
 
         foreach (var view in MetadataDatabase.Names) Rows($"SELECT * FROM {view}");                                   // every view runs
-        Assert.Equal(["model", "column_name", "logical_type", "nullable", "collation", "sqlserver_type", "postgres_type", "fabric_type", "inferred_nullability", "upstream", "kind"],
+        Assert.Equal(["connection", "model", "column_name", "logical_type", "nullable", "collation", "sqlserver_type", "postgres_type", "fabric_type", "inferred_nullability", "upstream", "kind"],
             db.Run("SELECT * FROM metadata_columns LIMIT 1", 1).Columns);                                              // the names of the view `init` creates in a target
 
         Assert.Equal(["project|project", "source|staging.orders", "model|marts.fct_orders"], Rows("SELECT kind, subject FROM metadata_current ORDER BY CASE kind WHEN 'project' THEN 0 WHEN 'source' THEN 1 ELSE 2 END"));

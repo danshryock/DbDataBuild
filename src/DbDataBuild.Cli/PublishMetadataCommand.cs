@@ -15,11 +15,10 @@ internal static class PublishMetadataCommand
         var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
-        var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
-        foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
-        if (read == null || write == null) return CliApp.ExitFindings;
+        var tracking = CommandTracking.Require(ctx.Config, connection, env, needWrite: true, error, spec.Name);
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  records on {tracking?.Target.Connection ?? "none"}: read {tracking?.Read.Describe() ?? "none"}, write {tracking?.Write?.Describe() ?? "none"}");
+        if (tracking?.Write == null) return CliApp.ExitFindings;
+        var read = tracking.Read; var write = tracking.Write;
 
         var selected = ctx.Select(models, error);
         if (selected == null) return CliApp.ExitUsage;
@@ -34,13 +33,13 @@ internal static class PublishMetadataCommand
         var (commit, _) = GitInfo.Read(root);
         var documents = MetadataPublisher.Collect(ctx, models.Length == 0 ? null : selected.Select(m => m.Source.Definition.Name).ToList(), plan: null);   // no models named: everything, sources no model reads included
         MetadataPublisher.Result result;
-        try { result = Task.Run(() => MetadataPublisher.PublishAsync(documents, engine, ctx.Config.TrackingSchema, read, write, spec.Name, root, null, commit)).GetAwaiter().GetResult(); }
+        try { result = Task.Run(() => MetadataPublisher.PublishAsync(documents, tracking.Scope, read, write, spec.Name, root, null, commit)).GetAwaiter().GetResult(); }
         catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
 
         output.Payload("connection", target);
         output.Payload("written", result.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         output.Payload("unchanged", result.Unchanged.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
-        output.WriteLine($"Stored {result.Written.Count} document(s); {result.Unchanged.Count} already up to date. Query `{ctx.Config.TrackingSchema}.metadata_current` and `{ctx.Config.TrackingSchema}.metadata_columns`.");
+        output.WriteLine($"Stored {result.Written.Count} document(s); {result.Unchanged.Count} already up to date. Query `{tracking.Scope.Schema}.metadata_current` and `{tracking.Scope.Schema}.metadata_columns` on `{tracking.Target.Connection}`.");
         return CliApp.ExitOk;
     }
 }

@@ -32,7 +32,7 @@ public static class PolicyKeys
 /// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
 /// </summary>
 /// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
-public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, string>? DeclaredParameters = null)
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, string>? DeclaredParameters = null, ConnectionTracking? Tracking = null)
 {
     /// <summary>The values this connection carries (`parameters:`): what differs between connections of one application, such as a store id. Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from it.</summary>
     public IReadOnlyDictionary<string, string> Parameters => DeclaredParameters ?? new Dictionary<string, string>();
@@ -42,11 +42,29 @@ public sealed record ConnectionConfig(string Name, string Engine, int? Version =
         TargetNames.All.ToDictionary(e => e, e => new ConnectionConfig(e, e), StringComparer.Ordinal);
 }
 
+/// <summary>
+/// The project's `tracking:` section: the connection that keeps the records of what the tool built (null: none is configured, which is "nothing is tracked", with a warning) and the schema they live in there.
+/// <see cref="Disabled"/> is the explicit choice `tracking: none`: not tracked, and no warning.
+/// </summary>
+public sealed record TrackingConfig(string? Connection, string Schema, bool Disabled = false)
+{
+    public static TrackingConfig Default { get; } = new(null, ProductInfo.TrackingSchema);
+}
+
+/// <summary>A connection's own `tracking:`: `none` (an explicit opt-out), or another tracking connection and, optionally, schema.</summary>
+public sealed record ConnectionTracking(bool None, string? Connection, string? Schema);
+
+/// <summary>Where the records about one data connection are kept, resolved: the tracking connection, its engine, and the schema there.</summary>
+public sealed record TrackingTarget(string Connection, string Engine, string Schema);
+
+/// <summary>What a connection's tracking resolved to. <see cref="Target"/> is null when nothing is tracked; <see cref="Explicit"/> says that was a choice (`tracking: none`), so no warning is due.</summary>
+public sealed record TrackingResolution(TrackingTarget? Target, bool Explicit);
+
 /// <summary>Project configuration (<c>dbdatabuild.yml</c>). Offline settings only: credentials never live here (DESIGN.md 9.2).</summary>
 public sealed record ProjectConfig(
     IReadOnlyList<string> DefaultConnections,
     IReadOnlyDictionary<string, ConnectionConfig> Connections,
-    string TrackingSchema,
+    TrackingConfig Tracking,
     StringSemantics StringSemantics,
     IReadOnlyDictionary<string, Severity> Policy,
     IReadOnlyDictionary<string, int>? SourceLines = null,
@@ -66,6 +84,26 @@ public sealed record ProjectConfig(
     /// <summary>The `defaults:` section of dbdatabuild.yml, the first layer of every model's settings (null when there is none). Its nodes are positions in dbdatabuild.yml.</summary>
     public Yaml.YamlMapping? Defaults { get; init; }
 
+    /// <summary>The schema of the tracking tables (the project's; a connection may name another connection but keeps this schema unless it says its own).</summary>
+    public string TrackingSchema => Tracking.Schema;
+
+    /// <summary>
+    /// Where the records about <paramref name="connection"/> are kept: its own `tracking:`, else the project's. Nothing is tracked unless a project says where (`tracking: { connection: audit }`); `tracking: none`
+    /// is the explicit opt-out, and the only difference between the two is that the first earns a warning.
+    /// </summary>
+    public TrackingResolution TrackingOf(string connection)
+    {
+        Connections.TryGetValue(connection, out var c);
+        if (c?.Tracking is { } own)
+        {
+            if (own.None) return new(null, true);
+            var name = own.Connection ?? Tracking.Connection;
+            return name != null && Connections.TryGetValue(name, out var t) ? new(new TrackingTarget(name, t.Engine, own.Schema ?? Tracking.Schema), true) : new(null, false);
+        }
+        if (Tracking.Disabled) return new(null, true);
+        return Tracking.Connection is { } p && Connections.TryGetValue(p, out var pc) ? new(new TrackingTarget(p, pc.Engine, Tracking.Schema), true) : new(null, false);
+    }
+
     /// <summary>The engine of a connection, or null when the project has no such connection.</summary>
     public string? EngineOf(string connection) => Connections.TryGetValue(connection, out var c) ? c.Engine : null;
 
@@ -76,7 +114,7 @@ public sealed record ProjectConfig(
     public static readonly ProjectConfig Default = new(
         [TargetNames.SqlServer],
         ConnectionConfig.Implicit,
-        ProductInfo.TrackingSchema,
+        TrackingConfig.Default,
         new StringSemantics(CaseSensitivity.Insensitive, AccentSensitivity.Sensitive, TrailingSpace.Ignored,
             new Dictionary<string, IReadOnlyDictionary<string, string>>
             {

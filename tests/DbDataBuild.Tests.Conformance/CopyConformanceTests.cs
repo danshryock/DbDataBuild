@@ -64,7 +64,7 @@ public partial class CopyConformanceTests
         await from.StartAsync();
         await to.StartAsync();
         var pair = new Pair(from, to, Path.Combine(Path.GetTempPath(), "ddb-copy-" + Guid.NewGuid().ToString("N")));
-        pair.Write("dbdatabuild.yml", $"defaults: {{connections: [{destination}]}}\n" + Sensitive(destination));
+        pair.Write("dbdatabuild.yml", $"defaults: {{connections: [{destination}]}}\ntracking: {{ connection: {destination} }}\n" + Sensitive(destination));
         pair.Write("models/src/items.yml", $"name: src.items\nkind: {{type: mapped}}\nconnections=: [{origin}]\ngrain: [id]\n{Columns}");
         pair.Write("models/dst/items.yml", "name: dst.items\nkind: {type: copy, from: src.items}\nindexes:\n  - {name: ix_items_code, columns: [code]}\n");
         await from.ExecAsync(origin == "postgres" ? "CREATE SCHEMA src" : "EXEC('CREATE SCHEMA src')");
@@ -233,7 +233,7 @@ public partial class CopyConformanceTests
                 await store.ExecAsync("CREATE TABLE pos.orders (order_id BIGINT NOT NULL, total NUMERIC(10,2))");
                 await store.ExecAsync($"INSERT INTO pos.orders VALUES {rows}");
             }
-            Write("dbdatabuild.yml", "connections:\n  store_17: { engine: postgres, parameters: { store_id: \"017\" } }\n  store_18: { engine: postgres, parameters: { store_id: \"018\" } }\ndefaults:\n  connections: [sqlserver]\n");
+            Write("dbdatabuild.yml", "connections:\n  store_17: { engine: postgres, parameters: { store_id: \"017\" } }\n  store_18: { engine: postgres, parameters: { store_id: \"018\" } }\ndefaults:\n  connections: [sqlserver]\ntracking: { connection: sqlserver }\n");
             Write("models/pos/orders.yml", "name: pos.orders\nkind: {type: mapped}\nconnections=: [store_17, store_18]\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: total, type: \"DECIMAL(10, 2)\"}\n");
             Write("models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
 

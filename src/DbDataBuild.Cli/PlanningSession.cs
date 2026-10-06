@@ -166,6 +166,19 @@ internal sealed class PlanningSession
             return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList());
         }).ToList();
 
+        // where the records about this connection are kept: itself, another connection (its read login is needed), or nowhere (a warning, unless that was chosen)
+        var trackingResolution = ctx.Config.TrackingOf(target);
+        LoginSettings? trackingRead = null;
+        if (trackingResolution.Target is { } trackingTarget && trackingTarget.Connection != target)
+        {
+            var (tr, trm) = LoginSettings.FromEnvironment(trackingTarget.Connection, trackingTarget.Engine, Login.Read, env);
+            if (tr == null) { error.Diag(trm!); return (null, CliApp.ExitFindings); }
+            trackingRead = tr;
+        }
+        else if (trackingResolution.Target == null && !trackingResolution.Explicit)
+            error.Diag(new Diagnostic(DiagnosticCatalog.TrackingNotConfigured, new($"connection:{target}", 0, 0), $"Nothing is tracked for `{target}`: plans are made from the declared shape against the live one, every change to an existing object is marked risky, and nothing is recorded when the plan is applied."));
+        DbDataBuild.State.TrackingScope? trackingScope = trackingResolution.Target is { } ts ? new DbDataBuild.State.TrackingScope(ts.Engine, ts.Schema, target) : null;
+
         TargetSnapshot snapshot;
         var resolved = new Dictionary<string, ResolverOutcome>();
         var rangeBounds = new Dictionary<string, ColumnBounds>();
@@ -175,9 +188,14 @@ internal sealed class PlanningSession
             (snapshot, resolved, rangeBounds) = Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
-                var status = await TrackingStore.StatusAsync(read, engine, ctx.Config.TrackingSchema);
-                if (status.AsDiagnostic(ctx.Config.TrackingSchema) is { } notReady) throw new GateRefusedException(notReady);
-                var snap = await TargetSnapshotReader.ReadAsync(read, engine, ctx.Config.TrackingSchema, planned.Select(p => DdlSchema(p.Definition.Name)));
+                await using var ownTrackingRead = trackingRead == null ? null : await ReadSession.OpenAsync(trackingRead);
+                var trackRead = trackingScope == null ? null : ownTrackingRead ?? read;
+                if (trackingScope != null)
+                {
+                    var status = await TrackingStore.StatusAsync(trackRead!, trackingScope.Engine, trackingScope.Schema);
+                    if (status.AsDiagnostic(trackingScope.Schema) is { } notReady) throw new GateRefusedException(notReady);
+                }
+                var snap = await TargetSnapshotReader.ReadAsync(read, trackRead, trackingScope, engine, planned.Select(p => DdlSchema(p.Definition.Name)));
                 var results = new Dictionary<string, ResolverOutcome>();
                 foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
                 {
@@ -207,7 +225,7 @@ internal sealed class PlanningSession
         var loads = renderedOps.GroupBy(o => o.Model).ToDictionary(g => g.Key, g => (IReadOnlyList<RenderedLoad>)g
             .Select(o => new RenderedLoad(o.Operation, o.IsDefault, o.Script, DbDataBuild.State.Hashing.ScriptHash(o.Script), o.Resolver, o.Parameters, o.Watermark)).ToList());
         var input = new PlanInput(target, ctx.Config, planned, snapshot.Live, snapshot.Schemas, snapshot.RecordedShapeHashes, snapshot.LastViewStatementHashes,
-            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills, rangeBounds);
+            snapshot.LastLoadDefinitionHashes, snapshot.Acknowledged, loads, resolved, operations, backfills, rangeBounds) { Tracked = trackingScope != null };
         return (new PlanningSession { Root = root, Target = target, Context = ctx, Input = input, Warnings = distinct.Where(d => d.Severity != Severity.Error).ToList() }, CliApp.ExitOk);
     }
 
