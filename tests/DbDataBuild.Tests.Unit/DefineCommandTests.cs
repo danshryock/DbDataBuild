@@ -102,7 +102,7 @@ public class DefineCommandTests
     [Fact]
     public void Check_fails_when_a_definition_is_missing_or_stale_and_writes_nothing()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql);                                   // no definition yet
         Model(dir, "marts.stale", "SELECT o.order_id, o.amount FROM staging.orders o", "name: marts.stale\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT}\n");
         var before = Snapshot(dir);
@@ -117,7 +117,7 @@ public class DefineCommandTests
     [Fact]
     public void Check_passes_for_in_sync_definitions()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql, "name: marts.fct_orders\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n");
         var (exit, output, err) = Define(dir, "--check");
         Assert.Equal((CliApp.ExitOk, ""), (exit, err));
@@ -130,7 +130,7 @@ public class DefineCommandTests
     [Fact]
     public void Write_with_answers_creates_the_definition_leaves_the_query_alone_and_is_idempotent()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql);
         var queries = QueryBytes(dir);
 
@@ -171,7 +171,7 @@ public class DefineCommandTests
     [Fact]
     public void One_incomplete_model_stops_all_writes()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql);
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");     // no answers for this one
         var answers = Answers(dir, FullAnswers);
@@ -198,7 +198,7 @@ public class DefineCommandTests
     [Fact]
     public void A_bad_answers_file_is_reported_and_unused_answers_only_warn()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql);
         var (exit, _, err) = Define(dir, "--write", "--answers", Answers(dir, "answers:\n  - {id: Q-bogus-x, choice: a}\n"));
         Assert.Equal(CliApp.ExitFindings, exit);
@@ -216,7 +216,7 @@ public class DefineCommandTests
     [Fact]
     public void An_update_adds_the_new_column_with_a_splice_and_keeps_comments()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql, Existing);
         var answers = Answers(dir, "answers:\n  - {id: Q-define-marts.fct_orders-columns.amount.type, accept: inferred}\n  - {id: Q-define-marts.fct_orders-columns.amount.nullable, accept: inferred}\n");
         var (exit, output, err) = Define(dir, "--write", "--answers", answers);
@@ -255,7 +255,7 @@ public class DefineCommandTests
     [Fact]
     public void Paths_select_files_or_directories_and_leave_other_models_alone()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.fct_orders", OrdersSql);
         Model(dir, "reports.daily", "SELECT c.customer_id FROM staging.customers c");
         var (_, out1, err1) = Define(dir, "--check", "models/marts");
@@ -288,7 +288,7 @@ public class DefineCommandTests
     [Fact]
     public void Interactive_define_asks_shows_the_diff_and_writes_after_confirmation()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var (exit, output, err) = Run(Script(InteractiveForSmallModel), true, "define", "--project", dir);
         Assert.Equal((CliApp.ExitOk, ""), (exit, err));
@@ -301,7 +301,7 @@ public class DefineCommandTests
     [Fact]
     public void Interactive_decline_writes_nothing()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var lines = InteractiveForSmallModel.SkipLast(1).Append("n").ToArray();
         var before = Snapshot(dir);
@@ -314,7 +314,7 @@ public class DefineCommandTests
     [Fact]
     public void Interactive_end_of_input_leaves_questions_open_and_writes_nothing()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var before = Snapshot(dir);
         var (exit, output, err) = Run(Script("a", ""), true, "define", "--project", dir);
@@ -327,7 +327,7 @@ public class DefineCommandTests
     [Fact]
     public void A_file_changed_after_it_was_read_is_never_overwritten()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         var stem = Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var yml = stem + ".yml";
         // someone creates the definition while define waits at the confirmation prompt

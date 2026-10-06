@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["default_connections", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["defaults", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] ConnectionKeys = ["engine", "version"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -48,11 +48,12 @@ public static class ProjectConfigLoader
             var d = ProjectConfig.Default;
 
             var connections = ReadConnections(top);
-            var targets = ReadDefaultConnections(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.DefaultConnections;
+            var (declared, defaults) = ReadDefaults(top, connections.Keys.ToHashSet(StringComparer.Ordinal));
+            IReadOnlyList<string> targets = declared ?? d.DefaultConnections;
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, schema, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top));
+            return new ProjectConfig(targets, connections, schema, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults };
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -101,13 +102,33 @@ public static class ProjectConfigLoader
             return result;
         }
 
-        private List<string>? ReadDefaultConnections(YamlMapping top, IReadOnlySet<string> connections)
+        /// <summary>
+        /// `defaults:` holds the model settings every model inherits from this file (<see cref="ModelDefinitionLoader.LayeredKeys"/>); a folder's `_dbdatabuild.yml` has the same section. Only the shape is checked here,
+        /// the values are checked where they are merged into a model. The connections are read as well, for the commands that need to know where a model with no list of its own lives.
+        /// </summary>
+        private (List<string>? Connections, YamlMapping? Defaults) ReadDefaults(YamlMapping top, IReadOnlySet<string> connections)
         {
-            var list = StringList(top, "default_connections", required: false, allowEmpty: false, unique: true);
-            if (list == null) return null;
-            foreach (var t in list.Where(t => !connections.Contains(t.Value)))
-                Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
-            return list.Select(t => t.Value).ToList();
+            if (top.Get("defaults") is not { } node) return (null, null);
+            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, "`defaults` must be a mapping of model settings."); return (null, null); }
+            foreach (var e in map.Entries.Where(e => !ModelDefinitionLoader.LayeredKeys.Contains(e.Key.Value.TrimEnd('=', '-', '+'))))
+                Add(DiagnosticCatalog.UnknownKey, e.Key, $"Unknown key `{e.Key.Value}` in `defaults`.", $"Keys: {string.Join(", ", ModelDefinitionLoader.LayeredKeys.Order(StringComparer.Ordinal))}.");
+            List<string>? list = null;
+            if (map.Entries.FirstOrDefault(e => e.Key.Value is "connections" or "connections=" or "connections+") is { } c)
+            {
+                if (c.Value is not YamlSequence seq || seq.Items.Count == 0 || seq.Items.Any(i => i is not YamlScalar { Value.Length: > 0 }))
+                    Add(DiagnosticCatalog.InvalidValue, c.Value, "`connections` must be a non-empty list of connection names, for example `connections: [warehouse]`.");
+                else
+                {
+                    list = [];
+                    foreach (var t in seq.Items.Cast<YamlScalar>())
+                    {
+                        if (list.Contains(t.Value)) Add(DiagnosticCatalog.InvalidValue, t, $"`{t.Value}` is listed twice.");
+                        else if (!connections.Contains(t.Value)) Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
+                        list.Add(t.Value);
+                    }
+                }
+            }
+            return (list, map);
         }
 
         /// <summary>

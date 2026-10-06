@@ -166,9 +166,9 @@ public class CollationCheckerTests
     {
         // postgres is unconfigured, but no model targets it and it is not a default target
         Assert.Empty(Check(ProjectConfig.Default, Model("[sqlserver]")));
-        Assert.Contains(Check(Config("default_connections: [postgres]\n"), Model("")), d => d.Code == "DDB-312");   // a model relies on the default
-        Assert.Empty(Check(Config("default_connections: [postgres]\n"), Model("[sqlserver]")));                    // none does
-        Assert.Contains(Check(Config("default_connections: [postgres]\n")), d => d.Code == "DDB-312");             // no models yet
+        Assert.Contains(Check(Config("defaults: {connections: [postgres]}\n"), Model("")), d => d.Code == "DDB-312");   // a model relies on the default
+        Assert.Empty(Check(Config("defaults: {connections: [postgres]}\n"), Model("[sqlserver]")));                    // none does
+        Assert.Contains(Check(Config("defaults: {connections: [postgres]}\n")), d => d.Code == "DDB-312");             // no models yet
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class CollationCheckerTests
     [Fact]
     public void Check_is_deterministic_and_reads_nothing_from_disk_or_a_target()
     {
-        var cfg = Config("default_connections: [sqlserver, postgres, fabric]\n");
+        var cfg = Config("defaults: {connections: [sqlserver, postgres, fabric]}\n");
         Assert.Equal(Check(cfg, Model("")).Select(DiagnosticFormatter.Format), Check(cfg, Model("")).Select(DiagnosticFormatter.Format));
     }
 }

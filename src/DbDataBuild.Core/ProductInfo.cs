@@ -6,6 +6,9 @@ public static class ProductInfo
     public const string Name = "DbDataBuild";
     public const string Cli = "dbdatabuild";
     public const string ConfigFile = "dbdatabuild.yml";
+
+    /// <summary>The project file a folder may hold: the same sections as the root file, layered onto it for everything beneath the folder. It is not a model.</summary>
+    public const string FolderConfigFile = "_dbdatabuild.yml";
     public const string TrackingSchema = "dbdatabuild";
     public const string DiagnosticPrefix = "DDB-";
     public const string NamespacePrefix = "DbDataBuild";

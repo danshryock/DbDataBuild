@@ -11,7 +11,10 @@ public static class ModelDefinitionLoader
 
     /// <param name="file">Path shown in diagnostics.</param>
     /// <param name="expectedName">Name implied by the path convention, or null to skip the check.</param>
-    public static ModelDefinition? Load(string text, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
+    /// <param name="above">The project files above the model, root down (`defaults:` of each): the layers its own file is merged onto, the nearest winning (<see cref="YamlMerge"/>).</param>
+    /// <param name="merged">Receives the merged mapping and where each part of it came from, when the file is a mapping that merged.</param>
+    public static ModelDefinition? Load(string text, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null,
+        IReadOnlyList<YamlLayer>? above = null, Action<MergedYaml>? merged = null)
     {
         var errorsBefore = diags.Count;
         var root = StrictYamlReader.Read(text, file, diags);
@@ -21,10 +24,22 @@ public static class ModelDefinitionLoader
                 diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(file, 1, 1), "The file is empty. Required keys: name, kind, columns."));
             return null;
         }
-        var v = new Validator(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal));
-        var def = v.Validate(root, expectedName);
+        var known = connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal);
+        if (root is not YamlMapping own)
+        {
+            new Validator(file, diags, known).Validate(root, expectedName);   // says the file must be a mapping
+            return null;
+        }
+        // the file is always the last layer, whether or not anything is above it, so a suffix (`connections=`) means the same everywhere
+        var result = YamlMerge.Merge([.. above ?? [], new YamlLayer(file, own)], LayeredKeys, diags);
+        if (diags.Count > errorsBefore) return null;
+        merged?.Invoke(result);
+        var def = new Validator(file, diags, known) { NodeFiles = result.FileOf }.Validate(result.Root, expectedName);
         return diags.Count > errorsBefore ? null : def;
     }
+
+    /// <summary>The top-level keys a model inherits from the project files above it (`defaults:` in each); a model's own file may use the same names, with a suffix, to change what it inherits.</summary>
+    public static readonly IReadOnlySet<string> LayeredKeys = new HashSet<string>(["connections", "kind", "hooks", "rewrites", "lint_ignore"], StringComparer.Ordinal);
 
     private sealed class Validator(string file, List<Diagnostic> diags, IReadOnlySet<string> connections) : YamlFieldReader(file, diags)
     {

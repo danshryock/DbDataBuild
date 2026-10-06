@@ -7,7 +7,7 @@ namespace DbDataBuild.Tests.Unit;
 public class ProjectConfigTests
 {
     private const string Full = """
-        default_connections: [sqlserver, postgres]
+        defaults: {connections: [sqlserver, postgres]}
         connections:
           sqlserver: { version: 16 }
           postgres: { version: "17" }
@@ -40,13 +40,13 @@ public class ProjectConfigTests
     [
         new("full example", Full, true),
         new("empty mapping", "{}", true),
-        new("only default connections", "default_connections: [fabric]\n", true),
+        new("only default connections", "defaults: {connections: [fabric]}\n", true),
         new("version as integer and string", "connections:\n  sqlserver: { version: 17 }\n  postgres: { version: \"16\" }\n", true),
         new("unknown key", "surprise: 1\n", false, "DDB-104"),
-        new("invalid default connection name", "default_connections: [\"9 bad\"]\n", false, "DDB-106"),
-        new("empty default connections", "default_connections: []\n", false, "DDB-106"),
-        new("duplicate default connections", "default_connections: [fabric, fabric]\n", false, "DDB-106"),
-        new("default connections not a list", "default_connections: sqlserver\n", false, "DDB-106"),
+        new("invalid default connection name", "defaults: {connections: [\"9 bad\"]}\n", false, "DDB-106"),
+        new("empty default connections", "defaults: {connections: []}\n", false, "DDB-106"),
+        new("duplicate default connections", "defaults: {connections: [fabric, fabric]}\n", false, "DDB-106"),
+        new("default connections not a list", "defaults: {connections: sqlserver}\n", false, "DDB-106"),
         new("connection without an engine", "connections:\n  oracle: { version: 19 }\n", false, "DDB-105"),
         new("unknown target setting", "connections:\n  sqlserver: { edition: enterprise }\n", false, "DDB-104"),
         new("version zero", "connections:\n  sqlserver: { version: 0 }\n", false, "DDB-106"),
@@ -143,7 +143,7 @@ public class ProjectConfigTests
     public void Problems_are_reported_together_with_positions()
     {
         var diags = new List<Diagnostic>();
-        var cfg = ProjectConfigLoader.Load("default_connections: [oracle]\ntracking_schema: a-b\nsurprise: 1\n", "dbdatabuild.yml", diags);
+        var cfg = ProjectConfigLoader.Load("defaults: {connections: [oracle]}\ntracking_schema: a-b\nsurprise: 1\n", "dbdatabuild.yml", diags);
         Assert.Null(cfg);
         Assert.Equal(["DDB-104", "DDB-106"], diags.Select(d => d.Code).Distinct().Order());
         Assert.Equal(3, diags.Count);
@@ -165,7 +165,7 @@ public class ProjectConfigTests
     public void Broken_file_reports_errors_and_falls_back_to_defaults()
     {
         var dir = TestSupport.NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [oracle]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [oracle]}\n");
         var diags = new List<Diagnostic>();
         Assert.Equal(ProjectConfig.Default, ProjectConfigLoader.LoadFromProject(dir, diags));
         Assert.Contains(diags, d => d.Code == "DDB-106" && d.Location.File == "dbdatabuild.yml");
@@ -174,7 +174,7 @@ public class ProjectConfigTests
     [Fact]
     public void Malformed_config_never_throws()
     {
-        string[] inputs = [":", "[", "- a", "a: &x 1\nb: *x", "default_connections: {a: b}", "connections: 5", "connections: [a]", "string_semantics: x",
+        string[] inputs = [":", "[", "- a", "a: &x 1\nb: *x", "defaults: {connections: {a: b}}", "connections: 5", "connections: [a]", "string_semantics: x",
             "string_semantics: {collations: [a]}", "policy: [a]", "policy: {severity: 3}", "---\n---\n", "tracking_schema: [a]"];
         foreach (var input in inputs)
             Assert.Null(Record.Exception(() => ProjectConfigLoader.Load(input, "dbdatabuild.yml", [])));

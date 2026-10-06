@@ -9,7 +9,7 @@ public class LoweringIntegrationTests
     private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string Fct = "name: marts.fct\nkind: {type: full}\nconnections: [sqlserver]\ncolumns:\n  - {name: customer_id, type: BIGINT}\n  - {name: n, type: BIGINT}\n";
 
-    private static string Project(string sql, string config = "default_connections: [sqlserver]\n")
+    private static string Project(string sql, string config = "defaults: {connections: [sqlserver]}\n")
     {
         var dir = NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
@@ -90,7 +90,7 @@ public class LoweringIntegrationTests
         Assert.DoesNotContain("DDB-301", on.Err);
 
         // turning lowering off restores the old behavior: the author's text goes to the matrix as written
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\nlowering:\n  enabled: false\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nlowering:\n  enabled: false\n");
         var off = Run("validate", "--project", dir);
         Assert.Equal(1, off.Exit);
         Assert.Contains("DDB-301", off.Err);
@@ -100,7 +100,7 @@ public class LoweringIntegrationTests
     [Fact]
     public void With_lowering_off_no_lowered_file_is_written()
     {
-        var dir = Project("SELECT customer_id, COUNT(*) AS n FROM staging.orders GROUP BY customer_id\n", "default_connections: [sqlserver]\nlowering:\n  enabled: false\n");
+        var dir = Project("SELECT customer_id, COUNT(*) AS n FROM staging.orders GROUP BY customer_id\n", "defaults: {connections: [sqlserver]}\nlowering:\n  enabled: false\n");
         Assert.Equal(0, Run("render", "--project", dir, "--write").Exit);
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered/lowered")));
         Assert.True(File.Exists(Path.Combine(dir, "rendered/sqlserver/marts.fct/load.default.sql")));

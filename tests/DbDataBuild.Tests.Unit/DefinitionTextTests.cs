@@ -93,7 +93,7 @@ public class DefinitionWriterTests
               type: incremental_by_unique_key
               unique_key: [order_id]
             grain: [order_id]
-            connections: [sqlserver, fabric]
+            connections=: [sqlserver, fabric]
             columns:
               - name: order_id
                 type: BIGINT

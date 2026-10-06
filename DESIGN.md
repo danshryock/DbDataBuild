@@ -107,7 +107,7 @@ kind:
   type: incremental_by_unique_key
   unique_key: [order_id]
 grain: [order_id]
-connections: [sqlserver, fabric]
+connections=: [sqlserver, fabric]
 columns:
   - name: order_id
     type: BIGINT
@@ -619,7 +619,8 @@ A test enumerates call paths to `ExecuteNonQuery` and fails on any path not rout
 Offline settings only. Credentials never live here (section 9.2). Every key is optional; an absent key takes the built-in default, and **every command prints the effective settings in its header**, so a default is never hidden. A missing file yields the defaults and a warning (DDB-109). The schema is `schemas/config.schema.json`.
 
 ```yaml
-default_connections: [sqlserver]      # targets for models without `connections:`. Default: [sqlserver]
+defaults:                         # model settings every model inherits (section 9.4.1). Default connections: [sqlserver]
+  connections: [sqlserver]
 connections:                      # named database endpoints; one named after an engine needs no entry (it may set the version)
   sqlserver: { version: 16 }      # the T-SQL level to generate for (see below); resolves matrix `min_version` rows
   # warehouse: { engine: postgres }   # any other name says its engine; its logins are DBDATABUILD_WAREHOUSE_READ and _WRITE
@@ -643,6 +644,24 @@ policy:
 - **Target versions** settle `min_version` matrix rows: at or above the minimum there is no finding, below it the construct is an error (DDB-301), and with no version configured it stays a warning (DDB-308).
 - **Policy** can raise or lower a finding's severity but never hides it. `unsupported` findings are always errors and are not configurable.
 - **Collation check (offline, `validate`).** For every engine in use (each model's `targets`, the default connections when a model relies on them or there are no models, and always DuckDB) `string_semantics.collations.default` must have an entry, and its name is read for case, accent and trailing-space behavior and compared with the profile. A collation known to contradict the profile is an error (DDB-310); one whose behavior the name cannot settle is a warning (DDB-311) and is never assumed to match; a missing entry, a `collation:` on a column that is not defined, or a defined collation missing an engine the model targets is an error (DDB-312). Only `default` must satisfy the profile: other logical names are declared exceptions. Name rules: SQL Server and Fabric read `_CI_`/`_CS_`/`_AI_`/`_AS_`/`_BIN2` tokens (SQL Server always ignores trailing spaces in `=`; Fabric's is unverified, so it is reported as DDB-311); DuckDB reads `NOCASE`, `NOACCENT`, `NFC`, locale names and `.` chains, and meets an `ignored` trailing-space profile through the offline `rtrim()` rewrite; PostgreSQL reads libc/C locales and ICU `-u-ks-level1/2` names, and cannot ignore trailing spaces natively. The same check runs against the live catalog in `check`: text columns the model leaves on the default collation must have a live collation that satisfies the profile (DDB-310), a column on the database default is DDB-311 because its behavior cannot be verified, and declared exceptions and columns the model does not declare are not held to the profile.
+
+### 9.4.1 Project files in folders and the merge rules (as built)
+
+`dbdatabuild.yml` is the root **project file**. A folder under `models/` may hold `_dbdatabuild.yml`: not a model (the loader and the orphan check skip it). Both files have a `defaults:` section of **model settings**
+(`connections`, `kind`, `hooks`, `rewrites`, `lint_ignore`; `ModelDefinitionLoader.LayeredKeys`), and for a model the layers are the root file, then each folder's file from `models/` down to the model's folder, then the
+model's own file, **the nearest winning**. A folder file has no other section yet; the project-wide sections (connections, tracking, policy, string semantics) are root-only. What is not layered (`name`, `columns`, `grain`,
+`loads`, `indexes`, `renames`) stays in the model's own file.
+
+The merge (`YamlMerge`, one table, `YamlMergeTests`): a mapping merges by key, recursively, the nearer layer winning a conflict; a list appends, the inherited items first, a scalar already inherited kept once (a repeat
+inside one layer is left for the loader to report); a list of mappings with a `name` merges by `name`; a scalar replaces. A suffix on a key changes that for the key alone: `key=` replaces what was inherited, `key-: [..]` removes
+the listed items (or keys), `key+` says "merge". A suffix on a single value other than `=`, and a key that is a list in one layer and a mapping in another, are errors that name the key and its file. A suffix is understood only on
+layered keys (and beneath them); on any other key it is just an unknown key. The model's own file is always the last layer, so `connections=: [pg]` means "exactly these" with or without anything above it; `define` writes
+exactly that.
+
+Diagnostics name the file the problem is in (a bad inherited `kind` is reported at the folder file's line; each model that inherits it reports it). Provenance is not hidden: `validate` prints
+`Inherited by <model>: <path> = <value> (<file>:<line>), ...` for every model that took anything, and the model's metadata document carries the same as `inherited`.
+
+Not built yet (the plan is `docs/research/cross-server.md`): parameters, `schema` as a setting, tags, and project-wide sections in a folder file.
 
 ### 9.5 Machine-readable output and its schemas (as built)
 

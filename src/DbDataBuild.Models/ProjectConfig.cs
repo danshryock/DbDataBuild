@@ -60,6 +60,9 @@ public sealed record ProjectConfig(
     /// <summary>1-based lines in dbdatabuild.yml of settings that were present, keyed by dotted path (for diagnostics). Empty for defaults.</summary>
     public IReadOnlyDictionary<string, int> Lines { get; } = SourceLines ?? new Dictionary<string, int>();
 
+    /// <summary>The `defaults:` section of dbdatabuild.yml, the first layer of every model's settings (null when there is none). Its nodes are positions in dbdatabuild.yml.</summary>
+    public Yaml.YamlMapping? Defaults { get; init; }
+
     /// <summary>The engine of a connection, or null when the project has no such connection.</summary>
     public string? EngineOf(string connection) => Connections.TryGetValue(connection, out var c) ? c.Engine : null;
 

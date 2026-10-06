@@ -41,7 +41,7 @@ public class FuzzTests
     }
 
     private const string Config = """
-        default_connections: [sqlserver, postgres]
+        defaults: {connections: [sqlserver, postgres]}
         connections:
           sqlserver: { version: 17 }
         string_semantics:
@@ -59,7 +59,9 @@ public class FuzzTests
 
     private const string Answers = "answers:\n  - {id: Q-history-marts.fct_events.payload, answer: not_backfilled, note: \"no history\"}\n";
 
-    private static string Project(string? config = null, string? source = null, string? model = null, string? sql = null)
+    private const string FolderFile = "defaults:\n  connections: [sqlserver]\n  lint_ignore: [DDB-223]\n  hooks:\n    - {name: audit, event: post_load, script: hooks/grant.sql}\n";
+
+    private static string Project(string? config = null, string? source = null, string? model = null, string? sql = null, string? folder = null)
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config ?? Config);
@@ -70,6 +72,7 @@ public class FuzzTests
         File.WriteAllText(Path.Combine(dir, "models", "marts", "fct_events.yml"), model ?? (LoadRendererTests.AllOpsYaml + "\nindexes:\n  - {name: ix_seq, columns: [seq]}\nhooks:\n  - {use: standard}\n"));
         File.WriteAllText(Path.Combine(dir, "models", "marts", "fct_events.sql"), sql ?? LoadRendererTests.AllOpsSql);
         File.WriteAllText(Path.Combine(dir, "answers.yml"), Answers);
+        File.WriteAllText(Path.Combine(dir, "models", "marts", "_dbdatabuild.yml"), folder ?? FolderFile);
         return dir;
     }
 
@@ -103,13 +106,14 @@ public class FuzzTests
     [InlineData("source")]
     [InlineData("model")]
     [InlineData("sql")]
+    [InlineData("folder")]
     public void A_damaged_project_file_is_answered_with_diagnostics_not_an_exception(string which)
     {
-        var baseText = which switch { "config" => Config, "source" => Source, "model" => LoadRendererTests.AllOpsYaml + "\nindexes:\n  - {name: ix_seq, columns: [seq]}\nhooks:\n  - {use: standard}\n", _ => LoadRendererTests.AllOpsSql };
+        var baseText = which switch { "folder" => FolderFile, "config" => Config, "source" => Source, "model" => LoadRendererTests.AllOpsYaml + "\nindexes:\n  - {name: ix_seq, columns: [seq]}\nhooks:\n  - {use: standard}\n", _ => LoadRendererTests.AllOpsSql };
         var n = 0;
         foreach (var mutated in Mutations(baseText, Seed + which.Length, Rounds))
         {
-            var dir = which switch { "config" => Project(config: mutated), "source" => Project(source: mutated), "model" => Project(model: mutated), _ => Project(sql: mutated) };
+            var dir = which switch { "config" => Project(config: mutated), "source" => Project(source: mutated), "model" => Project(model: mutated), "folder" => Project(folder: mutated), _ => Project(sql: mutated) };
             try { RunAll(dir, $"{which} mutation {n++}: {mutated.Replace("\n", "\\n")}"); }
             finally { Directory.Delete(dir, true); }
         }

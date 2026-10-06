@@ -81,7 +81,7 @@ public class SchemaConformanceTests
 
         Bad("unknown top key", "name: marts.fct_orders\nkind: {type: full}\n" + Cols + "surprise: 1\n", "DDB-104"),
         Bad("missing name", "kind: {type: full}\n" + Cols, "DDB-105"),
-        Bad("missing kind", "name: marts.fct_orders\n" + Cols, "DDB-105"),
+        Semantic("missing kind", "name: marts.fct_orders\n" + Cols, "DDB-105"),
         Bad("missing columns", "name: marts.fct_orders\nkind: {type: full}\n", "DDB-105"),
         Bad("unknown kind", "name: marts.fct_orders\nkind: {type: nope}\n" + Cols, "DDB-106"),
         Bad("kind as a string", "name: marts.fct_orders\nkind: full\n" + Cols, "DDB-106"),

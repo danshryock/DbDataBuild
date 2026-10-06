@@ -623,6 +623,34 @@
             "query"
           ]
         },
+        "inherited": {
+          "description": "The settings the model took from a project file above it (`defaults:` of dbdatabuild.yml or of a folder's _dbdatabuild.yml), one scalar each, with the file and line it was written on.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "file",
+              "line",
+              "value"
+            ]
+          }
+        },
         "definition_hash": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
@@ -778,6 +806,7 @@
         "grain",
         "connections",
         "files",
+        "inherited",
         "columns",
         "loads",
         "indexes",

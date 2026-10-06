@@ -98,7 +98,7 @@ public class ApplyCommandTests
     public void Plan_and_check_without_a_read_login_stop_before_doing_anything()
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         foreach (var command in new[] { "plan", "check" })
         {
             var (exit, _, err) = Cli(null, command, "--project", dir);
@@ -113,7 +113,7 @@ public class ApplyCommandTests
     public void Plan_needs_an_answers_file_that_loads_before_it_looks_at_the_database()
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         var answers = Path.Combine(dir, "answers.yml");
         File.WriteAllText(answers, "answers:\n  - id: not-a-question-id\n    choice: x\n");
         var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "plan", "--project", dir, "--answers", answers);
@@ -125,7 +125,7 @@ public class ApplyCommandTests
     public void Ack_needs_a_reason_and_a_known_kind()
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         Assert.Equal(CliApp.ExitUsage, Cli(BothLogins.GetValueOrDefault, "ack", "drift", "marts.fct", "--project", dir).Exit);
         var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "ack", "banana", "marts.fct", "--reason", "x", "--project", dir);
         Assert.Equal(CliApp.ExitUsage, exit);
@@ -170,7 +170,7 @@ public class ApplyCommandTests
         var dir = NewProjectDir();
         void Git(string args) { using var p = Process.Start(new ProcessStartInfo("git", args) { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false })!; p.WaitForExit(); }
         Git("init -q");
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         Git("add -A");
         Git("-c user.name=t -c user.email=t@example.com commit -q -m init");
         File.WriteAllText(Path.Combine(dir, "uncommitted.txt"), "x");

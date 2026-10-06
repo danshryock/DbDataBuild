@@ -5,9 +5,13 @@
   "description": "A model definition file (models/**/<name>.yml), the companion of the plain DuckDB-dialect <name>.sql body. This schema is for editors; `dbdatabuild validate` applies the same rules plus semantic checks (name against path, grain against unique_key, column references) with diagnostic codes. The tool reads every scalar as a string, so values here that YAML would type (nullable) accept the quoted and unquoted forms.",
   "type": "object",
   "additionalProperties": false,
+  "patternProperties": {
+    "^(connections|kind|hooks|rewrites|lint_ignore)[=+-]$": {
+      "description": "A suffix on a setting that inherits from the project files above (`defaults:` in dbdatabuild.yml and in each folder's _dbdatabuild.yml): `key=` replaces what was inherited, `key-` removes the listed items or keys, `key+` merges (what happens without a suffix)."
+    }
+  },
   "required": [
     "name",
-    "kind",
     "columns"
   ],
   "properties": {
@@ -23,7 +27,7 @@
       "$ref": "#/$defs/columnList"
     },
     "connections": {
-      "description": "Connections the model is on: built natively on each. The project's default_connections apply if omitted.",
+      "description": "Connections the model is on: built natively on each. The `defaults.connections` of the project files above the model are inherited and this list adds to them; write `connections=` to replace them.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,

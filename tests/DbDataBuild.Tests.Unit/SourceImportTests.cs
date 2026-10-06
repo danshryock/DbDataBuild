@@ -216,7 +216,7 @@ public class SourceImportTests
     private static string Project(bool withSource)
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         if (withSource)
         {
             Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));

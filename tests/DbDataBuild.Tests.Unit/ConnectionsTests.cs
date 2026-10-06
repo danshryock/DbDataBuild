@@ -14,7 +14,7 @@ public class ConnectionsTests
     [Fact]
     public void A_connection_named_after_an_engine_exists_without_a_declaration_and_declaring_it_sets_its_version()
     {
-        var plain = Load("default_connections: [sqlserver]\n");
+        var plain = Load("defaults: {connections: [sqlserver]}\n");
         Assert.Equal(["fabric", "postgres", "sqlserver"], plain.Connections.Keys.Order());
         Assert.All(plain.Connections, c => Assert.Equal(c.Key, c.Value.Engine));
         Assert.Empty(plain.TargetVersions);
@@ -24,7 +24,7 @@ public class ConnectionsTests
     [Fact]
     public void Any_other_name_says_its_engine_and_two_connections_of_one_engine_have_their_own_versions()
     {
-        var cfg = Load("default_connections: [wh_old]\nconnections:\n  wh_old: { engine: sqlserver, version: 16 }\n  wh_new: { engine: sqlserver, version: 17 }\n  lake: { engine: postgres }\n");
+        var cfg = Load("defaults: {connections: [wh_old]}\nconnections:\n  wh_old: { engine: sqlserver, version: 16 }\n  wh_new: { engine: sqlserver, version: 17 }\n  lake: { engine: postgres }\n");
         Assert.Equal("sqlserver", cfg.EngineOf("wh_old"));
         Assert.Equal("sqlserver", cfg.EngineOf("wh_new"));
         Assert.Equal("postgres", cfg.EngineOf("lake"));
@@ -43,7 +43,7 @@ public class ConnectionsTests
     [InlineData("connections:\n  \"9bad\": { engine: postgres }\n", "DDB-106")]
     [InlineData("connections:\n  has-dash: { engine: postgres }\n", "DDB-106")]
     [InlineData("connections: [a]\n", "DDB-106")]
-    [InlineData("default_connections: [warehouse]\n", "DDB-106")]                                                         // not declared
+    [InlineData("defaults: {connections: [warehouse]}\n", "DDB-106")]                                                         // not declared
     public void A_connection_that_cannot_work_is_refused_with_the_reason(string yaml, string code)
     {
         var diags = new List<Diagnostic>();
@@ -105,7 +105,7 @@ public class ConnectionsTests
     [Fact]
     public void Each_connection_renders_into_its_own_directory_in_its_engines_dialect()
     {
-        var dir = Project("default_connections: [wh_sql]\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n  wh_sql_two: { engine: sqlserver }\n",
+        var dir = Project("defaults: {connections: [wh_sql]}\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n  wh_sql_two: { engine: sqlserver }\n",
             ("marts.orders", "wh_sql, wh_pg, wh_sql_two", "SELECT order_id, upper(note) AS label FROM staging.orders\n"));
         var (exit, _, err) = Run("render", "--write", "--project", dir);
         Assert.True(exit == 0, err);
@@ -124,7 +124,7 @@ public class ConnectionsTests
     public void The_version_belongs_to_the_connection_so_one_engine_can_have_a_new_and_an_old_server()
     {
         const string Sql = "SELECT order_id, regexp_extract(note, 'a(b)', 1) AS label FROM staging.orders\n";
-        var dir = Project("default_connections: [wh_new]\nconnections:\n  wh_old: { engine: sqlserver, version: 16 }\n  wh_new: { engine: sqlserver, version: 17 }\n", ("marts.orders", "wh_old, wh_new", Sql));
+        var dir = Project("defaults: {connections: [wh_new]}\nconnections:\n  wh_old: { engine: sqlserver, version: 16 }\n  wh_new: { engine: sqlserver, version: 17 }\n", ("marts.orders", "wh_old, wh_new", Sql));
         var (exit, output, err) = Run("validate", "--project", dir);
         var all = output + err;
         Assert.Contains("needs wh_old version 17 or later, but the project configures version 16", all);       // the old server is refused with the reason
@@ -137,7 +137,7 @@ public class ConnectionsTests
     [Fact]
     public void A_command_that_needs_one_connection_names_it_in_its_header_and_asks_for_that_connections_login()
     {
-        var dir = Project("default_connections: [wh_sql]\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n");
+        var dir = Project("defaults: {connections: [wh_sql]}\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n");
         var (exit, output, err) = Run("init", "--project", dir, "--connection", "wh_pg", "--apply");
         Assert.NotEqual(0, exit);
         Assert.Contains("connection: wh_pg", output);

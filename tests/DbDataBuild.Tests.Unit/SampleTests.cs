@@ -132,7 +132,7 @@ public class SampleTests
     private static string Project()
     {
         var dir = NewProjectDir();
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_connections: [sqlserver]\nlint:\n  indexes: false\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n");
         Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
         File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer, type: \"VARCHAR(20)\"}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/by_customer.yml"), "name: marts.by_customer\nkind: {type: full}\ncolumns:\n  - {name: customer, type: \"VARCHAR(20)\"}\n  - {name: n, type: BIGINT}\n");

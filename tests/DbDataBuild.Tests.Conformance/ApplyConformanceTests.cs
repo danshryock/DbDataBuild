@@ -71,8 +71,8 @@ public partial class ApplyConformanceTests
         var dir = Path.Combine(Path.GetTempPath(), "ddb-e2e-" + Guid.NewGuid().ToString("N"));
         var run = new Run(engine, dir, name);
         run.Write("dbdatabuild.yml", name == "postgres"
-            ? "default_connections: [postgres]\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
-            : "default_connections: [sqlserver]\n" + extraConfig);
+            ? "defaults: {connections: [postgres]}\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
+            : "defaults: {connections: [sqlserver]}\n" + extraConfig);
         run.Write("sources/staging/orders.yml", Staging);
         run.Write("models/marts/fct_orders.yml", FctYaml);
         run.Write("models/marts/fct_orders.sql", FctSql);

@@ -38,10 +38,10 @@ internal static class DefineQuestions
         $"Which engines must `{model}` be valid for?",
         [$"Project default connections: {string.Join(", ", projectDefault)}", .. portability],
         [
-            new("use_project_default", "Use the project default", $"`connections:` is omitted and the project default ({string.Join(", ", projectDefault)}) applies"),
+            new("use_project_default", "Use the project default", $"`connections` is left out and the project default ({string.Join(", ", projectDefault)}) applies"),
             new("choose_targets", "Name the targets", TakesValue: true, ValueHint: "comma-separated: sqlserver, fabric, postgres"),
         ],
-        new Proposal("use_project_default", null, ProposalCertainty.Normal, [$"project default_connections: {string.Join(", ", projectDefault)}"]));
+        new Proposal("use_project_default", null, ProposalCertainty.Normal, [$"project defaults.connections: {string.Join(", ", projectDefault)}"]));
 
     public static Question ColumnType(string model, InferredColumn c, string? declaredType = null)
     {

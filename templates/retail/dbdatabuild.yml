@@ -3,9 +3,9 @@
 # SQL Server ignores trailing spaces when it compares text and PostgreSQL does not, so one project profile cannot
 # be exact on both: the engine the profile does not fit is reported (DDB-310) when you validate. This template is set
 # up for SQL Server. For PostgreSQL, replace the next lines with:
-#   default_connections: [postgres]
+#   defaults: {connections: [postgres]}
 #   string_semantics: { case: sensitive, trailing_space: significant, collations: { default: { duckdb: NFC, postgres: C } } }
-default_connections: [sqlserver]
+defaults: {connections: [sqlserver]}
 string_semantics:
   case: sensitive
   trailing_space: ignored

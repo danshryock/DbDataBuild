@@ -8,11 +8,14 @@ internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
 {
     private static readonly string[] ColumnKeys = ["name", "type", "nullable", "collation"];
 
+    /// <summary>For a mapping merged from several files: the file each node was read from, so a diagnostic names the file the problem is in.</summary>
+    public IReadOnlyDictionary<YamlNode, string>? NodeFiles { get; init; }
+
     protected string File => file;
     protected List<Diagnostic> Diagnostics => diags;
 
     protected void Add(DiagnosticDescriptor d, YamlNode at, string found, string? supported = null, string? fix = null) =>
-        diags.Add(new Diagnostic(d, new(file, at.Line, at.Column), found, supported, fix));
+        diags.Add(new Diagnostic(d, new(NodeFiles != null && NodeFiles.TryGetValue(at, out var origin) ? origin : file, at.Line, at.Column), found, supported, fix));
 
     protected void CheckKeys(YamlMapping map, IEnumerable<string> allowed, string where)
     {

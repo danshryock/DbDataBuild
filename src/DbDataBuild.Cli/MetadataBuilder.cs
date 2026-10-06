@@ -198,6 +198,7 @@ internal static class MetadataBuilder
             grain = def.Grain,
             connections = targets,
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
+            inherited = source.Inherited.Select(o => new { path = o.Path, file = o.File, line = o.Line, value = o.Value }).ToList(),
             definition_hash = hash,
             upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
             rewrites_off = RewriteCatalog.For(ctx.Config, def).Disabled.Order(StringComparer.Ordinal).ToList(),

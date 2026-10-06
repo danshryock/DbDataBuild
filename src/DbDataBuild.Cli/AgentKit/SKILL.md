@@ -71,7 +71,7 @@ kind:
   type: incremental_by_unique_key      # view | full | incremental_by_unique_key | incremental_by_time_range
   unique_key: [order_id]               # must equal grain for incremental_by_unique_key
 grain: [order_id]                      # the columns that identify one row; required for incremental kinds
-connections: [sqlserver, postgres]         # optional; default_connections in dbdatabuild.yml otherwise
+connections: [sqlserver, postgres]         # optional; defaults.connections in dbdatabuild.yml otherwise (a list here adds to it; `connections=:` replaces it)
 columns:
   - {name: order_id, type: BIGINT, nullable: false}
   - {name: amount, type: "DECIMAL(14, 2)"}
@@ -79,6 +79,7 @@ indexes:                               # only what you declare is created; never
   - {name: ux_fct_orders_order_id, columns: [order_id], unique: true}
 ```
 
+- **Settings can come from the folders above the model.** `defaults:` in `dbdatabuild.yml` and in a folder's `_dbdatabuild.yml` (not a model) set `connections`, `kind`, `hooks`, `rewrites` and `lint_ignore` for every model beneath, root first, the model's own file last, the nearest winning. A list **adds** to what is inherited, a mapping merges by key, a scalar replaces; `key=:` replaces what was inherited, `key-: [x]` removes `x`. `validate` prints `Inherited by <model>: ...` with the file and line. Before you write `connections:` in a model, check whether a folder already sets it.
 - **Sources** (tables the tool does not build) are described in `sources/<schema>/<table>.yml` with `name`, `columns`, optional `grain`. A query can only read declared sources and other models (DDB-218 otherwise). Do not type descriptors out by hand when the table exists: `import-sources` exports the real columns, types and nullability with the read login (preview first, then `--write`), keeps a `grain` you wrote, and maps unlimited text (`varchar(max)`, `text`) to a bare `VARCHAR` and xml/json to `VARCHAR` too, and leaves out only a column with no representation at all (DDB-226; declare it yourself). It also exports the table's `indexes:` and `foreign_keys:` (read-only facts: never write them to change the database). `import-sources --check` finds descriptors that have gone stale (DDB-227).
 - **Kinds**: `view` is DDL only; `full` reloads everything; `incremental_by_unique_key` upserts by key; `incremental_by_time_range` loads slices after `MAX(time_column)` minus `lookback` (needs `time_column`, a DATE or TIMESTAMP). Other load shapes (a backfill, a merge) are named operations under `loads:`; see `schemas/model.schema.json` next to this file.
 - **Types**: declare exact types. Types with no faithful equivalent are refused (HUGEINT, unsigned integers, structs, lists). A bare `VARCHAR` is unlimited text (`nvarchar(max)` on SQL Server, `text` on PostgreSQL) and stays unlimited from source to output unless a length is declared or written (`CAST(x AS VARCHAR(n))`). `sum(int)` is HUGEINT in DuckDB, so write `CAST(sum(x) AS BIGINT)`.

@@ -22,7 +22,7 @@ public class InitCommandTests
     [Fact]
     public void By_default_it_prints_the_script_and_touches_nothing()
     {
-        var dir = Project("default_connections: [sqlserver]\ntracking_schema: ddb_state\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\ntracking_schema: ddb_state\n");
         var before = Snapshot(dir);
         var (exit, output, err) = Run(null, "init", "--project", dir);
         Assert.Equal(0, exit);
@@ -38,7 +38,7 @@ public class InitCommandTests
     [Fact]
     public void The_target_comes_from_the_flag_or_the_single_default_target()
     {
-        var dir = Project("default_connections: [sqlserver, postgres]\n");
+        var dir = Project("defaults: {connections: [sqlserver, postgres]}\n");
         var (exit, _, err) = Run(null, "init", "--project", dir);
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("--connection is required", err);
@@ -51,7 +51,7 @@ public class InitCommandTests
     [Fact]
     public void An_unknown_target_is_a_usage_error()
     {
-        var (exit, _, err) = Run(null, "init", "--project", Project("default_connections: [sqlserver]\n"), "--connection", "oracle");
+        var (exit, _, err) = Run(null, "init", "--project", Project("defaults: {connections: [sqlserver]}\n"), "--connection", "oracle");
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("Unknown connection `oracle`", err);
     }
@@ -59,7 +59,7 @@ public class InitCommandTests
     [Fact]
     public void Apply_without_a_write_login_stops_before_connecting_or_logging()
     {
-        var dir = Project("default_connections: [sqlserver]\n");
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
         // a read login being present must not stand in for the write login
         var env = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=127.0.0.1,1;User Id=r;Password=hunter2" };
         var before = Snapshot(dir);
@@ -83,7 +83,7 @@ public class InitCommandTests
     [Fact]
     public void Fabric_scripts_say_they_are_unverified()
     {
-        var (exit, output, _) = Run(null, "init", "--project", Project("default_connections: [fabric]\n"));
+        var (exit, output, _) = Run(null, "init", "--project", Project("defaults: {connections: [fabric]}\n"));
         Assert.Equal(0, exit);
         Assert.Contains("has not been run on fabric", output);
     }
