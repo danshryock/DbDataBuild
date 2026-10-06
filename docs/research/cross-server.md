@@ -1,7 +1,6 @@
 # Running queries on one server and writing the results to another
 
-Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`), and the design the owner and I settled on (entries 63 and 64). Nothing in the tool
-changes yet. The aim is to support these scenarios. Sections: the direction, what the code has, what was measured, the scenarios, then the **terms and design** (from "Terms" down), which is the current
+Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`), and the design the owner and I settled on (entries 63 and 64). **Built since** (entries 66 to 75): connections and the rename, layered project files and the merge rules, mapped models, `import`, copies with a bulk gate statement, fan-in with slices and connection parameters, incremental copies, central and optional tracking. **Not built yet**: parameters in model SQL (values, then names), project parameters and folder-level overrides of connection parameters, `schema` as a setting, `copy_to` (records replicated to further connections), a plan-time origin check for an origin that is a built model. The aim is to support these scenarios. Sections: the direction, what the code has, what was measured, the scenarios, then the **terms and design** (from "Terms" down), which is the current
 proposal; where the scenario table below speaks of links or DuckDB, the direction above already ruled them out.
 
 ## Direction (the owner's decisions)
