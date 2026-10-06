@@ -10,7 +10,7 @@ proposal; where the scenario table below speaks of links or DuckDB, the directio
 - **The tool moves the data**: read on one connection, bulk write on another, through the gate.
 - **A clean break**: no compatibility with the current layout; the schemas, keys and directories below replace today's.
 - **One root, no grouping above it**: the **project** stays the unit; there is no domain, context or workspace layer.
-- **Reusable, general terms** over special ones (a fan-in is not a special feature; see Attributes).
+- **Reusable, general terms** over special ones (a fan-in is not a special feature; see Parameters).
 
 ## Words
 
@@ -198,7 +198,7 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 
 1. **Connections and the rename** (`target` to `connection` and `engine`), model kinds `mapped`, inheritance with `_dbdatabuild.yml` and provenance, `import`. Larger than it sounds: it touches every place that treats a target as an engine. No data movement yet.
 2. **`copy` between two connections**: `BulkCopy` in the gate, the transfer step in plan and apply, value conversion, staging and swap, origin shape in the plan; real-engine tests (SQL Server and PostgreSQL both ways: nulls, text, dates, decimals up to 38, large rows).
-3. **Connection groups, attributes and slices**: fan-in with per-member replacement, version-skew reporting.
+3. **Connection groups, connection parameters and slices**: fan-in with per-member replacement, version-skew reporting.
 4. **Incremental extraction** (a watermark on the origin read); **compute at the origin** (a model that lives on the origin connection, then copied, already covers it: this is only convenience).
 
 ## Still open
