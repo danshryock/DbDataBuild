@@ -120,7 +120,7 @@ models/
   (other than `=`) is an error. The schemas accept the suffixes on exactly the keys that inherit, and `validate` shows the result with the file each part came from.
 - **Layered**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `string_semantics`, `tags`, `hooks`, and the project and connection `parameters` (below).
 - **Not layered, only in the model's own file**: `name`, `columns`, `grain`, `from`, and the **model's parameters**: what a model uses of its own can always be read in its file.
-- **Declared once** (a folder file cannot change them, and a conflict is an error naming both files): which connections exist and each one's `engine`, the tracking schema.
+- **Declared once** (a folder file cannot change them, and a conflict is an error naming both files): which connections exist and each one's `engine`, and the `tracking` section.
   What a folder file *can* do for a connection is its `parameters` (below).
 - **Provenance is never hidden**: `validate` prints each model's effective settings and the file each came from (the project already prints its effective configuration), and the metadata JSON carries the same.
   Action at a distance is the risk of any inheritance; this is the control.
@@ -183,6 +183,38 @@ slice: { column: store_id, value: "${origin.store_id}" }     # which rows are th
   Each origin's last good run is recorded in the tracking tables, and a skipped or failed origin shows in `report`.
 - Credentials are per connection (`DBDATABUILD_STORE_017_READ`), fine for tens of systems; hundreds is a later problem.
 
+## Tracking
+
+**Decided.** Tracking data (what `init` creates today in each target) is no longer tied to the connection it describes. **Nothing is tracked unless a project says where**, and a project that writes to a
+connection without saying gets a **warning** on every command that would have recorded something. **A configured tracking connection that cannot be reached is an error**, before anything is touched.
+Offline tracking and catching up afterwards are a later scenario.
+
+```yaml
+# dbdatabuild.yml
+tracking: { connection: audit, schema: dbdatabuild }       # the default for every connection that is written
+connections:
+  warehouse: { engine: sqlserver }                          # tracked on audit (the default above)
+  scratch:   { engine: postgres, tracking: none }           # an explicit choice: not tracked, no warning
+  vendor:    { engine: sqlserver, tracking: { connection: vendor_audit } }
+  audit:     { engine: postgres }
+```
+
+- **Where**: `tracking.connection` and `tracking.schema` at the project level (root only: declared once), overridable per connection, never per folder (one plan never reads several tracking stores for one
+  connection). A tracking connection needs a read and a write login like any connection that is written. A connection that is only read (a `mapped` origin) is never tracked and never warned about.
+- **Every tracking row names the connection it is about** (`connection` is part of each key). That is the only change to the tables. One tracking connection can hold any number of connections' records, and
+  `metadata_current` over it is one catalogue of everything the tool built.
+- **Many places** (accumulation) is a list of further connections the same rows are copied to, `tracking.copy_to`, idempotent and resumable (the rows are keyed; an update, such as an acknowledgement, replaces by key). The first
+  place named is authoritative; the others are replicas. Not needed for the first version.
+- **`init`** creates the tracking tables once per tracking connection (effect class: tracking tables only), not once per data connection.
+- **A plan's steps name their connection**: data steps on the model's connection, `track` steps on its tracking connection; `apply` holds one gate per connection, checks that every connection it will
+  use answers **before** the first statement (the error above), and records "started" before and the outcome after on the tracking connection, exactly as today (the crash window and its reconciliation
+  against the live shape are unchanged: a "started" with no outcome is found and checked). The application lock stays a lock on the data connection (a session lock needs no table).
+
+**What the tool cannot do with no tracking** (the warning says so; this is the list): detect drift (there is no recorded baseline, so a change made outside the tool is indistinguishable from a model change: plans
+are made from the declared shape against the live one); block an incremental model after a change to its query (DDB-431 compares the definition hash of the last run); keep an acknowledgement (`ack`) or
+a block; keep the history, the column-history report, `report` and `publish-metadata`; and verify a plan's recorded base against a recorded shape (it still verifies it against the live shape at apply).
+Planning and applying still work, and the risk classes of the decision table still apply. Whether plans without a baseline should treat every change to an existing object as risky is open (below).
+
 ## Execution (unchanged from the earlier proposal)
 
 A copy plans as a `transfer` step: the plan records the origin connection, the exact read (hashed like any statement), the staging and destination DDL, and the origin's declared and live shape (a
@@ -204,6 +236,7 @@ extended to the new statement; there is still no other write path.
 | the matrix per target | the matrix per engine (unchanged), looked up through the connection's engine |
 | name = path under `models/` (`schema.table`) | `schema` from the setting (default: first folder); name unique in the project |
 | `string_semantics`, `rewrites`, `policy` at the project only | defaults that any folder or model can override |
+| `tracking_schema`; tracking tables in each target; one plan, one target | `tracking.connection` and `tracking.schema`; tracking rows keyed by `connection`; a plan's steps name their connection |
 
 Everything that reads "target" in the code, the schemas, the documentation and the skill changes; this is a major version (a new release line), not a patch.
 
@@ -216,6 +249,9 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 
 ## Still open
 
+T1. **A plan with no baseline.** With no tracking a change to an existing object cannot be told from a model change, so the decision table has no "recorded shape". My default: plan from declared against live, classify as the table does, and mark an
+    `ALTER` or a drop of an existing object as risky (so apply needs `--allow-risky`) while tracking is off. T2. Whether `tracking: none` (explicit, silences the warning) is the right spelling. T3. Which of the tracking tables the first
+    version ships to `copy_to` (my default: none; the feature waits).
 0. Which keys of a connection a folder file may not change (my list: the connection's existence, its `engine`, the tracking schema) and whether anything else in a project file should be root-only.
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
 2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
