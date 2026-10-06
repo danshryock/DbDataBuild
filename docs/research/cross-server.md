@@ -70,41 +70,46 @@ Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cros
 |---|---|
 | **Connection** | A named database endpoint: an engine and a login (`DBDATABUILD_<NAME>_<READ\|WRITE>`). Data lives only on connections. A connection with no write login can only be read. |
 | **Engine** | The SQL dialect of a connection (`sqlserver`, `postgres`, `fabric`). The matrix, the rules and the type mapping are per engine. This is what the old word "target" mostly meant. |
-| **Model** | One named thing in the project, with declared columns, that lives on a connection. Every kind below is a model. |
+| **Model** | One named thing in the project, with declared columns, that lives on a connection (or on several: below). Every kind below is a model. |
 | **Kinds that build from SQL** | `view`, `full`, `incremental_by_unique_key`, `incremental_by_time_range`, as today: SQL in DuckDB's dialect, run on the model's connection. |
 | **`mapped`** | A model with no body: it **maps** an existing physical table into the project's namespace. The tool never creates or alters it; it declares the columns, optionally the physical name, keys, indexes and tests, and the live table is checked against it. What the old "source" was. A `sources/` folder is only a place to keep them. |
 | **`copy`** | A model with no SQL: `from: <model>`, the connection it lives on, and a strategy. Its columns come from the model it copies. The copy is always persisted (a table). |
-| **Project** | The folder with `dbdatabuild.yml`: its models, tests, rendered files and plans. Unchanged. |
-| **Parameter** | A named value. The same word at every level; the scope says whose it is. Declared under `parameters:` in the place it belongs (the project, a connection, a model or folder default, an operation); referenced with its scope as a prefix: `${connection.store_id}`, `${project.region}`, `${model.system}`. A load operation's runtime parameters (`@watermark`) are the same concept at the operation scope and keep their SQL form (below). |
-| **Connection group** | A named set of connections that run the same application (below). |
+| **Project** | Everything under the root `dbdatabuild.yml`: its models, tests, rendered files and plans. |
+| **Project file** | `dbdatabuild.yml` at the root, or `_dbdatabuild.yml` in any folder: the same kind of file with the same sections. The root one is only the outermost; the others refine it for what is beneath them. |
+| **Parameter** | A named value. The same word at every level; the scope says whose it is (below). |
+
+There is no separate concept for "a group of connections": what a fan-in needs is a model that exists on several connections, which a model's list of connections already says (below).
 
 **The rule behind all of it: a query runs against one connection.** SQL in a model reads only models that live on the model's own connection; a reference to a model on another connection is refused,
 by name, with the fix (copy it first). Moving data between connections is always an explicit `copy`. That removes the question of joins across servers and of "sources times targets": a copy names
-one origin and one connection, and nothing flows that is not written. A transformation happens at the origin (an ordinary model on that connection, then copied) or at the destination (an ordinary
+its origin and where it lives, and nothing flows that is not written. A transformation happens at the origin (an ordinary model on that connection, then copied) or at the destination (an ordinary
 model reading the copy); a copy itself has no SQL.
 
-**Landing raw data and sending on a result are both copies.** Whether the origin is a `mapped` table or a model the project builds is a property of the origin. Fan-out is several copies of the same model, one per destination connection.
+**Landing raw data and sending on a result are both copies.** Whether the origin is a `mapped` table or a model the project builds is a property of the origin.
 
-**`connections` on a model** replaces `targets`. On a built model it still means "built natively on each of these" (portability: the engine's rules apply, results can differ by engine). On a `copy` it
-means "copied to each": nothing is computed, so the data is the same on all. (One copy per destination is also fine and is the explicit form.)
+**`connections` on a model** replaces `targets` and means the same thing for every kind: *the model is on each of these*. A built model is **built natively on each** (portability: the engine's rules apply,
+results can differ by engine). A `mapped` model **exists on each** (the same table on several systems). A `copy` is **copied to each** of its connections, or **from each** of its origin's (below).
+
+**A copy has at most one dimension of expansion.** One origin to several connections is fan-out; several origins to one connection is fan-in; several of both would be a product, and the tool refuses it
+("write one copy per destination"). Nothing in the project is ever the product of two lists unless a person wrote both sides.
 
 ## Configuration and inheritance
 
-Every setting that is a default for models can be given at three levels, **nearest wins**: `dbdatabuild.yml` at the root (`defaults:`), `_dbdatabuild.yml` in any folder (applies to every model beneath it),
-and the model's own file.
+Every project file has the same sections (`connections`, `parameters`, `defaults`, `rewrites`, `policy`, `string_semantics`, `lint`, hook definitions, ...). Beneath a folder, the files from the root down
+to that folder are **layered**, then the model's own file on top, and **the nearest wins**:
 
 ```
-dbdatabuild.yml                       # connections, defaults, policy, string_semantics, rewrites
+dbdatabuild.yml                       # the root project file: connections, parameters, defaults, policy, string_semantics, rewrites
 models/
   crm/
     _dbdatabuild.yml                  # connection: crm_pg ; kind: mapped ; schema: crm
     customers.yml                     # a mapped model: columns, grain, physical name
     orders.yml
   warehouse/
-    _dbdatabuild.yml                  # connection: warehouse ; schema: raw
+    _dbdatabuild.yml                  # connection: warehouse ; schema: raw ; parameters: { region: eu }
     customers.yml                     # kind: copy ; from: crm.customers ; strategy: full_replace
     marts/
-      _dbdatabuild.yml                # kind: full ; rewrites: { fidelity: native }
+      _dbdatabuild.yml                # kind: full ; rewrites: { fidelity: native } ; parameters: { region: eu-west }
       dim_customer.sql
       dim_customer.yml
 ```
@@ -113,66 +118,70 @@ models/
   items first, then the layer's own, a repeated scalar kept once; a list of mappings that have a `name` merges by `name`), a scalar by replacing. A suffix on the key changes that for this key only:
   **`key=`** replaces the inherited value whole (a reset), **`key-`** removes the listed items or keys from it, and **`key+`** says "merge" explicitly (the default, for readers). A suffix on a scalar
   (other than `=`) is an error. The schemas accept the suffixes on exactly the keys that inherit, and `validate` shows the result with the file each part came from.
-- **Inheritable**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `tags`, `hooks`. **Not inheritable**: `name`, `columns`, `grain`, `from`, and **`parameters`**: a model's parameters are declared in the model's own file and nowhere else, so what a model uses can always be read in it.
+- **Layered**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `string_semantics`, `tags`, `hooks`, and the project and connection `parameters` (below).
+- **Not layered, only in the model's own file**: `name`, `columns`, `grain`, `from`, and the **model's parameters**: what a model uses of its own can always be read in its file.
+- **Declared once** (a folder file cannot change them, and a conflict is an error naming both files): which connections exist and each one's `engine`, the tracking schema.
+  What a folder file *can* do for a connection is its `parameters` (below).
 - **Provenance is never hidden**: `validate` prints each model's effective settings and the file each came from (the project already prints its effective configuration), and the metadata JSON carries the same.
   Action at a distance is the risk of any inheritance; this is the control.
-- **Names**: the `schema` part of a model's name is the `schema:` setting (inheritable; by default the first folder under `models/`), so folders can be organised by system, layer or anything else.
+- **Names**: the `schema` part of a model's name is the `schema:` setting (layered; by default the first folder under `models/`), so folders can be organised by system, layer or anything else.
   Two models cannot have one name; a mapped model's physical name may differ from its project name (`physical: {schema: dbo, table: CUSTOMER_MST}`).
 - The underscore file is not a model: the loader and the orphan check skip it.
 
 ## Parameters
 
-One concept, four scopes. The key is `parameters:` wherever it is declared; where it is declared decides whose it is.
+One concept, four scopes. The key is `parameters:` wherever it is declared; where it is declared decides whose it is, and a reference carries the scope.
 
 | Scope | Declared in | Referenced as | Used for |
 |---|---|---|---|
-| project | the project level of `dbdatabuild.yml` | `${project.name}` | values the whole project shares |
-| connection | the connection's own entry (and its group's, below) | `${connection.name}` | values that differ per connection (a store id, a region): fan-in |
-| model | the model's own file, and only there: never in a `_dbdatabuild.yml` or in `defaults:`, never inherited or overridden | `${model.name}` | values that differ per model |
+| project | `parameters:` in any project file (root or `_`); layered like any setting, so a model sees the root's merged with every folder file above it | `${project.name}` | values shared by a project or a part of it (a region for a folder) |
+| connection | `connections.<name>.parameters:` in any project file, merged by key the same way; the model sees the connection's parameters as layered for its folder | `${connection.name}` | values that differ per connection (a store id): the connection the model lives on |
+| origin | (not declared: the connection parameters of the connection a **copy** reads from) | `${origin.name}` | fan-in: the value of the system a row came from |
+| model | the model's own file, and only there | `${model.name}` | values that differ per model |
 | operation | a load operation (as today) | `@name` in the operation's SQL | runtime values: a watermark, a backfill start |
 
-- **Maps merge by key, as everywhere**: a group's `parameters` are the base for each member, and a member's own parameters merge over them by key with the same rules (and suffixes) as the configuration; scopes never merge into each other.
-- **A reference carries its scope, so nothing shadows anything**: `${connection.region}` and `${model.region}` are two values.
-- **Two ways a value is used, and they are not the same**: a project, connection or model parameter is substituted **into configuration** (a column added by a copy, the value of a slice, a schema name) when the project
-  loads, and `validate` shows the result. An operation parameter is **bound** by the driver at run time and never written into statement text. A value that reaches a statement (a slice's value in the
+- **A reference carries its scope, so nothing shadows anything**: `${project.region}` and `${model.region}` are two values.
+- **Two ways a value is used, and they are not the same**: a project, connection, origin or model parameter is substituted **into configuration** (a column added by a copy, the value of a slice, a schema name) when the
+  project loads, and `validate` shows the result. An operation parameter is **bound** by the driver at run time and never written into statement text. A value that reaches a statement (a slice's value in the
   `DELETE` and the `INSERT`) is bound, not concatenated: the principle that statement text never contains values holds for every scope.
 - Model SQL stays plain DuckDB: a parameter is not interpolated into a query (my default; see the open points). The seeds' `scale` and `seed` are DuckDB variables of the seed queries and stay as they are.
 
 ## Fan-in: one application, many deployments
 
-A **connection group** names the connections that run the same application, with each member's **parameters**:
+The same table exists on several systems (stores running one application). With the concepts above, nothing is added except the `origin` scope:
 
 ```yaml
+# dbdatabuild.yml
 connections:
-  store_017: { engine: postgres, parameters: { store_id: "017", region: eu } }
-  store_018: { engine: postgres, parameters: { store_id: "018", region: eu } }
+  store_017: { engine: postgres, parameters: { store_id: "017" } }
+  store_018: { engine: postgres, parameters: { store_id: "018" } }
   warehouse: { engine: sqlserver }
-groups:
-  stores: { members: [store_017, store_018], parameters: { app: pos } }     # members may also be a pattern: store_*
-```
 
-```yaml
-# models/stores/orders.yml          a mapped model on a group: the same table exists on every member
-connection: stores
+# models/stores/_dbdatabuild.yml        everything under this folder is a mapped table that exists on each store
 kind: mapped
+connections: [store_017, store_018]
+schema: pos
+
+# models/stores/orders.yml              the declaration, once: columns, grain
 columns: [ ... ]
-# models/warehouse/orders_all.yml   one copy per member, into one table
+
+# models/warehouse/orders_all.yml       one copy per origin connection, into one table
 connection: warehouse
 kind: copy
-from: stores.orders
+from: pos.orders
 strategy: full_replace
-slice: { column: store_id, value: "${connection.store_id}" }     # which rows are this member's; the column is added if the data does not have it
+slice: { column: store_id, value: "${origin.store_id}" }     # which rows are this origin's; the column is added if the data does not have it
 ```
 
-- One declaration and one dimension of expansion (the group's members) into one destination table: the only product there is, and the intended one.
-- **Parameters are general**: a value per connection that a copy can add as a column (`add: { region: "${connection.region}" }`), use as the slice of a replacement, and, later, any other place a setting differs per connection
-  (a schema name, a hook argument). **No new column is dictated**: if the systems already carry a distinguishing column (a site code in the data), the slice names it and the parameter only says
-  which value is this member's; if they do not, the slice adds one from a parameter. The destination key must include the slice column (`validate` checks).
-- **Isolation**: a member's run replaces only its slice (delete where the slice column equals the value, then insert), so one failing or offline member leaves the others' data untouched. The check
-  that every row of a member's extract carries that member's value is made before the swap: a member cannot write into another's slice.
-- **Version skew**: `plan` compares each member's live table with the shared declaration and reports every member that differs by name; `on_mismatch: fail | skip` (default `fail`) decides, never silently.
-  Each member's last good run is recorded in the tracking tables, and a skipped or failed member shows in `report`.
-- Credentials are per connection (`DBDATABUILD_STORE_017_READ`), which is fine for tens of members; hundreds is a later problem.
+- A folder's `connections` list is the whole "group": change the list, and every mapped model under it, and every copy of them, follows. No second place names the members.
+- **Parameters are general**: a value per connection that a copy can add as a column (`add: { region: "${origin.region}" }`), use as the slice of a replacement, and, later, any other place a setting differs per
+  connection. **No new column is dictated**: if the systems already carry a distinguishing column (a site code in the data), the slice names it and the parameter only says which value is this origin's; if
+  they do not, the slice adds one from a parameter. The destination key must include the slice column (`validate` checks).
+- **Isolation**: an origin's run replaces only its slice (delete where the slice column equals the value, then insert), so one failing or offline origin leaves the others' data untouched. The check that
+  every row of an origin's extract carries that origin's value is made before the swap: an origin cannot write into another's slice.
+- **Version skew**: `plan` compares each origin's live table with the declaration and reports every origin that differs, by name; `on_mismatch: fail | skip` (default `fail`) decides, never silently.
+  Each origin's last good run is recorded in the tracking tables, and a skipped or failed origin shows in `report`.
+- Credentials are per connection (`DBDATABUILD_STORE_017_READ`), fine for tens of systems; hundreds is a later problem.
 
 ## Execution (unchanged from the earlier proposal)
 
@@ -202,14 +211,12 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 
 1. **Connections and the rename** (`target` to `connection` and `engine`), model kinds `mapped`, inheritance with `_dbdatabuild.yml` and provenance, `import`. Larger than it sounds: it touches every place that treats a target as an engine. No data movement yet.
 2. **`copy` between two connections**: `BulkCopy` in the gate, the transfer step in plan and apply, value conversion, staging and swap, origin shape in the plan; real-engine tests (SQL Server and PostgreSQL both ways: nulls, text, dates, decimals up to 38, large rows).
-3. **Connection groups, connection parameters and slices**: fan-in with per-member replacement, version-skew reporting.
+3. **Origins, connection parameters and slices**: fan-in with per-origin replacement, version-skew reporting.
 4. **Incremental extraction** (a watermark on the origin read); **compute at the origin** (a model that lives on the origin connection, then copied, already covers it: this is only convenience).
 
 ## Still open
 
-0. **The merge suffixes.** The owner suggested `=`, `+` and `+=`. This note has `=` (replace), `-` (remove) and `+` (merge, the default, optional to write). What `+=` would add, if it is not "append"
-   (the default for lists), needs saying: perhaps "merge, but the *inherited* value wins a conflict" against the default where the nearer layer wins.
-
+0. Which keys of a connection a folder file may not change (my list: the connection's existence, its `engine`, the tracking schema) and whether anything else in a project file should be root-only.
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
 2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
 3. Whether `mapped` models are checked against the live table at every `plan` (my default: yes, as drift is now) or only by `import --check`.
