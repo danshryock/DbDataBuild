@@ -112,4 +112,107 @@ public class ParametersTests
         Write(dir, "models/dst/c.yml", "name: dst.c\nkind:\n  type: copy\n  from: crm.c\n  slice: {column: region, value: \"${project.nothing}-${origin.id}\", type: \"VARCHAR(20)\"}\n");
         Assert.Contains(ProjectValidator.Validate(dir).Diagnostics, d => d.Found.Contains("there is no such project parameter"));
     }
+
+    // ---- parameters as values in a model's query ----
+
+    private const string Staging = "name: staging.t\nkind: {type: mapped}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: region, type: \"VARCHAR(20)\"}\n  - {name: d, type: DATE}\n  - {name: ts, type: TIMESTAMP}\n  - {name: n, type: INTEGER}\n";
+    private const string Marts = "name: marts.m\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: region, type: \"VARCHAR(20)\"}\n";
+    private const string Typed = "parameters:\n  region: eu\n  cutoff: { type: DATE, value: \"2024-01-03\" }\n  since: { type: TIMESTAMP, value: \"2024-01-04 00:00:00\" }\n  limit: { type: BIGINT, value: 5 }\n  small: { type: INTEGER, value: 7 }\n  tiny: { type: SMALLINT, value: 3 }\ndefaults: {connections: [sqlserver, postgres]}\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n";
+    private const string Query = "SELECT id, region FROM staging.t WHERE region = ${project.region} AND d >= ${project.cutoff} AND ts >= ${project.since} AND n < ${project.small} AND id < ${project.limit} AND n > ${project.tiny}\n";
+
+    private static readonly string OnSqlServer = Typed[..Typed.IndexOf("defaults:", StringComparison.Ordinal)] + "defaults: {connections: [sqlserver]}\n";
+
+    private static string QueryProject(string sql = Query, string config = Typed, string martsExtra = "")
+    {
+        var dir = Project(config);
+        Write(dir, "models/staging/t.yml", Staging);
+        Write(dir, "models/marts/m.yml", martsExtra + Marts);
+        Write(dir, "models/marts/m.sql", sql);
+        return dir;
+    }
+
+    private static (int Exit, string Out, string Err) Cli(params string[] args)
+    {
+        var o = new StringWriter(); var e = new StringWriter();
+        return (DbDataBuild.Cli.CliApp.Run(args, o, e, environment: _ => null), o.ToString(), e.ToString());
+    }
+
+    [Fact]
+    public void A_parameter_in_a_query_renders_as_a_placeholder_on_every_engine_and_the_value_is_never_in_the_text()
+    {
+        var dir = QueryProject();
+        var (exit, _, err) = Cli("render", "--write", "--project", dir);
+        Assert.True(exit == 0, err);
+        foreach (var connection in new[] { "sqlserver", "postgres" })
+        {
+            var script = File.ReadAllText(Path.Combine(dir, "rendered", connection, "marts.m", "load.default.sql"));
+            foreach (var p in new[] { "region", "cutoff", "since", "small", "limit", "tiny" }) Assert.Contains($"@p_project_{p}", script);
+            Assert.Contains("@p_project_cutoff (DATE, parameter)", script);                                   // declared, with its type
+            Assert.Contains("@p_project_limit (BIGINT, parameter)", script);
+            Assert.DoesNotContain("'eu'", script);
+            Assert.DoesNotContain("__ddb_param", script);                                                   // no marker is left behind
+            Assert.DoesNotContain("7400000000", script);
+        }
+        // the committed lowered query shows the references, not the markers
+        var lowered = File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.m", "lowered.sql"));
+        Assert.Contains("${project.region}", lowered);
+        Assert.DoesNotContain("__ddb_param", lowered);
+    }
+
+    [Fact]
+    public void A_value_change_changes_no_rendered_file_and_a_reference_change_does()
+    {
+        var dir = QueryProject();
+        Assert.Equal(0, Cli("render", "--write", "--project", dir).Exit);
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Typed.Replace("region: eu", "region: us").Replace("value: 5", "value: 50"));
+        Assert.Equal(0, Cli("render", "--check", "--project", dir).Exit);                                    // the values are bound at run time, not rendered
+        File.WriteAllText(Path.Combine(dir, "models/marts/m.sql"), Query.Replace("${project.region}", "${project.limit}").Replace("region = ", "id = "));
+        Assert.NotEqual(0, Cli("render", "--check", "--project", dir).Exit);
+    }
+
+    [Theory]
+    [InlineData("SELECT id, region FROM staging.t WHERE region = ${project.nothing}\n", "has no value")]
+    [InlineData("SELECT id, region FROM staging.t WHERE region = ${connection.site}\n", "on the connection `sqlserver`")]
+    [InlineData("SELECT id, region FROM staging.t WHERE region = ${model.tone}\n", "the model's file")]
+    [InlineData("SELECT id, region FROM staging.t WHERE region = ${origin.x}\n", "only for a copy's slice")]
+    [InlineData("SELECT id, region FROM staging.t WHERE region = ${weird.x}\n", "is not a parameter scope")]
+    [InlineData("SELECT id, region FROM staging.t WHERE n = 2100000001 AND id < ${project.small}\n", "already contains")]
+    public void A_reference_that_cannot_be_bound_says_why(string sql, string expected)
+    {
+        var dir = QueryProject(sql, Typed);
+        var (exit, _, err) = Cli("validate", "--project", dir);
+        Assert.NotEqual(0, exit);
+        Assert.Contains(expected, err);
+    }
+
+    [Fact]
+    public void A_view_cannot_use_a_parameter_because_ddl_binds_no_values_and_a_table_can()
+    {
+        var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${project.region}\n", OnSqlServer);
+        File.WriteAllText(Path.Combine(dir, "models/marts/m.yml"), Marts.Replace("kind: {type: full}", "kind: {type: view}"));
+        var (exit, _, err) = Cli("validate", "--project", dir);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("a view's query cannot use parameters", err);
+        File.WriteAllText(Path.Combine(dir, "models/marts/m.yml"), Marts);
+        Assert.Equal(0, Cli("validate", "--project", dir).Exit);
+    }
+
+    [Fact]
+    public void Connection_parameters_may_differ_per_connection_and_model_parameters_are_the_models_own()
+    {
+        var cfg = Typed + "connections:\n  sqlserver: { parameters: { site: a } }\n  postgres: { parameters: { site: b } }\n";
+        var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${connection.site} AND n = ${model.n}\n", cfg, "parameters:\n  n: { type: INTEGER, value: 4 }\n");
+        var (exit, _, err) = Cli("render", "--write", "--project", dir);
+        Assert.True(exit == 0, err);
+        Assert.Contains("@p_connection_site", File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.m/load.default.sql")));
+        Assert.Contains("@p_model_n (INTEGER, parameter)", File.ReadAllText(Path.Combine(dir, "rendered/postgres/marts.m/load.default.sql")));
+    }
+
+    [Fact]
+    public void Sample_runs_the_query_with_the_values_filled_in()
+    {
+        var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${project.region}\n");
+        var (exit, output, err) = Cli("sample", "marts.m", "--project", dir, "--rows", "20", "--format", "json");
+        Assert.True(exit == 0, output + err);                                                              // DuckDB ran the real query: the literal is a string, so it binds
+    }
 }

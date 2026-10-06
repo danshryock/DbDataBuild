@@ -243,7 +243,8 @@
                 "source": {
                   "enum": [
                     "runtime",
-                    "resolver"
+                    "resolver",
+                    "parameter"
                   ]
                 },
                 "value": {

@@ -35,7 +35,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
     private const string LoadersBodyName = Loaders.LoaderBase.BodyName;
 
     /// <param name="bodyFile">Where <paramref name="bodySql"/> is committed when it is not the author's file (the lowered query), so findings point at what was checked.</param>
-    public RenderResult Render(ModelDefinition def, string bodySql, string queryFile, IReadOnlyList<string> targets, string? bodyFile = null)
+    public RenderResult Render(ModelDefinition def, string bodySql, string queryFile, IReadOnlyList<string> targets, string? bodyFile = null, IReadOnlyList<QueryParameter>? queryParameters = null)
     {
         var files = new List<RenderedFile>();
         var reports = new List<OperationReport>();
@@ -70,7 +70,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
                     continue;
                 }
 
-                var rendered = RenderOne(def, op, target, targetName, bodySql, bodyHash, queryFile, pair, diags);
+                var rendered = RenderOne(def, op, target, targetName, bodySql, bodyHash, queryFile, pair, diags, queryParameters ?? []);
                 if (rendered == null)
                 {
                     reports.Add(new OperationReport(def.Name, targetName, op.Name, op.Strategy, op.IsDefault, "unsupported", findings));
@@ -102,7 +102,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
 
     private sealed record Rendered(string Script, string? Resolver, IReadOnlyList<RenderedParameter> Parameters);
 
-    private Rendered? RenderOne(ModelDefinition def, LoadOperation op, ITarget target, string connection, string bodySql, string bodyHash, string queryFile, string pair, List<Diagnostic> diags)
+    private Rendered? RenderOne(ModelDefinition def, LoadOperation op, ITarget target, string connection, string bodySql, string bodyHash, string queryFile, string pair, List<Diagnostic> diags, IReadOnlyList<QueryParameter> queryParameters)
     {
         // The body, as a CTE named ddb_body, transpiled by polyglot. The support matrix decides what is allowed: polyglot's own
         // `unsupportedLevel: raise` is not used because it misses constructs and also rejects supported ones (REGEXP_LIKE on SQL Server 2025).
@@ -124,6 +124,12 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         if (!tail.EndsWith(TailOfWrapper, StringComparison.Ordinal))
             throw new InvalidOperationException($"The transpiled body of {pair} does not end with `{TailOfWrapper}`; the renderer cannot place its own statements. This is a tool bug.");
         var prefix = tail[..(tail.Length - TailOfWrapper.Length)];
+        // each parameter the query uses as a value becomes a placeholder the plan fills in and apply binds: the value is never in the text
+        var (boundPrefix, usedParameters, lostParameters) = QueryParameters.Bind(prefix, queryParameters);
+        prefix = boundPrefix;
+        foreach (var lost in lostParameters)
+            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(queryFile, 0, 0), $"{pair}: `${{{lost.Key}}}` is not a value in the lowered query any more (DuckDB folded it into a constant), so it cannot be bound.",
+                Fix: "Use the parameter as a plain value, in a comparison or a projection, not inside an expression DuckDB can evaluate at plan time."));
 
         ColumnDefinition? Column(string? name) => name == null ? null : def.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
         foreach (var k in op.Key.Select(Column).Where(c => c is { Nullable: true }))
@@ -131,6 +137,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
 
         var request = new LoadRequest(def.Name, def.Columns, op, prefix, Column(op.Watermark?.Column)?.Type, Column(op.Column)?.Type);
         var script = target.Loader.Render(request);
+        script = script with { Parameters = [.. script.Parameters, .. usedParameters.Select(p => new RenderedParameter(p.Placeholder, p.Type, "parameter", null))] };
 
         var header = Header(def.Name, op.Name, connection, op.Strategy, bodyHash, script.Parameters, resolver: false, ruled.Rules, RewriteCatalog.For(config, def));
         var text = header + script.Text;

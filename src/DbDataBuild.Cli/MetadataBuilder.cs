@@ -62,7 +62,7 @@ internal static class MetadataBuilder
                 name = s.Definition.Name,
                 kind = s.Definition.KindType,
                 connections = ctx.TargetsOf(s.Definition),
-                definition_hash = AstHasher.Hash(s.ReadQuery(ctx.Root)).Hash,
+                definition_hash = AstHasher.Hash(s.ReadQuery(ctx.Root, ctx.Config)).Hash,
             }).ToList(),
         };
     }
@@ -98,7 +98,7 @@ internal static class MetadataBuilder
     {
         var result = ctx.Project.AllDescriptors.ToDictionary(d => d.Name, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
         foreach (var m in ctx.Project.Sources.OrderBy(m => m.Definition.Name, StringComparer.Ordinal))
-            foreach (var n in SourcesRead(ctx, m.Definition.Name, m.ReadQuery(ctx.Root))) result[n].Add(m.Definition.Name);
+            foreach (var n in SourcesRead(ctx, m.Definition.Name, m.ReadQuery(ctx.Root, ctx.Config))) result[n].Add(m.Definition.Name);
         return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
     /// <summary>The path of a mapped model: `staging.orders` is `models/staging/orders.yml`.</summary>
@@ -166,7 +166,7 @@ internal static class MetadataBuilder
         }
 
         var (render, _) = ctx.RenderModel(source, sql, targets);
-        var lowered = ctx.Lowering.Enabled ? ctx.Lowering.Lower(source, sql).Model : null;
+        var lowered = ctx.Lowering.Enabled ? ctx.Lowering.Lower(source, sql, source.QueryParameterList(ctx.Root, ctx.Config)).Model : null;
         var rendered = render.Operations.OrderBy(o => o.Target, StringComparer.Ordinal).ThenBy(o => o.Operation, StringComparer.Ordinal).Select(o =>
         {
             var op = render.Loads.FirstOrDefault(l => l.Target == o.Target && l.Operation == o.Operation);

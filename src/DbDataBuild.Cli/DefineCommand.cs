@@ -77,7 +77,9 @@ internal static class DefineCommand
                 existing = ModelDefinitionLoader.Load(existingText, ymlRel, name, existingProblems, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
             }
             else hashes[ymlRel] = null;
-            targets.Add(new DefineTarget(name, ymlRel, sqlRel, System.Text.Encoding.UTF8.GetString(sqlBytes), existingText, existing, existingProblems));
+            var queryText = System.Text.Encoding.UTF8.GetString(sqlBytes);
+            if (project.Sources.FirstOrDefault(s => s.DefinitionFile == ymlRel) is { } known) queryText = QueryParameters.Mark(queryText, known, config).Sql;      // parameter references stand as typed markers, as everywhere else
+            targets.Add(new DefineTarget(name, ymlRel, sqlRel, queryText, existingText, existing, existingProblems));
         }
 
         // The graph holds every valid model (their declared columns) and the sources. Selected models with a valid definition are among them.

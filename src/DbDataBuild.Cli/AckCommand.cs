@@ -81,7 +81,7 @@ internal static class AckCommand
             {
                 var model = ctx.Project.Sources.FirstOrDefault(s => s.Definition.Name == name);
                 if (model == null) { error.WriteLine($"`{name}` is not a model of this project."); return CliApp.ExitUsage; }
-                var hash = AstHasher.Hash(model.ReadQuery(root)).Hash ?? "";
+                var hash = AstHasher.Hash(model.ReadQuery(root, ctx.Config)).Hash ?? "";
                 var last = (await TargetSnapshotReader.ReadAsync(reader, trackReader, scope, engine, [objSchema])).LastLoadDefinitionHashes.GetValueOrDefault(name);
                 if (last == null || last == hash)
                 {

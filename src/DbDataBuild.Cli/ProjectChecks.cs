@@ -22,14 +22,17 @@ internal static class ProjectChecks
         var diagnostics = new List<Diagnostic>();
         foreach (var source in sources)
         {
-            var sql = source.ReadQuery(projectRoot ?? Directory.GetCurrentDirectory());
+            foreach (var problem in source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config))
+                diagnostics.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(source.QueryFile, 0, 0), $"{source.Definition.Name}: {problem}."));
+            if (source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config).Count > 0) continue;
+            var sql = source.ReadQuery(projectRoot ?? Directory.GetCurrentDirectory(), config);
             var targets = (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
             // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
             var body = sql;
             string? bodyFile = null;
             if (lowering is { Enabled: true })
             {
-                var (lowered, error) = lowering.Lower(source, sql);
+                var (lowered, error) = lowering.Lower(source, sql, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config));
                 if (lowered == null) { diagnostics.Add(error!); continue; }
                 body = lowered.Sql;
                 bodyFile = $"rendered/{lowered.ArtifactPath}";
@@ -39,7 +42,7 @@ internal static class ProjectChecks
             foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
             if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, targets, body));
-            diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
+            diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config)).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
         if (config.LintIndexes)

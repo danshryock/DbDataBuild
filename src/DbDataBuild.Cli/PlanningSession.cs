@@ -162,8 +162,8 @@ internal sealed class PlanningSession
             // a copy reads its staging table, which the plan's own transfer step creates: it has no base table to wait for
             var bases = m.Source.Definition.IsCopy ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
-            var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql).Model is { } lowered ? lowered.Sql : m.Sql;
-            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList());
+            var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql, m.Source.QueryParameterList(root, ctx.Config)).Model is { } lowered ? lowered.Sql : m.Sql;
+            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList(), m.Source.ParametersFor(ctx.Config, target));
         }).ToList();
 
         // where the records about this connection are kept: itself, another connection (its read login is needed), or nowhere (a warning, unless that was chosen)

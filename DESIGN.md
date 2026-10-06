@@ -316,6 +316,23 @@ not deleted in the destination** (an incremental copy cannot see them: plan a fu
 Not built: `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, project parameters and folder-level connection parameters, the origin check
 for an origin that is a built model, a full refresh of one incremental copy without removing its `watermark`.
 
+### 6.5.3 Parameters (as built)
+
+One concept, four scopes in files, a fifth at run time. A reference carries its scope, so nothing shadows anything: `${project.name}`, `${connection.name}`, `${origin.name}` (a copy's slice only), `${model.name}`;
+operation parameters (`@name`, section 6.6) are bound at run time and are a different mechanism. A value is a single value (text) or `{type, value}` with a type of VARCHAR, BIGINT, INTEGER, SMALLINT, DATE or TIMESTAMP.
+
+- **Where they are declared.** Project parameters: `parameters:` in `dbdatabuild.yml`; a folder's `_dbdatabuild.yml` has its own `parameters:` that **overrides** them for everything beneath it (nearest wins), and
+  `connections.<name>.parameters:` there overrides a connection's (a folder file never declares a connection: the connections exist once, in the root file). Connection parameters: `connections.<name>.parameters:`.
+  Model parameters: `parameters:` in the model's own file, and only there (`defaults:` refuses them: they are never inherited).
+- **In configuration** (a copy's slice value) a reference is substituted when the project loads; a missing parameter is named, with the file it should be in.
+- **In a model's query, as a value** (`WHERE region = ${project.region}`; not in a view, which is DDL and binds nothing). DuckDB must still bind and lower the query offline, so each reference is first a **marker**:
+  a literal of the parameter's type (`'__ddb_param_project_region__'`, a large integer, `DATE '1000-01-02'`); the text, its hash and the rendered files therefore never depend on a value. After lowering and transpiling,
+  each marker in the target's text becomes a placeholder `@p_<scope>_<name>`, declared in the script's parameters (source `parameter`); the lowered artifact shows the references again. `plan` fills each placeholder
+  with the value on the plan's connection (a connection parameter can differ per connection) and `apply` binds it with its type through the driver, so **the value is never in a statement's text** and a value change
+  is a new plan, not a new rendered file; the values of a run are in `run_log`. `sample`, `test` and DuckDB runs use the real values as literals. An undefined reference, a reference in a view, an
+  `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
+- **Not built**: parameters that change a schema or table **name**, and parameters of other types (boolean, decimal, double).
+
 ### 6.6 Load operations: paired with targets, committed, parameterized
 
 A **load operation** is a named way to load one model on one target. A model can have several operations per target (for example a routine watermark load, a period reload, and a keyed merge). The SQL for every operation is **rendered to disk and committed**. At execution time the only unresolved things are the operation's declared runtime parameters.

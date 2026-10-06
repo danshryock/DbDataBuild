@@ -39,10 +39,11 @@ internal sealed class ProjectContext
     /// </summary>
     public (RenderResult Result, string BodySql) RenderModel(ModelSource source, string authorSql, IReadOnlyList<string> targets)
     {
-        if (!Lowering.Enabled) return (Renderer.Render(source.Definition, authorSql, source.QueryFile, targets), authorSql);
-        var (lowered, error) = Lowering.Lower(source, authorSql);
+        var parameters = source.QueryParameterList(Root, Config);
+        if (!Lowering.Enabled) return (Renderer.Render(source.Definition, authorSql, source.QueryFile, targets, queryParameters: parameters), authorSql);
+        var (lowered, error) = Lowering.Lower(source, authorSql, parameters);
         if (lowered == null) return (new RenderResult([], [], [error!]), authorSql);
-        var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}");
+        var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}", queryParameters: parameters);
         var files = result.Files.Append(new RenderedFile(lowered.ArtifactPath, lowered.ArtifactText)).OrderBy(f => f.Path, StringComparer.Ordinal).ToList();
         return (result with { Files = files }, lowered.Sql);
     }
@@ -100,7 +101,7 @@ internal sealed class ProjectContext
         }
         var byName = all.ToDictionary(s => s.Definition.Name, StringComparer.OrdinalIgnoreCase);
         return chosen.Where(n => !excluded.Contains(n) && byName.ContainsKey(n)).Select(n => byName[n]).DistinctBy(s => s.Definition.Name)
-            .Select(s => new LoadedModel(s, s.ReadQuery(Root))).ToList();
+            .Select(s => new LoadedModel(s, s.ReadQuery(Root, Config))).ToList();
     }
 
     /// <summary>One argument: terms joined by commas are intersected, each term is an optional operator around a core.</summary>

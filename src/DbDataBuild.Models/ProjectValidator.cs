@@ -25,7 +25,19 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     }
 
     /// <summary>The model's query in DuckDB dialect: its `.sql` file, or the generated one of a copy.</summary>
-    public string ReadQuery(string projectRoot) => GeneratedQuery ?? File.ReadAllText(Path.Combine(projectRoot, QueryFile));
+    private string Raw(string projectRoot) => GeneratedQuery ?? File.ReadAllText(Path.Combine(projectRoot, QueryFile));
+
+    /// <summary>The query as the tool works on it (lowering, rendering, hashing, lineage): each parameter reference stands as a marker literal of its type, so the text, its hash and the rendered files do not depend on a value.</summary>
+    public string ReadQuery(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Sql;
+
+    /// <summary>The query with each parameter reference replaced by its value on <paramref name="connection"/>: what DuckDB runs for real (`sample`, `test`).</summary>
+    public string ReadQueryWithValues(string projectRoot, ProjectConfig config, string connection) => QueryParameters.WithValues(Raw(projectRoot), this, config, connection);
+
+    /// <summary>The problems with the parameter references in the query (an undefined one, a view's, a clash with a marker).</summary>
+    public IReadOnlyList<string> QueryParameterProblems(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Problems;
+
+    /// <summary>The parameters the query uses as values, with their markers.</summary>
+    public IReadOnlyList<QueryParameter> QueryParameterList(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Parameters;
 
     /// <summary>The settings this model took from a project file above it (`defaults:` of the root file or of a folder's `_dbdatabuild.yml`), with the file and line each was written on. Empty when the model's own file says everything.</summary>
     public IReadOnlyList<SettingOrigin> Inherited { get; init; } = [];

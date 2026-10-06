@@ -341,7 +341,7 @@ public static class CliApp
             var ctx = ProjectContext.Load(projectRoot);
             output.Payload("project", MetadataBuilder.Project(ctx));
             output.Payload("sources", MetadataBuilder.Sources(ctx, null));
-            output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, s.ReadQuery(projectRoot))).ToList());
+            output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, s.ReadQuery(projectRoot, config))).ToList());
         }
         output.WriteLine(errors == 0
             ? $"OK: {result.Sources.Count} model(s) valid. {tail}"

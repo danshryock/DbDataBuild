@@ -30,14 +30,15 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
 
     public static string ArtifactPathFor(string model) => $"lowered/{model}/lowered.sql";
 
-    public (LoweredModel? Model, Diagnostic? Error) Lower(ModelSource source, string authorSql)
+    /// <param name="parameters">The parameters the query uses as values (their markers are in <paramref name="authorSql"/>); the committed artifact shows them as the references they stand for.</param>
+    public (LoweredModel? Model, Diagnostic? Error) Lower(ModelSource source, string authorSql, IReadOnlyList<QueryParameter>? parameters = null)
     {
         var key = source.Definition.Name + "\0" + authorSql;
         if (cache.TryGetValue(key, out var hit)) return hit;
-        return cache[key] = Compute(source, authorSql);
+        return cache[key] = Compute(source, authorSql, parameters ?? []);
     }
 
-    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql)
+    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters)
     {
         var name = source.Definition.Name;
         Diagnostic Fail(string why) => new(DiagnosticCatalog.QueryNotLowerable, new(source.QueryFile, 0, 0), $"{name} cannot be lowered: {why}.");
@@ -75,7 +76,7 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         sb.Append($"-- output:       {string.Join(", ", query.Columns.Select(c => $"{c.Name} {c.DuckDbType}"))}\n");
         if (query.Rules.Count > 0) sb.Append($"-- type rules:   {string.Join(", ", query.Rules)}\n");
         if (!policy.IsDefault) sb.Append($"-- rewrites off: {policy.Describe()}\n");
-        sb.Append(query.Sql).Append('\n');
+        sb.Append(QueryParameters.BackToReferences(query.Sql, parameters)).Append('\n');
         var text = sb.ToString();
         return (new LoweredModel(query.Sql, query, ArtifactPathFor(name), text, DbDataBuild.State.Hashing.ScriptHash(text)), null);
     }

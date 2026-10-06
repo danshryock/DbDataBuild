@@ -25,7 +25,7 @@ internal static class SampleCommand
 
         var all = ctx.Project.Sources.Select(s =>
         {
-            var sql = s.ReadQuery(projectRoot);
+            var sql = s.ReadQueryWithValues(projectRoot, ctx.Config, ctx.TargetsOf(s.Definition)[0]);
             var upstream = QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             return new SampleModel(s.Definition.Name, s.Definition.Columns, sql, upstream);
         }).ToList();

@@ -16,7 +16,7 @@ public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash
 /// <summary>Where a copy's rows come from (<see cref="WatermarkValue"/>: for an incremental copy, the lower bound this origin is read from, worked out at plan time from what the destination holds; null reads everything): the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
 public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null, string? WatermarkValue = null);
 
-public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null)
+public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null, IReadOnlyDictionary<string, ParameterValue>? ParameterValues = null)
 {
     public IReadOnlyList<PlannedHook> HookList => Hooks ?? [];
 
@@ -483,6 +483,18 @@ public static class Planner
         var open = false;
         foreach (var p in load.Parameters)
         {
+            if (p.Source == "parameter")
+            {
+                // a parameter the query uses as a value: its value on this connection, from the project's files (never asked, never in the statement text)
+                var key = QueryParameter.KeyOf(p.Name);
+                if (key == null || c.Model.ParameterValues?.GetValueOrDefault(key) is not { } pv)
+                {
+                    blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: the parameter `{key ?? p.Name}` has no value on {c.Input.Target}."));
+                    return false;
+                }
+                parameters.Add(new PlanParameter(p.Name, pv.Type, "parameter", pv.Value));
+                continue;
+            }
             if (p.Source == "resolver")
             {
                 string? raw = null;
