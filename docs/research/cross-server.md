@@ -144,7 +144,9 @@ One concept, four scopes. The key is `parameters:` wherever it is declared; wher
 - **Two ways a value is used, and they are not the same**: a project, connection, origin or model parameter is substituted **into configuration** (a column added by a copy, the value of a slice, a schema name) when the
   project loads, and `validate` shows the result. An operation parameter is **bound** by the driver at run time and never written into statement text. A value that reaches a statement (a slice's value in the
   `DELETE` and the `INSERT`) is bound, not concatenated: the principle that statement text never contains values holds for every scope.
-- Model SQL stays plain DuckDB: a parameter is not interpolated into a query (my default; see the open points). The seeds' `scale` and `seed` are DuckDB variables of the seed queries and stay as they are.
+- **Parameters in a model's SQL** are **not in the first version and are required before this work is complete** (decided). Two stages: first as **values** (a literal in a predicate or projection, bound as a driver
+  parameter in the rendered script, never written into the text, and typed so DuckDB can still bind the query offline); later as **names** (a parameter that changes a schema or table name, resolved when the project
+  loads, so the lowering, the matrix and the rendered files see the final name). Until then model SQL is plain DuckDB. The seeds' `scale` and `seed` are DuckDB variables of the seed queries and stay as they are.
 
 ## Fan-in: one application, many deployments
 
@@ -253,6 +255,6 @@ T1 to T3 are **decided** (the owner accepted the defaults): with no tracking, pl
     opt-out; the first version ships no tracking copies to further connections (`copy_to` waits).
 0. Which keys of a connection a folder file may not change (my list: the connection's existence, its `engine`, the tracking schema) and whether anything else in a project file should be root-only.
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
-2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
+2. ~~Parameters inside model SQL~~ decided: later, in two stages (values, then names); see Parameters.
 3. Whether `mapped` models are checked against the live table at every `plan` (my default: yes, as drift is now) or only by `import --check`.
 4. Names for the commands (`import`, `copy`) and for `slice`.
