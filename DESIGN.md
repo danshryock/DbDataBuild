@@ -333,6 +333,22 @@ operation parameters (`@name`, section 6.6) are bound at run time and are a diff
   `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
 - **Not built**: parameters that change a schema or table **name**, and parameters of other types (boolean, decimal, double).
 
+### 6.5.4 Native models and local copies (as built; design: `docs/research/native-queries.md`)
+
+A **native** model, `kind: {type: native, access: select, query: ...}` (or the text in a `.native.sql` file beside the definition, never both), is a table the **engine computes from its own query**: a
+table-valued function, `STRING_SPLIT`, `unnest`, an engine-native select. It declares its columns like a mapped model, so DuckDB binds queries against them offline as for any table, and lives on exactly one
+connection (the text is that engine's dialect, never lowered or transpiled). The text must be a single SELECT (the read guard, now in `Core`); a T-SQL text may not start with WITH.
+
+- **Inlined.** A model on the same connection that reads it gets the native text spliced in **after transpiling** as a derived table (`FROM (<text>) AS [nums]`, an existing alias kept), in the load script and in
+  a view's DDL. The reading query's own text and hash are unchanged. A table on another connection cannot read it (DDB-231).
+- **Parameters** in the text (`${project.x}`, `${connection.x}`, `${model.x}` of the native model itself) become placeholders of their own (`@p_native_<model>__<scope>_<name>`), declared in the reader's script,
+  filled by the plan and bound at apply. A **view** cannot read a native model whose text has parameters (DDL binds nothing); the plan says so.
+- **As a copy origin** the native text becomes the origin read (`SELECT cols FROM (<text>) AS t`), its parameters carried in the transfer step (`transfer.parameters`) and bound on the origin.
+- **Local copies**: a copy whose connections are all the origin's (any model, mapped or native) is an ordinary full-replace load over `SELECT <columns> FROM <origin>`: no staging, no transfer. This is how a
+  native select becomes a real table with indexes and drift on its own connection. Mixed (some connections the origin's, some not) is refused; `slice`, `unique_key` and `watermark` are refused on a local copy.
+- **Not built**: `access: command` (a procedure or anything that can only be run), change feeds with deletes (`deleted_when`), `reads:` in the dependency graph (accepted, informational), a plan-time describe
+  of the native text's result shape (drift), `track_definition`, and a native model in the metadata documents.
+
 ### 6.6 Load operations: paired with targets, committed, parameterized
 
 A **load operation** is a named way to load one model on one target. A model can have several operations per target (for example a routine watermark load, a period reload, and a keyed merge). The SQL for every operation is **rendered to disk and committed**. At execution time the only unresolved things are the operation's declared runtime parameters.

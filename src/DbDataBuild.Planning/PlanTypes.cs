@@ -14,7 +14,7 @@ public sealed record PlanParameter(string Name, string Type, string Source, stri
 
 /// <summary>The rows a `transfer` step moves: read on <see cref="Origin"/> with <see cref="ReadText"/> (a single SELECT, hashed like any statement), converted by the declared types of <see cref="Columns"/>, and written to <see cref="Staging"/> on the plan's connection.</summary>
 /// <param name="Staging">`schema.table` of the staging table; the step's text creates it.</param>
-public sealed record TransferSpec(string Origin, string ReadText, string Staging, IReadOnlyList<PlanColumn> Columns, PlanSlice? Slice = null, PlanWatermark? Watermark = null);
+public sealed record TransferSpec(string Origin, string ReadText, string Staging, IReadOnlyList<PlanColumn> Columns, PlanSlice? Slice = null, PlanWatermark? Watermark = null, IReadOnlyList<PlanParameter>? Parameters = null);
 
 /// <summary>The lower bound an incremental copy reads from: rows whose <see cref="Column"/> is at or after <see cref="Value"/> (invariant text of the column's <see cref="Type"/>), bound to `@watermark` in the read.</summary>
 public sealed record PlanWatermark(string Column, string Type, string Value);

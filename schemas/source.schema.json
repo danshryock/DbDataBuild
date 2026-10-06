@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "source.schema.json",
-  "title": "DbDataBuild mapped model",
-  "description": "A mapped model: the declaration of a table that exists and that the tool does not build (models/<schema>/<table>.yml with `kind: {type: mapped}` and no .sql). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. `indexes` and `foreign_keys` are what the table has, as exported by `dbdatabuild import`; the tool reads them (metadata, advice) and never creates them. In an editor this applies to a file that says `kind: {type: mapped}` itself (model.schema.json hands such files to this schema); a file that gets its kind from a folder's _dbdatabuild.yml is read as a model definition.",
+  "title": "DbDataBuild mapped or native model",
+  "description": "A mapped model: the declaration of a table that exists and that the tool does not build (models/<schema>/<table>.yml with `kind: {type: mapped}` and no .sql). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. `indexes` and `foreign_keys` are what the table has, as exported by `dbdatabuild import`; the tool reads them (metadata, advice) and never creates them. In an editor this applies to a file that says `kind: {type: mapped}` itself (model.schema.json hands such files to this schema); a file that gets its kind from a folder's _dbdatabuild.yml is read as a model definition. A **native** model (`kind: {type: native, access: select, query: ...}`, or the text in a `.native.sql` file beside the definition) is a table the engine computes from its own query (a table function, an engine-native select); it is bound by queries from its declared columns and inlined into the queries that read it, on its one connection.",
   "type": "object",
   "additionalProperties": false,
   "patternProperties": {
@@ -22,7 +22,7 @@
       "minLength": 1
     },
     "kind": {
-      "description": "Always `{type: mapped}`: a mapped model builds nothing.",
+      "description": "`{type: mapped}`: a table that exists. `{type: native, access: select, query: ...}`: a table the engine computes from its own text (`query` may be left out when a `.native.sql` file sits beside the definition).",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -30,7 +30,21 @@
       ],
       "properties": {
         "type": {
-          "const": "mapped"
+          "enum": [
+            "mapped",
+            "native"
+          ]
+        },
+        "access": {
+          "description": "`select`: a query can contain it (it is inlined). `command` is not built yet.",
+          "enum": [
+            "select",
+            "command"
+          ]
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -195,6 +209,65 @@
           }
         }
       }
+    },
+    "reads": {
+      "description": "Native models only: the tables the native text reads, so it takes part in the dependency graph.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "parameters": {
+      "description": "Native models only: the model's own parameters, referenced as `${model.name}` in its text.",
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/parameterValue"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "parameterValue": {
+      "description": "A single value (text), or `{type, value}` for a typed one. The type matters where the value reaches a query.",
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "VARCHAR",
+                "BIGINT",
+                "INTEGER",
+                "SMALLINT",
+                "DATE",
+                "TIMESTAMP"
+              ]
+            },
+            "value": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -129,7 +129,7 @@ internal sealed class PlanningSession
         findings.AddRange(new DefineEngine(graph, ctx.Config, ctx.Linter).Check(defineTargets));
 
         // each origin of a copy against its declaration (version skew between the systems of one application); `on_mismatch: skip` leaves an origin out of the plan
-        var copyDefinitions = mine.Select(m => m.Source.Definition).Where(d => d.IsCopy).ToList();
+        var copyDefinitions = mine.Select(m => m.Source.Definition).Where(d => d.IsCopy && !d.LocalCopy).ToList();
         var originCheck = copyDefinitions.Count == 0 ? new CopyOriginCheck.Result([], new HashSet<(string, string)>()) : CopyOriginCheck.Run(ctx, copyDefinitions, target, env);
         findings.AddRange(originCheck.Findings);
 
@@ -160,10 +160,10 @@ internal sealed class PlanningSession
         {
             var hash = AstHasher.Hash(m.Sql).Hash ?? "";
             // a copy reads its staging table, which the plan's own transfer step creates: it has no base table to wait for
-            var bases = m.Source.Definition.IsCopy ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
+            var bases = m.Source.Definition is { IsCopy: true, LocalCopy: false } ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
             var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql, m.Source.QueryParameterList(root, ctx.Config)).Model is { } lowered ? lowered.Sql : m.Sql;
-            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList(), m.Source.ParametersFor(ctx.Config, target));
+            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList(), Merge(m.Source.ParametersFor(ctx.Config, target), ctx.Lowering.NativeValuesFor(m.Sql, target)), ctx.Lowering.NativeUsesFor(m.Sql));
         }).ToList();
 
         // where the records about this connection are kept: itself, another connection (its read login is needed), or nowhere (a warning, unless that was chosen)
@@ -250,6 +250,9 @@ internal sealed class PlanningSession
         var at = duration.Before(DateTime.Parse(newest, System.Globalization.CultureInfo.InvariantCulture));
         return type.Trim().Equals("DATE", StringComparison.OrdinalIgnoreCase) ? at.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : at.ToString("yyyy-MM-dd HH:mm:ss.FFFFFF", System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private static IReadOnlyDictionary<string, ParameterValue> Merge(IReadOnlyDictionary<string, ParameterValue> a, IReadOnlyDictionary<string, ParameterValue> b) =>
+        b.Count == 0 ? a : new Dictionary<string, ParameterValue>(a, StringComparer.Ordinal).Concat(b).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
 
     private static string DdlSchema(string model) => DbDataBuild.Targets.Ddl.DdlGenerator.Split(model).Schema;
 }

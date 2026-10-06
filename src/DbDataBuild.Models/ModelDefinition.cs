@@ -62,7 +62,8 @@ public sealed record ModelDefinition(
     string OnMismatch = CopySlice.Fail,
     bool SliceColumnAdded = false,
     CopyWatermark? Watermark = null,
-    IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null)
+    IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null,
+    bool LocalCopy = false)
 {
     /// <summary>The model's own parameters (`parameters:` in its file, never inherited). Referenced as `${model.name}`.</summary>
     public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();

@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using DbDataBuild.Cli;
 using DbDataBuild.Execution;
 using DbDataBuild.State;

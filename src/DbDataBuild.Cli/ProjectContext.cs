@@ -40,10 +40,10 @@ internal sealed class ProjectContext
     public (RenderResult Result, string BodySql) RenderModel(ModelSource source, string authorSql, IReadOnlyList<string> targets)
     {
         var parameters = source.QueryParameterList(Root, Config);
-        if (!Lowering.Enabled) return (Renderer.Render(source.Definition, authorSql, source.QueryFile, targets, queryParameters: parameters), authorSql);
+        if (!Lowering.Enabled) return (Renderer.Render(source.Definition, authorSql, source.QueryFile, targets, queryParameters: parameters, natives: Lowering.NativeUsesFor(authorSql)), authorSql);
         var (lowered, error) = Lowering.Lower(source, authorSql, parameters);
         if (lowered == null) return (new RenderResult([], [], [error!]), authorSql);
-        var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}", queryParameters: parameters);
+        var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}", queryParameters: parameters, natives: Lowering.NativeUsesFor(lowered.Sql));
         var files = result.Files.Append(new RenderedFile(lowered.ArtifactPath, lowered.ArtifactText)).OrderBy(f => f.Path, StringComparer.Ordinal).ToList();
         return (result with { Files = files }, lowered.Sql);
     }
@@ -54,17 +54,19 @@ internal sealed class ProjectContext
     /// </summary>
     public IReadOnlyList<DbDataBuild.Planning.CopyOrigin> OriginsOf(ModelDefinition model, string destination)
     {
-        if (!model.IsCopy || model.From == null) return [];
+        if (!model.IsCopy || model.LocalCopy || model.From == null) return [];
         var connections = Project.Models.FirstOrDefault(m => string.Equals(m.Name, model.From, StringComparison.OrdinalIgnoreCase)) is { } built
             ? built.Targets ?? Config.DefaultConnections
-            : Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, model.From, StringComparison.OrdinalIgnoreCase))?.Connections ?? Config.DefaultConnections;
+            : Project.FileDescriptors.FirstOrDefault(d => string.Equals(d.Name, model.From, StringComparison.OrdinalIgnoreCase))?.Connections ?? Config.DefaultConnections;
         var source = Project.Sources.FirstOrDefault(s => s.Definition.Name == model.Name);
         string? Value(string origin) => model.Slice == null || source == null ? model.Slice?.Value : ParameterReferences.Substitute(model.Slice.Value, (scope, name) => scope switch
         {
             "origin" => source.ParametersFor(Config, origin).GetValueOrDefault($"connection.{name}")?.Value,
             _ => source.ParametersFor(Config, destination).GetValueOrDefault($"{scope}.{name}")?.Value,
         });
-        return connections.Select(c => new DbDataBuild.Planning.CopyOrigin(c, Config.EngineOf(c) ?? c, model.From, Value(c))).ToList();
+        var native = Project.NativeModels.FirstOrDefault(n => string.Equals(n.Name, model.From, StringComparison.OrdinalIgnoreCase));
+        var use = native == null ? null : NativeInline.Prepare(native, Config);
+        return connections.Select(c => new DbDataBuild.Planning.CopyOrigin(c, Config.EngineOf(c) ?? c, model.From, Value(c), null, use, native == null ? null : NativeInline.Values(native, use!, Config, c))).ToList();
     }
 
     /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>
@@ -138,7 +140,7 @@ internal sealed class ProjectContext
             var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (files.Contains(ProductInfo.ConfigFile)) changed.UnionWith(all.Select(s => s.Definition.Name));                    // the project settings reach every model
             foreach (var s in all.Where(s => files.Contains(s.QueryFile) || files.Contains(s.DefinitionFile))) changed.Add(s.Definition.Name);
-            foreach (var d in Project.Descriptors.Where(d => files.Contains(ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
+            foreach (var d in Project.FileDescriptors.Where(d => files.Contains(ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
             return changed.OrderBy(n => n, StringComparer.Ordinal).ToList();                                                          // nothing changed is a valid, empty answer
         }
 

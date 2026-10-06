@@ -18,10 +18,7 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     /// <summary>Every parameter value the model sees when built on <paramref name="connection"/>, keyed `project.x`, `connection.x`, `model.x`.</summary>
     public IReadOnlyDictionary<string, ParameterValue> ParametersFor(ProjectConfig config, string connection)
     {
-        var own = config.Connections.TryGetValue(connection, out var c) ? c.Parameters : new Dictionary<string, ParameterValue>();
-        var merged = new Dictionary<string, ParameterValue>(own, StringComparer.Ordinal);
-        if (ConnectionParameterOverrides.TryGetValue(connection, out var over)) foreach (var (k, v) in over) merged[k] = v;
-        return ParameterReferences.Effective(ProjectParameters, merged, Definition.Parameters);
+        return ParameterReferences.For(config, connection, ProjectParameters, ConnectionParameterOverrides, Definition.Parameters);
     }
 
     /// <summary>The model's query in DuckDB dialect: its `.sql` file, or the generated one of a copy.</summary>
@@ -49,8 +46,14 @@ public sealed record SettingOrigin(string Path, string File, int Line, string Va
 public sealed record ProjectValidationResult(
     IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<SourceDescriptor>? SourceDescriptors = null)
 {
-    /// <summary>The mapped models of the project, as files.</summary>
-    public IReadOnlyList<SourceDescriptor> Descriptors => (SourceDescriptors ?? []).Where(d => !d.IsGenerated).ToList();
+    /// <summary>The mapped models of the project, as files (native models are listed apart).</summary>
+    public IReadOnlyList<SourceDescriptor> Descriptors => (SourceDescriptors ?? []).Where(d => !d.IsGenerated && !d.IsNative).ToList();
+
+    /// <summary>The native models of the project: tables computed by an engine-native query.</summary>
+    public IReadOnlyList<SourceDescriptor> NativeModels => (SourceDescriptors ?? []).Where(d => d.IsNative).ToList();
+
+    /// <summary>Every descriptor that is a file of the project (mapped and native; not a generated staging table).</summary>
+    public IReadOnlyList<SourceDescriptor> FileDescriptors => (SourceDescriptors ?? []).Where(d => !d.IsGenerated).ToList();
 
     /// <summary>Everything a query binds against: the mapped models and the staging tables that copies read from.</summary>
     public IReadOnlyList<SourceDescriptor> AllDescriptors => SourceDescriptors ?? [];
@@ -94,7 +97,8 @@ public static class ProjectValidator
             .ToList();
         var set = files.ToHashSet(StringComparer.Ordinal);
         var folders = new FolderLayers(projectRoot, diags);
-        var mappedStems = new HashSet<string>(StringComparer.Ordinal);      // files with no query: mapped models and copies
+        var mappedStems = new HashSet<string>(StringComparer.Ordinal);      // files with no query: mapped models, native models and copies
+        var nativeStems = new HashSet<string>(StringComparer.Ordinal);
         var copies = new List<(ModelDefinition Definition, string File)>();
         // the parameters each file sees from the project files above it: the root's, overridden by each folder's, and the connection parameters the folders override
         var parameterFiles = new Dictionary<string, (IReadOnlyDictionary<string, ParameterValue> Project, IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterValue>> Connections)>(StringComparer.Ordinal);
@@ -129,10 +133,14 @@ public static class ProjectValidator
                 if (diags.Count > before) continue;
                 var merged = YamlMerge.Merge([.. above, new YamlLayer(file, own)], ModelDefinitionLoader.LayeredKeys, diags);
                 if (diags.Count > before) continue;
-                if (((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == SourceDescriptorLoader.MappedKind)
+                var kindName = ((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value;
+                if (kindName is SourceDescriptorLoader.MappedKind or NativeQuery.Kind)
                 {
                     mappedStems.Add(stem);
-                    if (SourceDescriptorLoader.LoadMerged(merged, file, expected, diags, connections) is { } mapped) descriptors.Add(mapped);
+                    if (kindName == NativeQuery.Kind) nativeStems.Add(stem);
+                    var nativeFile = set.Contains(stem + ".native.sql") ? File.ReadAllText(Path.Combine(projectRoot, stem + ".native.sql")) : null;
+                    if (SourceDescriptorLoader.LoadMerged(merged, file, expected, diags, connections, nativeFile) is { } mapped)
+                        descriptors.Add(kindName == NativeQuery.Kind ? CheckNative(mapped, file, projectParameters, connectionOverrides, effectiveConfig, diags) : mapped);
                     continue;
                 }
                 var isCopy = ((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == ModelKinds.Copy;
@@ -155,6 +163,12 @@ public static class ProjectValidator
 
         foreach (var file in files.Where(f => f.EndsWith(".sql", StringComparison.Ordinal)))
         {
+            if (file.EndsWith(".native.sql", StringComparison.Ordinal))
+            {
+                if (!nativeStems.Contains(file[..^".native.sql".Length]))
+                    diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` is native text, but `{file[..^".native.sql".Length]}.yml` is not a native model.", Fix: $"Give `{file[..^".native.sql".Length]}.yml` `kind: {{type: native}}`, or remove `{file}`."));
+                continue;
+            }
             var stem = file[..^".sql".Length];
             if (mappedStems.Contains(stem))
                 diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{stem}.yml` has no query of its own (a mapped model is not built, a copy reads its origin), so `{file}` has no use.", Fix: $"Remove `{file}`, or give `{stem}.yml` a kind that has a query."));
@@ -209,13 +223,19 @@ public static class ProjectValidator
             var origins = origin.Value.Connections;
             var destinations = def.Targets ?? config.DefaultConnections;
             string? problem = null;
-            if (origins.Count > 1 && def.Slice == null)
+            // local or remote is decided by the connections: every destination is the origin's connection (a local copy: an ordinary load over a query of the origin), or none is (a transfer)
+            var localCount = destinations.Count(d => origins.Contains(d, StringComparer.Ordinal));
+            var isLocal = localCount == destinations.Count;
+            if (localCount > 0 && !isLocal)
+                problem = $"`{def.Name}` is on {string.Join(", ", destinations.Select(d => $"`{d}`"))}, and some of them are connections of `{def.From}`: a copy is local (every connection is the origin's) or between connections (none is), not both.";
+            else if (isLocal && origins.Count > 1)
+                problem = $"`{def.From}` is on {string.Join(", ", origins)}, so a copy on one of them has no single origin.";
+            else if (isLocal && (def.Slice != null || def.UniqueKey.Count > 0 || def.Watermark != null))
+                problem = $"`{def.Name}` copies `{def.From}` on its own connection: a local copy is a full replace, so `slice`, `unique_key` and `watermark` do not apply (an incremental local load is an incremental model over `{def.From}`).";
+            else if (origins.Count > 1 && def.Slice == null)
                 problem = $"`{def.From}` is on {string.Join(", ", origins)}, so the rows of each must be told apart: a copy from several connections needs `slice` (the column that says which rows are an origin's, and its value).";
             else if (origins.Count > 1 && !def.Slice!.Value.Contains("${origin.", StringComparison.Ordinal))
                 problem = $"The slice's value `{def.Slice.Value}` is the same for every origin of `{def.From}`; it has to differ, for example `${{origin.store_id}}`.";
-            foreach (var destination in destinations)
-                if (problem == null && origins.Contains(destination, StringComparer.Ordinal))
-                    problem = $"`{def.Name}` is on `{destination}`, a connection of `{def.From}`, which it copies: a copy moves rows between connections.";
             if (problem == null && def.Slice != null)
             {
                 var seen = withParameters(new ModelSource(def, c.File, c.File));
@@ -265,7 +285,7 @@ public static class ProjectValidator
                     failed.Add(def.Name);
                     return null;
                 }
-            var resolved = def with { Columns = columns, Grain = grain, SliceColumnAdded = sliceAdded };
+            var resolved = def with { Columns = columns, Grain = grain, SliceColumnAdded = sliceAdded, LocalCopy = isLocal };
             done[def.Name] = resolved;
             return resolved;
         }
@@ -274,12 +294,40 @@ public static class ProjectValidator
         {
             var resolved = Resolve(c, [c.Definition.Name]);
             if (resolved == null) continue;
-            models.Add(withParameters(new ModelSource(resolved, c.File, c.File) { GeneratedQuery = CopyModels.Query(config, resolved) }));
-            descriptors.Add(CopyModels.StagingDescriptor(config, resolved, resolved.Columns));
+            models.Add(withParameters(new ModelSource(resolved, c.File, c.File) { GeneratedQuery = resolved.LocalCopy ? CopyModels.LocalQuery(resolved) : CopyModels.Query(config, resolved) }));
+            if (!resolved.LocalCopy) descriptors.Add(CopyModels.StagingDescriptor(config, resolved, resolved.Columns));
         }
     }
 
     private static string LogicalNormalize(string type) => System.Text.RegularExpressions.Regex.Replace(type.Trim().ToUpperInvariant(), @"\s*,\s*", ", ");
+
+    /// <summary>
+    /// What a native model needs beyond its text: exactly one connection (the text is in that engine's dialect), a form its engine can inline (T-SQL takes no WITH inside a derived table), parameter references
+    /// that exist, and the parameters its file sees from the project files above it.
+    /// </summary>
+    private static SourceDescriptor CheckNative(SourceDescriptor d, string file, IReadOnlyDictionary<string, ParameterValue> project, Dictionary<string, Dictionary<string, ParameterValue>> overrides, ProjectConfig config, List<Diagnostic> diags)
+    {
+        var native = d.Native! with { };
+        native = native with { };
+        var connections = d.Connections ?? config.DefaultConnections;
+        void Problem(string text) => diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(file, native.Line, 1), $"{d.Name}: {text}"));
+        if (connections.Count != 1) Problem($"a native model is written in one engine's dialect, so it is on exactly one connection, not {connections.Count} ({string.Join(", ", connections)}).");
+        else if (config.EngineOf(connections[0]) is "sqlserver" or "fabric" && native.Text.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
+            Problem("a T-SQL native select starts with SELECT: a WITH cannot sit inside the derived table it is inlined as. Wrap the common table expression in a table-valued function.");
+        var withParameters = new NativeQuery(native.Access, native.Text, native.Reads, native.Parameters, native.Line)
+        {
+            ProjectParameters = project,
+            ConnectionParameterOverrides = overrides.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, ParameterValue>)kv.Value, StringComparer.Ordinal),
+        };
+        if (connections.Count == 1)
+            foreach (var (scope, name) in ParameterReferences.In(native.Text))
+            {
+                if (scope is not ("project" or "connection" or "model")) { Problem($"`${{{scope}.{name}}}` is not a parameter a native text can use (`project`, `connection`, `model`)."); continue; }
+                if (!withParameters.ParametersFor(config, connections[0]).ContainsKey($"{scope}.{name}"))
+                    Problem($"`${{{scope}.{name}}}` has no value (`parameters:` in {(scope == "model" ? "the model's file" : scope == "connection" ? $"`connections.{connections[0]}`" : "a project file")}).");
+            }
+        return d with { Native = withParameters };
+    }
 
     /// <summary>What a model's effective settings took from other files: the scalars under a layered key written in a file other than the model's own.</summary>
     private static List<SettingOrigin> Inherited(MergedYaml merged, string modelFile) =>

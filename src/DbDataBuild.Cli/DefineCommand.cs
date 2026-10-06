@@ -44,7 +44,7 @@ internal static class DefineCommand
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
 
         // ---- choose the models ----
-        var mapped = project.Descriptors.Select(d => $"{ProjectValidator.ModelsDir}/{d.Name.Replace('.', '/')}").ToHashSet(StringComparer.Ordinal);
+        var mapped = project.FileDescriptors.Select(d => $"{ProjectValidator.ModelsDir}/{d.Name.Replace('.', '/')}").ToHashSet(StringComparer.Ordinal);
         var selection = Select(projectRoot, paths, mapped, error, out var selectionProblem);
         if (selectionProblem) return CliApp.ExitUsage;
 
@@ -218,7 +218,7 @@ internal static class DefineCommand
 
         IEnumerable<string> StemsUnder(string dir) => Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories)
             .Where(f => f.EndsWith(".sql", StringComparison.Ordinal) || f.EndsWith(".yml", StringComparison.Ordinal))
-            .Where(f => Path.GetFileName(f) != Core.ProductInfo.FolderConfigFile)         // a project file, not a model
+            .Where(f => Path.GetFileName(f) != Core.ProductInfo.FolderConfigFile && !f.EndsWith(".native.sql", StringComparison.Ordinal))         // a project file, or the text of a native model, not a model
             .Select(f => Stem(projectRoot, f))
             .Where(s => !mapped.Contains(s));                                          // a mapped model has no query to define from
 

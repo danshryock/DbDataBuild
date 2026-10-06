@@ -14,9 +14,9 @@ public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash
 
 /// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
 /// <summary>Where a copy's rows come from (<see cref="WatermarkValue"/>: for an incremental copy, the lower bound this origin is read from, worked out at plan time from what the destination holds; null reads everything): the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
-public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null, string? WatermarkValue = null);
+public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null, string? WatermarkValue = null, NativeUse? Native = null, IReadOnlyDictionary<string, ParameterValue>? NativeValues = null);
 
-public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null, IReadOnlyDictionary<string, ParameterValue>? ParameterValues = null)
+public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null, IReadOnlyDictionary<string, ParameterValue>? ParameterValues = null, IReadOnlyList<NativeUse>? Natives = null)
 {
     public IReadOnlyList<PlannedHook> HookList => Hooks ?? [];
 
@@ -223,6 +223,17 @@ public static class Planner
 
         var (outcome, body) = Polyglot.TranspileOne(DbDataBuild.Targets.Rules.TargetRules.Apply(c.Model.BodySql, c.Input.Engine, RewriteCatalog.For(c.Input.Config, c.Def), c.Input.Config.TargetVersions.TryGetValue(c.Input.Target, out var tv) ? tv : null).Sql, Dialects.Canonical, TargetRegistry.Get(c.Input.Engine).Dialect);
         if (body != null) body = DbDataBuild.Targets.Rules.TargetRules.Finish(body, c.Input.Engine);
+        if (body != null && c.Model.Natives is { Count: > 0 } natives)
+        {
+            // a view over a native select: the native text is spliced into the view's own text (DDL binds no values, so a native text with parameters cannot be a view's)
+            var (spliced, nativeParameters) = NativeInline.Splice(body, natives, c.Input.Engine);
+            if (nativeParameters.Count > 0)
+            {
+                blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: a view cannot read a native model that uses parameters ({string.Join(", ", nativeParameters.Select(p => p.Key))}): DDL binds no values. Make {def.Name} a table, or land the native model with a copy."));
+                return false;
+            }
+            body = spliced;
+        }
         if (body == null)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: the transpiler reported: {outcome.Error}."));
@@ -462,7 +473,7 @@ public static class Planner
     {
         var def = c.Def;
         if (!c.Input.Loads.TryGetValue(def.Name, out var loads) || loads.Count == 0) return true;
-        if (def.IsCopy && c.Model.OriginList.Count == 0)
+        if (def.IsCopy && !def.LocalCopy && c.Model.OriginList.Count == 0)
         {
             c.Noticed.Add($"{def.Name} has no origin to copy from in this plan (every origin was left out), so its table is not loaded.");
             return true;
@@ -544,7 +555,7 @@ public static class Planner
         var loadStep = new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
             backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
             load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash);
-        if (def.IsCopy && c.Model.OriginList.Count > 0)
+        if (def.IsCopy && !def.LocalCopy && c.Model.OriginList.Count > 0)
         {
             // a copy: for each origin the rows are staged on the destination, then loaded from there by the ordinary strategy (a copy with a slice replaces only that origin's rows); the staging table is dropped at the end
             foreach (var origin in c.Model.OriginList)
@@ -573,7 +584,10 @@ public static class Planner
         var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config);
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);
         // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row
-        var read = $"SELECT {string.Join(", ", def.Columns.Where(x => !(def.SliceColumnAdded && string.Equals(x.Name, def.Slice!.Column, StringComparison.OrdinalIgnoreCase))).Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {originDdl.Qualified(originSchema, originName)}";
+        // a native origin is read as its own text (a derived table, with its parameters bound): the engine computes the rows
+        var from = origin.Native != null ? $"({origin.Native.Text}) AS {originDdl.QuoteIdentifier(originName)}" : originDdl.Qualified(originSchema, originName);
+        var read = $"SELECT {string.Join(", ", def.Columns.Where(x => !(def.SliceColumnAdded && string.Equals(x.Name, def.Slice!.Column, StringComparison.OrdinalIgnoreCase))).Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {from}";
+        var nativeParameters = origin.Native == null ? null : origin.Native.Parameters.Select(p => new PlanParameter(p.Placeholder, origin.NativeValues![p.Key].Type, "parameter", origin.NativeValues[p.Key].Value)).ToList();
         var slice = def.Slice != null && origin.SliceValue != null ? new PlanSlice(def.Slice.Column, origin.SliceValue, def.SliceColumnAdded) : null;
         PlanWatermark? watermark = null;
         if (def.Watermark != null && origin.WatermarkValue != null)
@@ -582,7 +596,7 @@ public static class Planner
             read += $" WHERE {originDdl.QuoteIdentifier(def.Watermark.Column)} >= @watermark";
             watermark = new PlanWatermark(def.Watermark.Column, def.Columns.First(x => string.Equals(x.Name, def.Watermark.Column, StringComparison.OrdinalIgnoreCase)).Type, origin.WatermarkValue);
         }
-        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice, watermark);
+        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice, watermark, nativeParameters);
         return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, [slice == null ? "copy.transfer" : "copy.transfer.slice"], null, [], Transfer: spec);
     }
 

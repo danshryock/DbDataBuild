@@ -87,7 +87,6 @@ public class CopyModelTests
 
     [Theory]
     [InlineData("crm.nothing", "", "which is not a model, a mapped model or a copy")]
-    [InlineData("crm.customers", "connections=: [crm]\n", "moves rows between connections")]                // the origin's own connection
     [InlineData("crm.customers", "columns:\n  - {name: a, type: INT}\n", "has no `columns`")]
     [InlineData("a", "", "DDB-106")]
     public void A_copy_that_cannot_be_resolved_says_why(string from, string extra, string expected)
@@ -280,5 +279,52 @@ public class CopyModelTests
         Assert.False(result.HasErrors, text);
         var load = Assert.Single(LoadPlan.For(result.Sources.Single(s => s.Definition.Name == "warehouse.orders").Definition, "wh"));
         Assert.Equal(["order_id", "store_id"], load.Key);                                                 // two stores may use one order number
+    }
+
+    // ---- local copies: a copy on the origin's own connection ----
+
+    [Fact]
+    public void A_copy_on_its_origins_own_connection_is_a_local_copy_an_ordinary_load_with_no_staging()
+    {
+        var dir = Project();
+        Copy(dir, "crm.snapshot", "crm.customers", "connections=: [crm]\n");
+        var (result, text) = Validate(dir);
+        Assert.False(result.HasErrors, text);
+        var copy = result.Sources.Single();
+        Assert.True(copy.Definition.LocalCopy);
+        Assert.Equal("SELECT \"customer_id\", \"name\", \"born\" FROM \"crm\".\"customers\"\n", copy.GeneratedQuery);      // reads the origin by name
+        Assert.DoesNotContain(result.AllDescriptors, d => d.IsGenerated);                                                  // no staging table
+    }
+
+    [Fact]
+    public void A_local_copy_renders_a_full_replace_that_reads_the_origin_and_plans_no_transfer()
+    {
+        var dir = Project(Config + "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n");
+        Copy(dir, "crm.snapshot", "crm.customers", "connections=: [crm]\n");
+        var o = new StringWriter(); var e = new StringWriter();
+        Assert.True(CliApp.Run(["render", "--write", "--project", dir], o, e, environment: _ => null) == 0, o + "\n" + e);
+        var script = File.ReadAllText(Path.Combine(dir, "rendered/crm/crm.snapshot/load.default.sql"));
+        Assert.Contains("FROM crm.customers", script);
+    }
+
+    [Theory]
+    [InlineData("connections=: [crm, wh]\n", "some of them are connections of `crm.customers`")]
+    public void A_copy_cannot_be_local_and_remote_at_once(string extra, string expected)
+    {
+        var dir = Project();
+        Copy(dir, "crm.snapshot", "crm.customers", extra);
+        var (result, text) = Validate(dir);
+        Assert.True(result.HasErrors);
+        Assert.Contains(expected, text);
+    }
+
+    [Fact]
+    public void A_local_copy_is_a_full_replace_so_incremental_options_are_refused_with_the_reason()
+    {
+        var dir = Project();
+        Write(dir, "models/crm/snapshot.yml", "name: crm.snapshot\nkind:\n  type: copy\n  from: crm.customers\n  unique_key: [customer_id]\nconnections=: [crm]\n");
+        var (result, text) = Validate(dir);
+        Assert.True(result.HasErrors);
+        Assert.Contains("a local copy is a full replace", text);
     }
 }

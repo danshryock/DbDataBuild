@@ -71,6 +71,16 @@ public static class ParameterReferences
         return all;
     }
 
+    /// <summary>The values something sees when it is built or read on <paramref name="connection"/>: the project's (folders overriding), the connection's (folders overriding), and its own.</summary>
+    public static IReadOnlyDictionary<string, ParameterValue> For(ProjectConfig config, string connection, IReadOnlyDictionary<string, ParameterValue> project,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterValue>> connectionOverrides, IReadOnlyDictionary<string, ParameterValue> own)
+    {
+        var declared = config.Connections.TryGetValue(connection, out var c) ? c.Parameters : new Dictionary<string, ParameterValue>();
+        var merged = new Dictionary<string, ParameterValue>(declared, StringComparer.Ordinal);
+        if (connectionOverrides.TryGetValue(connection, out var over)) foreach (var (k, v) in over) merged[k] = v;
+        return Effective(project, merged, own);
+    }
+
     /// <summary>The distinct `scope.name` references in a text, in order of appearance.</summary>
     public static IReadOnlyList<(string Scope, string Name)> In(string text) =>
         Pattern.Matches(text).Select(m => (m.Groups[1].Value, m.Groups[2].Value)).Distinct().ToList();

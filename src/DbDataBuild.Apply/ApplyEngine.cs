@@ -355,7 +355,7 @@ public static class ApplyEngine
         try
         {
             await using var origin = await o.OpenOrigin!(spec.Origin, ct);
-            await using var stream = await origin.OpenStreamAsync(spec.ReadText, spec.Watermark == null ? null : [ToGate(new PlanParameter("watermark", spec.Watermark.Type, "resolver", spec.Watermark.Value))], ct);
+            await using var stream = await origin.OpenStreamAsync(spec.ReadText, OriginParameters(spec), ct);
             var names = stream.Names;
             // what the origin returns: every column of the copy, except the slice column the copy adds (that one is written here, not read)
             var read = spec.Slice is { Added: true } added ? columns.Where(c => !string.Equals(c.Name, added.Column, StringComparison.OrdinalIgnoreCase)).ToList() : columns.ToList();
@@ -379,6 +379,14 @@ public static class ApplyEngine
             await tracker.FinishRunAsync(step.Id, runId, "failed", null, null, ct);
             throw;
         }
+    }
+
+    /// <summary>What a transfer's read binds: the parameters of a native origin's text, and an incremental copy's `@watermark`.</summary>
+    private static IReadOnlyList<GateParameter>? OriginParameters(TransferSpec spec)
+    {
+        var list = (spec.Parameters ?? []).Select(ToGate).ToList();
+        if (spec.Watermark != null) list.Add(ToGate(new PlanParameter("watermark", spec.Watermark.Type, "resolver", spec.Watermark.Value)));
+        return list.Count == 0 ? null : list;
     }
 
     private static async IAsyncEnumerable<object?[]> EmptyRows() { await Task.CompletedTask; yield break; }

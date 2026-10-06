@@ -1,3 +1,4 @@
+using DbDataBuild.Core;
 using DbDataBuild.Execution;
 
 namespace DbDataBuild.Tests.Unit;

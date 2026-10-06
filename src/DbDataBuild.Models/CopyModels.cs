@@ -32,5 +32,12 @@ public static class CopyModels
     public static string Query(ProjectConfig config, ModelDefinition copy) =>
         $"SELECT {string.Join(", ", copy.Columns.Select(c => Quote(c.Name)))} FROM {Quote(StagingSchema(config))}.{Quote(StagingTable(copy.Name))}\n";
 
+    /// <summary>The query of a **local** copy (the origin is on the copy's own connection): every column of the origin, read by name. No staging table, no transfer: an ordinary load.</summary>
+    public static string LocalQuery(ModelDefinition copy)
+    {
+        var dot = copy.From!.IndexOf('.');
+        return $"SELECT {string.Join(", ", copy.Columns.Select(c => Quote(c.Name)))} FROM {Quote(copy.From[..dot])}.{Quote(copy.From[(dot + 1)..])}\n";
+    }
+
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
 }

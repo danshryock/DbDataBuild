@@ -10,8 +10,11 @@ namespace DbDataBuild.Models;
 /// </summary>
 /// <param name="DeclaredConnections">The connections the table exists on (after the project files above it were merged in); null when nothing says, which is the project's default connections.</param>
 public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinition> Columns, IReadOnlyList<string> Grain,
-    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null, IReadOnlyList<string>? DeclaredConnections = null, bool Generated = false)
+    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null, IReadOnlyList<string>? DeclaredConnections = null, bool Generated = false, NativeQuery? Native = null)
 {
+    /// <summary>True for a **native** model: its rows are computed by a query the engine runs (a table function, an engine-native select), not read from a table. Bound by queries like any table, from its declared columns.</summary>
+    public bool IsNative => Native != null;
+
     /// <summary>True for a table the tool declares itself, not a file of the project: the staging table a copy is read from (`CopyModels`). It is bound by queries like any mapped model and is left out of what is listed, imported and checked.</summary>
     public bool IsGenerated => Generated;
 
@@ -20,12 +23,32 @@ public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinitio
     public IReadOnlyList<SourceForeignKey> ForeignKeys => DeclaredForeignKeys ?? [];
 }
 
+/// <summary>
+/// The engine-native text of a native model (`kind: {type: native}`): written in the dialect of its one connection, never lowered or transpiled. <see cref="Access"/> is `select` (a query can contain it: it is
+/// inlined as a derived table) or `command` (it can only be run; not built yet).
+/// </summary>
+/// <param name="Reads">The tables the text reads (optional): how a native model takes part in the dependency graph.</param>
+/// <param name="Parameters">The model's own parameters (`${model.x}` in the text).</param>
+public sealed record NativeQuery(string Access, string Text, IReadOnlyList<string> Reads, IReadOnlyDictionary<string, ParameterValue> Parameters, int Line = 0)
+{
+    public const string Select = "select";
+    public const string Command = "command";
+    public const string Kind = "native";
+
+    /// <summary>The project parameters this model's file sees (set by the validator, like a model's).</summary>
+    public IReadOnlyDictionary<string, ParameterValue> ProjectParameters { get; init; } = new Dictionary<string, ParameterValue>();
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterValue>> ConnectionParameterOverrides { get; init; } = new Dictionary<string, IReadOnlyDictionary<string, ParameterValue>>();
+
+    public IReadOnlyDictionary<string, ParameterValue> ParametersFor(ProjectConfig config, string connection) =>
+        ParameterReferences.For(config, connection, ProjectParameters, ConnectionParameterOverrides, Parameters);
+}
+
 /// <summary>A foreign key of a source table: its columns, the table it points at (`schema.table`) and that table's columns, in the same order.</summary>
 public sealed record SourceForeignKey(string Name, IReadOnlyList<string> Columns, string Table, IReadOnlyList<string> ReferencedColumns, int Line = 0);
 
 public static class SourceDescriptorLoader
 {
-    private static readonly string[] Keys = ["name", "kind", "connections", "columns", "grain", "indexes", "foreign_keys"];
+    private static readonly string[] Keys = ["name", "kind", "connections", "columns", "grain", "indexes", "foreign_keys", "reads", "parameters"];
 
     /// <summary>The kind of a model that maps an existing table: no query, nothing built, everything declared.</summary>
     public const string MappedKind = "mapped";
@@ -47,21 +70,29 @@ public static class SourceDescriptorLoader
     }
 
     /// <summary>Reads a mapped model that was merged from the project files above it and its own file (`kind` and `connections` may come from a folder).</summary>
-    public static SourceDescriptor? LoadMerged(MergedYaml merged, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
+    public static SourceDescriptor? LoadMerged(MergedYaml merged, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null, string? nativeFile = null)
     {
         var before = diags.Count;
-        var result = new Reader(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal)) { NodeFiles = merged.FileOf }.Read(merged.Root, expectedName);
+        var result = new Reader(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal), nativeFile) { NodeFiles = merged.FileOf }.Read(merged.Root, expectedName);
         return diags.Count > before ? null : result;
     }
 
-    private sealed class Reader(string file, List<Diagnostic> diags, IReadOnlySet<string> knownConnections) : YamlFieldReader(file, diags)
+    private sealed class Reader(string file, List<Diagnostic> diags, IReadOnlySet<string> knownConnections, string? nativeFile = null) : YamlFieldReader(file, diags)
     {
         public SourceDescriptor? Read(YamlNode root, string? expectedName)
         {
             if (root is not YamlMapping top) { Add(DiagnosticCatalog.InvalidValue, root, "A mapped model must be a mapping with `name`, `kind` and `columns`."); return null; }
-            CheckKeys(top, Keys, "a mapped model");
-            if (top.Get("kind") is not YamlMapping kind || kind.Get("type") is not YamlScalar { Value: MappedKind } || kind.Entries.Count != 1)
-                Add(DiagnosticCatalog.InvalidValue, top.Get("kind") ?? top, "A mapped model's kind is `{type: mapped}` and nothing else.");
+            CheckKeys(top, Keys, "a mapped or native model");
+            var isNative = (top.Get("kind") as YamlMapping)?.Get("type") is YamlScalar { Value: NativeQuery.Kind };
+            NativeQuery? native = null;
+            if (isNative) native = ReadNative(top);
+            else
+            {
+                if (top.Get("kind") is not YamlMapping kind || kind.Get("type") is not YamlScalar { Value: MappedKind } || kind.Entries.Count != 1)
+                    Add(DiagnosticCatalog.InvalidValue, top.Get("kind") ?? top, "A mapped model's kind is `{type: mapped}` and nothing else.");
+                foreach (var k in new[] { "reads", "parameters" }.Where(k => top.Get(k) != null))
+                    Add(DiagnosticCatalog.UnknownKey, top.Entries.First(e => e.Key.Value == k).Key, $"`{k}` belongs to a native model; a mapped model declares a table that exists.");
+            }
             var connections = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
             foreach (var c in (connections ?? []).Where(c => !knownConnections.Contains(c.Value)))
                 Add(DiagnosticCatalog.InvalidValue, c, $"Unknown connection `{c.Value}`.", $"One of: {string.Join(", ", knownConnections.Order(StringComparer.Ordinal))}.");
@@ -76,7 +107,27 @@ public static class SourceDescriptorLoader
                     Add(DiagnosticCatalog.UnknownColumnReference, g, $"grain refers to `{g.Value}`, which is not declared in `columns`.");
             var indexes = ReadIndexes(top, columns);
             var foreignKeys = ReadForeignKeys(top, columns);
-            return name == null ? null : new SourceDescriptor(name.Value, columns, grain?.Select(g => g.Value).ToList() ?? [], indexes, foreignKeys, connections?.Select(c => c.Value).ToList());
+            return name == null ? null : new SourceDescriptor(name.Value, columns, grain?.Select(g => g.Value).ToList() ?? [], indexes, foreignKeys, connections?.Select(c => c.Value).ToList(), Native: native);
+        }
+
+        /// <summary>`kind: {type: native, access, query}` and the model's `reads` and `parameters`. The text is `query:` or the `.native.sql` file beside the definition, never both.</summary>
+        private NativeQuery? ReadNative(YamlMapping top)
+        {
+            var kind = (YamlMapping)top.Get("kind")!;
+            CheckKeys(kind, ["type", "access", "query"], "kind `native`");
+            var access = (kind.Get("access") as YamlScalar)?.Value ?? NativeQuery.Select;
+            if (access is not (NativeQuery.Select or NativeQuery.Command)) Add(DiagnosticCatalog.InvalidValue, kind.Get("access") ?? kind, $"`access` is `select` (a query can contain it) or `command` (it can only be run), not `{access}`.");
+            else if (access == NativeQuery.Command) Add(DiagnosticCatalog.InvalidValue, kind.Get("access") ?? kind, "`access: command` is not built yet: a native model is a select or a table function.", "Use `access: select`, or wrap the command in a table-valued function.");
+            var inline = (kind.Get("query") as YamlScalar)?.Value;
+            string? text = inline;
+            if (kind.Get("query") != null && inline == null) Add(DiagnosticCatalog.InvalidValue, kind.Get("query")!, "`query` is the text of the native query.");
+            if (inline != null && nativeFile != null) Add(DiagnosticCatalog.InvalidValue, kind.Get("query")!, "A native model has its text in `query:` or in its `.native.sql` file, not both.");
+            else if (inline == null) text = nativeFile;
+            if (string.IsNullOrWhiteSpace(text)) { Add(DiagnosticCatalog.MissingKey, kind, "A native model needs its text: `query:` under `kind`, or a `.native.sql` file beside the definition."); return null; }
+            if (ReadGuard.Check(text) is { } refused) Add(DiagnosticCatalog.InvalidValue, (YamlNode?)kind.Get("query") ?? kind, $"The native text is not a single SELECT: {refused.Found}");
+            var reads = StringList(top, "reads", required: false, allowEmpty: false, unique: true)?.Select(r => r.Value).ToList() ?? [];
+            var own = top.Get("parameters") is { } pn ? ParameterReferences.Read(pn, "`parameters`", (d, n, f) => Add(d, n, f)) : null;
+            return new NativeQuery(access, text.Trim(), reads, own ?? new Dictionary<string, ParameterValue>(), kind.Line);
         }
 
         private List<IndexDefinition> ReadIndexes(YamlMapping top, List<ColumnDefinition> columns)

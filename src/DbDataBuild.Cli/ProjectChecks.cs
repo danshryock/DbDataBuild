@@ -42,7 +42,7 @@ internal static class ProjectChecks
             foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
             // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
             if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, targets, body));
-            diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config)).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
+            diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
         if (config.LintIndexes)

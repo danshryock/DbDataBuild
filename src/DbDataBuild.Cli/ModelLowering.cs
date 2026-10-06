@@ -28,6 +28,31 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         models.FirstOrDefault(m => string.Equals(m.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain
         ?? descriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain ?? [];
 
+    private readonly Dictionary<string, NativeUse> nativeUses = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The native models a query reads (by lineage of its text), ready to be spliced into the target's text after transpiling.</summary>
+    public IReadOnlyList<NativeUse> NativeUsesFor(string sql)
+    {
+        if (!descriptors.Any(d => d.IsNative)) return [];
+        var read = QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        var result = new List<NativeUse>();
+        foreach (var d in descriptors.Where(d => d.IsNative && read.Contains(d.Name)))
+        {
+            if (!nativeUses.TryGetValue(d.Name, out var use)) nativeUses[d.Name] = use = NativeInline.Prepare(d, config);
+            result.Add(use);
+        }
+        return result;
+    }
+
+    /// <summary>The value of each placeholder of the native models a query reads, on one connection.</summary>
+    public IReadOnlyDictionary<string, ParameterValue> NativeValuesFor(string sql, string connection)
+    {
+        var values = new Dictionary<string, ParameterValue>(StringComparer.Ordinal);
+        foreach (var use in NativeUsesFor(sql))
+            foreach (var (k, v) in NativeInline.Values(descriptors.First(d => d.Name == use.Name), use, config, connection)) values[k] = v;
+        return values;
+    }
+
     public static string ArtifactPathFor(string model) => $"lowered/{model}/lowered.sql";
 
     /// <param name="parameters">The parameters the query uses as values (their markers are in <paramref name="authorSql"/>); the committed artifact shows them as the references they stand for.</param>
