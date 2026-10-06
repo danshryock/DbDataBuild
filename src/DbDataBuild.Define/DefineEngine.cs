@@ -13,7 +13,7 @@ namespace DbDataBuild.Define;
 /// <param name="Existing">The loaded definition; null when there is no file, or the file does not load (then <paramref name="ExistingProblems"/> says why).</param>
 public sealed record DefineTarget(
     string ModelName, string DefinitionFile, string QueryFile, string Sql,
-    string? ExistingText, ModelDefinition? Existing, IReadOnlyList<Diagnostic> ExistingProblems)
+    string? ExistingText, ModelDefinition? Existing, IReadOnlyList<Diagnostic> ExistingProblems, MacroSupport? Macros = null)
 {
     public bool HasDefinitionFile => ExistingText != null;
 }
@@ -67,7 +67,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
             }
             if (t.Existing == null) { diags.AddRange(t.ExistingProblems); continue; }
 
-            var (inference, problems) = ModelInference.Infer(t.QueryFile, t.Sql, graph);
+            var (inference, problems) = ModelInference.Infer(t.QueryFile, t.Sql, graph, t.Macros);
             if (inference == null) { diags.AddRange(problems); continue; }
 
             var diff = ColumnDiff.Compute(t.Existing.Columns, inference);
@@ -122,7 +122,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         if (t.HasDefinitionFile && t.Existing == null)
             return new DefineOutcome(t, DefineStatus.Failed, null, t.ExistingProblems, [], ["The existing definition does not load, so define cannot edit it. Fix the errors above first."], []);
 
-        var (inference, problems) = ModelInference.Infer(t.QueryFile, t.Sql, graph);
+        var (inference, problems) = ModelInference.Infer(t.QueryFile, t.Sql, graph, t.Macros);
         if (inference == null) return new DefineOutcome(t, DefineStatus.Failed, null, problems, [], [], []);
 
         var outcome = t.Existing == null ? RunNew(t, inference, session) : RunExisting(t, inference, session);
@@ -408,7 +408,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         foreach (var t in targets)
         {
             var (facts, _) = QueryAnalyzer.Analyze(t.Sql);
-            upstreamOf[t.ModelName] = facts?.BaseTables.Select(b => b.QualifiedName).Where(n => byName.ContainsKey(n) && !string.Equals(n, t.ModelName, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+            upstreamOf[t.ModelName] = (facts?.BaseTables.Select(b => b.QualifiedName) ?? []).Where(n => t.Macros == null || !t.Macros.MacroNames.Contains(n, StringComparer.OrdinalIgnoreCase)).Concat(t.Macros?.Tables ?? []).Where(n => byName.ContainsKey(n) && !string.Equals(n, t.ModelName, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
         }
 
         var order = new List<DefineTarget>();

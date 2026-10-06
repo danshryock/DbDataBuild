@@ -49,6 +49,7 @@ internal static class DefineCommand
         if (selectionProblem) return CliApp.ExitUsage;
 
         var targets = new List<DefineTarget>();
+        ProjectContext? macroContext = null;
         var hashes = new Dictionary<string, string?>();          // definition file -> hash of the bytes read (null: no file)
         var queryHashes = new Dictionary<string, string>();       // query file -> hash of the bytes read
         var problems = new List<Diagnostic>();
@@ -79,7 +80,8 @@ internal static class DefineCommand
             else hashes[ymlRel] = null;
             var queryText = System.Text.Encoding.UTF8.GetString(sqlBytes);
             if (project.Sources.FirstOrDefault(s => s.DefinitionFile == ymlRel) is { } known) queryText = QueryParameters.Mark(queryText, known, config).Sql;      // parameter references stand as typed markers, as everywhere else
-            targets.Add(new DefineTarget(name, ymlRel, sqlRel, queryText, existingText, existing, existingProblems));
+            var macroSupport = project.Sources.FirstOrDefault(s => s.DefinitionFile == ymlRel) is { } macroSource ? (macroContext ??= ProjectContext.Load(projectRoot)).MacroSupportFor(macroSource, queryText) : null;
+            targets.Add(new DefineTarget(name, ymlRel, sqlRel, queryText, existingText, existing, existingProblems, macroSupport));
         }
 
         // The graph holds every valid model (their declared columns) and the sources. Selected models with a valid definition are among them.

@@ -12,7 +12,7 @@ public sealed record SampleModel(string Name, IReadOnlyList<ColumnDefinition> Co
 /// <param name="DataDir">A directory of CSV files named after sources (`staging.orders.csv`); a source with a file uses it instead of generated rows.</param>
 /// <param name="Seeds">The project's seeds (DESIGN.md 15.6): a source with a seed is filled by running it, with the variables `seed` and `scale`, instead of generated at random.</param>
 /// <param name="Scale">The variable `scale` the seeds read; null keeps the project's default.</param>
-public sealed record SampleOptions(int Rows = 50, int Seed = 1, int Limit = 20, string? DataDir = null, SeedSet? Seeds = null, int? Scale = null);
+public sealed record SampleOptions(int Rows = 50, int Seed = 1, int Limit = 20, string? DataDir = null, SeedSet? Seeds = null, int? Scale = null, DbDataBuild.Core.DuckPrelude? Macros = null);
 
 public sealed record SampleColumn(string Name, string Type);
 
@@ -52,6 +52,8 @@ public static class SampleRun
         Exec(db, "SET autoinstall_known_extensions = false");
         Exec(db, "SET autoload_known_extensions = false");
         Exec(db, "SET enable_external_access = false");
+        // the project's types, before any table (a column may have one); its macros once the sources exist (DuckDB binds the names in a macro when it creates it)
+        foreach (var statement in (options.Macros?.Schemas ?? []).Concat(options.Macros?.Types ?? [])) Exec(db, statement);
 
         var tables = new List<SampleTable>();
         // sources with a seed (and no CSV of their own) are filled by their seeds, together with the seeds those read
@@ -79,6 +81,12 @@ public static class SampleRun
         {
             try { tables.Add(LoadSource(db, s, options)); }
             catch (SampleException ex) { tables.Add(new SampleTable(s.Name, "source", Columns(s.Columns), 0, [], ex.Message, null, [])); }
+        }
+
+        foreach (var statement in options.Macros?.Macros ?? [])
+        {
+            try { Exec(db, statement); }
+            catch (DuckDBException ex) { throw new SampleException($"a macro of the project could not be created ({statement.Trim().Split('\n', 2)[0].Trim()}): {ex.Message.Split('\n', 2)[0]}"); }
         }
 
         var failed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

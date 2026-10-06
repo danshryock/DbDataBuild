@@ -23,11 +23,14 @@ public sealed record Inference(
     IReadOnlyList<string> UpstreamNames,
     IReadOnlyList<ProjectionFact> Lineage);
 
+/// <summary>What a query that calls the project's macros needs besides its text: the macros to bind it with, and the tables the bound plan scans once they are expanded (and the names its text gave that are macros, not tables).</summary>
+public sealed record MacroSupport(DuckPrelude Prelude, IReadOnlyList<string> Tables, IReadOnlyList<string> MacroNames);
+
 /// <summary>What `define` learns from a model body, offline: output columns and types from DuckDB's describe, lineage and nullability from polyglot.</summary>
 public static class ModelInference
 {
     /// <returns>The inference, or null with error diagnostics. Never touches a target, and never runs the query.</returns>
-    public static (Inference? Value, IReadOnlyList<Diagnostic> Diagnostics) Infer(string queryFile, string sql, ModelGraph graph)
+    public static (Inference? Value, IReadOnlyList<Diagnostic> Diagnostics) Infer(string queryFile, string sql, ModelGraph graph, MacroSupport? macros = null)
     {
         var diags = new List<Diagnostic>();
         SourceLocation At() => new(queryFile, 0, 0);
@@ -42,8 +45,10 @@ public static class ModelInference
 
         // 2. resolve them against models and sources
         var upstream = new List<UpstreamTable>();
-        foreach (var t in first.BaseTables)
+        var read = first.BaseTables.Select(t => t.QualifiedName).Where(n => macros == null || !macros.MacroNames.Contains(n, StringComparer.OrdinalIgnoreCase)).Concat(macros?.Tables ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var name in read)
         {
+            var t = new { QualifiedName = name };
             if (graph.Find(t.QualifiedName) is { } u) { if (!upstream.Contains(u)) upstream.Add(u); }
             else diags.Add(new Diagnostic(DiagnosticCatalog.UpstreamNotFound, At(),
                 $"The query uses `{t.QualifiedName}`, which is neither a model nor a source descriptor.",
@@ -57,7 +62,7 @@ public static class ModelInference
             var (schema, name) = Split(u.Name);
             return new DuckTable(schema, name, u.Columns.Select(c => new DuckColumn(c.Name, c.Type, c.Nullable)).ToList());
         }).ToList();
-        var described = QueryDescriber.Describe(duckTables, sql);
+        var described = QueryDescriber.Describe(duckTables, sql, macros?.Prelude);
         if (!described.Ok)
         {
             diags.Add(new Diagnostic(DiagnosticCatalog.QueryNotDescribable, At(), $"DuckDB reported: {described.Error}"));

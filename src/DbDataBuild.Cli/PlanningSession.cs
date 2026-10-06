@@ -124,7 +124,7 @@ internal sealed class PlanningSession
         findings.AddRange(ProjectChecks.Run(sources, ctx.Config, [target], root, ctx.Lowering));
         findings.AddRange(ProjectChecks.Reachability(ctx, [target]));
         var defineTargets = mine.Select(m => new DefineTarget(m.Source.Definition.Name, m.Source.DefinitionFile, m.Source.QueryFile, m.Sql,
-            File.ReadAllText(Path.Combine(root, m.Source.DefinitionFile)), m.Source.Definition, [])).ToList();
+            File.ReadAllText(Path.Combine(root, m.Source.DefinitionFile)), m.Source.Definition, [], ctx.MacroSupportFor(m.Source, m.Sql))).ToList();
         var graph = new ModelGraph(ctx.Project.Models, ctx.Project.AllDescriptors);
         findings.AddRange(new DefineEngine(graph, ctx.Config, ctx.Linter).Check(defineTargets));
 
@@ -132,7 +132,7 @@ internal sealed class PlanningSession
         var copyDefinitions = mine.Select(m => m.Source.Definition).Where(d => d.IsCopy && !d.LocalCopy).ToList();
         var originCheck = copyDefinitions.Count == 0 ? new CopyOriginCheck.Result([], new HashSet<(string, string)>()) : CopyOriginCheck.Run(ctx, copyDefinitions, target, env);
         findings.AddRange(originCheck.Findings);
-        findings.AddRange(NativeShapeCheck.Run(ctx, mine.SelectMany(m => QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName) ?? []), target, env));
+        findings.AddRange(NativeShapeCheck.Run(ctx, mine.SelectMany(m => ctx.BaseTablesOf(m.Source, m.Sql)), target, env));
 
         var renderedOps = new List<RenderedOperation>();
         foreach (var m in mine)
@@ -159,9 +159,9 @@ internal sealed class PlanningSession
         // ---- the live side, on the read login ----
         var planned = mine.Select(m =>
         {
-            var hash = AstHasher.Hash(m.Sql).Hash ?? "";
+            var hash = ctx.DefinitionHashOf(m.Sql);
             // a copy reads its staging table, which the plan's own transfer step creates: it has no base table to wait for
-            var bases = m.Source.Definition is { IsCopy: true, LocalCopy: false } ? [] : ctx.WithNativeReads(QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName) ?? []);
+            var bases = m.Source.Definition is { IsCopy: true, LocalCopy: false } ? [] : ctx.WithNativeReads(ctx.BaseTablesOf(m.Source, m.Sql));
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
             var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql, m.Source.QueryParameterList(root, ctx.Config)).Model is { } lowered ? lowered.Sql : m.Sql;
             return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList(), Merge(m.Source.ParametersFor(ctx.Config, target), ctx.Lowering.NativeValuesFor(m.Sql, target)), ctx.Lowering.NativeUsesFor(m.Sql));
@@ -181,7 +181,7 @@ internal sealed class PlanningSession
         DbDataBuild.State.TrackingScope? trackingScope = trackingResolution.Target is { } ts ? new DbDataBuild.State.TrackingScope(ts.Engine, ts.Schema, target) : null;
 
         // the routines native models list under `track_definition`, against the last record in the tracking tables
-        var watched = NativeDefinitions.InPlay(ctx, mine.Select(m => (m.Source.Definition, m.Sql)), target);
+        var watched = NativeDefinitions.InPlay(ctx, mine.Select(m => (m.Source, m.Sql)), target);
         if (watched.Count > 0)
         {
             var definitionFindings = new List<Diagnostic>();

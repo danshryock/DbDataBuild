@@ -26,12 +26,12 @@ internal static class SampleCommand
         var all = ctx.Project.Sources.Select(s =>
         {
             var sql = s.ReadQueryWithValues(projectRoot, ctx.Config, ctx.TargetsOf(s.Definition)[0]);
-            var upstream = QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
+            var upstream = ctx.BaseTablesOf(s, sql).ToList();
             return new SampleModel(s.Definition.Name, s.Definition.Columns, sql, upstream);
         }).ToList();
 
         SampleResult result;
-        try { result = SampleRun.Run(ctx.Project.AllDescriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir, SeedLoader.Load(projectRoot), scale)); }
+        try { result = SampleRun.Run(ctx.Project.AllDescriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir, SeedLoader.Load(projectRoot), scale, ctx.Project.Macros.PreludeFor(all.Select(m => m.Sql)))); }
         catch (SampleException ex) { error.WriteLine(ex.Message); return CliApp.ExitFindings; }
 
         var tables = result.Tables.Where(t => t.Kind == "model" || showSources || t.Error != null).ToList();

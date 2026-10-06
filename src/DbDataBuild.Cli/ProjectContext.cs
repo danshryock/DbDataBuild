@@ -1,5 +1,6 @@
 using DbDataBuild.Core;
 using DbDataBuild.Models;
+using DbDataBuild.Sql.Analysis;
 using DbDataBuild.Sql.Matrix;
 using DbDataBuild.Targets.Rendering;
 
@@ -30,7 +31,7 @@ internal sealed class ProjectContext
         var matrix = MatrixLoader.LoadEmbedded(matrixDiags);
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
         var linter = new MatrixLinter(matrix);
-        return new ProjectContext { Root = root, Project = project, Config = config, Matrix = matrix, Linter = linter, Renderer = new LoadRenderer(matrix, linter, config), Diagnostics = diags, Lowering = new ModelLowering(project.Models, project.AllDescriptors, config) };
+        return new ProjectContext { Root = root, Project = project, Config = config, Matrix = matrix, Linter = linter, Renderer = new LoadRenderer(matrix, linter, config), Diagnostics = diags, Lowering = new ModelLowering(project.Models, project.AllDescriptors, config, project.Macros) };
     }
 
     /// <summary>
@@ -68,6 +69,45 @@ internal sealed class ProjectContext
         var use = native == null ? null : NativeInline.Prepare(native, Config);
         return connections.Select(c => new DbDataBuild.Planning.CopyOrigin(c, Config.EngineOf(c) ?? c, model.From, Value(c), null, use, native == null ? null : NativeInline.Values(native, use!, Config, c))).ToList();
     }
+
+    /// <summary>
+    /// The tables a model's query reads. The names in its text, and, when it calls a macro of the project, the tables of the bound plan (DuckDB has expanded the macro by then, so a table that is only
+    /// an argument, `snapshot_at('snap.orders', ...)`, is there). The macro's own name is not a table.
+    /// </summary>
+    public IReadOnlyList<string> BaseTablesOf(ModelSource source, string sql)
+    {
+        var macros = Project.Macros;
+        var named = (QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName) ?? []).ToList();
+        var (called, mentioned) = macros.ReachedBy(sql);
+        if (called.Count == 0 && mentioned.Count == 0) return named;
+        var scanned = Lowering.TablesRead(source, sql, source.QueryParameterList(Root, Config)) ?? [];
+        return named.Where(n => !called.Contains(n, StringComparer.OrdinalIgnoreCase)).Concat(scanned).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>What binding a query that calls macros needs (null for one that does not): the macros it reaches and the tables its bound plan scans.</summary>
+    public DbDataBuild.Define.MacroSupport? MacroSupportFor(ModelSource source, string sql)
+    {
+        var (called, mentioned) = Project.Macros.ReachedBy(sql);
+        if (called.Count == 0 && mentioned.Count == 0) return null;
+        var scanned = Lowering.TablesRead(source, sql, source.QueryParameterList(Root, Config)) ?? [];
+        return new DbDataBuild.Define.MacroSupport(Project.Macros.PreludeFor([sql]), scanned, called);
+    }
+
+    /// <summary>
+    /// The hash that says whether a model's definition changed: the hash of its query's syntax, and, for a query that reaches macros, the text of those macros too (the query expands to something else when
+    /// one changes, though its own text did not). A query that calls no macro has the plain hash, unchanged.
+    /// </summary>
+    public string DefinitionHashOf(string sql)
+    {
+        var hash = AstHasher.Hash(sql).Hash ?? "";
+        var macros = Project.Macros.HashOf([sql]);
+        return macros.Length == 0 ? hash : DbDataBuild.State.Hashing.ScriptHash(hash + "\n" + macros);
+    }
+
+    /// <summary>The macros a model's query calls directly, by the name its node has in the graph (`name()`).</summary>
+    public IReadOnlyList<string> MacrosCalledBy(string sql) => Project.Macros.ReachedBy(sql).Macros.Select(MacroNode).ToList();
+
+    public static string MacroNode(string name) => name + "()";
 
     /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>
     public IReadOnlyList<string> TargetsOf(ModelDefinition model) => model.Targets ?? Config.DefaultConnections;

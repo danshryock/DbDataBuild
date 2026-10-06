@@ -20,6 +20,7 @@ internal static class ProjectChecks
         var linter = new MatrixLinter(matrix);
         var renderer = new LoadRenderer(matrix, linter, config);
         var diagnostics = new List<Diagnostic>();
+        if (lowering != null) diagnostics.AddRange(lowering.CheckMacros());
         foreach (var source in sources)
         {
             foreach (var problem in source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config))
@@ -27,6 +28,12 @@ internal static class ProjectChecks
             if (source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config).Count > 0) continue;
             var sql = source.ReadQuery(projectRoot ?? Directory.GetCurrentDirectory(), config);
             var targets = (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
+            if (lowering is { Enabled: false } && lowering.ReachesMacros(sql))
+            {
+                diagnostics.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(source.QueryFile, 0, 0), $"{source.Definition.Name} calls a macro of the project, and a macro is expanded by DuckDB while the query is lowered, which is switched off.",
+                    Fix: "Remove `lowering: { enabled: false }` from dbdatabuild.yml, or do not call macros."));
+                continue;
+            }
             // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
             var body = sql;
             string? bodyFile = null;

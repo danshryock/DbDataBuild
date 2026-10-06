@@ -21,7 +21,7 @@ public sealed record CaseResult(CaseOutcome Outcome, string? Message, int Line, 
 /// </summary>
 public static class ModelTestRunner
 {
-    public static CaseResult Run(string modelName, IReadOnlyList<ColumnDefinition> declared, string sql, IReadOnlyList<UpstreamTable> upstream, ModelTestCase test, int keep)
+    public static CaseResult Run(string modelName, IReadOnlyList<ColumnDefinition> declared, string sql, IReadOnlyList<UpstreamTable> upstream, ModelTestCase test, int keep, DbDataBuild.Core.DuckPrelude? macros = null)
     {
         CaseResult Error(string message, int line = 0) => new(CaseOutcome.Error, message, line > 0 ? line : test.Line, [], [], 0);
 
@@ -45,6 +45,7 @@ public static class ModelTestRunner
         try
         {
             foreach (var setting in new[] { "SET autoinstall_known_extensions = false", "SET autoload_known_extensions = false", "SET enable_external_access = false" }) Exec(db, setting);
+            foreach (var statement in (macros?.Schemas ?? []).Concat(macros?.Types ?? [])) Exec(db, statement);
 
             foreach (var u in upstream)
             {
@@ -55,6 +56,7 @@ public static class ModelTestRunner
                     Insert(db, $"{Q(schema)}.{Q(table)}", u.Columns, given.Rows);
             }
 
+            foreach (var statement in macros?.Macros ?? []) Exec(db, statement);
             Exec(db, $"CREATE TABLE result AS {sql.Trim().TrimEnd(';').TrimEnd()}");
             var actualNames = new List<string>();
             using (var d = db.CreateCommand())

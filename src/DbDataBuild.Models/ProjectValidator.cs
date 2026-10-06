@@ -44,8 +44,11 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
 public sealed record SettingOrigin(string Path, string File, int Line, string Value);
 
 public sealed record ProjectValidationResult(
-    IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<SourceDescriptor>? SourceDescriptors = null)
+    IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<SourceDescriptor>? SourceDescriptors = null, MacroLibrary? MacroFiles = null)
 {
+    /// <summary>The macros and types of the project (`macros/`), for every binding of a model's query.</summary>
+    public MacroLibrary Macros => MacroFiles ?? MacroLibrary.Empty;
+
     /// <summary>The mapped models of the project, as files (native models are listed apart).</summary>
     public IReadOnlyList<SourceDescriptor> Descriptors => (SourceDescriptors ?? []).Where(d => !d.IsGenerated && !d.IsNative).ToList();
 
@@ -77,6 +80,7 @@ public static class ProjectValidator
         var connections = effectiveConfig.Connections.Keys.ToHashSet(StringComparer.Ordinal);
         var models = new List<ModelSource>();
         var descriptors = new List<SourceDescriptor>();
+        var macros = MacroLibrary.Load(projectRoot, diags);
         if (Directory.Exists(Path.Combine(projectRoot, RetiredSourcesDir)))
             diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(RetiredSourcesDir, 0, 0),
                 $"`{RetiredSourcesDir}/` is no longer read: the tables the tool does not build are mapped models now.",
@@ -86,7 +90,7 @@ public static class ProjectValidator
         {
             diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(ModelsDir, 0, 0),
                 $"Directory `{ModelsDir}/` was not found under {projectRoot}.", Fix: $"Create `{ModelsDir}/` or run from the project root."));
-            return new(models, diags, descriptors);
+            return new(models, diags, descriptors, macros);
         }
 
         var files = Directory.EnumerateFiles(modelsRoot, "*.*", SearchOption.AllDirectories)
@@ -177,7 +181,7 @@ public static class ProjectValidator
         }
 
         ResolveCopies(copies, models, descriptors, effectiveConfig, diags, WithParameters);
-        return new(models, diags, descriptors);
+        return new(models, diags, descriptors, macros);
     }
 
     /// <summary>

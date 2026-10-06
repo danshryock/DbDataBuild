@@ -12,11 +12,14 @@ internal static class ProjectGraph
         foreach (var m in ctx.Project.Sources)
         {
             var sql = m.ReadQuery(ctx.Root, ctx.Config);
-            foreach (var t in QueryAnalyzer.Analyze(sql).Facts?.BaseTables ?? []) edges.Add((m.Definition.Name, t.QualifiedName));
+            foreach (var t in ctx.BaseTablesOf(m, sql)) edges.Add((m.Definition.Name, t));
+            foreach (var macro in ctx.MacrosCalledBy(sql)) edges.Add((m.Definition.Name, macro));            // the model depends on the macro itself as well as on what it expands to
         }
+        foreach (var macro in ctx.Project.Macros.Definitions.Where(d => !d.IsType))
+            foreach (var callee in macro.Calls) edges.Add((ProjectContext.MacroNode(macro.ShortName), ProjectContext.MacroNode(callee)));
         foreach (var n in ctx.Project.NativeModels)
             foreach (var read in n.Native?.Reads ?? []) edges.Add((n.Name, read));            // a native text is opaque: `reads:` is how it has ancestors
-        return new DependencyGraph(ctx.Project.Sources.Select(s => s.Definition.Name), ctx.Project.AllDescriptors.Select(d => d.Name), edges);
+        return new DependencyGraph(ctx.Project.Sources.Select(s => s.Definition.Name), ctx.Project.AllDescriptors.Select(d => d.Name).Concat(ctx.Project.Macros.Definitions.Where(d => !d.IsType).Select(d => ProjectContext.MacroNode(d.ShortName))), edges);
     }
 
     /// <summary>Which column of which table each output column of a model comes from, with the kind of transformation (direct, expression, aggregation, ...).</summary>

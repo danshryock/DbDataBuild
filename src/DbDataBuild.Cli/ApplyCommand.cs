@@ -43,7 +43,7 @@ internal static class ApplyCommand
         {
             var ctx = ProjectContext.Load(root);
             var names = plan.Steps.Select(s => s.Object).ToHashSet(StringComparer.Ordinal);
-            var uses = NativeDefinitions.InPlay(ctx, ctx.Project.Sources.Where(s => names.Contains(s.Definition.Name)).Select(s => (s.Definition, s.ReadQuery(ctx.Root, ctx.Config))), plan.Connection);
+            var uses = NativeDefinitions.InPlay(ctx, ctx.Project.Sources.Where(s => names.Contains(s.Definition.Name)).Select(s => (s, s.ReadQuery(ctx.Root, ctx.Config))), plan.Connection);
             if (uses.Count == 0) return;
             Task.Run(() => NativeDefinitions.RecordAsync(ctx, uses, scope, read, write, env, "apply-definitions", root, plan.Id, commit)).GetAwaiter().GetResult();
             output.WriteLine($"Routine definitions recorded for {uses.Count} native model use(s).");

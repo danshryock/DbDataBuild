@@ -30,20 +30,21 @@ internal static class GraphCommand
         var levels = graph.Levels();
         var chosen = selected.Select(m => m.Source.Definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var natives = ctx.Project.NativeModels.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+        var macroNodes = ctx.Project.Macros.Definitions.Where(d => !d.IsType).ToDictionary(d => ProjectContext.MacroNode(d.ShortName), StringComparer.OrdinalIgnoreCase);
         var direct = chosen.SelectMany(graph.Reads).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var behindNatives = direct.Where(natives.ContainsKey).SelectMany(graph.Reads).ToList();                // a native model's `reads:` are shown behind it
+        var behindNatives = direct.Where(n => natives.ContainsKey(n) || macroNodes.ContainsKey(n)).SelectMany(graph.Reads).ToList();      // a native model's `reads:` and a macro's callees are shown behind it
         var nodeNames = chosen.Concat(direct).Concat(behindNatives).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => levels.GetValueOrDefault(n)).ThenBy(n => n, StringComparer.Ordinal).ToList();
         var sources = ctx.Project.Descriptors.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
         var byName = ctx.Project.Sources.ToDictionary(s => s.Definition.Name, StringComparer.OrdinalIgnoreCase);
-        string KindOf(string n) => byName.ContainsKey(n) ? "model" : natives.ContainsKey(n) ? "native" : sources.ContainsKey(n) ? "source" : "unknown";
+        string KindOf(string n) => byName.ContainsKey(n) ? "model" : natives.ContainsKey(n) ? "native" : macroNodes.ContainsKey(n) ? "macro" : sources.ContainsKey(n) ? "source" : "unknown";
         var nodes = nodeNames.Select(n => new
         {
             name = n, kind = KindOf(n), level = levels.GetValueOrDefault(n),
-            file = byName.TryGetValue(n, out var m) ? m.QueryFile : natives.TryGetValue(n, out var nd) ? MetadataBuilder.SourceFile(nd) : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
+            file = byName.TryGetValue(n, out var m) ? m.QueryFile : natives.TryGetValue(n, out var nd) ? MetadataBuilder.SourceFile(nd) : macroNodes.TryGetValue(n, out var md) ? md.File : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
             model_kind = byName.TryGetValue(n, out var mk) ? mk.Definition.KindType : null,
             connections = byName.TryGetValue(n, out var mt) ? ctx.TargetsOf(mt.Definition) : (IReadOnlyList<string>)[],
         }).ToList();
-        var edges = chosen.Concat(direct.Where(natives.ContainsKey)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).SelectMany(n => graph.Reads(n).Select(r => (From: r, To: n))).ToList();
+        var edges = chosen.Concat(direct.Where(n => natives.ContainsKey(n) || macroNodes.ContainsKey(n))).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).SelectMany(n => graph.Reads(n).Select(r => (From: r, To: n))).ToList();
 
         // columns: the edges of the chosen models, or the whole project's when one column is followed
         var allColumnEdges = new List<ColumnEdge>();

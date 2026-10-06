@@ -63,7 +63,7 @@ internal static class MetadataBuilder
                 name = s.Definition.Name,
                 kind = s.Definition.KindType,
                 connections = ctx.TargetsOf(s.Definition),
-                definition_hash = AstHasher.Hash(s.ReadQuery(ctx.Root, ctx.Config)).Hash,
+                definition_hash = ctx.DefinitionHashOf(s.ReadQuery(ctx.Root, ctx.Config)),
             }).ToList(),
         };
     }
@@ -149,7 +149,7 @@ internal static class MetadataBuilder
     {
         var def = source.Definition;
         var targets = ctx.TargetsOf(def);
-        var (hash, _) = AstHasher.Hash(sql);
+        var hash = ctx.DefinitionHashOf(sql);
 
         // lineage and inferred nullability, against the declared columns of everything upstream
         var specs = UpstreamSpecs(ctx, def.Name);
@@ -217,7 +217,8 @@ internal static class MetadataBuilder
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             inherited = source.Inherited.Select(o => new { path = o.Path, file = o.File, line = o.Line, value = o.Value }).ToList(),
             definition_hash = hash,
-            upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : ctx.Project.NativeModels.Any(n => string.Equals(n.Name, b.QualifiedName, StringComparison.OrdinalIgnoreCase)) ? "native" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
+            upstream = facts == null && ctx.MacrosCalledBy(sql).Count == 0 ? null : ctx.BaseTablesOf(source, sql).Select(n => new { name = n, kind = known.Contains(n) ? "model" : ctx.Project.NativeModels.Any(x => string.Equals(x.Name, n, StringComparison.OrdinalIgnoreCase)) ? "native" : sources.Contains(n) ? "source" : "unknown" })
+                .Concat(ctx.MacrosCalledBy(sql).Select(m => new { name = m, kind = "macro" })).ToList(),
             rewrites_off = RewriteCatalog.For(ctx.Config, def).Disabled.Order(StringComparer.Ordinal).ToList(),
             lowered = lowered == null ? null : new
             {

@@ -31,7 +31,7 @@ internal static class MetadataCommand
         output.WriteLine($"{"model",-32} {"kind",-26} {"connections",-22} columns  definition hash");
         foreach (var m in selected)
         {
-            var hash = DbDataBuild.Sql.Analysis.AstHasher.Hash(m.Sql).Hash ?? "";
+            var hash = ctx.DefinitionHashOf(m.Sql);
             output.WriteLine($"{m.Source.Definition.Name,-32} {m.Source.Definition.KindType,-26} {string.Join(",", ctx.TargetsOf(m.Source.Definition)),-22} {m.Source.Definition.Columns.Count,-8} {hash[..Math.Min(12, hash.Length)]}");
         }
         output.WriteLine($"\n{selected.Count} model(s). Use `--format json` for the full documents.");

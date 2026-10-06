@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using DbDataBuild.Core;
 using DuckDB.NET.Data;
 
 namespace DbDataBuild.Targets.DuckDb;
@@ -6,6 +7,9 @@ namespace DbDataBuild.Targets.DuckDb;
 public sealed record DuckColumn(string Name, string Type, bool Nullable);
 
 public sealed record DuckTable(string Schema, string Name, IReadOnlyList<DuckColumn> Columns);
+
+/// <summary>A statement of a macro file that DuckDB refused.</summary>
+public sealed class PreludeException(string message) : Exception(message);
 
 public sealed record DescribedColumn(string Name, string DuckDbType);
 
@@ -28,7 +32,7 @@ public static partial class QueryDescriber
 
     public static bool IsPlainType(string type) => TypePattern().IsMatch(type.Trim());
 
-    public static DescribeResult Describe(IReadOnlyList<DuckTable> upstream, string sql)
+    public static DescribeResult Describe(IReadOnlyList<DuckTable> upstream, string sql, DuckPrelude? prelude = null)
     {
         foreach (var column in upstream.SelectMany(t => t.Columns).Where(c => !IsPlainType(c.Type)))
             return new(null, $"The declared type `{column.Type}` of column `{column.Name}` is not a plain SQL type name.");
@@ -42,12 +46,7 @@ public static partial class QueryDescriber
             Run(connection, "SET autoload_known_extensions = false");
             Run(connection, "SET enable_external_access = false");
 
-            foreach (var table in upstream)
-            {
-                Run(connection, $"CREATE SCHEMA IF NOT EXISTS {Quote(table.Schema)}");
-                var columns = string.Join(", ", table.Columns.Select(c => $"{Quote(c.Name)} {c.Type.Trim()}{(c.Nullable ? "" : " NOT NULL")}"));
-                Run(connection, $"CREATE TABLE {Quote(table.Schema)}.{Quote(table.Name)} ({columns})");
-            }
+            Build(connection, upstream, prelude);
 
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "DESCRIBE " + sql.Trim().TrimEnd(';').TrimEnd();
@@ -55,6 +54,10 @@ public static partial class QueryDescriber
             var result = new List<DescribedColumn>();
             while (reader.Read()) result.Add(new DescribedColumn(reader.GetString(0), reader.GetString(1)));
             return new(result, null);
+        }
+        catch (PreludeException ex)
+        {
+            return new(null, ex.Message);
         }
         catch (DuckDBException ex)
         {
@@ -67,7 +70,7 @@ public static partial class QueryDescriber
     /// <see cref="Describe"/>. Macros, `*`, PIVOT, `GROUP BY ALL` and implicit casts are already expanded in it. The plan format is DuckDB's own and not a stable API;
     /// <see cref="DuckDbVersion"/> says which engine produced it.
     /// </summary>
-    public static (string? Json, string? Error) SerializePlan(IReadOnlyList<DuckTable> upstream, string sql)
+    public static (string? Json, string? Error) SerializePlan(IReadOnlyList<DuckTable> upstream, string sql, DuckPrelude? prelude = null)
     {
         foreach (var column in upstream.SelectMany(t => t.Columns).Where(c => !IsPlainType(c.Type)))
             return (null, $"The declared type `{column.Type}` of column `{column.Name}` is not a plain SQL type name.");
@@ -79,16 +82,15 @@ public static partial class QueryDescriber
             Run(connection, "SET autoload_known_extensions = false");
             Run(connection, "SET enable_external_access = false");
             PreparePlanConnection(connection);
-            foreach (var table in upstream)
-            {
-                Run(connection, $"CREATE SCHEMA IF NOT EXISTS {Quote(table.Schema)}");
-                var columns = string.Join(", ", table.Columns.Select(c => $"{Quote(c.Name)} {c.Type.Trim()}{(c.Nullable ? "" : " NOT NULL")}"));
-                Run(connection, $"CREATE TABLE {Quote(table.Schema)}.{Quote(table.Name)} ({columns})");
-            }
+            Build(connection, upstream, prelude);
             using var cmd = connection.CreateCommand();
             cmd.CommandText = PlanStatement(sql);
             var json = cmd.ExecuteScalar() as string;
             return json == null ? (null, "DuckDB returned no plan.") : (json, null);
+        }
+        catch (PreludeException ex)
+        {
+            return (null, ex.Message);
         }
         catch (DuckDBException ex)
         {
@@ -102,6 +104,25 @@ public static partial class QueryDescriber
     /// exist in 1.x, so it is set only when present) keeps the older delim-join form, which the lowerer reads for 1.x. DuckDB marks the setting deprecated: when it goes, the
     /// lowering has to read the new shapes (docs/research/duckdb-2.0/README.md).
     /// </summary>
+    /// <summary>Creates the prelude against the upstream schema and says why DuckDB refused it, or null when it was accepted. Nothing is run.</summary>
+    public static string? CheckPrelude(IReadOnlyList<DuckTable> upstream, DuckPrelude prelude)
+    {
+        foreach (var column in upstream.SelectMany(t => t.Columns).Where(c => !IsPlainType(c.Type)))
+            return $"The declared type `{column.Type}` of column `{column.Name}` is not a plain SQL type name.";
+        using var connection = new DuckDBConnection("DataSource=:memory:");
+        connection.Open();
+        try
+        {
+            Run(connection, "SET autoinstall_known_extensions = false");
+            Run(connection, "SET autoload_known_extensions = false");
+            Run(connection, "SET enable_external_access = false");
+            Build(connection, upstream, prelude);
+            return null;
+        }
+        catch (PreludeException ex) { return ex.Message; }
+        catch (DuckDBException ex) { return FirstLine(ex.Message); }
+    }
+
     public static void PreparePlanConnection(DuckDBConnection connection)
     {
         using var probe = connection.CreateCommand();
@@ -124,6 +145,32 @@ public static partial class QueryDescriber
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT version()";
         return (string)cmd.ExecuteScalar()!;
+    }
+
+    /// <summary>
+    /// The empty upstream schema, with the project's macros and types: types first (a declared column may have one), then the tables, then the macros (DuckDB binds the names in a macro when it creates it).
+    /// A statement of a macro file that DuckDB refuses is reported as that, not as a problem of the query.
+    /// </summary>
+    public static void Build(DuckDBConnection connection, IReadOnlyList<DuckTable> upstream, DuckPrelude? prelude)
+    {
+        foreach (var statement in (prelude?.Schemas ?? []).Concat(prelude?.Types ?? [])) RunMacroStatement(connection, statement);
+        foreach (var table in upstream)
+        {
+            Run(connection, $"CREATE SCHEMA IF NOT EXISTS {Quote(table.Schema)}");
+            var columns = string.Join(", ", table.Columns.Select(c => $"{Quote(c.Name)} {c.Type.Trim()}{(c.Nullable ? "" : " NOT NULL")}"));
+            Run(connection, $"CREATE TABLE {Quote(table.Schema)}.{Quote(table.Name)} ({columns})");
+        }
+        foreach (var statement in prelude?.Macros ?? []) RunMacroStatement(connection, statement);
+    }
+
+    private static void RunMacroStatement(DuckDBConnection connection, string statement)
+    {
+        try { Run(connection, statement); }
+        catch (DuckDBException ex)
+        {
+            var head = statement.Trim().Split('\n', 2)[0].Trim();
+            throw new PreludeException($"a macro or type of the project could not be created ({(head.Length > 70 ? head[..70] + "..." : head)}): {FirstLine(ex.Message)}");
+        }
     }
 
     private static void Run(DuckDBConnection connection, string sql)

@@ -16,7 +16,7 @@ internal sealed record LoweredModel(string Sql, LoweredQuery Query, string Artif
 /// The lowering stage (docs/research/duckdb-plan-lowering): DuckDB binds each model query against an empty schema built from the declared columns of everything
 /// else in the project, and the bound plan becomes one explicit query that the matrix lint and polyglot then work on. A query that cannot be lowered is DDB-324.
 /// </summary>
-internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IReadOnlyList<SourceDescriptor> descriptors, ProjectConfig config)
+internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IReadOnlyList<SourceDescriptor> descriptors, ProjectConfig config, MacroLibrary? macros = null)
 {
     private readonly Dictionary<string, (LoweredModel? Model, Diagnostic? Error)> cache = new(StringComparer.Ordinal);
     private string? duckDbVersion;
@@ -53,6 +53,46 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         return values;
     }
 
+    /// <summary>What a query reads after DuckDB has expanded its macros: the tables of the bound plan. Null when the query cannot be lowered (the caller falls back to the names in its text).</summary>
+    public IReadOnlyList<string>? TablesRead(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters)
+    {
+        if (!Enabled) return null;
+        var (lowered, _) = Lower(source, authorSql, parameters);
+        return lowered?.Query.Tables;
+    }
+
+    /// <summary>
+    /// Each macro and type of the project created on its own (with what it calls) against the declared tables, as a binding of a query would: a warning for one DuckDB refuses (a name it mentions that no
+    /// model declares, a type that is missing). A query that reaches it gets the error itself when it is lowered; one that does not is not affected, since only what a query reaches is ever created.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> CheckMacros()
+    {
+        var library = macros ?? MacroLibrary.Empty;
+        var found = new List<Diagnostic>();
+        if (library.IsEmpty) return found;
+        var upstream = models.Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns))).Select(ToTable).ToList();
+        foreach (var d in library.Definitions)
+        {
+            if (QueryDescriber.CheckPrelude(upstream, library.PreludeFor([d.Sql])) is { } why)
+                found.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(d.File, d.Line, 0), $"`{d.Name}` could not be created: {why}.",
+                    Fix: "A macro that names a table or type directly needs it to be declared; one that takes its table as a parameter (`query_table(tbl)`) needs nothing. Declare what it names or pass the name in.") with { SeverityOverride = Severity.Warning });
+        }
+        return found;
+    }
+
+    private static DuckTable ToTable((string Name, IReadOnlyList<ColumnDefinition> Columns) u)
+    {
+        var i = u.Name.LastIndexOf('.');
+        return new DuckTable(i < 0 ? "main" : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new DuckColumn(c.Name, c.Type, c.Nullable)).ToList());
+    }
+
+    /// <summary>True when a query calls a macro (or mentions a type) of the project.</summary>
+    public bool ReachesMacros(string sql)
+    {
+        var (called, mentioned) = (macros ?? MacroLibrary.Empty).ReachedBy(sql);
+        return called.Count + mentioned.Count > 0;
+    }
+
     public static string ArtifactPathFor(string model) => $"lowered/{model}/lowered.sql";
 
     /// <param name="parameters">The parameters the query uses as values (their markers are in <paramref name="authorSql"/>); the committed artifact shows them as the references they stand for.</param>
@@ -76,13 +116,14 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
             }).ToList();
 
         var policy = RewriteCatalog.For(config, source.Definition);
-        var (json, error) = QueryDescriber.SerializePlan(upstream, authorSql);
+        var prelude = (macros ?? MacroLibrary.Empty).PreludeFor([authorSql]);
+        var (json, error) = QueryDescriber.SerializePlan(upstream, authorSql, prelude);
         if (json == null) return (null, Fail(error ?? "DuckDB returned no plan"));
         LoweredQuery query;
         try
         {
             PlanLowerer.ThrowIfError(json);                                        // DuckDB's own parse and bind errors first
-            var described = QueryDescriber.Describe(upstream, authorSql);
+            var described = QueryDescriber.Describe(upstream, authorSql, prelude);
             if (!described.Ok) return (null, Fail(described.Error ?? "DuckDB could not describe the query"));
             query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf, policy);
         }

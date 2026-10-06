@@ -11,7 +11,11 @@ public sealed record LoweredColumn(string Name, string DuckDbType);
 /// <param name="Sql">One readable query in DuckDB's dialect: explicit columns, explicit casts, no macros, `*`, PIVOT or `GROUP BY ALL`.</param>
 /// <param name="Columns">The output columns and the types DuckDB resolved for them.</param>
 /// <param name="Rules">The type-pinning rules that changed the text, by name (for reports and tests).</param>
-public sealed record LoweredQuery(string Sql, IReadOnlyList<LoweredColumn> Columns, IReadOnlyList<string> Rules);
+public sealed record LoweredQuery(string Sql, IReadOnlyList<LoweredColumn> Columns, IReadOnlyList<string> Rules)
+{
+    /// <summary>The tables the bound plan scans, by the name a query uses (`schema.table`): what the query reads once macros, `*` and the rest are expanded.</summary>
+    public IReadOnlyList<string> Tables { get; init; } = [];
+}
 
 /// <summary>The query cannot be lowered. The message says what in the plan has no lowering yet; nothing is guessed (DESIGN.md: no silent fallbacks).</summary>
 public sealed class LoweringException(string reason, string kind = "unsupported") : Exception(reason)
@@ -131,7 +135,7 @@ public sealed class PlanLowerer
         if (sql.Contains('\u0003')) throw new LoweringException(MarkUsedAsValue);
         var names = rel.SetOp != null ? rel.SetOpNames! : rel.Aliases();
         var columns = names.Select((n, i) => new LoweredColumn(n, rel.Sel.Count > i ? rel.Sel[i].Type ?? "UNKNOWN" : "UNKNOWN")).ToList();
-        return new LoweredQuery(sql, columns, lowerer.rules.Distinct().Order(StringComparer.Ordinal).ToList());
+        return new LoweredQuery(sql, columns, lowerer.rules.Distinct().Order(StringComparer.Ordinal).ToList()) { Tables = lowerer.aliasTables.Values.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList() };
     }
 
     private readonly List<(string Name, string Sql)> ctesInOrder = [];
@@ -226,6 +230,9 @@ public sealed class PlanLowerer
             case "CONJUNCTION_OR": return "(" + string.Join(" OR ", Arr(e, "children").Select(c => Expr(c, outs))) + ")";
             case "CASE_EXPR":
             {
+                // a branch chosen by a condition that is constant (a macro's `CASE WHEN col IS NULL ...` over a column name or NULL given as an argument) is the query for that argument: only the
+                // chosen branch is written, so nothing is left for the engine to decide
+                if (FoldConstantCase(e, outs) is { } folded) return folded;
                 var sb = new StringBuilder("CASE ");
                 var checks = Arr(e, "case_checks").ToList();
                 foreach (var c in checks) sb.Append($"WHEN {Expr(c.GetProperty("when_expr"), outs)} THEN {Expr(c.GetProperty("then_expr"), outs)} ");
@@ -240,6 +247,88 @@ public sealed class PlanLowerer
         if (Comparisons.TryGetValue(t, out var op)) return $"({Expr(e.GetProperty("left"), outs)} {op} {Expr(e.GetProperty("right"), outs)})";
         if (t.StartsWith("WINDOW_", StringComparison.Ordinal)) return Window(e, outs);
         throw new LoweringException($"expression kind {t}");
+    }
+
+    /// <summary>
+    /// `CASE` whose conditions are known when the query is written: the branches that cannot be taken are dropped, and when the first one that can be is certain, it is the result. Null when a condition is
+    /// not constant (the CASE is written as it is). A constant is a literal, or a cast of one, tested with IS [NOT] NULL, a boolean literal, or a NOT of one of those.
+    /// </summary>
+    private string? FoldConstantCase(JsonElement e, IReadOnlyList<string> outs)
+    {
+        var checks = Arr(e, "case_checks").ToList();
+        var kept = new List<JsonElement>();
+        foreach (var c in checks)
+        {
+            var truth = ConstantTruth(c.GetProperty("when_expr"));
+            if (truth == null) kept.Add(c);
+            else if (truth == true)
+            {
+                if (kept.Count == 0) return Expr(c.GetProperty("then_expr"), outs);
+                // earlier conditions are not constant: this branch is the ELSE
+                var sb = new StringBuilder("CASE ");
+                foreach (var k in kept) sb.Append($"WHEN {Expr(k.GetProperty("when_expr"), outs)} THEN {Expr(k.GetProperty("then_expr"), outs)} ");
+                return sb.Append($"ELSE {Expr(c.GetProperty("then_expr"), outs)} END").ToString();
+            }
+        }
+        if (kept.Count == checks.Count) return null;                                   // nothing folded
+        if (kept.Count == 0) return e.TryGetProperty("else_expr", out var only) ? Expr(only, outs) : null;
+        var text = new StringBuilder("CASE ");
+        foreach (var k in kept) text.Append($"WHEN {Expr(k.GetProperty("when_expr"), outs)} THEN {Expr(k.GetProperty("then_expr"), outs)} ");
+        if (e.TryGetProperty("else_expr", out var el)) text.Append($"ELSE {Expr(el, outs)} ");
+        return text.Append("END").ToString();
+    }
+
+    /// <summary>The expression a CASE with constant conditions comes to (the branch that is taken), or null when it does not come to one.</summary>
+    private static JsonElement? ChosenBranch(JsonElement e)
+    {
+        foreach (var c in Arr(e, "case_checks"))
+        {
+            var truth = ConstantTruth(c.GetProperty("when_expr"));
+            if (truth == null) return null;
+            if (truth == true) return c.GetProperty("then_expr");
+        }
+        return e.TryGetProperty("else_expr", out var el) ? el : null;
+    }
+
+    private static readonly HashSet<string> Volatile = new(StringComparer.OrdinalIgnoreCase) { "random", "uuid", "gen_random_uuid", "nextval", "currval", "setseed" };
+
+    /// <summary>True when the value of the expression depends on no column: only literals, functions of those that are not volatile, and the items of the child that are themselves like that.</summary>
+    private static bool IsColumnFree(JsonElement e, IReadOnlyList<Item> childItems)
+    {
+        switch (Str(e, "type"))
+        {
+            case "BOUND_REF": return e.GetProperty("index").GetInt32() is var i && i < childItems.Count && childItems[i].Const;
+            case "VALUE_CONSTANT": return true;
+            case "OPERATOR_CAST": return IsColumnFree(e.GetProperty("child"), childItems);
+            case "CASE_EXPR": return ChosenBranch(e) is { } chosen && IsColumnFree(chosen, childItems);
+            case "BOUND_FUNCTION": return !Volatile.Contains(Str(e, "name") ?? "") && Arr(e, "children").All(c => IsColumnFree(c, childItems));
+            case "OPERATOR_COALESCE" or "OPERATOR_IS_NULL" or "OPERATOR_IS_NOT_NULL" or "OPERATOR_NOT" or "CONJUNCTION_AND" or "CONJUNCTION_OR": return Arr(e, "children").All(c => IsColumnFree(c, childItems));
+            default: return false;
+        }
+    }
+
+    /// <summary>true or false when the condition is a constant of the query, null when it depends on a row.</summary>
+    private static bool? ConstantTruth(JsonElement e)
+    {
+        switch (Str(e, "type"))
+        {
+            case "OPERATOR_IS_NULL" or "OPERATOR_IS_NOT_NULL":
+            {
+                var child = Arr(e, "children").FirstOrDefault();
+                while (child.ValueKind == JsonValueKind.Object && Str(child, "type") == "OPERATOR_CAST") child = child.GetProperty("child");
+                if (child.ValueKind != JsonValueKind.Object || Str(child, "type") != "VALUE_CONSTANT") return null;
+                var isNull = child.GetProperty("value").TryGetProperty("is_null", out var n) && n.ValueKind == JsonValueKind.True;
+                return Str(e, "type") == "OPERATOR_IS_NULL" ? isNull : !isNull;
+            }
+            case "OPERATOR_NOT": return Arr(e, "children").FirstOrDefault() is { ValueKind: JsonValueKind.Object } inner ? !ConstantTruth(inner) : null;
+            case "VALUE_CONSTANT":
+            {
+                var v = e.GetProperty("value");
+                if (v.TryGetProperty("is_null", out var n) && n.ValueKind == JsonValueKind.True) return false;
+                return v.TryGetProperty("type", out var ty) && ty.TryGetProperty("id", out var id) && id.GetString() == "BOOLEAN" && v.TryGetProperty("value", out var b) && b.ValueKind is JsonValueKind.True or JsonValueKind.False ? b.ValueKind == JsonValueKind.True : null;
+            }
+            default: return null;
+        }
     }
 
     private string Cast(JsonElement e, IReadOnlyList<string> outs)
@@ -527,7 +616,8 @@ public sealed class PlanLowerer
     // relations
 
     /// <param name="Outer">The column holds a value of the enclosing query (a correlated reference) or a pass-through of one.</param>
-    private sealed record Item(string Sql, string? Alias, string? Type, bool Outer = false);
+    /// <param name="Const">The value does not depend on any column (a literal, `current_date`, a macro's argument chosen by a constant condition): grouping by it groups nothing, and T-SQL refuses to.</param>
+    private sealed record Item(string Sql, string? Alias, string? Type, bool Outer = false, bool Const = false);
 
     private sealed class Rel
     {
@@ -772,7 +862,7 @@ public sealed class PlanLowerer
                 if (!c.Mergeable()) c = Wrap(c);
                 var outs = c.Outs();
                 var childItems = c.Sel;
-                c.Sel = Arr(p, "expressions").Select(e => new Item(Expr(e, outs), Str(e, "alias"), TypeNameOf(e), IsOuterRef(e, childItems))).ToList();
+                c.Sel = Arr(p, "expressions").Select(e => new Item(Expr(e, outs), Str(e, "alias"), TypeNameOf(e), IsOuterRef(e, childItems), IsColumnFree(e, childItems))).ToList();
                 c.Plain = false;
                 if (c.Sel.Any(s => s.Sql.Contains(" OVER (", StringComparison.Ordinal))) c.HasWindow = true;
                 return c;
@@ -826,13 +916,17 @@ public sealed class PlanLowerer
                 }
                 var outs = c.Outs();
                 var childItems = c.Sel;
-                var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems))).ToList();
-                var aggs = aggregateExprs.Select((a, i) => (Sql: quantileColumns.TryGetValue(i, out var cols) ? Quantile(a, outs, cols.Rank, cols.Count) : Expr(a, outs), Type: TypeNameOf(a), Outer: false)).ToList();
+                var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems), Const: IsColumnFree(g, childItems))).ToList();
+                var aggs = aggregateExprs.Select((a, i) => (Sql: quantileColumns.TryGetValue(i, out var cols) ? Quantile(a, outs, cols.Rank, cols.Count) : Expr(a, outs), Type: TypeNameOf(a), Outer: false, Const: false)).ToList();
                 if (groups.Count == 0 && aggs.Count == 0) throw new LoweringException("an empty aggregate");
                 // a group on a value of the enclosing query is constant for each outer row (DuckDB added it when it decorrelated the subquery), so it is not a GROUP BY any more
                 if (groups.Count > 0 && groups.All(g => g.Outer) && aggs.Count == 0) throw new LoweringException("an aggregate that only groups by correlated values");
-                c.Group = groups.Where(g => !g.Outer).Select(g => g.Sql).ToList();
-                c.Sel = groups.Concat(aggs).Select(x => new Item(x.Sql, null, x.Type, x.Outer)).ToList();
+                // a key that no column determines (the date a macro gave a live table) groups nothing and is not a GROUP BY: T-SQL refuses it. When it was the only key, the aggregate without GROUP BY
+                // always returns a row, so `HAVING count(*) > 0` keeps what GROUP BY did: no row for no input
+                var droppedConstant = groups.Any(g => !g.Outer && g.Const);
+                c.Group = groups.Where(g => !g.Outer && !g.Const).Select(g => g.Sql).ToList();
+                if (droppedConstant && c.Group.Count == 0 && groups.All(g => g.Outer || g.Const) && aggs.Count > 0 && !c.Having.Any(h => h == "count(*) > 0")) c.Having.Add("count(*) > 0");
+                c.Sel = groups.Concat(aggs).Select(x => new Item(x.Sql, null, x.Type, x.Outer, x.Const)).ToList();
                 c.HasAgg = true;
                 c.Plain = false;
                 return c;

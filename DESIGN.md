@@ -333,6 +333,27 @@ operation parameters (`@name`, section 6.6) are bound at run time and are a diff
   `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
 - **Not built**: parameters that change a schema or table **name**, and parameters of other types (boolean, decimal, double).
 
+### 6.5.5 Macros and types (as built; design: this section)
+
+A project's `macros/` folder holds `.sql` files of DuckDB `CREATE MACRO` (scalar, or `AS TABLE`), `CREATE FUNCTION` (DuckDB's other name for it) and `CREATE TYPE` statements, several to a file, separated by `;`.
+Nothing else may be in them (a table, a setting, an extension, a query is refused), so a macro file has no effect of its own. DuckDB expands a macro while it binds a query, so everything downstream of the
+lowering (the support matrix, the transpile, the rendered files, the hashes) sees only what the macro expanded to; **a macro is never run by an engine**. Macros need lowering (they are refused with it off).
+
+- **A name given as an argument becomes the query for that table**: `query_table(tbl)` takes a table (or `schema.table`) as a constant string, `COLUMNS(lambda c: c = col)` takes a column name the same way.
+  A name that does not exist is a bind error, so `validate` finds it offline. Both only accept constants (a literal, or an expression of literals); a name read from a column is refused by DuckDB.
+- **One macro for several tables of the same shape**: a live table and its snapshot are the same macro given a column name (`snapshot_at('snap.orders', 'snap_date')`) or `NULL` (`snapshot_at('live.orders', NULL)`);
+  the macro writes `CASE WHEN col IS NULL THEN current_date ELSE COLUMNS(lambda c: c = coalesce(col, '__none')) END AS as_of_date`. The lowerer **folds a CASE whose conditions are constants** to the branch that is
+  taken, and drops a GROUP BY key that no column determines (T-SQL refuses one; if it was the only key, `HAVING count(*) > 0` keeps what GROUP BY did), so each model's SQL is for its table, with no branch
+  and no UNION left for the engine to choose. DuckDB cannot overload a macro by the kind of its argument, nor switch the structure of a query on it; the constants in an expression are what can be switched.
+- **Loaded on demand, callees first**: DuckDB binds the names in a macro (a table, a type, another macro) when it creates it, so creating every macro up front would fail wherever one names something that is
+  not declared. A binding is given only the macros the queries it binds reach, with what they call, types first, then the declared tables, then the macros. A macro that takes its table as a parameter needs no table
+  to exist. A recursive macro, or a circle of them, is refused (DuckDB could not create it). `validate` creates each macro on its own against the declared tables and warns about one DuckDB refuses; a model
+  that does not reach it is unaffected.
+- **Dependencies**: a model that calls a macro depends on the macro (a `name()` node of kind `macro` in `graph` and `metadata`'s `upstream`, with macro to macro edges) and on the tables of the bound plan, which are
+  there once DuckDB has expanded it (so a table that is only an argument is a dependency of the model, and is checked for connections like any other). The model's definition hash includes the text of the macros it
+  reaches, so changing a macro changes what every model that reaches it is planned and blocked on. `define`, `sample`, `test` and the planner use the same tables and macros.
+- **Types** (`CREATE TYPE ... AS ENUM`) load in the same place, before the tables. They are DuckDB's, for macros and for readability; the lowerer does not map an enum to an engine type.
+
 ### 6.5.4 Native models and local copies (as built; design: `docs/research/native-queries.md`)
 
 A **native** model, `kind: {type: native, access: select, query: ...}` (or the text in a `.native.sql` file beside the definition, never both), is a table the **engine computes from its own query**: a

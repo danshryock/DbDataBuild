@@ -25,7 +25,7 @@ internal static class NativeDefinitions
     }
 
     /// <summary>The native models with something to watch that the given models use on <paramref name="target"/>.</summary>
-    public static IReadOnlyList<Use> InPlay(ProjectContext ctx, IEnumerable<(ModelDefinition Definition, string Sql)> models, string target)
+    public static IReadOnlyList<Use> InPlay(ProjectContext ctx, IEnumerable<(ModelSource Source, string Sql)> models, string target)
     {
         var uses = new Dictionary<string, Use>(StringComparer.Ordinal);
         void Add(string? name, string connection)
@@ -34,10 +34,10 @@ internal static class NativeDefinitions
             var use = new Use(native, connection);
             uses[use.Subject] = use;
         }
-        foreach (var (definition, sql) in models)
+        foreach (var (source, sql) in models)
         {
-            foreach (var table in QueryAnalyzer.Analyze(sql).Facts?.BaseTables ?? []) Add(table.QualifiedName, target);
-            foreach (var origin in ctx.OriginsOf(definition, target)) Add(origin.Table, origin.Connection);
+            foreach (var table in ctx.BaseTablesOf(source, sql)) Add(table, target);
+            foreach (var origin in ctx.OriginsOf(source.Definition, target)) Add(origin.Table, origin.Connection);
         }
         return uses.Values.OrderBy(u => u.Subject, StringComparer.Ordinal).ToList();
     }

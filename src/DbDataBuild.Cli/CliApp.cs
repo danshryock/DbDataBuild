@@ -326,7 +326,7 @@ public static class CliApp
         // inheritance is never hidden either: what each model took from a project file above it, and from where
         foreach (var s in result.Sources.Where(s => s.Inherited.Count > 0).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
             output.WriteLine($"Inherited by {s.Definition.Name}: {string.Join(", ", s.Inherited.Select(o => $"{o.Path} = {o.Value} ({o.File}:{o.Line})"))}");
-        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.AllDescriptors, config)));
+        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.AllDescriptors, config, result.Macros)));
         if (!diagnostics.Any(d => d.Severity == Severity.Error)) diagnostics.AddRange(ProjectChecks.Reachability(ProjectContext.Load(projectRoot), null));
 
         foreach (var d in diagnostics) error.Diag(d);

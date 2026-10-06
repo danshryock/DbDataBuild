@@ -2603,6 +2603,7 @@
                   "model",
                   "source",
                   "native",
+                  "macro",
                   "unknown"
                 ]
               },
