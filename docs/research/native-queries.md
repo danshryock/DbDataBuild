@@ -1,6 +1,6 @@
 # Models over a native query or command
 
-Status: design proposal, nothing built. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
+Status: design **agreed** (the owner accepted the five decisions below, and added local copies); build in progress, see `docs/progress/state-and-apply.md`. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
 endpoint, a **mapped** model declares a table that exists, a **copy** moves rows between connections, and a query runs on one connection.
 
 ## What is being asked
@@ -137,11 +137,25 @@ transfer step gets `risk: risky` with the reason `native command`, so a person a
 4. Change feeds: `deleted_when`, `CHANGETABLE` end-to-end test on SQL Server (change tracking enabled on a test table), and the refusal of slot-consuming feeds.
 5. `track_definition`, the TVF-type warning, and `report` showing native models.
 
-## Decisions I need from you
+## Decisions (agreed)
 
-1. **Kind name and shape:** one `native` kind with `access: select | command`, as above, or two kinds (`native` and `command`)? I recommend one kind: the access word carries the rule, and the file layout is the same.
-2. **Commands at all in the first release?** My recommendation is to build step 1 and 2 (selects and table functions, including as copy origins) first and treat commands as step 3 after you have seen them, since
-   they are the only place a read can write.
-3. **Inlining across the same connection:** is "a derived table at render time" acceptable, or do you want native selects to always be landed (a copy to a staging or a view) so a dependent model never contains engine-native text, even by splice?
-4. **Deletes from change feeds:** is `deleted_when` the right shape, or should a change feed be its own copy mode (`mode: changes`) with the operation column named once?
-5. **Where the native text may live:** beside the definition (`.native.sql`) as proposed, or inline in the YAML for short ones?
+1. **One `native` kind** with `access: select | command`.
+2. **Selects and table functions first** (inline, and as a copy origin); commands are step 3, after the first two have been seen.
+3. **Inlining on the same connection is accepted**: a derived table spliced into the reading model's rendered text.
+4. **Change-feed deletes**: `deleted_when` on the copy (as proposed), to be revisited when feeds are built.
+5. **Where the text lives**: either `query:` inline in the YAML (short ones) or a `.native.sql` file beside the definition, never both.
+
+## Local copies (added by the owner): materializing on one connection, without crossing
+
+A copy has so far meant "between connections". It must also work **within** one: `kind: {type: copy, from: erp.open_orders}` on the connection that holds `erp.open_orders`. This is how a native select, a
+table function or (later) a command becomes a real table on its own connection, with indexes, drift and the ordinary strategies, and how any model's rows can be snapshotted locally.
+
+- **A local copy is an ordinary load over a generated query.** No staging table and no transfer step: its query is `SELECT <the origin's columns> FROM <origin>`, bound by DuckDB against the declared columns
+  like any model, lowered, rendered and, when the origin is native, inlined. Everything else is the existing machinery (`full_replace`, indexes, drift, the plan, tracking).
+- **Local or remote is decided by the connections**, not by a setting: a copy whose every connection is the origin's is local; one with none of them is remote (a transfer); a mix is refused with the reason
+  (a copy has one meaning per run).
+- **Local copies are full replaces**: `slice`, `unique_key` and `watermark` are refused on them for now (an incremental local materialization is an incremental model over the origin, which already exists). The
+  refusal says so.
+- **A command origin** (`access: command`) cannot be read by a query, so it cannot be a *local* copy origin in the first release: running a command to fill a table on its own connection is a write-side
+  execution (`INSERT ... EXEC`) with the write login, and is designed with step 3, not before.
+
