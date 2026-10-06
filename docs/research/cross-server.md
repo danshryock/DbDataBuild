@@ -1,17 +1,16 @@
 # Running queries on one server and writing the results to another
 
-Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`), and the owner's direction (entry 63). Nothing in the tool changes yet. The aim is to support these
-scenarios; this note says what each needs, what was measured, and how to build it in steps. **Read "Direction" first: it supersedes the order and parts of the design further down.**
+Status: investigation, with experiments on real engines (entry 62 of `docs/progress/state-and-apply.md`), and the design the owner and I settled on (entries 63 and 64). Nothing in the tool
+changes yet. The aim is to support these scenarios. Sections: the direction, what the code has, what was measured, the scenarios, then the **terms and design** (from "Terms" down), which is the current
+proposal; where the scenario table below speaks of links or DuckDB, the direction above already ruled them out.
 
 ## Direction (the owner's decisions)
 
-- **No linked servers or foreign servers** (steps A and B below are out): privileged, server-to-server, credentials on the server, and they differ per engine.
-- **No DuckDB in the middle** as a load path.
-- **The tool moves the data**: read on a source connection, bulk write on a target connection, through the gate (step D).
-- **Same-server cross-database is not a feature**: views or synonyms solve it outside the tool.
-- **Generalised connections** (step C), and above them a unit for composing flows, here called a **domain** (draft below).
-
-The order becomes: connections, then `transfer`, then domains and the edges between them, then compute at the source.
+- **No linked servers or foreign servers.** **No DuckDB in the middle** as a load path. **Same-server cross-database queries are not a feature** (views or synonyms, outside the tool).
+- **The tool moves the data**: read on one connection, bulk write on another, through the gate.
+- **A clean break**: no compatibility with the current layout; the schemas, keys and directories below replace today's.
+- **One root, no grouping above it**: the **project** stays the unit; there is no domain, context or workspace layer.
+- **Reusable, general terms** over special ones (a fan-in is not a special feature; see Attributes).
 
 ## Words
 
@@ -53,6 +52,8 @@ Reproduce: `scripts/test-engines.sh up mssql mssql2025 pg`; a linked server is `
 
 ## The scenarios, and what each needs
 
+Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cross-database, DuckDB in the middle). 4 and 5 are what the design below builds (5 as an ordinary model on the origin connection, then a copy); 7 stays a documentation note.
+
 | # | Scenario | Mechanism | Fit today | What it needs |
 |---|---|---|---|---|
 | 1 | Sources in another database or schema of the same server | the engine's own cross-database name | none (the names are refused) | a source location (`database`), a physical name at render time; SQL Server only (PostgreSQL needs 2) |
@@ -63,131 +64,129 @@ Reproduce: `scripts/test-engines.sh up mssql mssql2025 pg`; a linked server is `
 | 6 | DuckDB computes, reading sources through its extensions | DuckDB attaches the sources, the tool writes the result | partly (`sample` runs DuckDB; `load-seeds` writes DuckDB rows through the gate) | not recommended as the main path (below) |
 | 7 | Read replica for sources, primary for the result | two logins | already two logins, but plan, drift and `diff` read the *target's own* state through the read login | not a data-movement feature; a replica as the read login makes drift checks lag; say so in the documentation |
 
-## Design
+## Terms
 
-**1. Named connections.** `connections:` in `dbdatabuild.yml` gives names to connections and says which engine each is; `sqlserver`, `postgres` and `fabric` stay as implicit connections of
-themselves, so every existing project is unchanged:
+| Term | Means |
+|---|---|
+| **Connection** | A named database endpoint: an engine and a login (`DBDATABUILD_<NAME>_<READ\|WRITE>`). Data lives only on connections. A connection with no write login can only be read. |
+| **Engine** | The SQL dialect of a connection (`sqlserver`, `postgres`, `fabric`). The matrix, the rules and the type mapping are per engine. This is what the old word "target" mostly meant. |
+| **Model** | One named thing in the project, with declared columns, that lives on a connection. Every kind below is a model. |
+| **Kinds that build from SQL** | `view`, `full`, `incremental_by_unique_key`, `incremental_by_time_range`, as today: SQL in DuckDB's dialect, run on the model's connection. |
+| **`mapped`** | A model with no body: it **maps** an existing physical table into the project's namespace. The tool never creates or alters it; it declares the columns, optionally the physical name, keys, indexes and tests, and the live table is checked against it. What the old "source" was. A `sources/` folder is only a place to keep them. |
+| **`copy`** | A model with no SQL: `from: <model>`, the connection it lives on, and a strategy. Its columns come from the model it copies. The copy is always persisted (a table). |
+| **Project** | The folder with `dbdatabuild.yml`: its models, tests, rendered files and plans. Unchanged. |
+| **Attribute** | A key and a value on a connection (`store_id: "017"`, `region: eu`), used where a value differs per connection (below). Not "parameter": that word already means the runtime parameters of a load operation. |
+| **Connection group** | A named set of connections that run the same application (below). |
+
+**The rule behind all of it: a query runs against one connection.** SQL in a model reads only models that live on the model's own connection; a reference to a model on another connection is refused,
+by name, with the fix (copy it first). Moving data between connections is always an explicit `copy`. That removes the question of joins across servers and of "sources times targets": a copy names
+one origin and one connection, and nothing flows that is not written. A transformation happens at the origin (an ordinary model on that connection, then copied) or at the destination (an ordinary
+model reading the copy); a copy itself has no SQL.
+
+**Landing raw data and sending on a result are both copies.** Whether the origin is a `mapped` table or a model the project builds is a property of the origin. Fan-out is several copies of the same model, one per destination connection.
+
+**`connections` on a model** replaces `targets`. On a built model it still means "built natively on each of these" (portability: the engine's rules apply, results can differ by engine). On a `copy` it
+means "copied to each": nothing is computed, so the data is the same on all. (One copy per destination is also fine and is the explicit form.)
+
+## Configuration and inheritance
+
+Every setting that is a default for models can be given at three levels, **nearest wins**: `dbdatabuild.yml` at the root (`defaults:`), `_dbdatabuild.yml` in any folder (applies to every model beneath it),
+and the model's own file.
+
+```
+dbdatabuild.yml                       # connections, defaults, policy, string_semantics, rewrites
+models/
+  crm/
+    _dbdatabuild.yml                  # connection: crm_pg ; kind: mapped ; schema: crm
+    customers.yml                     # a mapped model: columns, grain, physical name
+    orders.yml
+  warehouse/
+    _dbdatabuild.yml                  # connection: warehouse ; schema: raw
+    customers.yml                     # kind: copy ; from: crm.customers ; strategy: full_replace
+    marts/
+      _dbdatabuild.yml                # kind: full ; rewrites: { fidelity: native }
+      dim_customer.sql
+      dim_customer.yml
+```
+
+- **Merge rules** (one table, tested): a scalar is replaced; a map is merged by key; a list is replaced, unless the key ends in `+` (`tags+:`), which appends.
+- **Inheritable**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `tags`, `hooks` (additive by default). **Not inheritable**: `name`, `columns`, `grain`, `from`.
+- **Provenance is never hidden**: `validate` prints each model's effective settings and the file each came from (the project already prints its effective configuration), and the metadata JSON carries the same.
+  Action at a distance is the risk of any inheritance; this is the control.
+- **Names**: the `schema` part of a model's name is the `schema:` setting (inheritable; by default the first folder under `models/`), so folders can be organised by system, layer or anything else.
+  Two models cannot have one name; a mapped model's physical name may differ from its project name (`physical: {schema: dbo, table: CUSTOMER_MST}`).
+- The underscore file is not a model: the loader and the orphan check skip it.
+
+## Fan-in: one application, many deployments
+
+A **connection group** names the connections that run the same application, with each member's **attributes**:
 
 ```yaml
 connections:
-  crm:       { engine: postgres }     # DBDATABUILD_CRM_READ; no write login: a source-only connection
-  warehouse: { engine: sqlserver }    # DBDATABUILD_WAREHOUSE_READ and _WRITE
-default_targets: [warehouse]
+  store_017: { engine: postgres, attributes: { store_id: "017", region: eu } }
+  store_018: { engine: postgres, attributes: { store_id: "018", region: eu } }
+  warehouse: { engine: sqlserver }
+groups:
+  stores: [store_017, store_018]            # or a pattern: store_*
 ```
 
-The login variable is already `DBDATABUILD_<NAME>_<READ|WRITE>`, so it is the same rule with a longer list of names. The matrix stays per **engine**. A connection with no write login can be read and
-never written, and the gate refuses it (the existing refusal, not a new one).
+```yaml
+# models/stores/orders.yml          a mapped model on a group: the same table exists on every member
+connection: stores
+kind: mapped
+columns: [ ... ]
+# models/warehouse/orders_all.yml   one copy per member, into one table
+connection: warehouse
+kind: copy
+from: stores.orders
+strategy: full_replace
+slice: { column: store_id, value: "${store_id}" }     # which rows are this member's; the column is added if the data does not have it
+```
 
-**2. Where a source lives.** A source descriptor gets `connection:` (default: the model's own target). With two kinds of access, chosen per source or per connection pair:
+- One declaration and one dimension of expansion (the group's members) into one destination table: the only product there is, and the intended one.
+- **Attributes are general**: a value per connection that a copy can add as a column (`add: { region: "${region}" }`), use as the slice of a replacement, and, later, any other place a setting differs per connection
+  (a schema name, a hook argument). **No new column is dictated**: if the systems already carry a distinguishing column (a site code in the data), the slice names it and the attribute only says
+  which value is this member's; if they do not, the slice adds one from an attribute. The destination key must include the slice column (`validate` checks).
+- **Isolation**: a member's run replaces only its slice (delete where the slice column equals the value, then insert), so one failing or offline member leaves the others' data untouched. The check
+  that every row of a member's extract carries that member's value is made before the swap: a member cannot write into another's slice.
+- **Version skew**: `plan` compares each member's live table with the shared declaration and reports every member that differs by name; `on_mismatch: fail | skip` (default `fail`) decides, never silently.
+  Each member's last good run is recorded in the tracking tables, and a skipped or failed member shows in `report`.
+- Credentials are per connection (`DBDATABUILD_STORE_017_READ`), which is fine for tens of members; hundreds is a later problem.
 
-- **`link`** (scenarios 1, 2): the rendered script reads the remote table by a physical name the project gives (`physical: {sqlserver: "[SRC].[src].[dbo].[orders]"}`, or a PostgreSQL foreign
-  schema). The lowering maps the logical name (`crm.orders`) to the physical one at render time; the tool never creates a linked server or a foreign server. `plan` and `validate` check that the name
-  answers (`SELECT 1 FROM <name> WHERE 1 = 0` through the read login) and report a missing or unreachable link by name. A matrix row says what holds: SQL Server pull works in a transaction, push does
-  not; PostgreSQL both; Fabric unverified. Filters on a linked-server table travel poorly (the whole table can cross); the documentation says so and shows `OPENQUERY` as the way to push a filter.
-- **`copy`** (scenarios 4, 5): see 3.
+## Execution (unchanged from the earlier proposal)
 
-**3. A `transfer` step.** The one new mechanism. It runs a query on connection X and lands its rows in a staging table on connection Y, then the **existing load strategies** (`full_replace`,
-`incremental_by_unique_key`, `incremental_by_time_range`) take the staging table into the real one inside a destination transaction, so atomicity, keys, indexes, drift and `ack` are all as today.
-A model gets `kind: {type: transfer, connection: crm}`: its SQL is in DuckDB's dialect over **crm's** source descriptors, it is lowered and rendered for crm's *engine* (compute there), and its
-declared columns decide the destination table (types mapped for the store, as now). A plain copy of a table is `SELECT * FROM crm.public.customers`. Pieces:
+A copy plans as a `transfer` step: the plan records the origin connection, the exact read (hashed like any statement), the staging and destination DDL, and the origin's declared and live shape (a
+changed origin is a stale plan). The rows are read through `ReadSession` on the origin connection, converted **by declared logical type** (not the driver's: Npgsql's `DateOnly`, .NET's 28-digit
+`decimal`; a value that does not fit is an error naming the column), and written to a staging table on the destination through a new gate statement, `GateStatement.BulkCopy`, implemented with
+`SqlBulkCopy` and PostgreSQL's binary `COPY` (190k rows/s measured, against 10k rows/s for the gate's parameterised inserts). The log records the destination, the hash of the read and a row count, never
+values. The swap or merge from staging into the destination table is then the existing strategy (`full_replace`, the incremental ones) inside one destination transaction, with indexes, drift and `ack` as
+today. The read of the origin is one query on one connection (a snapshot where the engine offers one). Staging has a deterministic name, so an interrupted run is run again. `GateInvariantTests` is
+extended to the new statement; there is still no other write path.
 
-- *Plan*: the step records the source connection, the exact query text (hashed like every statement), the staging and destination DDL, and the source tables' shape hashes, so a source that changed
-  is a stale plan. DDL is planned and reviewed as always; the rows move at apply.
-- *Gate*: `GateStatement.BulkCopy` (a data statement), implemented with `SqlBulkCopy` and PostgreSQL's binary `COPY`; the log records the destination table, the hash of the source query and a row
-  count, never a value (`BulkValues` already exists for this). Reads on the source connection go through `ReadSession`; `GateInvariantTests` extends to both. No other write path.
-- *Values*: rows are converted by the **declared** logical type, not the driver's (the `DateOnly` and 28-digit decimal findings), and a value that does not fit is an error naming the column, not a
-  truncation. Text, binary and time zones need an explicit table, as `SourceTypes` has for catalogs.
-- *Consistency*: the destination is atomic (staging, then swap or merge in one transaction); the read of the source is one query on one connection, on a snapshot where the engine offers one
-  (`READ COMMITTED SNAPSHOT`, a repeatable-read transaction on PostgreSQL). Staging has a deterministic name, so an interrupted run is simply run again.
-- *Size*: rows flow through the machine running the tool. For the volumes dbdatabuild is for that is fine (about 190k rows/s measured with bulk APIs), and where it is not, scenario 5 (compute at
-  the source, ship the result) or scenario 2 (the servers talk to each other) is the answer.
+## What the clean break changes
 
-**4. DuckDB in the middle is not the main path** even though it works and is fast: the writes would bypass `MutationGate` (its own writer), it depends on a community extension downloaded at run time
-and pinned to a DuckDB version, and it moves the *inputs* of a query to the client. It stays a possible later `sample --from` for developers with explicit consent (the principle that an agent works
-without data holds), not a load path.
+| Today | Becomes |
+|---|---|
+| `targets:`, `default_targets:` | `connection(s):` on a model; `defaults: { connection: ... }` |
+| target = engine kind; one read and one write login per engine | named connections, each with its engine; `DBDATABUILD_<CONNECTION>_<READ\|WRITE>` |
+| `sources/` directory, source descriptors, `import-sources` | `mapped` models anywhere under `models/`; `import` generates mapped models from a connection's catalog |
+| `--target`, `rendered/<engine>/`, `plans/<engine>/` | `--connection`, `rendered/<connection>/`, `plans/<connection>/` |
+| the matrix per target | the matrix per engine (unchanged), looked up through the connection's engine |
+| name = path under `models/` (`schema.table`) | `schema` from the setting (default: first folder); name unique in the project |
+| `string_semantics`, `rewrites`, `policy` at the project only | defaults that any folder or model can override |
 
-**5. What does not change**: lowering, the rules, the matrix per engine, the plan hash and the approval flow, `MutationGate` as the only writer, the statement log without values, the agent
-seeing no row values.
+Everything that reads "target" in the code, the schemas, the documentation and the skill changes; this is a major version (a new release line), not a patch.
 
 ## Order
 
-| Step | What | Size | Risk |
-|---|---|---|---|
-| A | Same-server other database (SQL Server three-part names): a source location, physical names at render time, a matrix row, a check that the name answers, a real-engine test on SQL Server 2022 and 2025 | small | low: no new execution path |
-| B | `link` sources: linked server and `postgres_fdw` physical names, the transaction note, the same check, real-engine tests (the experiments above, as tests) | small to medium | the setup is the user's; push on SQL Server is refused with the reason |
-| C | Named connections (config, logins, source-only connections), `connection:` on sources, `import-sources --connection` | medium | touches every place that treats target as engine; mostly mechanical, covered by the existing suites |
-| D | `transfer`: `BulkCopy` in the gate (both engines), the step in plan and apply, the model kind, value conversion, staging and swap, source shape in the plan | large | the gate invariant, value fidelity, and what a half-finished run leaves; the biggest test surface (real engines, large rows, nulls, text, dates, decimals up to 38) |
-| E | Compute at the source (`compute` separate from `store`) | medium on top of D | type mapping per engine pair |
+1. **Connections and the rename** (`target` to `connection` and `engine`), model kinds `mapped`, inheritance with `_dbdatabuild.yml` and provenance, `import`. Larger than it sounds: it touches every place that treats a target as an engine. No data movement yet.
+2. **`copy` between two connections**: `BulkCopy` in the gate, the transfer step in plan and apply, value conversion, staging and swap, origin shape in the plan; real-engine tests (SQL Server and PostgreSQL both ways: nulls, text, dates, decimals up to 38, large rows).
+3. **Connection groups, attributes and slices**: fan-in with per-member replacement, version-skew reporting.
+4. **Incremental extraction** (a watermark on the origin read); **compute at the origin** (a model that lives on the origin connection, then copied, already covers it: this is only convenience).
 
-A and B are the smallest steps and give same-engine users most of what they ask for. C and D are the real cross-engine feature. I would not start with D.
+## Still open
 
-## Decisions for the owner
-
-1. **Which scenarios are wanted first.** My guess is 1 and 2 on SQL Server and 4 for PostgreSQL to SQL Server; correct this if the real case is different (for instance results pushed to a PostgreSQL destination from SQL Server sources, which is 4 or 5, not 2).
-2. **May rows pass through the machine that runs the tool?** If not (data residency, volume), only the link scenarios (1, 2, 3) and compute-at-the-source with a link are available.
-3. **Fabric.** Cross-warehouse queries and shortcuts exist, but Fabric has never been run, so nothing here can be promised for it.
-4. **Naming.** `connections:` as above, or `targets:` extended (the section that already carries `version`). The first keeps "target" meaning an engine for the matrix; the second is one concept fewer. I prefer the first.
-5. **Who creates links.** The tool checks them and documents the setup; it should not create linked servers or foreign servers (privileged, hold credentials). Say if a managed `link` step is wanted.
-
-
-## Domains (draft, after the owner's direction)
-
-An idea to test, not a decision. Several self-contained units in one repository, each with its own sources, models and targets, joined only at **edges** where the persisted output of one is the source of
-another.
-
-**Words.** *Connection*: a named endpoint, an engine and a login (`DBDATABUILD_<NAME>_<READ|WRITE>`). *Domain*: a folder with its own models, sources, tests, rendered files and plans, bound to
-connections; the unit of ownership and of planning. *Source*: an inbound table, on a connection. *Target*: a connection where a domain's models are stored (and computed). *Flow*: one explicit pairing
-of a source with a target. *Publish*: an output offered to other domains; the consumer's *import* is a source whose descriptor is generated from the producer's declared columns. (Other names for a
-domain: *context* (domain-driven design: a bounded context), *zone* (lakehouse: landing, curated), *stage* (if the flows are linear), *module*. Not *project*, which already means the whole repository
-here and in dbt, and not *workspace* or *pipeline*, which already mean other things.)
-
-```yaml
-# dbdatabuild.yml at the repository root: the connections, once, and the domains
-connections:
-  crm:       { engine: postgres }       # source-only: no write login is ever read for it
-  erp:       { engine: sqlserver }
-  warehouse: { engine: sqlserver }
-  lake:      { engine: postgres }
-domains:
-  ingest:    { path: domains/ingest }
-  analytics: { path: domains/analytics }
-
-# domains/ingest/domain.yml
-targets: [warehouse]                    # where this domain stores (and computes) its models; the only connection it may write
-sources:
-  crm: { connection: crm }              # tables described under domains/ingest/sources/crm/
-  erp: { connection: erp }
-# domains/ingest/sources/crm/customers.yml
-land: { into: warehouse, as: raw.customers, strategy: full_replace }      # this source goes to this target, nothing implicit
-# domains/ingest/models/marts/dim_customer.yml
-publish: [ { to: lake, as: curated.dim_customer } ]                       # compute once on the target, copy the result to the lake
-
-# domains/analytics/domain.yml
-targets: [lake]
-sources:
-  ingest: { from: domain }              # its sources are what `ingest` publishes: descriptors generated, not written
-```
-
-**Pairing is by declaration, never by product.** A source says where it lands (`land`), a model says where it is copied (`publish`) and where it is computed (`targets`, as today); a connection-level
-default (`lands_in:`) is shorthand for a long list, not a rule. With sources S1, S2 and targets T1, T2 the tool does nothing for S1-T2 until someone writes it. `validate` reports a source that lands
-nowhere and a published model with no consumer as notes.
-
-**Two different "multiple targets".** `targets: [sqlserver, postgres]` on a model means *computed natively on each engine* (portability, the matrix, results that can differ by engine). `publish: [to: lake]`
-means *computed once, then copied*: the data is identical on both sides. The first is what the tool does today; the second is fan-out. Both are needed and they must not be confused.
-
-**An edge is a contract.** A published model is persisted by definition (a table kind; a view cannot cross a connection), its declared columns are the contract, and the consumer's source descriptor is
-generated from them, so `validate` across the repository catches a producer's column change in the consumer **offline**, before any plan. `publish` could be required for any output that crosses a
-domain (a persisted raw copy of a landed source included): that is how raw data fans out and how a consumer is protected from a producer that is mid-rebuild.
-
-**What the draft must still answer** (my reading of the hard parts):
-
-1. *Names.* Models are `schema.table` per project today. A domain gives a third position: DuckDB already parses `catalog.schema.table`, so a domain can be a DuckDB catalog (`ingest.raw.customers`), the offline binder attaches an in-memory catalog per domain, and the lowering (which refuses catalog-qualified names today, DDB-324) learns to map catalog to domain. Physical names on a target must be unique across the domains that write to it: `validate` checks ownership.
-2. *Tracking tables.* One tracking schema per target connection records objects by name; with several domains writing to one connection the records need a domain (a column, or a schema each). A choice with consequences for `report`, `check` and drift.
-3. *Plans and order.* A plan is per domain and target; an edge makes plans depend on each other. The consumer's plan records the producer's published shape (a stale edge is a stale plan), and `run` over several domains orders them; a failed producer stops its consumers. Plans stay individually hashed and individually approved.
-4. *Credentials and least privilege.* Connections are defined once at the root; each domain lists the only connections it may write (`targets`) and may read (`sources`). The environment variable is shared, the permission to use it is not.
-5. *Incremental movement.* The first version copies in full. Incremental extraction (a watermark on the source query) comes after, and an edge between domains can use the producer's own key and time column.
-6. *Partial fan-out.* Publishing to two targets is two independent transfers; one can fail. Each edge's last good run is recorded in the tracking tables, a consumer's plan reads it, and `diff` between the published table and its copy (row counts, key-based differences) is the reconciliation.
-7. *Compatibility.* A repository with no `domains:` is one implicit domain at the root; every command that takes a project works unchanged, and `--domain` selects one otherwise (all by default).
-
-**Order of building**, each step useful alone: (C) connections and source-only connections; (D) `transfer` with the gate's bulk copy, first as `land:` on a source; domains as folders with `--domain`; `publish`
-and generated imports with offline validation across domains; run order and edge status; incremental extraction; compute at the source.
+1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
+2. Attribute syntax in YAML (`${store_id}` as above) and whether attributes may also be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
+3. Whether `mapped` models are checked against the live table at every `plan` (my default: yes, as drift is now) or only by `import --check`.
+4. Names for the commands (`import`, `copy`) and for `slice`.
