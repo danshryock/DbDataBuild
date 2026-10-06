@@ -88,6 +88,10 @@ internal static class ApplyCommand
         }
         else if (!tracking.Explicit)
             error.Diag(new Diagnostic(DiagnosticCatalog.TrackingNotConfigured, new($"connection:{plan.Connection}", 0, 0), $"Nothing is tracked for `{plan.Connection}`: this apply records nothing (no drift baseline, no history, no resume)."));
+        // a plan that runs a native command on a connection that does not allow them (the configuration changed since the plan) is refused, whatever the plan says
+        foreach (var step in plan.Steps.Where(s => s.Transfer is { Command: true }))
+            if (config.Connections.TryGetValue(step.Transfer!.Origin, out var host) && !host.AllowNativeCommands)
+                originMissing.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new($"step:{step.Id}", 0, 0), $"Step {step.Id} runs a native command on `{step.Transfer.Origin}`, which does not allow native commands (`connections.{step.Transfer.Origin}.allow_native_commands`)."));
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());

@@ -346,7 +346,13 @@ connection (the text is that engine's dialect, never lowered or transpiled). The
 - **As a copy origin** the native text becomes the origin read (`SELECT cols FROM (<text>) AS t`), its parameters carried in the transfer step (`transfer.parameters`) and bound on the origin.
 - **Local copies**: a copy whose connections are all the origin's (any model, mapped or native) is an ordinary full-replace load over `SELECT <columns> FROM <origin>`: no staging, no transfer. This is how a
   native select becomes a real table with indexes and drift on its own connection. Mixed (some connections the origin's, some not) is refused; `slice`, `unique_key` and `watermark` are refused on a local copy.
-- **Not built**: `access: command` (a procedure or anything that can only be run), change feeds with deletes (`deleted_when`), `reads:` in the dependency graph (accepted, informational), a plan-time describe
+- **Commands** (`access: command`, `query: EXEC dbo.proc @x = ${project.x}` or `CALL proc(...)` or `SELECT * FROM fn(...)`): a call that returns rows, run and never read. Only a connection with
+  `connections.<name>.allow_native_commands: true` may have one (the read login's permissions are what keep it read-only; PostgreSQL's read session is also read-only). The text is one call (starts with EXEC,
+  EXECUTE, CALL or SELECT, no `;`). A query cannot read it, even on its own connection (DDB-231: copy it). It is only a **copy origin**, and always a **transfer** (staging table, bulk copy), even when the
+  origin is the destination's connection, which is its local-copy form: the call's first result set lands in the model's table, matched to the declared columns by name (extra columns ignored). The call
+  runs on the origin with the read login **inside a transaction that is rolled back**, its parameters bound. The step is **risky** (`--allow-risky`, also for a dry run, which does not run it); `apply`
+  refuses a plan whose origin connection does not allow commands. An incremental copy of a command must pass the bound itself (`@watermark` in the text).
+- **Not built**: change feeds with deletes (`deleted_when`), `reads:` in the dependency graph (accepted, informational), a plan-time describe
   of the native text's result shape (drift), `track_definition`, and a native model in the metadata documents.
 
 ### 6.6 Load operations: paired with targets, committed, parameterized

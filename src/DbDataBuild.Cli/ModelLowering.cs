@@ -33,10 +33,10 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
     /// <summary>The native models a query reads (by lineage of its text), ready to be spliced into the target's text after transpiling.</summary>
     public IReadOnlyList<NativeUse> NativeUsesFor(string sql)
     {
-        if (!descriptors.Any(d => d.IsNative)) return [];
+        if (!descriptors.Any(d => d.IsNative && d.Native!.Access == NativeQuery.Select)) return [];
         var read = QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var result = new List<NativeUse>();
-        foreach (var d in descriptors.Where(d => d.IsNative && read.Contains(d.Name)))
+        foreach (var d in descriptors.Where(d => d.IsNative && d.Native!.Access == NativeQuery.Select && read.Contains(d.Name)))
         {
             if (!nativeUses.TryGetValue(d.Name, out var use)) nativeUses[d.Name] = use = NativeInline.Prepare(d, config);
             result.Add(use);

@@ -585,19 +585,24 @@ public static class Planner
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);
         // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row
         // a native origin is read as its own text (a derived table, with its parameters bound): the engine computes the rows
+        var isCommand = origin.Native is { Access: NativeQuery.Command };
         var from = origin.Native != null ? $"({origin.Native.Text}) AS {originDdl.QuoteIdentifier(originName)}" : originDdl.Qualified(originSchema, originName);
         var read = $"SELECT {string.Join(", ", def.Columns.Where(x => !(def.SliceColumnAdded && string.Equals(x.Name, def.Slice!.Column, StringComparison.OrdinalIgnoreCase))).Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {from}";
+        if (isCommand) read = origin.Native!.Text;      // a command is run as written: it cannot be wrapped in a SELECT
         var nativeParameters = origin.Native == null ? null : origin.Native.Parameters.Select(p => new PlanParameter(p.Placeholder, origin.NativeValues![p.Key].Type, "parameter", origin.NativeValues[p.Key].Value)).ToList();
         var slice = def.Slice != null && origin.SliceValue != null ? new PlanSlice(def.Slice.Column, origin.SliceValue, def.SliceColumnAdded) : null;
         PlanWatermark? watermark = null;
         if (def.Watermark != null && origin.WatermarkValue != null)
         {
-            // an incremental copy reads only the rows at or after the bound (the value is bound by the driver, never written into the text)
-            read += $" WHERE {originDdl.QuoteIdentifier(def.Watermark.Column)} >= @watermark";
+            // an incremental copy reads only the rows at or after the bound (the value is bound by the driver, never written into the text); a command passes `@watermark` to the call itself
+            if (!isCommand) read += $" WHERE {originDdl.QuoteIdentifier(def.Watermark.Column)} >= @watermark";
             watermark = new PlanWatermark(def.Watermark.Column, def.Columns.First(x => string.Equals(x.Name, def.Watermark.Column, StringComparison.OrdinalIgnoreCase)).Type, origin.WatermarkValue);
         }
-        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice, watermark, nativeParameters);
-        return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, [slice == null ? "copy.transfer" : "copy.transfer.slice"], null, [], Transfer: spec);
+        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice, watermark, nativeParameters, isCommand);
+        // a command runs a procedure on the origin, which can write: it needs the person's allowance, however it is read
+        var risk = isCommand ? RiskClass.Risky : RiskClass.Safe;
+        var reasons = isCommand ? new[] { "copy.transfer.command", "native command: the call runs on the origin with the read login, inside a transaction that is rolled back" } : [slice == null ? "copy.transfer" : "copy.transfer.slice"];
+        return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, risk, reasons, null, [], Transfer: spec);
     }
 
     private static bool ParameterFits(ModelContext c, RenderedLoad load, RenderedParameter p, string value, List<Diagnostic> blocks)

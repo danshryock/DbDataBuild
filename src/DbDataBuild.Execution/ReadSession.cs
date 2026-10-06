@@ -65,6 +65,30 @@ public sealed class ReadSession : IAsyncDisposable
         catch { await cmd.DisposeAsync(); throw; }
     }
 
+    /// <summary>
+    /// Runs a **native command** (a call that returns rows: `EXEC proc @x = @p`, `CALL proc(@p)`) on the read login and streams its first result set. It is not a SELECT, so the read guard does not apply; what
+    /// holds it read-only is the login's permissions and the transaction it runs in, which is **rolled back** when the stream is disposed (PostgreSQL's read login is also read-only at the session level).
+    /// Only a connection that allows native commands is asked to (the caller checks).
+    /// </summary>
+    public async Task<RowStream> OpenCommandStreamAsync(string text, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
+    {
+        var transaction = await connection.BeginTransactionAsync(ct);
+        var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = text;
+        cmd.CommandTimeout = 0;
+        foreach (var p in parameters ?? [])
+        {
+            var dp = cmd.CreateParameter();
+            dp.ParameterName = p.Name.StartsWith('@') ? p.Name : "@" + p.Name;
+            dp.DbType = p.Type;
+            dp.Value = p.Value ?? DBNull.Value;
+            cmd.Parameters.Add(dp);
+        }
+        try { return new RowStream(cmd, await cmd.ExecuteReaderAsync(System.Data.CommandBehavior.SequentialAccess, ct), transaction); }
+        catch { await cmd.DisposeAsync(); await transaction.RollbackAsync(CancellationToken.None); await transaction.DisposeAsync(); throw; }
+    }
+
     public ValueTask DisposeAsync() => connection.DisposeAsync();
 }
 
@@ -73,7 +97,8 @@ public sealed class RowStream : IAsyncDisposable
 {
     private readonly DbCommand command;
     private readonly DbDataReader reader;
-    internal RowStream(DbCommand command, DbDataReader reader) { this.command = command; this.reader = reader; }
+    private readonly DbTransaction? transaction;
+    internal RowStream(DbCommand command, DbDataReader reader, DbTransaction? transaction = null) { this.command = command; this.reader = reader; this.transaction = transaction; }
 
     public IReadOnlyList<string> Names => Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
 
@@ -97,5 +122,6 @@ public sealed class RowStream : IAsyncDisposable
     {
         await reader.DisposeAsync();
         await command.DisposeAsync();
+        if (transaction != null) { await transaction.RollbackAsync(CancellationToken.None); await transaction.DisposeAsync(); }     // a command's effects, if it had any, are never kept
     }
 }

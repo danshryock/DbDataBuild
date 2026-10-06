@@ -49,7 +49,7 @@ public class NativeModelTests
     }
 
     [Theory]
-    [InlineData("kind:\n  type: native\n  query: SELECT 1 AS n\n  access: command\n", "access: command` is not built yet")]
+    [InlineData("kind:\n  type: native\n  query: SELECT 1 AS n\n  access: command\n", "the connection must allow it")]
     [InlineData("kind:\n  type: native\n  query: SELECT 1 AS n\n  access: maybe\n", "not `maybe`")]
     [InlineData("kind: {type: native}\n", "needs its text")]
     [InlineData("kind:\n  type: native\n  query: EXEC dbo.p\n", "not a single SELECT")]

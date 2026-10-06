@@ -224,9 +224,13 @@ public static class ProjectValidator
             var destinations = def.Targets ?? config.DefaultConnections;
             string? problem = null;
             // local or remote is decided by the connections: every destination is the origin's connection (a local copy: an ordinary load over a query of the origin), or none is (a transfer)
-            var localCount = destinations.Count(d => origins.Contains(d, StringComparer.Ordinal));
-            var isLocal = localCount == destinations.Count;
-            if (localCount > 0 && !isLocal)
+            // a native command is never read by a query, so a copy of it always goes through the transfer (read on the origin, staged, loaded), even when the origin is the copy's own connection
+            var commandOrigin = descriptors.FirstOrDefault(d => d.IsNative && string.Equals(d.Name, def.From, StringComparison.OrdinalIgnoreCase))?.Native is { Access: NativeQuery.Command } cmd ? cmd : null;
+            var localCount = commandOrigin != null ? 0 : destinations.Count(d => origins.Contains(d, StringComparer.Ordinal));
+            var isLocal = commandOrigin == null && localCount == destinations.Count;
+            if (commandOrigin != null && def.Watermark != null && !commandOrigin.Text.Contains("@watermark", StringComparison.Ordinal))
+                problem = $"`{def.From}` is a native command, so an incremental copy of it has to pass the bound itself: its text must use `@watermark`.";
+            else if (localCount > 0 && !isLocal)
                 problem = $"`{def.Name}` is on {string.Join(", ", destinations.Select(d => $"`{d}`"))}, and some of them are connections of `{def.From}`: a copy is local (every connection is the origin's) or between connections (none is), not both.";
             else if (isLocal && origins.Count > 1)
                 problem = $"`{def.From}` is on {string.Join(", ", origins)}, so a copy on one of them has no single origin.";
@@ -312,7 +316,9 @@ public static class ProjectValidator
         var connections = d.Connections ?? config.DefaultConnections;
         void Problem(string text) => diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(file, native.Line, 1), $"{d.Name}: {text}"));
         if (connections.Count != 1) Problem($"a native model is written in one engine's dialect, so it is on exactly one connection, not {connections.Count} ({string.Join(", ", connections)}).");
-        else if (config.EngineOf(connections[0]) is "sqlserver" or "fabric" && native.Text.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
+        else if (native.Access == NativeQuery.Command && !(config.Connections.TryGetValue(connections[0], out var host) && host.AllowNativeCommands))
+            Problem($"a native command runs a procedure, which can write, so the connection must allow it: `connections.{connections[0]}.allow_native_commands: true` (the read login's permissions are what keeps it read-only).");
+        else if (native.Access == NativeQuery.Select && config.EngineOf(connections[0]) is "sqlserver" or "fabric" && native.Text.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
             Problem("a T-SQL native select starts with SELECT: a WITH cannot sit inside the derived table it is inlined as. Wrap the common table expression in a table-valued function.");
         var withParameters = new NativeQuery(native.Access, native.Text, native.Reads, native.Parameters, native.Line)
         {

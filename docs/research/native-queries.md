@@ -1,6 +1,6 @@
 # Models over a native query or command
 
-Status: design **agreed** (the owner accepted the five decisions below, and added local copies); steps 0 to 2 built (entry 77: local copies, native selects inline in YAML or a file, inlining in tables and views, native as a copy origin); `access: command`, change feeds, `reads:` in the graph, the plan-time describe and `track_definition` are not. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
+Status: design **agreed** (the owner accepted the five decisions below, and added local copies); steps 0 to 2 built (entry 77: local copies, native selects inline in YAML or a file, inlining in tables and views, native as a copy origin); `access: command` is built too (entry 78); change feeds, `reads:` in the graph, the plan-time describe and `track_definition` are not. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
 endpoint, a **mapped** model declares a table that exists, a **copy** moves rows between connections, and a query runs on one connection.
 
 ## What is being asked
@@ -156,6 +156,6 @@ table function or (later) a command becomes a real table on its own connection, 
   (a copy has one meaning per run).
 - **Local copies are full replaces**: `slice`, `unique_key` and `watermark` are refused on them for now (an incremental local materialization is an incremental model over the origin, which already exists). The
   refusal says so.
-- **A command origin** (`access: command`) cannot be read by a query, so it cannot be a *local* copy origin in the first release: running a command to fill a table on its own connection is a write-side
+- **A command origin** (`access: command`) cannot be read by a query, so it is, in the end, a transfer even when it is the destination's own connection (built, entry 78); the first release left it out: running a command to fill a table on its own connection is a write-side
   execution (`INSERT ... EXEC`) with the write login, and is designed with step 3, not before.
 

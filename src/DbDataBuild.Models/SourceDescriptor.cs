@@ -117,17 +117,26 @@ public static class SourceDescriptorLoader
             CheckKeys(kind, ["type", "access", "query"], "kind `native`");
             var access = (kind.Get("access") as YamlScalar)?.Value ?? NativeQuery.Select;
             if (access is not (NativeQuery.Select or NativeQuery.Command)) Add(DiagnosticCatalog.InvalidValue, kind.Get("access") ?? kind, $"`access` is `select` (a query can contain it) or `command` (it can only be run), not `{access}`.");
-            else if (access == NativeQuery.Command) Add(DiagnosticCatalog.InvalidValue, kind.Get("access") ?? kind, "`access: command` is not built yet: a native model is a select or a table function.", "Use `access: select`, or wrap the command in a table-valued function.");
             var inline = (kind.Get("query") as YamlScalar)?.Value;
             string? text = inline;
             if (kind.Get("query") != null && inline == null) Add(DiagnosticCatalog.InvalidValue, kind.Get("query")!, "`query` is the text of the native query.");
             if (inline != null && nativeFile != null) Add(DiagnosticCatalog.InvalidValue, kind.Get("query")!, "A native model has its text in `query:` or in its `.native.sql` file, not both.");
             else if (inline == null) text = nativeFile;
             if (string.IsNullOrWhiteSpace(text)) { Add(DiagnosticCatalog.MissingKey, kind, "A native model needs its text: `query:` under `kind`, or a `.native.sql` file beside the definition."); return null; }
-            if (ReadGuard.Check(text) is { } refused) Add(DiagnosticCatalog.InvalidValue, (YamlNode?)kind.Get("query") ?? kind, $"The native text is not a single SELECT: {refused.Found}");
+            if (access == NativeQuery.Select && ReadGuard.Check(text) is { } refused) Add(DiagnosticCatalog.InvalidValue, (YamlNode?)kind.Get("query") ?? kind, $"The native text is not a single SELECT: {refused.Found}");
+            if (access == NativeQuery.Command && CommandProblem(text) is { } bad) Add(DiagnosticCatalog.InvalidValue, (YamlNode?)kind.Get("query") ?? kind, bad);
             var reads = StringList(top, "reads", required: false, allowEmpty: false, unique: true)?.Select(r => r.Value).ToList() ?? [];
             var own = top.Get("parameters") is { } pn ? ParameterReferences.Read(pn, "`parameters`", (d, n, f) => Add(d, n, f)) : null;
             return new NativeQuery(access, text.Trim(), reads, own ?? new Dictionary<string, ParameterValue>(), kind.Line);
+        }
+
+        /// <summary>A command is one statement that calls something and returns rows: `EXEC proc ...`, `CALL proc(...)` (or a SELECT of a function). Anything longer is a script, and is refused.</summary>
+        private static string? CommandProblem(string text)
+        {
+            var t = text.Trim().TrimEnd(';').Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(t, @"^(EXEC|EXECUTE|CALL|SELECT)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return "A native command is `EXEC procedure ...` or `CALL procedure(...)` (or a SELECT of a function): one call that returns rows.";
+            return ReadGuard.Strip(t).Contains(';') ? "A native command is one statement: it contains a `;`." : null;
         }
 
         private List<IndexDefinition> ReadIndexes(YamlMapping top, List<ColumnDefinition> columns)

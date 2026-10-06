@@ -107,6 +107,10 @@
                   }
                 }
               ]
+            },
+            "allow_native_commands": {
+              "description": "Whether a native command (a procedure call that returns rows, `kind: {type: native, access: command}`) may be run on this connection. Default false: a procedure can write, so each connection that runs one says so. The read login's permissions are what keep it read-only; the call also runs in a transaction that is rolled back.",
+              "type": "boolean"
             }
           }
         },
@@ -163,6 +167,10 @@
                   }
                 }
               ]
+            },
+            "allow_native_commands": {
+              "description": "Whether a native command (a procedure call that returns rows, `kind: {type: native, access: command}`) may be run on this connection. Default false: a procedure can write, so each connection that runs one says so. The read login's permissions are what keep it read-only; the call also runs in a transaction that is rolled back.",
+              "type": "boolean"
             }
           }
         },
@@ -219,6 +227,10 @@
                   }
                 }
               ]
+            },
+            "allow_native_commands": {
+              "description": "Whether a native command (a procedure call that returns rows, `kind: {type: native, access: command}`) may be run on this connection. Default false: a procedure can write, so each connection that runs one says so. The read login's permissions are what keep it read-only; the call also runs in a transaction that is rolled back.",
+              "type": "boolean"
             }
           }
         }
@@ -633,6 +645,10 @@
               }
             }
           ]
+        },
+        "allow_native_commands": {
+          "description": "Whether a native command (a procedure call that returns rows, `kind: {type: native, access: command}`) may be run on this connection. Default false: a procedure can write, so each connection that runs one says so. The read login's permissions are what keep it read-only; the call also runs in a transaction that is rolled back.",
+          "type": "boolean"
         }
       }
     },

@@ -114,4 +114,100 @@ public partial class NativeConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    private static (string Create, string Call) ProcedureFor(string engine) => engine == "postgres"
+        ? ("CREATE FUNCTION public.usp_nums(list text) RETURNS TABLE(n integer) LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT CAST(x AS integer) FROM unnest(string_to_array(list, ',')) AS x; END $$",
+           "SELECT * FROM public.usp_nums(${project.list})")
+        : ("CREATE PROCEDURE dbo.usp_nums @list varchar(100) AS BEGIN INSERT INTO dbo.side_effect VALUES (1); SELECT CAST(value AS int) AS n FROM STRING_SPLIT(@list, ',') END",
+           "EXEC dbo.usp_nums @list = ${project.list}");
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_native_command_is_run_with_bound_parameters_copied_locally_and_leaves_nothing_behind(string name)
+    {
+        var engine = EngineEnv.Require(name);
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-command-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v == LoginSettings.VariableName(name, Login.Read) || v == LoginSettings.VariableName(name, Login.Write) ? engine.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
+        string PlanOf(string output) => Path.Combine(dir, Regex.Match(output, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+        var schema = name == "postgres" ? "public" : "dbo";
+        var (create, call) = ProcedureFor(name);
+        try
+        {
+            await engine.ExecAsync($"DROP TABLE IF EXISTS {schema}.side_effect");
+            await engine.ExecAsync($"CREATE TABLE {schema}.side_effect (v int)");
+            await engine.ExecAsync(name == "postgres" ? "DROP FUNCTION IF EXISTS public.usp_nums(text)" : "DROP PROCEDURE IF EXISTS dbo.usp_nums");
+            await engine.ExecAsync(create);
+
+            Write("dbdatabuild.yml", Config(name) + $"connections:\n  {name}: {{ allow_native_commands: true }}\n");
+            Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  access: command\n  query: " + call + "\n" + Cols);
+            Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.nums\n");                      // on the command's own connection: still a transfer
+            Write("models/marts/reader.yml", "name: marts.reader\nkind: {type: full}\n" + Cols);
+            Write("models/marts/reader.sql", "SELECT n FROM src.nums\n");
+
+            var broken = Cli("validate");
+            Assert.NotEqual(0, broken.Exit);
+            Assert.Contains("a command can only be run, never read inside a query", broken.Err);                                       // nothing may read it
+            File.Delete(Path.Combine(dir, "models", "marts", "reader.yml")); File.Delete(Path.Combine(dir, "models", "marts", "reader.sql"));
+
+            Ok(Cli("init", "--connection", name, "--apply"), "init");
+            Ok(Cli("render", "--write"), "render");
+            var plan = Cli("plan", "--connection", name);
+            Ok(plan, "plan");
+            var file = PlanOf(plan.Out);
+            var text = File.ReadAllText(file);
+            Assert.Contains("type: transfer", text);
+            Assert.Contains("command: true", text);
+            Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // planning never calls it
+
+            var dry = Cli("apply", file, "--dry-run", "--allow-risky");
+            Ok(dry, "dry run");
+            Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());
+
+            var refused = Cli("apply", file);
+            Assert.NotEqual(0, refused.Exit);
+            Assert.Contains("--allow-risky", refused.Err);                                                                           // running a procedure is a risky step
+            Ok(Cli("apply", file, "--allow-risky"), "apply");
+            Assert.Equal(["1", "2", "3", "4"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
+            Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // the call ran in a transaction that was rolled back
+            if (name == "postgres")
+            {
+                // the read login's session is read-only: a function that writes is stopped by the engine
+                await engine.ExecAsync("CREATE OR REPLACE FUNCTION public.usp_nums(list text) RETURNS TABLE(n integer) LANGUAGE plpgsql AS $$ BEGIN INSERT INTO public.side_effect VALUES (1); RETURN QUERY SELECT 1; END $$");
+                var writing = Cli("plan", "--connection", name);
+                Ok(writing, "plan");
+                Assert.NotEqual(0, Cli("apply", PlanOf(writing.Out), "--allow-risky").Exit);
+                Assert.Equal("0", (await engine.RowsAsync("SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM public.side_effect")).Single());
+            }
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    [SkippableFact]
+    public async Task A_native_command_is_refused_on_a_connection_that_does_not_allow_it()
+    {
+        var engine = EngineEnv.Require("sqlserver");
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-command-no-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v is "DBDATABUILD_SQLSERVER_READ" or "DBDATABUILD_SQLSERVER_WRITE" ? engine.ConnectionString : null;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "models", "src"));
+            File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Config("sqlserver"));
+            File.WriteAllText(Path.Combine(dir, "models", "src", "nums.yml"), "name: src.nums\nkind:\n  type: native\n  access: command\n  query: EXEC dbo.usp_nums @list = 'a'\n" + Cols);
+            var o = new StringWriter(); var e = new StringWriter();
+            Assert.NotEqual(0, CliApp.Run(["validate", "--project", dir], o, e, environment: Env));
+            Assert.Contains("allow_native_commands", e.ToString() + o.ToString());
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 }

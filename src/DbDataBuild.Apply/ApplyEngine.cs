@@ -355,17 +355,21 @@ public static class ApplyEngine
         try
         {
             await using var origin = await o.OpenOrigin!(spec.Origin, ct);
-            await using var stream = await origin.OpenStreamAsync(spec.ReadText, OriginParameters(spec), ct);
+            await using var stream = spec.Command ? await origin.OpenCommandStreamAsync(spec.ReadText, OriginParameters(spec), ct) : await origin.OpenStreamAsync(spec.ReadText, OriginParameters(spec), ct);
             var names = stream.Names;
             // what the origin returns: every column of the copy, except the slice column the copy adds (that one is written here, not read)
             var read = spec.Slice is { Added: true } added ? columns.Where(c => !string.Equals(c.Name, added.Column, StringComparison.OrdinalIgnoreCase)).ToList() : columns.ToList();
-            if (!names.SequenceEqual(read.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
+            // a command returns whatever its procedure selects: its columns are matched to the declared ones by name (extra ones are ignored), not by position
+            int[]? project = null;
+            if (spec.Command && read.All(c => names.Any(n => string.Equals(n, c.Name, StringComparison.OrdinalIgnoreCase))))
+                project = read.Select(c => names.ToList().FindIndex(n => string.Equals(n, c.Name, StringComparison.OrdinalIgnoreCase))).ToArray();
+            if (project == null && !names.SequenceEqual(read.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
             {
                 await tracker.FinishRunAsync(step.Id, runId, "failed", null, null, ct);
                 return new Diagnostic(DiagnosticCatalog.StepResultDiffers, new($"step:{step.Id}", 0, 0),
                     $"The read on `{spec.Origin}` returned the columns [{string.Join(", ", names)}], but the plan expects [{string.Join(", ", read.Select(c => c.Name))}]. Nothing was copied.");
             }
-            var written = await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, Converted(stream.ReadAsync(ct), columns, read.Count, spec.Slice, ct), ct);
+            var written = await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, Converted(project == null ? stream.ReadAsync(ct) : Projected(stream.ReadAsync(ct), project, ct), columns, read.Count, spec.Slice, ct), ct);
             await tracker.FinishRunAsync(step.Id, runId, "ok", written, null, ct);
             return null;
         }
@@ -387,6 +391,11 @@ public static class ApplyEngine
         var list = (spec.Parameters ?? []).Select(ToGate).ToList();
         if (spec.Watermark != null) list.Add(ToGate(new PlanParameter("watermark", spec.Watermark.Type, "resolver", spec.Watermark.Value)));
         return list.Count == 0 ? null : list;
+    }
+
+    private static async IAsyncEnumerable<object?[]> Projected(IAsyncEnumerable<object?[]> rows, int[] positions, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (var row in rows.WithCancellation(ct)) yield return positions.Select(i => row[i]).ToArray();
     }
 
     private static async IAsyncEnumerable<object?[]> EmptyRows() { await Task.CompletedTask; yield break; }

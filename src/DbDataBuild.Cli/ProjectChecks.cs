@@ -70,11 +70,16 @@ internal static class ProjectChecks
         {
             var targets = ctx.TargetsOf(source.Definition).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
             foreach (var read in ctx.Graph.Reads(source.Definition.Name))
+            {
+                if (ctx.Project.NativeModels.FirstOrDefault(n => string.Equals(n.Name, read, StringComparison.OrdinalIgnoreCase)) is { Native.Access: NativeQuery.Command })
+                    found.Add(new Diagnostic(DiagnosticCatalog.ModelReadsAnotherConnection, new(source.DefinitionFile, 0, 0), $"{source.Definition.Name} reads `{read}`, a native command: a command can only be run, never read inside a query.",
+                        Fix: $"Copy it (`kind: {{type: copy, from: {read}}}`, on its own connection or another) and read the copy."));
                 if (ConnectionsOf(read) is { } where)
                     foreach (var target in targets.Where(t => !where.Contains(t, StringComparer.Ordinal)))
                         found.Add(new Diagnostic(DiagnosticCatalog.ModelReadsAnotherConnection, new(source.DefinitionFile, 0, 0),
                             $"{source.Definition.Name} is built on `{target}` and reads `{read}`, which is on {string.Join(", ", where.Select(w => $"`{w}`"))}, not on `{target}`.",
                             Fix: $"Copy `{read}` to `{target}` (a model of `kind: {{type: copy, from: {read}}}` on `{target}`) and read the copy, or build {source.Definition.Name} on {where[0]}."));
+            }
         }
         return found;
     }

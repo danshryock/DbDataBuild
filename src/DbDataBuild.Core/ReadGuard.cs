@@ -31,7 +31,7 @@ public static partial class ReadGuard
     }
 
     /// <summary>Removes comments and the contents of string literals and quoted identifiers, so keywords inside them do not count.</summary>
-    internal static string Strip(string sql)
+    public static string Strip(string sql)
     {
         var sb = new System.Text.StringBuilder();
         for (var i = 0; i < sql.Length; i++)

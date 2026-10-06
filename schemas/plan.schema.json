@@ -377,6 +377,10 @@
                     }
                   }
                 }
+              },
+              "command": {
+                "description": "True when `read` is a native command (a call that returns rows): run as written inside a transaction that is rolled back, its result columns matched to `columns` by name.",
+                "type": "boolean"
               }
             }
           }

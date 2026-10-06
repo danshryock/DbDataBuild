@@ -8,7 +8,7 @@ public static class ProjectConfigLoader
 {
     private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking"];
+    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -175,7 +175,13 @@ public static class ProjectConfigLoader
                 }
                 var parameters = ReadParameters(settings, $"`connections.{name}.parameters`");
                 var ownTracking = ReadConnectionTracking(settings, name, declared);
-                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking);
+                var allowCommands = false;
+                if (settings.Get("allow_native_commands") is { } ac)
+                {
+                    if (ac is YamlScalar { Value: "true" or "false" } acs) allowCommands = acs.Value == "true";
+                    else Add(DiagnosticCatalog.InvalidValue, ac, "`allow_native_commands` is `true` or `false` (lowercase).");
+                }
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking, allowCommands);
             }
             return result;
         }

@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace DbDataBuild.Models;
 
 /// <summary>A native model's text, ready to be spliced into the text of a query that reads it: its parameter references already placeholders (`@p_native_...`).</summary>
-public sealed record NativeUse(string Name, string Text, IReadOnlyList<QueryParameter> Parameters);
+public sealed record NativeUse(string Name, string Text, IReadOnlyList<QueryParameter> Parameters, string Access = NativeQuery.Select);
 
 /// <summary>
 /// Inlining a native `select` (design: docs/research/native-queries.md). DuckDB binds a reading query against the native model's declared columns, as for any table; the native text is spliced in **after**
@@ -35,7 +35,7 @@ public static class NativeInline
             if (!parameters.Any(x => x.Key == p.Key)) parameters.Add(p);
             return "@" + p.Placeholder;
         });
-        return new NativeUse(native.Name, text, parameters);
+        return new NativeUse(native.Name, text, parameters, q.Access);
     }
 
     /// <summary>The value each placeholder of <paramref name="use"/> takes on <paramref name="connection"/>, keyed `native.<name>` like the plan's lookup.</summary>
