@@ -109,8 +109,11 @@ models/
       dim_customer.yml
 ```
 
-- **Merge rules** (one table, tested): a scalar is replaced; a map is merged by key; a list is replaced, unless the key ends in `+` (`tags+:`), which appends.
-- **Inheritable**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `tags`, `hooks` (additive by default). **Not inheritable**: `name`, `columns`, `grain`, `from`.
+- **Merge rules**, one table for every layer, tested. By default a layer **merges** into the one above it: a map by key (recursively, the nearer layer wins a conflict), a list by appending (the inherited
+  items first, then the layer's own, a repeated scalar kept once; a list of mappings that have a `name` merges by `name`), a scalar by replacing. A suffix on the key changes that for this key only:
+  **`key=`** replaces the inherited value whole (a reset), **`key-`** removes the listed items or keys from it, and **`key+`** says "merge" explicitly (the default, for readers). A suffix on a scalar
+  (other than `=`) is an error. The schemas accept the suffixes on exactly the keys that inherit, and `validate` shows the result with the file each part came from.
+- **Inheritable**: `connection(s)`, `kind` and its settings (strategy, key, time column), `schema`, `rewrites`, `lint`, `policy`, `tags`, `hooks`. **Not inheritable**: `name`, `columns`, `grain`, `from`, and **`parameters`**: a model's parameters are declared in the model's own file and nowhere else, so what a model uses can always be read in it.
 - **Provenance is never hidden**: `validate` prints each model's effective settings and the file each came from (the project already prints its effective configuration), and the metadata JSON carries the same.
   Action at a distance is the risk of any inheritance; this is the control.
 - **Names**: the `schema` part of a model's name is the `schema:` setting (inheritable; by default the first folder under `models/`), so folders can be organised by system, layer or anything else.
@@ -123,11 +126,12 @@ One concept, four scopes. The key is `parameters:` wherever it is declared; wher
 
 | Scope | Declared in | Referenced as | Used for |
 |---|---|---|---|
-| project | `dbdatabuild.yml` | `${project.name}` | values the whole project shares |
-| connection | the connection's entry | `${connection.name}` | values that differ per connection (a store id, a region): fan-in |
-| model | a model file, a `_dbdatabuild.yml` or the root `defaults:` (so it inherits like any setting) | `${model.name}` | values that differ per model or folder |
+| project | the project level of `dbdatabuild.yml` | `${project.name}` | values the whole project shares |
+| connection | the connection's own entry (and its group's, below) | `${connection.name}` | values that differ per connection (a store id, a region): fan-in |
+| model | the model's own file, and only there: never in a `_dbdatabuild.yml` or in `defaults:`, never inherited or overridden | `${model.name}` | values that differ per model |
 | operation | a load operation (as today) | `@name` in the operation's SQL | runtime values: a watermark, a backfill start |
 
+- **Maps merge by key, as everywhere**: a group's `parameters` are the base for each member, and a member's own parameters merge over them by key with the same rules (and suffixes) as the configuration; scopes never merge into each other.
 - **A reference carries its scope, so nothing shadows anything**: `${connection.region}` and `${model.region}` are two values.
 - **Two ways a value is used, and they are not the same**: a project, connection or model parameter is substituted **into configuration** (a column added by a copy, the value of a slice, a schema name) when the project
   loads, and `validate` shows the result. An operation parameter is **bound** by the driver at run time and never written into statement text. A value that reaches a statement (a slice's value in the
@@ -144,7 +148,7 @@ connections:
   store_018: { engine: postgres, parameters: { store_id: "018", region: eu } }
   warehouse: { engine: sqlserver }
 groups:
-  stores: [store_017, store_018]            # or a pattern: store_*
+  stores: { members: [store_017, store_018], parameters: { app: pos } }     # members may also be a pattern: store_*
 ```
 
 ```yaml
@@ -202,6 +206,9 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 4. **Incremental extraction** (a watermark on the origin read); **compute at the origin** (a model that lives on the origin connection, then copied, already covers it: this is only convenience).
 
 ## Still open
+
+0. **The merge suffixes.** The owner suggested `=`, `+` and `+=`. This note has `=` (replace), `-` (remove) and `+` (merge, the default, optional to write). What `+=` would add, if it is not "append"
+   (the default for lists), needs saying: perhaps "merge, but the *inherited* value wins a conflict" against the default where the nearer layer wins.
 
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
 2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
