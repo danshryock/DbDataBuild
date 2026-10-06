@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["defaults", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -53,7 +53,7 @@ public static class ProjectConfigLoader
             var tracking = ReadTracking(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.Tracking;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults };
+            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>() };
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -131,20 +131,8 @@ public static class ProjectConfigLoader
             return (list, map);
         }
 
-        /// <summary>`parameters:` of a connection: names to single values (read as text). A name is a lowercase word with underscores, so a reference like `${origin.store_id}` is unambiguous.</summary>
-        private Dictionary<string, string>? ReadParameters(YamlMapping owner, string where)
-        {
-            if (owner.Get("parameters") is not { } node) return null;
-            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, $"{where} must map parameter names to values."); return null; }
-            var result = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var e in map.Entries)
-            {
-                if (!System.Text.RegularExpressions.Regex.IsMatch(e.Key.Value, "^[a-z][a-z0-9_]*$")) { Add(DiagnosticCatalog.InvalidValue, e.Key, $"`{e.Key.Value}` is not a valid parameter name.", "Lowercase letters, digits and underscores, starting with a letter."); continue; }
-                if (e.Value is not YamlScalar s) { Add(DiagnosticCatalog.InvalidValue, e.Value, $"The parameter `{e.Key.Value}` must be a single value."); continue; }
-                result[e.Key.Value] = s.Value;
-            }
-            return result;
-        }
+        private Dictionary<string, ParameterValue>? ReadParameters(YamlMapping owner, string where) =>
+            owner.Get("parameters") is { } node ? ParameterReferences.Read(node, where, (d, n, f) => Add(d, n, f)) : null;
 
         /// <summary>
         /// `connections:` maps names to `{ engine, version }`. A connection named after an engine needs no entry (and may only be declared with that engine, to set its version); any other name needs `engine`.

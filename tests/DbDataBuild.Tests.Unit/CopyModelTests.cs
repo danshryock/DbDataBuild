@@ -145,7 +145,7 @@ public class CopyModelTests
     [InlineData("  slice: {column: store_id, value: \"fixed\", type: \"VARCHAR(10)\"}\n", "is the same for every origin")]
     [InlineData("  slice: {column: store_id, value: \"${origin.nothing}\", type: \"VARCHAR(10)\"}\n", "has no parameter `nothing`")]
     [InlineData("  slice: {column: store_id, value: \"${origin.store_id}\"}\n", "needs a `type`")]
-    [InlineData("  slice: {column: store_id, value: \"${project.store_id}\", type: \"VARCHAR(10)\"}\n", "names a scope a slice cannot use")]
+    [InlineData("  slice: {column: store_id, value: \"${nothing.store_id}\", type: \"VARCHAR(10)\"}\n", "is not a parameter scope")]
     [InlineData("  on_mismatch: maybe\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n", "`fail` or `skip`")]
     public void A_copy_from_several_connections_that_cannot_work_says_why(string kindExtra, string expected)
     {
@@ -160,7 +160,7 @@ public class CopyModelTests
     public void A_connection_parameter_is_read_and_checked()
     {
         var cfg = ProjectConfigLoader.Load(Stores, "dbdatabuild.yml", [])!;
-        Assert.Equal("017", cfg.Connections["store_17"].Parameters["store_id"]);
+        Assert.Equal("017", cfg.Connections["store_17"].Parameters["store_id"].Value);
         Assert.Empty(cfg.Connections["sqlserver"].Parameters);
         foreach (var bad in new[] { "connections:\n  a: { engine: postgres, parameters: [x] }\n", "connections:\n  a: { engine: postgres, parameters: { Bad Name: 1 } }\n", "connections:\n  a: { engine: postgres, parameters: { x: [1] } }\n" })
         {

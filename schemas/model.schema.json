@@ -793,6 +793,16 @@
               }
             }
           }
+        },
+        "parameters": {
+          "description": "The model's own parameters, referenced as `${model.name}`. Declared here and only here: they are never inherited.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/parameterValue"
+            }
+          }
         }
       },
       "allOf": [
@@ -888,6 +898,44 @@
                     "indexes"
                   ]
                 }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "parameterValue": {
+      "description": "A single value (text), or `{type, value}` for a typed one. The type matters where the value reaches a query.",
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "VARCHAR",
+                "BIGINT",
+                "INTEGER",
+                "SMALLINT",
+                "DATE",
+                "TIMESTAMP"
+              ]
+            },
+            "value": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
               ]
             }
           }

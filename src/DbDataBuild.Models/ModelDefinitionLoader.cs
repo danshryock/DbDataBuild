@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads and validates one model definition (.yml). All problems are reported in one pass.</summary>
 public static class ModelDefinitionLoader
 {
-    private static readonly string[] TopKeys = ["name", "kind", "grain", "connections", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore", "rewrites"];
+    private static readonly string[] TopKeys = ["name", "kind", "grain", "connections", "columns", "renames", "loads", "indexes", "hooks", "lint_ignore", "rewrites", "parameters"];
     private static readonly string[] RenameKeys = ["from", "to"];
 
     /// <param name="file">Path shown in diagnostics.</param>
@@ -99,6 +99,7 @@ public static class ModelDefinitionLoader
                 Add(DiagnosticCatalog.InvalidValue, code, $"`{code.Value}` is not an advisory lint code.", $"One of: {string.Join(", ", IndexAdvisorCodes)}.");
 
             var rewrites = ReadRewrites(top);
+            var modelParameters = top.Get("parameters") is { } pn ? ParameterReferences.Read(pn, "`parameters`", (d, n, f) => Add(d, n, f)) : null;
 
             // semantic checks
             var declared = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -129,7 +130,7 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0, slice, onMismatch, false, watermark);
+                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0, slice, onMismatch, false, watermark, modelParameters);
         }
 
         /// <summary>`watermark: {column, lookback}` of an incremental copy. It needs a `unique_key` (the rows it reads again replace the ones with the same key).</summary>
@@ -167,8 +168,8 @@ public static class ModelDefinitionLoader
             if (value != null)
             {
                 var stripped = Reference.Replace(value.Value, "");
-                foreach (System.Text.RegularExpressions.Match m in Reference.Matches(value.Value).Where(m => m.Groups[1].Value is not ("origin" or "connection")))
-                    Add(DiagnosticCatalog.InvalidValue, value, $"`${{{m.Groups[1].Value}.{m.Groups[2].Value}}}` names a scope a slice cannot use.", "`${origin.name}` (the connection a copy reads from) or `${connection.name}` (the connection it writes to).");
+                foreach (System.Text.RegularExpressions.Match m in Reference.Matches(value.Value).Where(m => !ParameterReferences.Scopes.Contains(m.Groups[1].Value)))
+                    Add(DiagnosticCatalog.InvalidValue, value, $"`${{{m.Groups[1].Value}.{m.Groups[2].Value}}}` is not a parameter scope.", "`${origin.name}` (the connection a copy reads from), `${connection.name}` (the one it writes to), `${project.name}` or `${model.name}`.");
                 if (stripped.Contains("${", StringComparison.Ordinal)) Add(DiagnosticCatalog.InvalidValue, value, "A reference in a slice's value is written `${origin.name}`.");
             }
             if (column == null || value == null) return (null, onMismatch);

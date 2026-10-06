@@ -32,10 +32,10 @@ public static class PolicyKeys
 /// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
 /// </summary>
 /// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
-public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, string>? DeclaredParameters = null, ConnectionTracking? Tracking = null)
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null, ConnectionTracking? Tracking = null)
 {
     /// <summary>The values this connection carries (`parameters:`): what differs between connections of one application, such as a store id. Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from it.</summary>
-    public IReadOnlyDictionary<string, string> Parameters => DeclaredParameters ?? new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();
 
     /// <summary>The names of connections the tool knows without a declaration: one per engine, named after it.</summary>
     public static IReadOnlyDictionary<string, ConnectionConfig> Implicit { get; } =
@@ -83,6 +83,9 @@ public sealed record ProjectConfig(
 
     /// <summary>The `defaults:` section of dbdatabuild.yml, the first layer of every model's settings (null when there is none). Its nodes are positions in dbdatabuild.yml.</summary>
     public Yaml.YamlMapping? Defaults { get; init; }
+
+    /// <summary>The project's own `parameters:` (the root file's; the folder files above a model override them for it). Referenced as `${project.name}`.</summary>
+    public IReadOnlyDictionary<string, ParameterValue> Parameters { get; init; } = new Dictionary<string, ParameterValue>();
 
     /// <summary>The schema of the tracking tables (the project's; a connection may name another connection but keeps this schema unless it says its own).</summary>
     public string TrackingSchema => Tracking.Schema;

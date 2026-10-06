@@ -57,8 +57,12 @@ internal sealed class ProjectContext
         var connections = Project.Models.FirstOrDefault(m => string.Equals(m.Name, model.From, StringComparison.OrdinalIgnoreCase)) is { } built
             ? built.Targets ?? Config.DefaultConnections
             : Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, model.From, StringComparison.OrdinalIgnoreCase))?.Connections ?? Config.DefaultConnections;
-        string? Value(string origin) => model.Slice == null ? null : System.Text.RegularExpressions.Regex.Replace(model.Slice.Value, @"\$\{(origin|connection)\.([a-z][a-z0-9_]*)\}", m =>
-            Config.Connections[m.Groups[1].Value == "origin" ? origin : destination].Parameters.GetValueOrDefault(m.Groups[2].Value) ?? "");
+        var source = Project.Sources.FirstOrDefault(s => s.Definition.Name == model.Name);
+        string? Value(string origin) => model.Slice == null || source == null ? model.Slice?.Value : ParameterReferences.Substitute(model.Slice.Value, (scope, name) => scope switch
+        {
+            "origin" => source.ParametersFor(Config, origin).GetValueOrDefault($"connection.{name}")?.Value,
+            _ => source.ParametersFor(Config, destination).GetValueOrDefault($"{scope}.{name}")?.Value,
+        });
         return connections.Select(c => new DbDataBuild.Planning.CopyOrigin(c, Config.EngineOf(c) ?? c, model.From, Value(c))).ToList();
     }
 

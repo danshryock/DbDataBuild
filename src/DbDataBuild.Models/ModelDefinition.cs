@@ -61,8 +61,12 @@ public sealed record ModelDefinition(
     CopySlice? Slice = null,
     string OnMismatch = CopySlice.Fail,
     bool SliceColumnAdded = false,
-    CopyWatermark? Watermark = null)
+    CopyWatermark? Watermark = null,
+    IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null)
 {
+    /// <summary>The model's own parameters (`parameters:` in its file, never inherited). Referenced as `${model.name}`.</summary>
+    public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();
+
     /// <summary>True for a model that copies another one (<see cref="ModelKinds.Copy"/>): `From` is the model it copies.</summary>
     public bool IsCopy => KindType == ModelKinds.Copy;
 

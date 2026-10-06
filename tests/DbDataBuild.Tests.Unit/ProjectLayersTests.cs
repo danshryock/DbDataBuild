@@ -83,12 +83,12 @@ public class ProjectLayersTests
     public void A_folder_project_file_is_not_a_model_and_a_problem_in_it_is_reported_once_where_it_is()
     {
         var dir = Project("");
-        Write(dir, "models/crm/_dbdatabuild.yml", "defaults:\n  kind: {type: full}\nparameters: {a: 1}\n");
+        Write(dir, "models/crm/_dbdatabuild.yml", "defaults:\n  kind: {type: full}\nsurprise: {a: 1}\n");
         Model(dir, "crm.a", "");
         Model(dir, "crm.b", "");
         var (result, messages) = Validate(dir);
         Assert.True(result.HasErrors);
-        Assert.Single(messages, m => m.Contains("Unknown key `parameters` in _dbdatabuild.yml"));
+        Assert.Single(messages, m => m.Contains("Unknown key `surprise` in _dbdatabuild.yml"));
         Assert.All(result.Diagnostics, d => Assert.DoesNotContain("orphan", d.Found, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Diagnostics, d => d.Location.File == "models/crm/_dbdatabuild.yml" && d.Location.Line == 3);
     }
