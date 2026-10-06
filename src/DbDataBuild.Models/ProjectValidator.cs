@@ -164,23 +164,47 @@ public static class ProjectValidator
                 failed.Add(def.Name);
                 return null;
             }
-            if (origin.Value.Connections.Count != 1)
+            var origins = origin.Value.Connections;
+            var destinations = def.Targets ?? config.DefaultConnections;
+            string? problem = null;
+            if (origins.Count > 1 && def.Slice == null)
+                problem = $"`{def.From}` is on {string.Join(", ", origins)}, so the rows of each must be told apart: a copy from several connections needs `slice` (the column that says which rows are an origin's, and its value).";
+            else if (origins.Count > 1 && !def.Slice!.Value.Contains("${origin.", StringComparison.Ordinal))
+                problem = $"The slice's value `{def.Slice.Value}` is the same for every origin of `{def.From}`; it has to differ, for example `${{origin.store_id}}`.";
+            foreach (var destination in destinations)
+                if (problem == null && origins.Contains(destination, StringComparer.Ordinal))
+                    problem = $"`{def.Name}` is on `{destination}`, a connection of `{def.From}`, which it copies: a copy moves rows between connections.";
+            if (problem == null && def.Slice != null)
+                foreach (System.Text.RegularExpressions.Match r in System.Text.RegularExpressions.Regex.Matches(def.Slice.Value, @"\$\{(origin|connection)\.([a-z][a-z0-9_]*)\}"))
+                    foreach (var named in r.Groups[1].Value == "origin" ? origins : destinations)
+                        if (problem == null && !(config.Connections.TryGetValue(named, out var cc) && cc.Parameters.ContainsKey(r.Groups[2].Value)))
+                            problem = $"The slice uses `{r.Value}`, but the connection `{named}` has no parameter `{r.Groups[2].Value}` (`connections.{named}.parameters`).";
+            if (problem != null)
             {
-                diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.From}` is on {string.Join(", ", origin.Value.Connections)}; a copy reads from exactly one connection (copying from several is not built yet).",
-                    Fix: $"Give `{def.From}` a single connection."));
+                diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), problem, Fix: "A copy reads from one connection, or from several with a `slice`, and is built on others."));
                 failed.Add(def.Name);
                 return null;
             }
-            var originConnection = origin.Value.Connections[0];
-            foreach (var destination in def.Targets ?? config.DefaultConnections)
-                if (string.Equals(destination, originConnection, StringComparison.Ordinal))
+
+            var columns = origin.Value.Columns.Select(x => x with { Line = 0, CollationLine = 0 }).ToList();
+            var grain = def.Grain.Count > 0 ? def.Grain : origin.Value.Grain;
+            var sliceAdded = false;
+            if (def.Slice != null)
+            {
+                if (!columns.Any(x => string.Equals(x.Name, def.Slice.Column, StringComparison.OrdinalIgnoreCase)))
                 {
-                    diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.Name}` is on `{destination}`, the connection of `{def.From}`, which it copies: a copy moves rows between connections.",
-                        Fix: "Build a model for a table on the same connection, or give the copy another connection."));
-                    failed.Add(def.Name);
-                    return null;
+                    if (def.Slice.Type == null)
+                    {
+                        diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.From}` has no column `{def.Slice.Column}`, so the copy adds it, and the slice needs a `type` for it, for example `type: VARCHAR(20)`."));
+                        failed.Add(def.Name);
+                        return null;
+                    }
+                    columns.Add(new ColumnDefinition(def.Slice.Column, LogicalNormalize(def.Slice.Type), false));
+                    sliceAdded = true;
                 }
-            var resolved = def with { Columns = origin.Value.Columns.Select(x => x with { Line = 0, CollationLine = 0 }).ToList(), Grain = def.Grain.Count > 0 ? def.Grain : origin.Value.Grain };
+                if (grain.Count > 0 && !grain.Contains(def.Slice.Column, StringComparer.OrdinalIgnoreCase)) grain = [.. grain, def.Slice.Column];       // the rows of different origins may share a key: the origin's value is part of it
+            }
+            var resolved = def with { Columns = columns, Grain = grain, SliceColumnAdded = sliceAdded };
             done[def.Name] = resolved;
             return resolved;
         }
@@ -193,6 +217,8 @@ public static class ProjectValidator
             descriptors.Add(CopyModels.StagingDescriptor(config, resolved, resolved.Columns));
         }
     }
+
+    private static string LogicalNormalize(string type) => System.Text.RegularExpressions.Regex.Replace(type.Trim().ToUpperInvariant(), @"\s*,\s*", ", ");
 
     /// <summary>What a model's effective settings took from other files: the scalars under a layered key written in a file other than the model's own.</summary>
     private static List<SettingOrigin> Inherited(MergedYaml merged, string modelFile) =>

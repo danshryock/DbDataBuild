@@ -13,12 +13,15 @@ namespace DbDataBuild.Planning;
 public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash);
 
 /// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
-/// <summary>Where a copy's rows come from: the origin connection with its engine, and the table (`schema.table`) there.</summary>
-public sealed record CopyOrigin(string Connection, string Engine, string Table);
+/// <summary>Where a copy's rows come from: the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
+public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null);
 
-public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, CopyOrigin? Origin = null)
+public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null)
 {
     public IReadOnlyList<PlannedHook> HookList => Hooks ?? [];
+
+    /// <summary>The origins of a copy, in the order they are loaded; empty for any other model.</summary>
+    public IReadOnlyList<CopyOrigin> OriginList => Origins ?? [];
 }
 
 /// <summary>A committed rendered load operation, read from `rendered/` (the command has already checked it is fresh).</summary>
@@ -448,6 +451,11 @@ public static class Planner
     {
         var def = c.Def;
         if (!c.Input.Loads.TryGetValue(def.Name, out var loads) || loads.Count == 0) return true;
+        if (def.IsCopy && c.Model.OriginList.Count == 0)
+        {
+            c.Noticed.Add($"{def.Name} has no origin to copy from in this plan (every origin was left out), so its table is not loaded.");
+            return true;
+        }
         var wanted = c.Input.OperationChoice?.GetValueOrDefault(def.Name);
         var backfill = c.Input.Backfills?.Contains(def.Name) == true;
         var load = wanted != null ? loads.FirstOrDefault(l => l.Operation == wanted) : loads.FirstOrDefault(l => l.IsDefault) ?? (loads.Count == 1 ? loads[0] : null);
@@ -513,11 +521,14 @@ public static class Planner
         var loadStep = new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
             backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
             load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash);
-        if (def.IsCopy && c.Model.Origin is { } origin)
+        if (def.IsCopy && c.Model.OriginList.Count > 0)
         {
-            // a copy: the rows are staged on the destination first, loaded from there by the ordinary strategy, and the staging table is dropped when the load is done
-            loadSteps.Add(TransferStep(c, origin));
-            loadSteps.AddRange(Hooked.Around(c.Model, backfill ? "backfill" : "load", loadStep));
+            // a copy: for each origin the rows are staged on the destination, then loaded from there by the ordinary strategy (a copy with a slice replaces only that origin's rows); the staging table is dropped at the end
+            foreach (var origin in c.Model.OriginList)
+            {
+                loadSteps.Add(TransferStep(c, origin));
+                loadSteps.AddRange(Hooked.Around(c.Model, backfill ? "backfill" : "load", loadStep));
+            }
             var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
             loadSteps.Add(Step(StepType.Ddl, $"{stagingSchema}.{stagingTable}", $"drop staging table of {def.Name}", c.Ddl.DropTableIfExists(stagingSchema, stagingTable), RiskClass.Safe, ["copy.staging.drop"]));
             return true;
@@ -537,9 +548,11 @@ public static class Planner
         var create = c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
         var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config);
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);
-        var read = $"SELECT {string.Join(", ", def.Columns.Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {originDdl.Qualified(originSchema, originName)}";
-        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList());
-        return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, ["copy.transfer"], null, [], Transfer: spec);
+        // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row
+        var read = $"SELECT {string.Join(", ", def.Columns.Where(x => !(def.SliceColumnAdded && string.Equals(x.Name, def.Slice!.Column, StringComparison.OrdinalIgnoreCase))).Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {originDdl.Qualified(originSchema, originName)}";
+        var slice = def.Slice != null && origin.SliceValue != null ? new PlanSlice(def.Slice.Column, origin.SliceValue, def.SliceColumnAdded) : null;
+        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList(), slice);
+        return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, [slice == null ? "copy.transfer" : "copy.transfer.slice"], null, [], Transfer: spec);
     }
 
     private static bool ParameterFits(ModelContext c, RenderedLoad load, RenderedParameter p, string value, List<Diagnostic> blocks)

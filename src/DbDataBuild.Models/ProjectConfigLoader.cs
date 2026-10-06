@@ -8,7 +8,7 @@ public static class ProjectConfigLoader
 {
     private static readonly string[] TopKeys = ["defaults", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] ConnectionKeys = ["engine", "version"];
+    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -131,6 +131,21 @@ public static class ProjectConfigLoader
             return (list, map);
         }
 
+        /// <summary>`parameters:` of a connection: names to single values (read as text). A name is a lowercase word with underscores, so a reference like `${origin.store_id}` is unambiguous.</summary>
+        private Dictionary<string, string>? ReadParameters(YamlMapping owner, string where)
+        {
+            if (owner.Get("parameters") is not { } node) return null;
+            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, $"{where} must map parameter names to values."); return null; }
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var e in map.Entries)
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(e.Key.Value, "^[a-z][a-z0-9_]*$")) { Add(DiagnosticCatalog.InvalidValue, e.Key, $"`{e.Key.Value}` is not a valid parameter name.", "Lowercase letters, digits and underscores, starting with a letter."); continue; }
+                if (e.Value is not YamlScalar s) { Add(DiagnosticCatalog.InvalidValue, e.Value, $"The parameter `{e.Key.Value}` must be a single value."); continue; }
+                result[e.Key.Value] = s.Value;
+            }
+            return result;
+        }
+
         /// <summary>
         /// `connections:` maps names to `{ engine, version }`. A connection named after an engine needs no entry (and may only be declared with that engine, to set its version); any other name needs `engine`.
         /// Names become the environment variables of the logins (`DBDATABUILD_&lt;NAME&gt;_READ`), so they are letters, digits and underscores, and two names that differ only in case would share one.
@@ -169,7 +184,8 @@ public static class ProjectConfigLoader
                     if (v is YamlScalar s && int.TryParse(s.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0) version = n;
                     else Add(DiagnosticCatalog.InvalidValue, v, "`version` must be the engine's major version as a positive integer (SQL Server 2022 is 16, 2025 is 17).");
                 }
-                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line);
+                var parameters = ReadParameters(settings, $"`connections.{name}.parameters`");
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters);
             }
             return result;
         }

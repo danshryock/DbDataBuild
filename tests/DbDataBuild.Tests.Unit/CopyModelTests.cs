@@ -99,13 +99,75 @@ public class CopyModelTests
         Assert.Contains(expected, text);
     }
 
-    [Fact]
-    public void A_copy_reads_from_exactly_one_connection()
+    // ---- fan-in: one application on several connections ----
+
+    private const string Stores = "connections:\n  crm: { engine: postgres }\n  store_17: { engine: postgres, parameters: { store_id: \"017\", region: eu } }\n  store_18: { engine: postgres, parameters: { store_id: \"018\", region: us } }\n  wh: { engine: sqlserver, parameters: { region: eu } }\ndefaults:\n  connections: [wh]\n";
+
+    private static string StoreProject(string orders = "")
     {
-        var dir = Project();
-        Write(dir, "models/crm/orders.yml", "name: crm.orders\nkind: {type: mapped}\nconnections=: [crm, lake]\ncolumns:\n  - {name: id, type: BIGINT}\n");
-        Copy(dir, "warehouse.orders", "crm.orders");
-        Assert.Contains("a copy reads from exactly one connection", Validate(dir).Text);
+        var dir = Project(Stores);
+        Write(dir, "models/pos/orders.yml", "name: pos.orders\nkind: {type: mapped}\nconnections=: [store_17, store_18]\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: total, type: \"DECIMAL(10, 2)\"}\n" + orders);
+        return dir;
+    }
+
+    [Fact]
+    public void A_copy_from_several_connections_names_the_slice_that_keeps_each_ones_rows_apart()
+    {
+        var dir = StoreProject();
+        Copy(dir, "warehouse.orders", "pos.orders", "");
+        Write(dir, "models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
+        var (result, text) = Validate(dir);
+        Assert.False(result.HasErrors, text);
+        var copy = result.Sources.Single(s => s.Definition.Name == "warehouse.orders").Definition;
+        Assert.Equal(["order_id", "total", "store_id"], copy.Columns.Select(c => c.Name));              // the origin has no such column, so the copy adds it
+        Assert.True(copy.SliceColumnAdded);
+        Assert.Equal("VARCHAR(10)", copy.Columns[2].Type);
+        Assert.False(copy.Columns[2].Nullable);
+        Assert.Equal(["order_id", "store_id"], copy.Grain);                                              // the key has to include the slice: two stores may use the same order number
+        var load = Assert.Single(LoadPlan.For(copy, "wh"));
+        Assert.Equal($"{LoadStrategies.DeleteInsertByKey} store_id", $"{load.Strategy} {string.Join(",", load.Key)}");     // a run replaces the rows of the origin it loads, and no others
+    }
+
+    [Fact]
+    public void A_slice_on_a_column_the_origin_already_has_adds_nothing()
+    {
+        var dir = StoreProject("  - {name: store_code, type: \"VARCHAR(10)\"}\n");
+        Write(dir, "models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  slice: {column: store_code, value: \"${origin.store_id}\"}\n");
+        var (result, text) = Validate(dir);
+        Assert.False(result.HasErrors, text);
+        var copy = result.Sources.Single(s => s.Definition.Name == "warehouse.orders").Definition;
+        Assert.False(copy.SliceColumnAdded);
+        Assert.Equal(["order_id", "total", "store_code"], copy.Columns.Select(c => c.Name));
+    }
+
+    [Theory]
+    [InlineData("", "needs `slice`")]                                                                                                                       // several origins, nothing to tell their rows apart
+    [InlineData("  slice: {column: store_id, value: \"fixed\", type: \"VARCHAR(10)\"}\n", "is the same for every origin")]
+    [InlineData("  slice: {column: store_id, value: \"${origin.nothing}\", type: \"VARCHAR(10)\"}\n", "has no parameter `nothing`")]
+    [InlineData("  slice: {column: store_id, value: \"${origin.store_id}\"}\n", "needs a `type`")]
+    [InlineData("  slice: {column: store_id, value: \"${project.store_id}\", type: \"VARCHAR(10)\"}\n", "names a scope a slice cannot use")]
+    [InlineData("  on_mismatch: maybe\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n", "`fail` or `skip`")]
+    public void A_copy_from_several_connections_that_cannot_work_says_why(string kindExtra, string expected)
+    {
+        var dir = StoreProject();
+        Write(dir, "models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n" + kindExtra);
+        var (result, text) = Validate(dir);
+        Assert.True(result.HasErrors);
+        Assert.Contains(expected, text);
+    }
+
+    [Fact]
+    public void A_connection_parameter_is_read_and_checked()
+    {
+        var cfg = ProjectConfigLoader.Load(Stores, "dbdatabuild.yml", [])!;
+        Assert.Equal("017", cfg.Connections["store_17"].Parameters["store_id"]);
+        Assert.Empty(cfg.Connections["sqlserver"].Parameters);
+        foreach (var bad in new[] { "connections:\n  a: { engine: postgres, parameters: [x] }\n", "connections:\n  a: { engine: postgres, parameters: { Bad Name: 1 } }\n", "connections:\n  a: { engine: postgres, parameters: { x: [1] } }\n" })
+        {
+            var diags = new List<Diagnostic>();
+            Assert.Null(ProjectConfigLoader.Load(bad, "dbdatabuild.yml", diags));
+            Assert.Contains(diags, d => d.Code == "DDB-106");
+        }
     }
 
     [Fact]

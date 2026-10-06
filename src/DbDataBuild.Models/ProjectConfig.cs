@@ -32,8 +32,11 @@ public static class PolicyKeys
 /// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
 /// </summary>
 /// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
-public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0)
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, string>? DeclaredParameters = null)
 {
+    /// <summary>The values this connection carries (`parameters:`): what differs between connections of one application, such as a store id. Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from it.</summary>
+    public IReadOnlyDictionary<string, string> Parameters => DeclaredParameters ?? new Dictionary<string, string>();
+
     /// <summary>The names of connections the tool knows without a declaration: one per engine, named after it.</summary>
     public static IReadOnlyDictionary<string, ConnectionConfig> Implicit { get; } =
         TargetNames.All.ToDictionary(e => e, e => new ConnectionConfig(e, e), StringComparer.Ordinal);

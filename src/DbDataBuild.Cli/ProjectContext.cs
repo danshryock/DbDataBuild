@@ -47,15 +47,19 @@ internal sealed class ProjectContext
         return (result with { Files = files }, lowered.Sql);
     }
 
-    /// <summary>Where a copy reads from: the single connection of the model it copies (validation guarantees there is one), its engine, and the table there. Null for a model that is not a copy.</summary>
-    public DbDataBuild.Planning.CopyOrigin? OriginOf(ModelDefinition model)
+    /// <summary>
+    /// Where a copy reads from, for one destination connection: each connection of the model it copies (validation guarantees there is at least one and that the destination is not among them), its engine, the table there,
+    /// and, for a copy with a slice, the value that tells that origin's rows apart (`${origin.name}` is the origin's parameter, `${connection.name}` the destination's). Empty for a model that is not a copy.
+    /// </summary>
+    public IReadOnlyList<DbDataBuild.Planning.CopyOrigin> OriginsOf(ModelDefinition model, string destination)
     {
-        if (!model.IsCopy || model.From == null) return null;
+        if (!model.IsCopy || model.From == null) return [];
         var connections = Project.Models.FirstOrDefault(m => string.Equals(m.Name, model.From, StringComparison.OrdinalIgnoreCase)) is { } built
             ? built.Targets ?? Config.DefaultConnections
             : Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, model.From, StringComparison.OrdinalIgnoreCase))?.Connections ?? Config.DefaultConnections;
-        var connection = connections[0];
-        return new DbDataBuild.Planning.CopyOrigin(connection, Config.EngineOf(connection) ?? connection, model.From);
+        string? Value(string origin) => model.Slice == null ? null : System.Text.RegularExpressions.Regex.Replace(model.Slice.Value, @"\$\{(origin|connection)\.([a-z][a-z0-9_]*)\}", m =>
+            Config.Connections[m.Groups[1].Value == "origin" ? origin : destination].Parameters.GetValueOrDefault(m.Groups[2].Value) ?? "");
+        return connections.Select(c => new DbDataBuild.Planning.CopyOrigin(c, Config.EngineOf(c) ?? c, model.From, Value(c))).ToList();
     }
 
     /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>

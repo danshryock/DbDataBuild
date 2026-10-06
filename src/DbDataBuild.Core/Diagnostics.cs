@@ -145,6 +145,10 @@ public static class DiagnosticCatalog
         "a table or view whose schema and table names can be a path (`models/<schema>/<table>.yml`), or a descriptor whose table exists",
         "Rename the object, or write the descriptor by hand under a name the project can use. If a descriptor names a table that no longer exists, delete the descriptor or restore the table.",
         "A descriptor's name is its path under `models/` with `/` replaced by `.`, so a dot, slash or backslash in a schema or table name cannot be represented. A committed descriptor whose table is not found in its schema is reported and left alone: the tool never deletes a file you may still need.");
+    public static readonly DiagnosticDescriptor CopyOriginDiffers = E("230", "A copy's origin differs from its declaration",
+        "an origin whose table still has the columns and types the mapped model declares (an added column is fine)",
+        "Bring the origin's table back to the declaration, update the mapped model (`dbdatabuild import`), or set `on_mismatch: skip` on the copy to leave that origin out until it is fixed.",
+        "A copy reads each origin with the declared columns. When one system of an application is on another version, its table may have lost a column or changed a type, and reading it would fail or load the wrong thing. `plan` compares each origin's live table with the declaration and names every origin that differs; `on_mismatch` says whether that stops the plan (`fail`) or leaves that origin out (`skip`). An origin whose login is not in the environment is reported as not checked.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -380,7 +384,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

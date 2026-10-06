@@ -64,6 +64,20 @@
                   "pattern": "^[1-9][0-9]*$"
                 }
               ]
+            },
+            "parameters": {
+              "description": "Values this connection carries, which differ between connections of one application (a store id, a region). Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from the connection. Names are lowercase words with underscores; values are single values, read as text.",
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
             }
           }
         },
@@ -87,6 +101,20 @@
                   "pattern": "^[1-9][0-9]*$"
                 }
               ]
+            },
+            "parameters": {
+              "description": "Values this connection carries, which differ between connections of one application (a store id, a region). Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from the connection. Names are lowercase words with underscores; values are single values, read as text.",
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
             }
           }
         },
@@ -110,6 +138,20 @@
                   "pattern": "^[1-9][0-9]*$"
                 }
               ]
+            },
+            "parameters": {
+              "description": "Values this connection carries, which differ between connections of one application (a store id, a region). Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from the connection. Names are lowercase words with underscores; values are single values, read as text.",
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
             }
           }
         }
@@ -473,6 +515,20 @@
               "pattern": "^[1-9][0-9]*$"
             }
           ]
+        },
+        "parameters": {
+          "description": "Values this connection carries, which differ between connections of one application (a store id, a region). Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from the connection. Names are lowercase words with underscores; values are single values, read as text.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          }
         }
       }
     }

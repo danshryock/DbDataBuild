@@ -283,8 +283,32 @@ to the staging table by the engine's bulk route through the gate (`GateStatement
 values. The load then replaces the table in one destination transaction. A transfer that failed is run again from the start (the staging table is recreated); the load step never ran, so the table is untouched.
 Dates at the engines' limits (0001-01-01, 9999-12-31) are copied as dates, not as infinity (the driver setting is `DriverSettings`).
 
-Not built: several origins (fan-in), incremental copies (a watermark on the origin), `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover,
-a check at `plan` time that the origin still has the declared shape (apply compares the names the read returns with the plan's).
+**Fan-in: one application on several connections.** A mapped model may be on several connections (`connections=: [store_017, store_018]`; a folder's `_dbdatabuild.yml` can set it for everything beneath), and a copy
+of it then needs a `slice`, which says which rows are an origin's:
+
+```yaml
+# dbdatabuild.yml
+connections:
+  store_017: { engine: postgres, parameters: { store_id: "017" } }     # a connection's parameters: what differs between the systems
+  store_018: { engine: postgres, parameters: { store_id: "018" } }
+# models/warehouse/orders.yml
+name: warehouse.orders
+kind:
+  type: copy
+  from: pos.orders                       # a mapped model on store_017 and store_018
+  slice: { column: store_id, value: "${origin.store_id}", type: "VARCHAR(10)" }
+  on_mismatch: fail                      # or skip
+```
+
+`${origin.name}` is the parameter of the connection a row came from (`${connection.name}` that of the destination); any other scope is refused when the project loads, and a connection without the parameter is named. If the origin has no
+column called as the slice, the copy adds it (the `type` is then required) and writes the value into every row of that origin; if it has one, every row must already hold the value (an origin cannot write into another's slice). The
+slice column joins the grain, and the copy's load becomes `delete_insert_by_key` on it, so **a run replaces only the rows of the origin it loads**: rows of other origins, or of no origin, are not touched. The plan has one transfer
+and one load per origin, in the order of the `connections` list, and a staging table that is dropped at the end. `plan` compares each origin's live table with the mapped model (a column gone, a type changed, a column that
+can now be NULL where the declaration says it cannot; an added column is no difference) and names every origin that differs (DDB-230): `on_mismatch: fail` (the default) stops the plan, `skip` leaves that origin's steps out with a
+warning. An origin whose login is not in the environment is reported as not checked, and `apply` refuses to start unless every origin can be opened.
+
+Not built: incremental copies (a watermark on the origin), `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, project parameters and folder-level
+connection parameters, the origin check for an origin that is a built model.
 
 ### 6.6 Load operations: paired with targets, committed, parameterized
 

@@ -82,6 +82,8 @@ public static class LoadPlan
 
     private static LoadOperation Implicit(ModelDefinition m) => m.KindType switch
     {
+        // a copy from several connections replaces only the rows of the origin it is loading: delete by the slice column, then insert
+        ModelKinds.Copy when m.Slice != null => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey, [m.Slice.Column], null, null, [], null, null, Declared: false),
         ModelKinds.Full or ModelKinds.Copy => new(ImplicitName, true, LoadStrategies.FullReplace, [], null, null, [], null, null, Declared: false),
         ModelKinds.IncrementalByUniqueKey => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey, m.UniqueKey, null, null, [], null, null, Declared: false),
         // the range comes from MAX(time_column) in the target minus the lookback, never from a state table; an empty target needs a value

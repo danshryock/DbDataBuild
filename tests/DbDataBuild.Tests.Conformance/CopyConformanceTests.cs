@@ -204,4 +204,75 @@ public partial class CopyConformanceTests
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
     }
+
+    [SkippableFact]
+    public async Task One_application_on_several_systems_lands_in_one_table_one_origin_at_a_time()
+    {
+        var store17 = EngineEnv.Require("postgres");
+        var store18 = EngineEnv.Require("postgres");
+        var warehouse = EngineEnv.Require("sqlserver");
+        await store17.StartAsync(); await store18.StartAsync(); await warehouse.StartAsync();
+        await using var _17 = store17; await using var _18 = store18; await using var _wh = warehouse;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-fanin-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) =>
+            v == "DBDATABUILD_STORE_17_READ" ? store17.ConnectionString : v == "DBDATABUILD_STORE_18_READ" ? store18.ConnectionString
+            : v is "DBDATABUILD_SQLSERVER_READ" or "DBDATABUILD_SQLSERVER_WRITE" ? warehouse.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var path = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, text); }
+        string PlanOf(string output) => Path.Combine(dir, Regex.Match(output, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+        try
+        {
+            foreach (var (store, rows) in new[] { (store17, "(1, 10.00), (2, 20.00)"), (store18, "(1, 11.00), (3, 33.00)") })
+            {
+                await store.ExecAsync("CREATE SCHEMA pos");
+                await store.ExecAsync("CREATE TABLE pos.orders (order_id BIGINT NOT NULL, total NUMERIC(10,2))");
+                await store.ExecAsync($"INSERT INTO pos.orders VALUES {rows}");
+            }
+            Write("dbdatabuild.yml", "connections:\n  store_17: { engine: postgres, parameters: { store_id: \"017\" } }\n  store_18: { engine: postgres, parameters: { store_id: \"018\" } }\ndefaults:\n  connections: [sqlserver]\n");
+            Write("models/pos/orders.yml", "name: pos.orders\nkind: {type: mapped}\nconnections=: [store_17, store_18]\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: total, type: \"DECIMAL(10, 2)\"}\n");
+            Write("models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
+
+            Ok(Cli("init", "--connection", "sqlserver", "--apply"), "init");
+            Ok(Cli("render", "--write"), "render --write");
+            var plan = Cli("plan", "--connection", "sqlserver");
+            Ok(plan, "plan");
+            var text = File.ReadAllText(PlanOf(plan.Out));
+            Assert.Equal(2, Regex.Matches(text, "type: transfer").Count);                                         // one transfer per origin
+            Ok(Cli("apply", PlanOf(plan.Out)), "apply");
+            Assert.Equal(["1|017|10.00", "1|018|11.00", "2|017|20.00", "3|018|33.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
+
+            // a row that belongs to no origin of this copy is not touched by a run, and each origin's run replaces only its own rows
+            await warehouse.ExecAsync("INSERT INTO warehouse.orders (order_id, total, store_id) VALUES (9, 90.00, '999')");
+            await store17.ExecAsync("DELETE FROM pos.orders WHERE order_id = 1; INSERT INTO pos.orders VALUES (4, 40.00)");
+            var again = Cli("plan", "--connection", "sqlserver");
+            Ok(again, "second plan");
+            Ok(Cli("apply", PlanOf(again.Out)), "second apply");
+            Assert.Equal(["1|018|11.00", "2|017|20.00", "3|018|33.00", "4|017|40.00", "9|999|90.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
+
+            // version skew: store 18 lost a column. The plan names the origin and stops, and says nothing else about the others
+            await store18.ExecAsync("ALTER TABLE pos.orders DROP COLUMN total");
+            var skew = Cli("plan", "--connection", "sqlserver");
+            Assert.NotEqual(0, skew.Exit);
+            Assert.Contains("DDB-230", skew.Err);
+            Assert.Contains("`pos.orders` on `store_18` differs from its declaration: column `total` is gone", skew.Err);
+            Assert.DoesNotContain("store_17` differs", skew.Err);
+
+            // with on_mismatch: skip the other origin still loads, and the skipped one's rows stay as they were
+            Write("models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  on_mismatch: skip\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
+            Ok(Cli("render", "--write"), "render --write");
+            await store17.ExecAsync("INSERT INTO pos.orders VALUES (5, 50.00)");
+            var skipped = Cli("plan", "--connection", "sqlserver");
+            Ok(skipped, "plan with a skipped origin");
+            Assert.Contains("left out of the plan", skipped.Err);
+            Assert.Single(Regex.Matches(File.ReadAllText(PlanOf(skipped.Out)), "type: transfer"));
+            Ok(Cli("apply", PlanOf(skipped.Out)), "apply with a skipped origin");
+            Assert.Equal(["1|018|11.00", "2|017|20.00", "3|018|33.00", "4|017|40.00", "5|017|50.00", "9|999|90.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 }

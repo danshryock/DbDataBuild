@@ -342,13 +342,15 @@ public static class ApplyEngine
             await using var origin = await o.OpenOrigin!(spec.Origin, ct);
             await using var stream = await origin.OpenStreamAsync(spec.ReadText, ct);
             var names = stream.Names;
-            if (!names.SequenceEqual(columns.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
+            // what the origin returns: every column of the copy, except the slice column the copy adds (that one is written here, not read)
+            var read = spec.Slice is { Added: true } added ? columns.Where(c => !string.Equals(c.Name, added.Column, StringComparison.OrdinalIgnoreCase)).ToList() : columns.ToList();
+            if (!names.SequenceEqual(read.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
             {
                 await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "failed", null, null, ct);
                 return new Diagnostic(DiagnosticCatalog.StepResultDiffers, new($"step:{step.Id}", 0, 0),
-                    $"The read on `{spec.Origin}` returned the columns [{string.Join(", ", names)}], but the plan expects [{string.Join(", ", columns.Select(c => c.Name))}]. Nothing was copied.");
+                    $"The read on `{spec.Origin}` returned the columns [{string.Join(", ", names)}], but the plan expects [{string.Join(", ", read.Select(c => c.Name))}]. Nothing was copied.");
             }
-            var written = await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, Converted(stream.ReadAsync(ct), columns, ct), ct);
+            var written = await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, Converted(stream.ReadAsync(ct), columns, read.Count, spec.Slice, ct), ct);
             await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "ok", written, null, ct);
             return null;
         }
@@ -366,12 +368,29 @@ public static class ApplyEngine
 
     private static async IAsyncEnumerable<object?[]> EmptyRows() { await Task.CompletedTask; yield break; }
 
-    private static async IAsyncEnumerable<object?[]> Converted(IAsyncEnumerable<object?[]> rows, IReadOnlyList<TransferColumn> columns, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    /// <summary>
+    /// The rows of the origin in the declared types. With a slice that the copy adds, its value is written into every row (typed like the column); with a slice the data already has, a row that holds any other value is
+    /// an error that names the column, so an origin cannot write into another's slice.
+    /// </summary>
+    private static async IAsyncEnumerable<object?[]> Converted(IAsyncEnumerable<object?[]> rows, IReadOnlyList<TransferColumn> columns, int readWidth, PlanSlice? slice,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
+        var sliceIndex = slice == null ? -1 : columns.ToList().FindIndex(c => string.Equals(c.Name, slice.Column, StringComparison.OrdinalIgnoreCase));
+        var expected = slice == null ? null : TransferValues.Convert(slice.Value, columns[sliceIndex]);
         await foreach (var row in rows.WithCancellation(ct))
         {
-            for (var i = 0; i < columns.Count; i++) row[i] = TransferValues.Convert(row[i], columns[i]);
-            yield return row;
+            var full = row;
+            if (slice is { Added: true })
+            {
+                full = new object?[columns.Count];
+                for (var i = 0; i < readWidth; i++) full[i < sliceIndex ? i : i + 1] = row[i];          // the slice column is not among the read ones: it is the added one (last, or wherever the copy put it)
+                full[sliceIndex] = expected;
+            }
+            for (var i = 0; i < columns.Count; i++)
+                if (!(slice is { Added: true } && i == sliceIndex)) full[i] = TransferValues.Convert(full[i], columns[i]);
+            if (slice is { Added: false } && !Equals(full[sliceIndex], expected))
+                throw new TransferException($"column `{slice.Column}`: a row of the origin does not hold the slice value the plan names for it.");
+            yield return full;
         }
     }
 

@@ -304,6 +304,28 @@
                     }
                   }
                 }
+              },
+              "slice": {
+                "description": "For a copy from several connections: the rows of this origin carry `value` in `column`. When `added` the origin has no such column and apply writes the value into every row; otherwise every row the origin returns must already hold it.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "column",
+                  "value",
+                  "added"
+                ],
+                "properties": {
+                  "column": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "added": {
+                    "type": "boolean"
+                  }
+                }
               }
             }
           }

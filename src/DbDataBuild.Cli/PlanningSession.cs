@@ -127,6 +127,11 @@ internal sealed class PlanningSession
         var graph = new ModelGraph(ctx.Project.Models, ctx.Project.AllDescriptors);
         findings.AddRange(new DefineEngine(graph, ctx.Config, ctx.Linter).Check(defineTargets));
 
+        // each origin of a copy against its declaration (version skew between the systems of one application); `on_mismatch: skip` leaves an origin out of the plan
+        var copyDefinitions = mine.Select(m => m.Source.Definition).Where(d => d.IsCopy).ToList();
+        var originCheck = copyDefinitions.Count == 0 ? new CopyOriginCheck.Result([], new HashSet<(string, string)>()) : CopyOriginCheck.Run(ctx, copyDefinitions, target, env);
+        findings.AddRange(originCheck.Findings);
+
         var renderedOps = new List<RenderedOperation>();
         foreach (var m in mine)
         {
@@ -157,7 +162,7 @@ internal sealed class PlanningSession
             var bases = m.Source.Definition.IsCopy ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
             var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql).Model is { } lowered ? lowered.Sql : m.Sql;
-            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginOf(m.Source.Definition));
+            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList());
         }).ToList();
 
         TargetSnapshot snapshot;

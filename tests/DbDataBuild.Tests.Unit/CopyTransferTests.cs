@@ -27,7 +27,7 @@ public class CopyTransferTests
     [Fact]
     public void A_copy_plans_its_table_then_the_transfer_then_the_load_then_the_drop_of_the_staging_table()
     {
-        var model = new PlannedModel(Copy(), "SELECT 1", "models/dst/items.yml", "h", [], Origin: new CopyOrigin("crm", "postgres", "src.items"));
+        var model = new PlannedModel(Copy(), "SELECT 1", "models/dst/items.yml", "h", [], Origins: [new CopyOrigin("crm", "postgres", "src.items")]);
         var plan = Planner.Plan(Input(model), []);
         Assert.True(plan.Complete);
         Assert.Empty(plan.Blocks);
@@ -49,11 +49,43 @@ public class CopyTransferTests
     [Fact]
     public void A_copy_to_postgres_reads_from_sql_server_in_its_own_quoting()
     {
-        var model = new PlannedModel(Copy(), "SELECT 1", "models/dst/items.yml", "h", [], Origin: new CopyOrigin("erp", "sqlserver", "src.items"));
+        var model = new PlannedModel(Copy(), "SELECT 1", "models/dst/items.yml", "h", [], Origins: [new CopyOrigin("erp", "sqlserver", "src.items")]);
         var plan = Planner.Plan(Input(model, "postgres"), []);
         var transfer = plan.Steps.Single(s => s.Type == StepType.Transfer);
         Assert.Equal("SELECT [id], [label] FROM [src].[items]", transfer.Transfer!.ReadText);
         Assert.Contains("CREATE TABLE \"dbdatabuild\".\"stg_dst__items\"", transfer.Text);
+    }
+
+    [Fact]
+    public void A_copy_from_several_origins_stages_and_loads_each_in_turn_with_its_own_slice_value()
+    {
+        var def = Copy("dst.orders") with
+        {
+            Columns = [new ColumnDefinition("id", "BIGINT", false), new ColumnDefinition("store_id", "VARCHAR(10)", false)], Grain = ["id", "store_id"],
+            Slice = new CopySlice("store_id", "${origin.store_id}", "VARCHAR(10)"), SliceColumnAdded = true, From = "pos.orders",
+        };
+        var model = new PlannedModel(def, "SELECT 1", "models/dst/orders.yml", "h", [], Origins: [new CopyOrigin("store_17", "postgres", "pos.orders", "017"), new CopyOrigin("store_18", "postgres", "pos.orders", "018")]);
+        var input = Input(model);
+        var plan = Planner.Plan(input, []);
+        Assert.Empty(plan.Blocks);
+        Assert.Equal(["create schema dst", "create table dst.orders", "copy dst.orders from store_17 (pos.orders)", "load dst.orders (default)",
+                      "copy dst.orders from store_18 (pos.orders)", "load dst.orders (default)", "drop staging table of dst.orders"], plan.Steps.Select(s => s.Description));
+        var transfers = plan.Steps.Where(s => s.Type == StepType.Transfer).ToList();
+        Assert.Equal(["store_17", "store_18"], transfers.Select(t => t.Transfer!.Origin));
+        Assert.Equal(["017", "018"], transfers.Select(t => t.Transfer!.Slice!.Value));
+        Assert.All(transfers, t =>
+        {
+            Assert.Equal("store_id", t.Transfer!.Slice!.Column);
+            Assert.True(t.Transfer.Slice.Added);
+            Assert.Equal("SELECT \"id\" FROM \"pos\".\"orders\"", t.Transfer.ReadText);               // the added column is written, not read
+            Assert.Equal(["id", "store_id"], t.Transfer.Columns.Select(c => c.Name));                     // but the staging table has it
+        });
+        Assert.Equal(7, plan.Steps.Select(s => s.Id).Distinct().Count());
+
+        // and the plan file keeps the slice
+        var text = PlanDocument.Serialize(new Plan("2026-10-12-00000000", "sqlserver", null, false, "0.1.0", [], [], plan.Steps, []));
+        var parsed = PlanDocument.Parse(text, "p.yml", [])!;
+        Assert.Equal(new PlanSlice("store_id", "018", true), parsed.Steps.Single(s => s.Transfer?.Origin == "store_18").Transfer!.Slice);
     }
 
     [Theory]

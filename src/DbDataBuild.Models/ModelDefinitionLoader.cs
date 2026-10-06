@@ -69,12 +69,15 @@ public static class ModelDefinitionLoader
             var (kindType, uniqueKey, timeColumn, lookback, kindNode) = ReadKind(top);
             var isCopy = kindType?.Value == ModelKinds.Copy;
             YamlScalar? from = null;
+            CopySlice? slice = null;
+            var onMismatch = CopySlice.Fail;
             if (isCopy)
             {
                 from = (kindNode as YamlMapping)?.Get("from") as YamlScalar;
                 if (from == null || !System.Text.RegularExpressions.Regex.IsMatch(from.Value, @"^[^.\s/\\]+\.[^.\s/\\]+$"))
                     Add(DiagnosticCatalog.InvalidValue, (YamlNode?)from ?? kindNode ?? top, "A copy names the model it copies, `kind: {type: copy, from: schema.table}`.");
                 if (top.Get("columns") is { } own) Add(DiagnosticCatalog.InvalidValue, own, "A copy has no `columns`: it has the columns of the model it copies.", "Remove `columns:`.");
+                (slice, onMismatch) = ReadCopySettings(kindNode as YamlMapping);
             }
             var grain = StringList(top, "grain", required: false);
             var targets = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
@@ -124,7 +127,35 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0);
+                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0, slice, onMismatch);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex Reference = new(@"\$\{([a-z]+)\.([a-z][a-z0-9_]*)\}");
+
+        /// <summary>`slice` and `on_mismatch` of a copy. A reference in the slice's value is `${origin.name}` or `${connection.name}`; any other `${` is a mistake to say so about now, not at plan.</summary>
+        private (CopySlice? Slice, string OnMismatch) ReadCopySettings(YamlMapping? kind)
+        {
+            var onMismatch = CopySlice.Fail;
+            if (kind?.Get("on_mismatch") is { } om)
+            {
+                if (om is YamlScalar { Value: CopySlice.Fail or CopySlice.Skip } s) onMismatch = s.Value;
+                else Add(DiagnosticCatalog.InvalidValue, om, "`on_mismatch` is `fail` or `skip`: what to do about an origin whose table differs from the declaration.");
+            }
+            if (kind?.Get("slice") is not { } node) return (null, onMismatch);
+            if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, "`slice` is a mapping: `{column: store_id, value: \"${origin.store_id}\"}`."); return (null, onMismatch); }
+            CheckKeys(map, ["column", "value", "type"], "`slice`");
+            var column = Scalar(map, "column", required: true, at: map);
+            var value = Scalar(map, "value", required: true, at: map);
+            var type = map.Get("type") as YamlScalar;
+            if (value != null)
+            {
+                var stripped = Reference.Replace(value.Value, "");
+                foreach (System.Text.RegularExpressions.Match m in Reference.Matches(value.Value).Where(m => m.Groups[1].Value is not ("origin" or "connection")))
+                    Add(DiagnosticCatalog.InvalidValue, value, $"`${{{m.Groups[1].Value}.{m.Groups[2].Value}}}` names a scope a slice cannot use.", "`${origin.name}` (the connection a copy reads from) or `${connection.name}` (the connection it writes to).");
+                if (stripped.Contains("${", StringComparison.Ordinal)) Add(DiagnosticCatalog.InvalidValue, value, "A reference in a slice's value is written `${origin.name}`.");
+            }
+            if (column == null || value == null) return (null, onMismatch);
+            return (new CopySlice(column.Value, value.Value, type?.Value, map.Line), onMismatch);
         }
 
         private static readonly string[] IndexAdvisorCodes = [DiagnosticCatalog.MergeKeyNotIndexed.Code, DiagnosticCatalog.LoadColumnNotIndexed.Code, DiagnosticCatalog.LoadSliceNotPushable.Code];
@@ -143,7 +174,7 @@ public static class ModelDefinitionLoader
             var allowed = new List<string> { "type" };
             if (type?.Value == ModelKinds.IncrementalByUniqueKey) allowed.Add("unique_key");
             if (type?.Value == ModelKinds.IncrementalByTimeRange) { allowed.Add("time_column"); allowed.Add("lookback"); }
-            if (type?.Value == ModelKinds.Copy) allowed.Add("from");
+            if (type?.Value == ModelKinds.Copy) { allowed.Add("from"); allowed.Add("slice"); allowed.Add("on_mismatch"); }
             if (valid) CheckKeys(kind, allowed, $"kind `{type!.Value}`");
 
             var uniqueKey = StringList(kind, "unique_key", required: false);
