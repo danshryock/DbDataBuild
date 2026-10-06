@@ -130,11 +130,11 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         return outcome;
     }
 
-    private static ModelDefinition? DefinitionOf(DefineOutcome o)
+    private ModelDefinition? DefinitionOf(DefineOutcome o)
     {
         var text = o.NewText ?? o.Target.ExistingText;
         if (text == null) return null;
-        return ModelDefinitionLoader.Load(text, o.Target.DefinitionFile, o.Target.ModelName, []);
+        return ModelDefinitionLoader.Load(text, o.Target.DefinitionFile, o.Target.ModelName, [], config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
     }
 
     private static DefineOutcome Failed(DefineTarget t, IReadOnlyList<ResolvedAnswer> answers, IReadOnlyList<string> notes, params Diagnostic[] diags) =>
@@ -246,7 +246,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         }
         var text = DefinitionWriter.Create(def);
         var verify = new List<Diagnostic>();
-        if (ModelDefinitionLoader.Load(text, t.DefinitionFile, t.ModelName, verify) == null)
+        if (ModelDefinitionLoader.Load(text, t.DefinitionFile, t.ModelName, verify, config.Connections.Keys.ToHashSet(StringComparer.Ordinal)) == null)
             return Failed(t, answers, notes, [.. verify]);
         return new DefineOutcome(t, DefineStatus.Created, text, [], answers, notes, []);
     }
@@ -254,15 +254,18 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
     private static DefineOutcome Skipped(DefineTarget t, IReadOnlyList<ResolvedAnswer> answers) =>
         new(t, DefineStatus.Skipped, null, [], answers, ["Skipped by answer: nothing is written for this model."], []);
 
-    private static IReadOnlyList<string>? ParseTargets(ResolvedAnswer answer, out Diagnostic? problem)
+    private IReadOnlyList<string>? ParseTargets(ResolvedAnswer answer, out Diagnostic? problem)
     {
         problem = null;
         if (answer.Choice == "use_project_default") return null;
-        var names = answer.Value!.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(n => n.ToLowerInvariant()).Distinct().ToList();
-        var unknown = names.FirstOrDefault(n => !TargetNames.All.Contains(n));
+        var known = config.Connections.Keys.ToList();
+        // a connection name is matched without regard to case and written as declared
+        var typed = answer.Value!.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        var names = typed.Select(n => known.FirstOrDefault(k => string.Equals(k, n, StringComparison.OrdinalIgnoreCase)) ?? n).Distinct().ToList();
+        var unknown = names.FirstOrDefault(n => !known.Contains(n));
         if (names.Count == 0 || unknown != null)
         {
-            problem = BadAnswer(unknown != null ? $"Unknown target `{unknown}`. One of: {string.Join(", ", TargetNames.All)}." : "Name at least one target.");
+            problem = BadAnswer(unknown != null ? $"Unknown connection `{unknown}`. One of: {string.Join(", ", known.Order(StringComparer.Ordinal))}." : "Name at least one connection.");
             return null;
         }
         return names;
@@ -374,7 +377,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         if (newText == t.ExistingText) return new DefineOutcome(t, DefineStatus.Unchanged, null, [], answers, notes, []);
 
         var verify = new List<Diagnostic>();
-        var updated = ModelDefinitionLoader.Load(newText!, t.DefinitionFile, t.ModelName, verify);
+        var updated = ModelDefinitionLoader.Load(newText!, t.DefinitionFile, t.ModelName, verify, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
         if (updated == null) return Failed(t, answers, notes, [.. verify]);
 
         // what is still different must be exactly what the person chose to keep; anything else is a bug in this tool

@@ -53,7 +53,7 @@ public class InitCommandTests
     {
         var (exit, _, err) = Run(null, "init", "--project", Project("default_targets: [sqlserver]\n"), "--target", "oracle");
         Assert.Equal(CliApp.ExitUsage, exit);
-        Assert.Contains("Unknown target `oracle`", err);
+        Assert.Contains("Unknown connection `oracle`", err);
     }
 
     [Fact]

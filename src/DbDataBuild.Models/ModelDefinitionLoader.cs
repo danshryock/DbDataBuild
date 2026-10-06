@@ -11,7 +11,7 @@ public static class ModelDefinitionLoader
 
     /// <param name="file">Path shown in diagnostics.</param>
     /// <param name="expectedName">Name implied by the path convention, or null to skip the check.</param>
-    public static ModelDefinition? Load(string text, string file, string? expectedName, List<Diagnostic> diags)
+    public static ModelDefinition? Load(string text, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
     {
         var errorsBefore = diags.Count;
         var root = StrictYamlReader.Read(text, file, diags);
@@ -21,12 +21,12 @@ public static class ModelDefinitionLoader
                 diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(file, 1, 1), "The file is empty. Required keys: name, kind, columns."));
             return null;
         }
-        var v = new Validator(file, diags);
+        var v = new Validator(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal));
         var def = v.Validate(root, expectedName);
         return diags.Count > errorsBefore ? null : def;
     }
 
-    private sealed class Validator(string file, List<Diagnostic> diags) : YamlFieldReader(file, diags)
+    private sealed class Validator(string file, List<Diagnostic> diags, IReadOnlySet<string> connections) : YamlFieldReader(file, diags)
     {
         private readonly List<YamlScalar> renameTargets = [];
 
@@ -48,15 +48,15 @@ public static class ModelDefinitionLoader
             var grain = StringList(top, "grain", required: false);
             var targets = StringList(top, "targets", required: false, allowEmpty: false, unique: true);
             if (targets != null)
-                foreach (var t in targets.Where(t => !TargetNames.All.Contains(t.Value)))
-                    Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                foreach (var t in targets.Where(t => !connections.Contains(t.Value)))
+                    Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
 
             var columns = ReadColumns(top);
             var loads = ReadLoads(top, kindType?.Value, uniqueKey, timeColumn, columns);
             var renames = ReadRenames(top);
             var indexes = ReadIndexes(top, columns, targets?.Select(t => t.Value).ToList());
             if (kindType?.Value == ModelKinds.View && indexes.Count > 0) Add(DiagnosticCatalog.InvalidValue, top.Get("indexes")!, "A view cannot have indexes (indexed views are out of scope).");
-            var hooks = top.Get("hooks") is { } hn ? HookReader.ReadList(hn, allowUse: true, "`hooks`", (d, n, f) => Add(d, n, f)) : [];
+            var hooks = top.Get("hooks") is { } hn ? HookReader.ReadList(hn, allowUse: true, "`hooks`", (d, n, f) => Add(d, n, f), connections) : [];
 
             var lintIgnore = StringList(top, "lint_ignore", required: false, allowEmpty: false, unique: true);
             foreach (var code in (lintIgnore ?? []).Where(c => !IndexAdvisorCodes.Contains(c.Value)))
@@ -157,7 +157,7 @@ public static class ModelDefinitionLoader
                 }
                 var targets = StringList(op, "targets", required: false, allowEmpty: false, unique: true);
                 foreach (var t in targets ?? [])
-                    if (!TargetNames.All.Contains(t.Value)) Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                    if (!connections.Contains(t.Value)) Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
 
                 void NotUsed(params string[] keys)
                 {
@@ -220,11 +220,11 @@ public static class ModelDefinitionLoader
                 result.Add(new LoadOperation(entry.Key.Value, isDefault, strategy.Value, key, column, watermark, parameters, maxSpan, targets?.Select(t => t.Value).ToList(), Declared: true, entry.Key.Line));
             }
 
-            foreach (var target in TargetNames.All)
+            foreach (var target in connections.Order(StringComparer.Ordinal))
             {
                 var defaults = result.Where(o => o.IsDefault && o.AppliesTo(target)).ToList();
                 if (defaults.Count > 1)
-                    Add(DiagnosticCatalog.InvalidValue, loads, $"More than one operation is the default for {target}: {string.Join(", ", defaults.Select(o => o.Name))}.", "At most one default per target.");
+                    Add(DiagnosticCatalog.InvalidValue, loads, $"More than one operation is the default for {target}: {string.Join(", ", defaults.Select(o => o.Name))}.", "At most one default per connection.");
             }
             return result;
         }
@@ -332,8 +332,8 @@ public static class ModelDefinitionLoader
                     Add(DiagnosticCatalog.UnknownColumnReference, c, $"The index refers to `{c.Value}`, which is not declared in `columns`.");
                 foreach (var c in (include ?? []).Where(i => cols?.Any(k => string.Equals(k.Value, i.Value, StringComparison.OrdinalIgnoreCase)) == true))
                     Add(DiagnosticCatalog.InvalidValue, c, $"`{c.Value}` is both a key and an included column of the index.");
-                foreach (var t in (idxTargets ?? []).Where(t => !TargetNames.All.Contains(t.Value)))
-                    Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                foreach (var t in (idxTargets ?? []).Where(t => !connections.Contains(t.Value)))
+                    Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
                 if (name == null || cols == null) continue;
                 result.Add(new IndexDefinition(name.Value, cols.Select(c => c.Value).ToList(), unique, include?.Select(c => c.Value).ToList() ?? [], idxTargets?.Select(t => t.Value).ToList(), m.Line));
             }

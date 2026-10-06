@@ -42,7 +42,7 @@ public class FuzzTests
 
     private const string Config = """
         default_targets: [sqlserver, postgres]
-        targets:
+        connections:
           sqlserver: { version: 17 }
         string_semantics:
           case: insensitive

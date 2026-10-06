@@ -6,9 +6,9 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["default_targets", "targets", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["default_targets", "connections", "tracking_schema", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] TargetKeys = ["version"];
+    private static readonly string[] ConnectionKeys = ["engine", "version"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -47,12 +47,12 @@ public static class ProjectConfigLoader
             CheckKeys(top, TopKeys, "the configuration");
             var d = ProjectConfig.Default;
 
-            var targets = ReadDefaultTargets(top) ?? d.DefaultTargets;
-            var versions = ReadTargetVersions(top);
+            var connections = ReadConnections(top);
+            var targets = ReadDefaultTargets(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.DefaultTargets;
             var schema = ReadTrackingSchema(top) ?? d.TrackingSchema;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, versions, schema, semantics, policy, lines, ReadHookGroups(top), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top));
+            return new ProjectConfig(targets, connections, schema, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top));
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -88,7 +88,7 @@ public static class ProjectConfigLoader
             return false;
         }
 
-        private Dictionary<string, IReadOnlyList<HookDefinition>> ReadHookGroups(YamlMapping top)
+        private Dictionary<string, IReadOnlyList<HookDefinition>> ReadHookGroups(YamlMapping top, IReadOnlySet<string> connections)
         {
             var result = new Dictionary<string, IReadOnlyList<HookDefinition>>(StringComparer.Ordinal);
             if (top.Get("hook_groups") is not { } node) return result;
@@ -96,35 +96,59 @@ public static class ProjectConfigLoader
             foreach (var e in groups.Entries)
             {
                 if (!System.Text.RegularExpressions.Regex.IsMatch(e.Key.Value, @"^[A-Za-z_][A-Za-z0-9_\-]*$")) { Add(DiagnosticCatalog.InvalidValue, e.Key, $"`{e.Key.Value}` is not a valid hook group name."); continue; }
-                result[e.Key.Value] = HookReader.ReadList(e.Value, allowUse: false, $"the hook group `{e.Key.Value}`", (d, n, f) => Add(d, n, f));
+                result[e.Key.Value] = HookReader.ReadList(e.Value, allowUse: false, $"the hook group `{e.Key.Value}`", (d, n, f) => Add(d, n, f), connections);
             }
             return result;
         }
 
-        private List<string>? ReadDefaultTargets(YamlMapping top)
+        private List<string>? ReadDefaultTargets(YamlMapping top, IReadOnlySet<string> connections)
         {
             var list = StringList(top, "default_targets", required: false, allowEmpty: false, unique: true);
             if (list == null) return null;
-            foreach (var t in list.Where(t => !TargetNames.All.Contains(t.Value)))
-                Add(DiagnosticCatalog.InvalidValue, t, $"Unknown target `{t.Value}`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+            foreach (var t in list.Where(t => !connections.Contains(t.Value)))
+                Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
             return list.Select(t => t.Value).ToList();
         }
 
-        private Dictionary<string, int> ReadTargetVersions(YamlMapping top)
+        /// <summary>
+        /// `connections:` maps names to `{ engine, version }`. A connection named after an engine needs no entry (and may only be declared with that engine, to set its version); any other name needs `engine`.
+        /// Names become the environment variables of the logins (`DBDATABUILD_&lt;NAME&gt;_READ`), so they are letters, digits and underscores, and two names that differ only in case would share one.
+        /// </summary>
+        private Dictionary<string, ConnectionConfig> ReadConnections(YamlMapping top)
         {
-            var result = new Dictionary<string, int>();
-            if (top.Get("targets") is not { } node) return result;
-            if (node is not YamlMapping targets) { Add(DiagnosticCatalog.InvalidValue, node, "`targets` must map target names to settings."); return result; }
-            CheckKeys(targets, TargetNames.All, "`targets`");
-            foreach (var e in targets.Entries.Where(e => TargetNames.All.Contains(e.Key.Value)))
+            var result = new Dictionary<string, ConnectionConfig>(ConnectionConfig.Implicit, StringComparer.Ordinal);
+            if (top.Get("connections") is not { } node) return result;
+            if (node is not YamlMapping connections) { Add(DiagnosticCatalog.InvalidValue, node, "`connections` must map connection names to settings."); return result; }
+            var upper = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var e in connections.Entries)
             {
-                if (e.Value is not YamlMapping settings) { Add(DiagnosticCatalog.InvalidValue, e.Value, $"`targets.{e.Key.Value}` must be a mapping (for example `{{ version: 16 }}`)."); continue; }
-                CheckKeys(settings, TargetKeys, $"`targets.{e.Key.Value}`");
+                var name = e.Key.Value;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z][A-Za-z0-9_]*$"))
+                { Add(DiagnosticCatalog.InvalidValue, e.Key, $"`{name}` is not a valid connection name.", "Letters, digits and underscores, starting with a letter: the name is part of the login's environment variable."); continue; }
+                if (upper.TryGetValue(name.ToUpperInvariant(), out var other))
+                { Add(DiagnosticCatalog.DuplicateKey, e.Key, $"The connection names `{other}` and `{name}` differ only in case and would share the login variable `DBDATABUILD_{name.ToUpperInvariant()}_READ`."); continue; }
+                upper[name.ToUpperInvariant()] = name;
+                if (e.Value is not YamlMapping settings) { Add(DiagnosticCatalog.InvalidValue, e.Value, $"`connections.{name}` must be a mapping (for example `{{ engine: postgres }}`)."); continue; }
+                CheckKeys(settings, ConnectionKeys, $"`connections.{name}`");
+                var isEngineName = TargetNames.All.Contains(name);
+                string? engine = isEngineName ? name : null;
+                if (settings.Get("engine") is { } en)
+                {
+                    if (en is YamlScalar es && TargetNames.All.Contains(es.Value))
+                    {
+                        if (isEngineName && es.Value != name) Add(DiagnosticCatalog.InvalidValue, en, $"The connection `{name}` is named after an engine, so its engine is `{name}`, not `{es.Value}`.", "Give the connection another name.");
+                        else engine = es.Value;
+                    }
+                    else Add(DiagnosticCatalog.InvalidValue, en, "`engine` is not one the tool knows.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                }
+                else if (!isEngineName) Add(DiagnosticCatalog.MissingKey, e.Key, $"The connection `{name}` needs an `engine`.", $"One of: {string.Join(", ", TargetNames.All)}.");
+                int? version = null;
                 if (settings.Get("version") is { } v)
                 {
-                    if (v is YamlScalar s && int.TryParse(s.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0) result[e.Key.Value] = n;
+                    if (v is YamlScalar s && int.TryParse(s.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0) version = n;
                     else Add(DiagnosticCatalog.InvalidValue, v, "`version` must be the engine's major version as a positive integer (SQL Server 2022 is 16, 2025 is 17).");
                 }
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line);
             }
             return result;
         }

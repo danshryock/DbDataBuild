@@ -46,6 +46,9 @@ public sealed record PlanInput(
     IReadOnlySet<string>? Backfills = null,
     IReadOnlyDictionary<string, ColumnBounds>? RangeBounds = null)
 {
+    /// <summary>The engine of the connection being planned: what the SQL is written for.</summary>
+    public string Engine => Config.EngineOf(Target) ?? Target;
+
     public static string ResolverKey(string model, string operation) => $"{model}|{operation}";
 }
 
@@ -90,7 +93,7 @@ public static class Planner
         var loadSteps = new List<PlanStep>();
         var schemasCreated = new HashSet<string>(StringComparer.Ordinal);
 
-        var target = TargetRegistry.Get(input.Target);
+        var target = TargetRegistry.Get(input.Engine);
         var ddl = target.CreateDdl(input.Config);
         var order = ModelOrder.Sort(input.Models, out var cycle);
         if (cycle != null)
@@ -114,7 +117,7 @@ public static class Planner
         }
 
         var steps = ddlSteps.Concat(loadSteps).Select((s, i) => s with { Id = (i + 1).ToString(CultureInfo.InvariantCulture) }).ToList();
-        if (input.Target == TargetNames.Fabric) noticed.Add("Fabric support is unverified: no Fabric engine has been available to run these statements.");
+        if (input.Engine == TargetNames.Fabric) noticed.Add("Fabric support is unverified: no Fabric engine has been available to run these statements.");
         return new PlanResult(questions.OrderBy(q => q.Id, StringComparer.Ordinal).ToList(), blocks, skipped, bases, steps, used.Values.OrderBy(a => a.QuestionId, StringComparer.Ordinal).ToList(), noticed);
     }
 
@@ -201,8 +204,8 @@ public static class Planner
         try { native = c.Ddl.MapAll(def); }
         catch (DdlUnsupportedException ex) { blocks.Add(ex.Diagnostic); return false; }
 
-        var (outcome, body) = Polyglot.TranspileOne(DbDataBuild.Targets.Rules.TargetRules.Apply(c.Model.BodySql, c.Input.Target, RewriteCatalog.For(c.Input.Config, c.Def), c.Input.Config.TargetVersions.TryGetValue(c.Input.Target, out var tv) ? tv : null).Sql, Dialects.Canonical, TargetRegistry.Get(c.Input.Target).Dialect);
-        if (body != null) body = DbDataBuild.Targets.Rules.TargetRules.Finish(body, c.Input.Target);
+        var (outcome, body) = Polyglot.TranspileOne(DbDataBuild.Targets.Rules.TargetRules.Apply(c.Model.BodySql, c.Input.Engine, RewriteCatalog.For(c.Input.Config, c.Def), c.Input.Config.TargetVersions.TryGetValue(c.Input.Target, out var tv) ? tv : null).Sql, Dialects.Canonical, TargetRegistry.Get(c.Input.Engine).Dialect);
+        if (body != null) body = DbDataBuild.Targets.Rules.TargetRules.Finish(body, c.Input.Engine);
         if (body == null)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelUnplannable, new(c.Model.QueryFile, 0, 0), $"{def.Name}: the transpiler reported: {outcome.Error}."));
@@ -284,7 +287,7 @@ public static class Planner
         if (wanted.Count == 0 && live == null) return true;
         var (schema, name) = c.Name;
 
-        if (wanted.Count > 0 && c.Input.Target == TargetNames.Fabric)
+        if (wanted.Count > 0 && c.Input.Engine == TargetNames.Fabric)
         {
             blocks.Add(new Diagnostic(DiagnosticCatalog.IndexNotSupported, new(c.Model.QueryFile, 0, 0),
                 $"index.unsupported: {def.Name} declares index(es) {string.Join(", ", wanted.Select(i => $"`{i.Name}`"))}, and Fabric has no CREATE INDEX."));

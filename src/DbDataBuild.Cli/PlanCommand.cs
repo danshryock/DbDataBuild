@@ -164,7 +164,7 @@ internal static class PlanCommand
         var liveCollation = new List<Diagnostic>();
         foreach (var m in session.Input.Models)
             if (session.Input.Live.TryGetValue(m.Definition.Name, out var shape))
-                liveCollation.AddRange(CollationChecker.CheckLive(session.Context.Config, session.Target, m.Definition,
+                liveCollation.AddRange(CollationChecker.CheckLive(session.Context.Config, session.Context.Config.EngineOf(session.Target) ?? session.Target, m.Definition,
                     shape.Columns.Where(c => c.Type is "nvarchar" or "varchar" or "character varying" or "char" or "text").Select(c => (c.Name, c.Collation))));
         foreach (var d in liveCollation) error.Diag(d);
 

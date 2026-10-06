@@ -17,7 +17,7 @@ internal static class HookLoader
         var model = source.Definition;
         var resolved = HookReader.Resolve(model, config, target, source.DefinitionFile, diags);
         var result = new List<PlannedHook>();
-        var engine = TargetRegistry.Get(target);
+        var engine = TargetRegistry.Get(config.EngineOf(target) ?? target);
         int? version = config.TargetVersions.TryGetValue(target, out var v) ? v : null;
         foreach (var hook in resolved)
         {

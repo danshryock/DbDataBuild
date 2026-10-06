@@ -75,7 +75,7 @@ public static class RewriteCatalog
     /// </summary>
     /// <summary>The policy of one model: the project's settings, then the model's own, for the targets the model is built for. Errors (DDB-229) go to <paramref name="diags"/> when given.</summary>
     public static RewritePolicy For(ProjectConfig config, ModelDefinition def, List<Diagnostic>? diags = null) =>
-        Resolve(config.Rewrites, def.Rewrites, def.Targets ?? config.DefaultTargets, def.Name, diags);
+        Resolve(config.Rewrites, def.Rewrites, (def.Targets ?? config.DefaultTargets).Select(c => config.EngineOf(c) ?? c).Distinct().ToList(), def.Name, diags);      // rewrites are per engine; a model names connections
 
     public static RewritePolicy Resolve(RewriteSettings? project, RewriteSettings? model, IReadOnlyList<string> targets, string modelName, List<Diagnostic>? diags)
     {

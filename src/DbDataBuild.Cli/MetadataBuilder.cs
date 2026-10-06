@@ -37,6 +37,7 @@ internal static class MetadataBuilder
             config = new
             {
                 default_targets = cfg.DefaultTargets,
+                connections = cfg.Connections.OrderBy(c => c.Key, StringComparer.Ordinal).ToDictionary(c => c.Key, c => c.Value.Version is { } v ? (object)new { engine = c.Value.Engine, version = v } : new { engine = c.Value.Engine }),
                 target_versions = cfg.TargetVersions,
                 tracking_schema = cfg.TrackingSchema,
                 rewrites = new { fidelity = cfg.Rewrites?.Fidelity ?? RewriteSettings.Exact, disable = cfg.Rewrites?.Disable ?? [], enable = cfg.Rewrites?.Enable ?? [] },
@@ -139,7 +140,7 @@ internal static class MetadataBuilder
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = ctx.Project.Descriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var ddls = targets.ToDictionary(t => t, t => TargetRegistry.Get(t).CreateDdl(ctx.Config));
+        var ddls = targets.ToDictionary(t => t, t => TargetRegistry.Get(ctx.Config.EngineOf(t) ?? t).CreateDdl(ctx.Config));      // the DDL is the engine's; the keys are the model's connections
         object Native(ColumnDefinition c) => targets.ToDictionary(t => t, t =>
         {
             try { var n = ddls[t].Map(def.Name, c); return (object)new { type = n.Declaration, collation = n.Collation }; }

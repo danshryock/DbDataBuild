@@ -19,5 +19,5 @@ policy:
     approximated: note
 
 # fct_shipment_packages uses generate_series, which SQL Server has from version 16 (2022).
-targets:
+connections:
   sqlserver: { version: 16 }

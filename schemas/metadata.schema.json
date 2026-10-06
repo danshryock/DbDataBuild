@@ -106,6 +106,25 @@
                 "type": "string"
               }
             },
+            "connections": {
+              "type": "object",
+              "description": "The project's connections by name: the engine and, when set, the version the tool generates for. A connection named after an engine exists without being declared.",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "engine": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "engine"
+                ]
+              }
+            },
             "target_versions": {
               "type": "object",
               "additionalProperties": {

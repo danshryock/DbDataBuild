@@ -84,7 +84,7 @@ public static class CollationChecker
         // Engines in play: every model's targets (or the project defaults) plus DuckDB, which runs the offline emulation.
         // The project's default targets count only when a model relies on them, or when there are no models yet.
         var engines = sources.SelectMany(s => s.Definition.Targets ?? config.DefaultTargets).Concat(sources.Count == 0 ? config.DefaultTargets : [])
-            .Distinct().OrderBy(e => e, StringComparer.Ordinal).Append(CollationTraitsParser.DuckDb).ToList();
+            .Select(c => config.EngineOf(c) ?? c).Distinct().OrderBy(e => e, StringComparer.Ordinal).Append(CollationTraitsParser.DuckDb).ToList();
         var collations = config.StringSemantics.Collations;
 
         if (!collations.TryGetValue(DefaultLogicalName, out var defaults))
@@ -109,7 +109,7 @@ public static class CollationChecker
 
         foreach (var source in sources)
         {
-            var modelEngines = (source.Definition.Targets ?? config.DefaultTargets).Append(CollationTraitsParser.DuckDb).Distinct().ToList();
+            var modelEngines = (source.Definition.Targets ?? config.DefaultTargets).Select(c => config.EngineOf(c) ?? c).Append(CollationTraitsParser.DuckDb).Distinct().ToList();
             foreach (var column in source.Definition.Columns.Where(c => c.Collation != null))
             {
                 var loc = new SourceLocation(source.DefinitionFile, column.CollationLine, 1);

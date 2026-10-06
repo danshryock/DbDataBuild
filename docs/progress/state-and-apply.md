@@ -573,3 +573,11 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Written down, not built**: what the tool cannot do with no tracking (drift, the incremental definition block, acknowledgements, history, `report`, `publish-metadata`), and three points the owner then accepted: with no tracking, plans are made from declared against live and changes to existing objects are marked risky; `tracking: none` is the opt-out; no copies to further tracking connections in the first version.
 - **Left**: no code.
 
+
+## 66. Connections in the configuration (first build step of the cross-server work)
+
+- **Built**: the project file's `connections:` section replaces `targets:`. A connection is a name with an `engine` (`sqlserver`, `postgres`, `fabric`) and an optional `version`; its logins are `DBDATABUILD_<NAME>_READ` and `_WRITE`, with no fallback from one connection or login to another. A connection named after an engine exists without a declaration (declaring it only sets the version), which keeps existing projects close to unchanged. Names are letters, digits and underscores, unique ignoring case. Everything that chooses behaviour (dialect, matrix row, rewrite rules, types, tracking DDL, catalog reads) now asks for the connection's engine; rendered files, plans and logins use the connection's name; two connections of one engine can have different versions and so different rewrite rules.
+- **Still named as before** (to be renamed in the next step): `targets:` on models, operations, indexes and hooks, `default_targets`, `--target`, `target` in the JSON documents, `TargetNames`. These now hold connection names.
+- **Deviation from the agreed clean break**: engine-named implicit connections remain, to limit churn until the rename step. Hook `script:` maps are still keyed by engine.
+- **Verified**: unit suite (1508, including `ConnectionsTests`: parsing and refusals, engine lookup, login variable names, rendering two same-engine connections and a PostgreSQL one into separate directories, version-specific rules per connection). Not yet run against two real servers.
+- **Left**: the rename; layered `_dbdatabuild.yml` files; `mapped` models; tracking section; `copy`; fan-in; parameters.

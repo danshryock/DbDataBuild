@@ -8,7 +8,7 @@ public class ProjectConfigTests
 {
     private const string Full = """
         default_targets: [sqlserver, postgres]
-        targets:
+        connections:
           sqlserver: { version: 16 }
           postgres: { version: "17" }
           fabric: {}
@@ -41,18 +41,18 @@ public class ProjectConfigTests
         new("full example", Full, true),
         new("empty mapping", "{}", true),
         new("only default targets", "default_targets: [fabric]\n", true),
-        new("version as integer and string", "targets:\n  sqlserver: { version: 17 }\n  postgres: { version: \"16\" }\n", true),
+        new("version as integer and string", "connections:\n  sqlserver: { version: 17 }\n  postgres: { version: \"16\" }\n", true),
         new("unknown key", "surprise: 1\n", false, "DDB-104"),
-        new("unknown default target", "default_targets: [oracle]\n", false, "DDB-106"),
+        new("invalid default connection name", "default_targets: [\"9 bad\"]\n", false, "DDB-106"),
         new("empty default targets", "default_targets: []\n", false, "DDB-106"),
         new("duplicate default targets", "default_targets: [fabric, fabric]\n", false, "DDB-106"),
         new("default targets not a list", "default_targets: sqlserver\n", false, "DDB-106"),
-        new("unknown engine under targets", "targets:\n  oracle: { version: 19 }\n", false, "DDB-104"),
-        new("unknown target setting", "targets:\n  sqlserver: { edition: enterprise }\n", false, "DDB-104"),
-        new("version zero", "targets:\n  sqlserver: { version: 0 }\n", false, "DDB-106"),
-        new("version not a number", "targets:\n  sqlserver: { version: sixteen }\n", false, "DDB-106"),
-        new("version with a fraction", "targets:\n  sqlserver: { version: 16.5 }\n", false, "DDB-106"),
-        new("target settings not a mapping", "targets:\n  sqlserver: 16\n", false, "DDB-106"),
+        new("connection without an engine", "connections:\n  oracle: { version: 19 }\n", false, "DDB-105"),
+        new("unknown target setting", "connections:\n  sqlserver: { edition: enterprise }\n", false, "DDB-104"),
+        new("version zero", "connections:\n  sqlserver: { version: 0 }\n", false, "DDB-106"),
+        new("version not a number", "connections:\n  sqlserver: { version: sixteen }\n", false, "DDB-106"),
+        new("version with a fraction", "connections:\n  sqlserver: { version: 16.5 }\n", false, "DDB-106"),
+        new("target settings not a mapping", "connections:\n  sqlserver: 16\n", false, "DDB-106"),
         new("tracking schema with a dash", "tracking_schema: my-schema\n", false, "DDB-106"),
         new("tracking schema starting with a digit", "tracking_schema: 1abc\n", false, "DDB-106"),
         new("bad case value", "string_semantics: { case: maybe }\n", false, "DDB-106"),

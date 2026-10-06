@@ -7,29 +7,94 @@
   "additionalProperties": false,
   "properties": {
     "default_targets": {
-      "description": "Targets a model is validated for when it declares no `targets:`. Default: [sqlserver].",
+      "description": "Connections a model is validated for when it declares no `targets:`. Default: [sqlserver].",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "$ref": "#/$defs/target"
+        "$ref": "#/$defs/connectionName"
       }
     },
-    "targets": {
-      "description": "Per-target settings used by offline checks.",
+    "connections": {
+      "description": "Named database endpoints. A connection named after an engine (sqlserver, fabric, postgres) exists without being declared; declaring it sets its version. Any other name needs an `engine`. The name is part of the login's environment variable: DBDATABUILD_<NAME>_READ and _WRITE.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "sqlserver": {
-          "$ref": "#/$defs/targetSettings"
+          "description": "The connection named after the engine `sqlserver`: it needs no declaration, and an entry only sets its version.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "const": "sqlserver"
+            },
+            "version": {
+              "description": "The engine's major version, or the T-SQL level to generate for: 16 for SQL Server 2022 (and a 2025 server at compatibility level 160), 17 for 2025 at level 170. Lets the matrix linter resolve min_version rows.",
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
+                }
+              ]
+            }
+          }
         },
         "fabric": {
-          "$ref": "#/$defs/targetSettings"
+          "description": "The connection named after the engine `fabric`: it needs no declaration, and an entry only sets its version.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "const": "fabric"
+            },
+            "version": {
+              "description": "The engine's major version, or the T-SQL level to generate for: 16 for SQL Server 2022 (and a 2025 server at compatibility level 160), 17 for 2025 at level 170. Lets the matrix linter resolve min_version rows.",
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
+                }
+              ]
+            }
+          }
         },
         "postgres": {
-          "$ref": "#/$defs/targetSettings"
+          "description": "The connection named after the engine `postgres`: it needs no declaration, and an entry only sets its version.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "const": "postgres"
+            },
+            "version": {
+              "description": "The engine's major version, or the T-SQL level to generate for: 16 for SQL Server 2022 (and a 2025 server at compatibility level 160), 17 for 2025 at level 170. Lets the matrix linter resolve min_version rows.",
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
+                }
+              ]
+            }
+          }
         }
-      }
+      },
+      "patternProperties": {
+        "^(?!(sqlserver|fabric|postgres)$)[A-Za-z][A-Za-z0-9_]*$": {
+          "$ref": "#/$defs/connectionOfAnEngine"
+        }
+      },
+      "additionalProperties": false
     },
     "tracking_schema": {
       "description": "Schema for the tracking tables. Default: dbdatabuild.",
@@ -261,13 +326,6 @@
     }
   },
   "$defs": {
-    "target": {
-      "enum": [
-        "sqlserver",
-        "fabric",
-        "postgres"
-      ]
-    },
     "severity": {
       "enum": [
         "error",
@@ -278,25 +336,6 @@
     "collation": {
       "type": "string",
       "minLength": 1
-    },
-    "targetSettings": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "version": {
-          "description": "The engine's major version (SQL Server 2022 is 16, 2025 is 17). Lets the matrix linter resolve min_version rows.",
-          "oneOf": [
-            {
-              "type": "integer",
-              "minimum": 1
-            },
-            {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*$"
-            }
-          ]
-        }
-      }
     },
     "hook": {
       "title": "hook",
@@ -374,6 +413,40 @@
             "safe",
             "risky",
             "destructive"
+          ]
+        }
+      }
+    },
+    "connectionName": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "connectionOfAnEngine": {
+      "description": "Any other connection: it names its engine.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine"
+      ],
+      "properties": {
+        "engine": {
+          "enum": [
+            "sqlserver",
+            "fabric",
+            "postgres"
+          ]
+        },
+        "version": {
+          "description": "The engine's major version, or the T-SQL level to generate for: 16 for SQL Server 2022 (and a 2025 server at compatibility level 160), 17 for 2025 at level 170. Lets the matrix linter resolve min_version rows.",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
           ]
         }
       }

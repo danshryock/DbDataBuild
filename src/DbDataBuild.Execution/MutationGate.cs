@@ -102,7 +102,7 @@ public sealed class MutationGate : IAsyncDisposable
     public static async Task<MutationGate> OpenAsync(LoginSettings write, string command, StatementKind permitted, IStatementLog log, Guid runId, CancellationToken ct = default)
     {
         if (write.Login != Login.Write) throw new ArgumentException("The mutation gate needs the write login.", nameof(write));
-        return new MutationGate(new AdoWriteExecutor(await write.OpenAsync(ct), write.Target == "postgres"), log, command, permitted, dryRun: false, runId);
+        return new MutationGate(new AdoWriteExecutor(await write.OpenAsync(ct), write.Engine == "postgres"), log, command, permitted, dryRun: false, runId);
     }
 
     /// <summary>A gate that runs every check and writes every log entry but never touches a database.</summary>

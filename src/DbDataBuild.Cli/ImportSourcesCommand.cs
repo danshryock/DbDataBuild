@@ -22,9 +22,10 @@ internal static class ImportSourcesCommand
     {
         if (write && check) { error.WriteLine("--check writes nothing, so it cannot be combined with --write."); return CliApp.ExitUsage; }
         var ctx = ProjectContext.Load(root);
-        var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
-        var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
+        var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
+        var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
 
         var committed = ctx.Project.Descriptors.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
         var models = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -59,21 +60,21 @@ internal static class ImportSourcesCommand
             Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
-                var allSchemas = await SourceCatalogReader.SchemasAsync(read, target);
+                var allSchemas = await SourceCatalogReader.SchemasAsync(read, engine);
                 var schemas = allSchemas.Where(s => wanted.Any(w => w.Schema.IsMatch(s))).ToList();
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var schema in schemas)
                 {
                     if (string.Equals(schema, ctx.Config.TrackingSchema, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema holds the tool's own tables")); continue; }
-                    var shapes = await CatalogReader.ReadSchemaAsync(read, target, schema);
-                    var keys = await SourceCatalogReader.PrimaryKeysAsync(read, target, schema);
-                    var foreignKeys = await SourceCatalogReader.ForeignKeysAsync(read, target, schema);
+                    var shapes = await CatalogReader.ReadSchemaAsync(read, engine, schema);
+                    var keys = await SourceCatalogReader.PrimaryKeysAsync(read, engine, schema);
+                    var foreignKeys = await SourceCatalogReader.ForeignKeysAsync(read, engine, schema);
                     foreach (var (qualified, shape) in shapes.OrderBy(k => k.Key, StringComparer.Ordinal))
                     {
                         if (!wanted.Any(w => w.Schema.IsMatch(shape.Schema) && w.Table.IsMatch(shape.Name))) continue;
                         seen.Add(qualified);
                         if (models.Contains(qualified)) { skipped.Add(new(qualified, "it is a model, not a source")); continue; }
-                        var live = SourceImport.Describe(target, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name));
+                        var live = SourceImport.Describe(engine, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name));
                         if (live.File == null)
                         {
                             diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under sources/."));

@@ -31,9 +31,9 @@ internal static class DefineCommand
         }
 
         // ---- load the project ----
-        var project = ProjectValidator.Validate(projectRoot);
         var configDiags = new List<Diagnostic>();
         var config = ProjectConfigLoader.LoadFromProject(projectRoot, configDiags);
+        var project = ProjectValidator.Validate(projectRoot, config);
         var matrixDiags = new List<Diagnostic>();
         var linter = new MatrixLinter(MatrixLoader.LoadEmbedded(matrixDiags));
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
@@ -68,7 +68,7 @@ internal static class DefineCommand
                 var bytes = File.ReadAllBytes(ymlPath);
                 hashes[ymlRel] = DefinitionFile.Hash(bytes);
                 existingText = System.Text.Encoding.UTF8.GetString(bytes);
-                existing = ModelDefinitionLoader.Load(existingText, ymlRel, name, existingProblems);
+                existing = ModelDefinitionLoader.Load(existingText, ymlRel, name, existingProblems, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
             }
             else hashes[ymlRel] = null;
             targets.Add(new DefineTarget(name, ymlRel, sqlRel, System.Text.Encoding.UTF8.GetString(sqlBytes), existingText, existing, existingProblems));

@@ -81,7 +81,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
 
     private IEnumerable<Diagnostic> Report(ConstructRow row, string target, SourceLocation loc, ProjectConfig config)
     {
-        if (!row.Targets.TryGetValue(target, out var entry)) yield break;
+        if (!row.Targets.TryGetValue(config.EngineOf(target) ?? target, out var entry)) yield break;       // the matrix is per engine; `target` is a connection (or an engine name)
         var note = string.IsNullOrEmpty(entry.Note) ? "" : " " + entry.Note;
         string Found(string verb) => $"`{row.Id}` is {verb} on {target}.{note}";
         Severity? Policy(string key) => config.Policy.TryGetValue(key, out var sv) ? sv : null;
@@ -92,7 +92,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         {
             yield return new Diagnostic(DiagnosticCatalog.ConstructUnsupported, loc,
                 $"`{row.Id}` needs {target} version {min} or later, but the project configures version {version}.{note}",
-                Fix: $"Raise `targets.{target}.version` if the engine is newer, avoid `{row.Id}`, or remove `{target}` from `targets:`.");
+                Fix: $"Raise `connections.{target}.version` if the engine is newer, avoid `{row.Id}`, or remove `{target}` from `targets:`.");
             yield break;
         }
 
@@ -115,7 +115,7 @@ public sealed class MatrixLinter(SupportMatrix matrix)
         if (entry.MinVersion is { } v && !versionKnown && entry.Status is not SupportStatus.Unsupported)
             yield return new Diagnostic(DiagnosticCatalog.ConstructNeedsVersion, loc,
                 $"`{row.Id}` on {target} needs engine version {v} or later, and no version is configured.",
-                Fix: $"Set `targets.{target}.version` in {ProductInfo.ConfigFile}, or avoid `{row.Id}`.");
+                Fix: $"Set `connections.{target}.version` in {ProductInfo.ConfigFile}, or avoid `{row.Id}`.");
     }
 
     private void CheckCovered(AstNode node, SourceLocation loc, HashSet<string> seen, List<Diagnostic> diags, ProjectConfig config)

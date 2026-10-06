@@ -28,13 +28,14 @@ internal static class LoadSeedsCommand
         var config = ProjectConfigLoader.LoadFromProject(root, diags);
         foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (diags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
-        var target = CommandTargets.Resolve(config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
+        var connection = CommandTargets.Resolve(config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
 
         LoginSettings? write = null;
         if (apply)
         {
-            var (settings, missing) = LoginSettings.FromEnvironment(target, Login.Write, environment);
+            var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
                 output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: none");
@@ -49,7 +50,7 @@ internal static class LoadSeedsCommand
         var seeds = SeedLoader.Load(root);
         if (seeds.Seeds.Count == 0) { error.WriteLine($"The project has no seeds: put a DuckDB query per source in {SeedLoader.Directory}/<schema>/<table>.sql."); return CliApp.ExitUsage; }
 
-        var ddl = TargetRegistry.Get(target).CreateDdl(config);
+        var ddl = TargetRegistry.Get(engine).CreateDdl(config);
         SeededData data;
         try { data = SeededData.Run(ctx.Project.Descriptors, seeds, seed, scale); }
         catch (SampleException ex) { error.WriteLine(ex.Message); return CliApp.ExitFindings; }

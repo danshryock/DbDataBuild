@@ -23,16 +23,12 @@
       "$ref": "#/$defs/columnList"
     },
     "targets": {
-      "description": "Engines the model must be valid for. The project's default_targets apply if omitted.",
+      "description": "Connections the model is on: built natively on each. The project's default_targets apply if omitted.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "enum": [
-          "sqlserver",
-          "fabric",
-          "postgres"
-        ]
+        "$ref": "#/$defs/connectionName"
       }
     },
     "columns": {
@@ -403,11 +399,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "enum": [
-                  "sqlserver",
-                  "fabric",
-                  "postgres"
-                ]
+                "$ref": "#/$defs/connectionName"
               }
             }
           }
@@ -434,11 +426,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "enum": [
-                  "sqlserver",
-                  "fabric",
-                  "postgres"
-                ]
+                "$ref": "#/$defs/connectionName"
               }
             },
             "key": {
@@ -474,11 +462,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "enum": [
-                  "sqlserver",
-                  "fabric",
-                  "postgres"
-                ]
+                "$ref": "#/$defs/connectionName"
               }
             },
             "key": {
@@ -514,11 +498,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "enum": [
-                  "sqlserver",
-                  "fabric",
-                  "postgres"
-                ]
+                "$ref": "#/$defs/connectionName"
               }
             },
             "column": {
@@ -571,11 +551,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "enum": [
-                  "sqlserver",
-                  "fabric",
-                  "postgres"
-                ]
+                "$ref": "#/$defs/connectionName"
               }
             },
             "watermark": {
@@ -691,11 +667,7 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "enum": [
-              "sqlserver",
-              "fabric",
-              "postgres"
-            ]
+            "$ref": "#/$defs/connectionName"
           }
         }
       }
@@ -756,11 +728,7 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "enum": [
-              "sqlserver",
-              "fabric",
-              "postgres"
-            ]
+            "$ref": "#/$defs/connectionName"
           }
         },
         "effect": {
@@ -794,6 +762,10 @@
           "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
         }
       }
+    },
+    "connectionName": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
     }
   }
 }

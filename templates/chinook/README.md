@@ -51,5 +51,5 @@ dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
 ## Notes
 
 - On SQL Server a recursive query stops at 100 levels (error 530) where DuckDB goes on; this hierarchy is three levels deep.
-- The project is set for SQL Server (see the comment at the top of `dbdatabuild.yml` for PostgreSQL); it asks for SQL Server 2022 (`targets: sqlserver: {version: 16}`) because of `generate_series`.
+- The project is set for SQL Server (see the comment at the top of `dbdatabuild.yml` for PostgreSQL); it asks for SQL Server 2022 (`connections: sqlserver: {version: 16}`) because of `generate_series`.
 - The names of the artists, the composers and the customers are invented; the shape of the data follows the Chinook sample database (MIT licence).

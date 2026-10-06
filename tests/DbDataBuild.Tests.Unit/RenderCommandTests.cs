@@ -157,7 +157,7 @@ public class RenderCommandTests
     [Fact]
     public void Write_with_errors_writes_nothing()
     {
-        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
         Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         Model(dir, "marts.fct_orders", FctYaml, FctSql);
         var before = Snapshot(dir);
@@ -264,7 +264,7 @@ public class RenderCommandTests
     [Fact]
     public void Loads_shows_unsupported_pairs_and_fails()
     {
-        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
         Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, output, err) = Run("loads", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
@@ -287,7 +287,7 @@ public class RenderCommandTests
     [Fact]
     public void Validate_reports_a_pair_that_cannot_render_by_name()
     {
-        var dir = Project("default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        var dir = Project("default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
         Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\ntargets: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
         var (exit, _, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);

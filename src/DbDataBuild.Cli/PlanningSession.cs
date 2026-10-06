@@ -11,13 +11,13 @@ namespace DbDataBuild.Cli;
 
 internal static class CommandTargets
 {
-    /// <summary>The target a command works on: the flag, or the project's only default target.</summary>
-    public static string? Resolve(ProjectConfig config, string? arg, TextWriter error)
+    /// <summary>The connection a command works on: the flag, or the project's only default connection.</summary>
+    public static ConnectionConfig? Resolve(ProjectConfig config, string? arg, TextWriter error)
     {
-        var target = arg ?? (config.DefaultTargets.Count == 1 ? config.DefaultTargets[0] : null);
-        if (target == null) { error.WriteLine($"--target is required: the project has {config.DefaultTargets.Count} default targets ({string.Join(", ", config.DefaultTargets)})."); return null; }
-        if (!TargetNames.All.Contains(target)) { error.WriteLine($"Unknown target `{target}`. One of: {string.Join(", ", TargetNames.All)}."); return null; }
-        return target;
+        var name = arg ?? (config.DefaultTargets.Count == 1 ? config.DefaultTargets[0] : null);
+        if (name == null) { error.WriteLine($"--target is required: the project has {config.DefaultTargets.Count} default connections ({string.Join(", ", config.DefaultTargets)})."); return null; }
+        if (!config.Connections.TryGetValue(name, out var connection)) { error.WriteLine($"Unknown connection `{name}`. One of: {string.Join(", ", config.Connections.Keys.Order(StringComparer.Ordinal))}."); return null; }
+        return connection;
     }
 }
 
@@ -96,10 +96,11 @@ internal sealed class PlanningSession
         IReadOnlyDictionary<string, string>? operations = null, IReadOnlySet<string>? backfills = null)
     {
         var ctx = ProjectContext.Load(root);
-        var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
-        if (target == null) return (null, CliApp.ExitUsage);
+        var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
+        if (connection == null) return (null, CliApp.ExitUsage);
+        var target = connection.Name; var engine = connection.Engine;
 
-        var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
+        var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
         output.Payload("effect", spec.Effect.Describe());
         output.Payload("login", login?.Describe());
@@ -163,9 +164,9 @@ internal sealed class PlanningSession
             (snapshot, resolved, rangeBounds) = Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
-                var status = await TrackingStore.StatusAsync(read, target, ctx.Config.TrackingSchema);
+                var status = await TrackingStore.StatusAsync(read, engine, ctx.Config.TrackingSchema);
                 if (status.AsDiagnostic(ctx.Config.TrackingSchema) is { } notReady) throw new GateRefusedException(notReady);
-                var snap = await TargetSnapshotReader.ReadAsync(read, target, ctx.Config.TrackingSchema, planned.Select(p => DdlSchema(p.Definition.Name)));
+                var snap = await TargetSnapshotReader.ReadAsync(read, engine, ctx.Config.TrackingSchema, planned.Select(p => DdlSchema(p.Definition.Name)));
                 var results = new Dictionary<string, ResolverOutcome>();
                 foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
                 {
@@ -180,7 +181,7 @@ internal sealed class PlanningSession
                     var def = planned.First(p => p.Definition.Name == op.Model).Definition;
                     if (RangeLoads.ColumnOf(def, target, op.Operation) is not { } column) continue;
                     var type = def.Columns.FirstOrDefault(c => string.Equals(c.Name, column, StringComparison.OrdinalIgnoreCase))?.Type ?? "TIMESTAMP";
-                    var (min, max, err) = await TargetSnapshotReader.ColumnBoundsAsync(read, target, op.Model, column, type);
+                    var (min, max, err) = await TargetSnapshotReader.ColumnBoundsAsync(read, engine, op.Model, column, type);
                     bounds[PlanInput.ResolverKey(op.Model, op.Operation)] = new ColumnBounds(min, max, err);
                 }
                 return (snap, results, bounds);

@@ -83,7 +83,7 @@ public class CliTests
     [Fact]
     public void Validate_runs_the_matrix_linter_per_declared_target_and_fails_on_unsupported_constructs()
     {
-        var dir = ProjectWith("SELECT a FROM staging.t WHERE REGEXP_MATCHES(s, 'a')", config: "targets:\n  sqlserver: { version: 16 }\n");
+        var dir = ProjectWith("SELECT a FROM staging.t WHERE REGEXP_MATCHES(s, 'a')", config: "connections:\n  sqlserver: { version: 16 }\n");
         var before = Snapshot(dir);
         var (exit, output, err) = Run("validate", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
@@ -128,7 +128,7 @@ public class CliTests
         Assert.Contains("default targets: postgres", output);
         Assert.DoesNotContain("DDB-301", err);
 
-        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\ntargets:\n  sqlserver: { version: 16 }\n");
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "default_targets: [sqlserver]\nconnections:\n  sqlserver: { version: 16 }\n");
         Assert.Equal(CliApp.ExitFindings, Run("validate", "--project", dir).Exit);
     }
 
@@ -148,11 +148,11 @@ public class CliTests
         Assert.Equal(CliApp.ExitOk, warn.Exit);
         Assert.Contains("no version is configured", warn.Err);
 
-        var old = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "targets:\n  sqlserver: { version: 16 }\n"));
+        var old = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 16 }\n"));
         Assert.Equal(CliApp.ExitFindings, old.Exit);
         Assert.Contains("needs sqlserver version 17 or later, but the project configures version 16", old.Err);
 
-        var current = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "targets:\n  sqlserver: { version: 17 }\n"));
+        var current = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 17 }\n"));
         Assert.Equal(CliApp.ExitOk, current.Exit);
         Assert.DoesNotContain("DDB-308", current.Err);
         Assert.DoesNotContain("DDB-301", current.Err);

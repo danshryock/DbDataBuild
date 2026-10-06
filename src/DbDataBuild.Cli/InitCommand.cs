@@ -20,13 +20,14 @@ internal static class InitCommand
         foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (diags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
-        var target = CommandTargets.Resolve(config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
+        var connection = CommandTargets.Resolve(config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
 
         LoginSettings? write = null;
         if (apply)
         {
-            var (settings, missing) = LoginSettings.FromEnvironment(target, Login.Write, environment);
+            var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
                 output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: none");
@@ -36,7 +37,7 @@ internal static class InitCommand
             write = settings;
         }
 
-        var ddl = TrackingDdl.For(target);
+        var ddl = TrackingDdl.For(engine);
         var script = ddl.InitScript(config.TrackingSchema, ProductInfo.Version);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
         output.WriteLine($"Tracking schema: {config.TrackingSchema}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
@@ -62,7 +63,7 @@ internal static class InitCommand
             using var log = new FileStatementLog(Path.Combine(projectRoot, StatementLogDir), spec.Name, runId);
             output.WriteLine($"Statement log: {Path.GetRelativePath(projectRoot, log.Path)}");
             var gate = Task.Run(() => MutationGate.OpenAsync(write!, spec.Name, StatementKind.Tracking, log, runId)).GetAwaiter().GetResult();
-            try { Task.Run(() => TrackingStore.InitAsync(gate, target, config.TrackingSchema)).GetAwaiter().GetResult(); }
+            try { Task.Run(() => TrackingStore.InitAsync(gate, engine, config.TrackingSchema)).GetAwaiter().GetResult(); }
             finally { gate.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
         }
         catch (GateRefusedException ex)

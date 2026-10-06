@@ -70,7 +70,7 @@ public static partial class HookReader
         path.Split('/').All(part => part.Length > 0 && part != "." && part != "..");
 
     /// <summary>Reads a list of hook entries. <paramref name="allowUse"/> is false inside a group (groups do not nest).</summary>
-    internal static List<HookDefinition> ReadList(YamlNode node, bool allowUse, string where, Action<DiagnosticDescriptor, YamlNode, string> add)
+    internal static List<HookDefinition> ReadList(YamlNode node, bool allowUse, string where, Action<DiagnosticDescriptor, YamlNode, string> add, IReadOnlySet<string>? connections = null)
     {
         var result = new List<HookDefinition>();
         if (node is not YamlSequence seq) { add(DiagnosticCatalog.InvalidValue, node, $"{where} must be a list of hooks (the order is the order they run in)."); return result; }
@@ -113,7 +113,7 @@ public static partial class HookReader
                     byTarget = [];
                     foreach (var e in sm.Entries)
                     {
-                        if (!TargetNames.All.Contains(e.Key.Value)) { add(DiagnosticCatalog.InvalidValue, e.Key, $"Hook `{name}`: unknown target `{e.Key.Value}`. One of: {string.Join(", ", TargetNames.All)}."); continue; }
+                        if (!TargetNames.All.Contains(e.Key.Value)) { add(DiagnosticCatalog.InvalidValue, e.Key, $"Hook `{name}`: unknown engine `{e.Key.Value}` (a `script` maps an engine to a path). One of: {string.Join(", ", TargetNames.All)}."); continue; }
                         if (e.Value is YamlScalar ps && IsSafePath(ps.Value)) byTarget[e.Key.Value] = ps.Value;
                         else add(DiagnosticCatalog.InvalidValue, e.Value, $"Hook `{name}`: the script for `{e.Key.Value}` must be a project-relative .sql path.");
                     }
@@ -130,7 +130,7 @@ public static partial class HookReader
                 if (tn is YamlSequence ts && ts.Items.Count > 0 && ts.Items.All(i => i is YamlScalar))
                 {
                     targets = ts.Items.Cast<YamlScalar>().Select(i => i.Value).ToList();
-                    foreach (var bad in targets.Where(t => !TargetNames.All.Contains(t))) add(DiagnosticCatalog.InvalidValue, tn, $"Hook `{name}`: unknown target `{bad}`.");
+                    foreach (var bad in targets.Where(t => !(connections ?? TargetNames.All.ToHashSet()).Contains(t))) add(DiagnosticCatalog.InvalidValue, tn, $"Hook `{name}`: unknown connection `{bad}`.");
                     if (byTarget != null) add(DiagnosticCatalog.InvalidValue, tn, $"Hook `{name}`: `targets` and a per-target `script` both say where it runs. Use one.");
                 }
                 else add(DiagnosticCatalog.InvalidValue, tn, $"Hook `{name}`: `targets` must be a non-empty list.");
@@ -150,13 +150,15 @@ public static partial class HookReader
     /// The hooks that run for a model on a target, groups expanded in place and entries for other targets dropped. Problems (an unknown group, a clash of names after
     /// expansion) are reported once, here; the project config supplies the groups.
     /// </summary>
+    /// <param name="target">The connection the hooks are resolved for. A `script` that maps engines to paths is looked up by that connection's engine; a `targets` list names connections.</param>
     public static IReadOnlyList<ResolvedHook> Resolve(ModelDefinition model, ProjectConfig config, string target, string file, List<Diagnostic> diags)
     {
+        var engine = config.EngineOf(target) ?? target;
         var result = new List<ResolvedHook>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         void Emit(HookDefinition h, string? group)
         {
-            var path = h.Script ?? (h.ScriptByTarget != null && h.ScriptByTarget.TryGetValue(target, out var p) ? p : null);
+            var path = h.Script ?? (h.ScriptByTarget != null && h.ScriptByTarget.TryGetValue(engine, out var p) ? p : null);
             var applies = h.ScriptByTarget != null ? path != null : h.Targets == null || h.Targets.Contains(target);
             if (!applies || path == null) return;
             var name = group == null ? h.Name! : $"{group}.{h.Name}";

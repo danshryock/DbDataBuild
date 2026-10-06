@@ -16,13 +16,14 @@ internal static class AckCommand
     public static int Run(CommandSpec spec, string root, string kind, string name, string? reason, string? targetArg, TextWriter output, TextWriter error, Func<string, string?> env)
     {
         var ctx = ProjectContext.Load(root);
-        var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
+        var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
         if (kind is not ("drift" or "definition" or "history")) { error.WriteLine($"Unknown acknowledgement `{kind}`. One of: drift, definition, history."); return CliApp.ExitUsage; }
         if (string.IsNullOrWhiteSpace(reason)) { error.WriteLine("--reason is required: an acknowledgement is recorded with who made it and why."); return CliApp.ExitUsage; }
 
-        var (read, readMissing) = LoginSettings.FromEnvironment(target, Login.Read, env);
-        var (write, writeMissing) = LoginSettings.FromEnvironment(target, Login.Write, env);
+        var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
+        var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}");
         foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
         if (read == null || write == null) return CliApp.ExitFindings;
@@ -33,13 +34,13 @@ internal static class AckCommand
         return Task.Run(async () =>
         {
             await using var reader = await ReadSession.OpenAsync(read);
-            var status = await TrackingStore.StatusAsync(reader, target, schema);
+            var status = await TrackingStore.StatusAsync(reader, engine, schema);
             if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             if (kind == "history")
             {
                 // `model.column`: accept the recorded history as it is, without changing data
-                var (entries, _) = await HistoryReader.ReadAsync(reader, target, schema);
+                var (entries, _) = await HistoryReader.ReadAsync(reader, engine, schema);
                 var open = entries.Where(e => $"{e.Model}.{e.Column}" == name && e.AckKey != null && e.Acknowledgement == null).ToList();
                 if (open.Count == 0)
                 {
@@ -54,7 +55,7 @@ internal static class AckCommand
                 foreach (var e in open)
                 {
                     var parts = e.AckKey!.Split('|');
-                    await AuditLog.AcknowledgeAsync(historyGate, target, schema, "ack", parts[1], parts[0], parts[2], write.User ?? Environment.UserName, reason!);
+                    await AuditLog.AcknowledgeAsync(historyGate, engine, schema, "ack", parts[1], parts[0], parts[2], write.User ?? Environment.UserName, reason!);
                 }
                 output.Payload("acknowledged", open.Select(e => new { kind = "history", subject = name, key = e.AckKey, by = write.User ?? Environment.UserName, reason }).ToList());
                 output.WriteLine($"Recorded: {open.Count} acknowledgement(s) for {name} by {write.User ?? Environment.UserName}. The report still shows the history, marked as accepted, and no longer lists it as needing attention.");
@@ -63,8 +64,8 @@ internal static class AckCommand
 
             if (kind == "drift")
             {
-                var live = (await CatalogReader.ReadSchemaAsync(reader, target, objSchema)).GetValueOrDefault(name);
-                var recorded = (await TrackingStore.LatestShapeHashesAsync(reader, target, schema)).GetValueOrDefault(name);
+                var live = (await CatalogReader.ReadSchemaAsync(reader, engine, objSchema)).GetValueOrDefault(name);
+                var recorded = (await TrackingStore.LatestShapeHashesAsync(reader, engine, schema)).GetValueOrDefault(name);
                 var state = Drift.Classify(live, recorded);
                 if (state != ObjectState.OutOfBand)
                 {
@@ -78,7 +79,7 @@ internal static class AckCommand
                 var model = ctx.Project.Sources.FirstOrDefault(s => s.Definition.Name == name);
                 if (model == null) { error.WriteLine($"`{name}` is not a model of this project."); return CliApp.ExitUsage; }
                 var hash = AstHasher.Hash(File.ReadAllText(Path.Combine(root, model.QueryFile))).Hash ?? "";
-                var last = (await TargetSnapshotReader.ReadAsync(reader, target, schema, [objSchema])).LastLoadDefinitionHashes.GetValueOrDefault(name);
+                var last = (await TargetSnapshotReader.ReadAsync(reader, engine, schema, [objSchema])).LastLoadDefinitionHashes.GetValueOrDefault(name);
                 if (last == null || last == hash)
                 {
                     error.WriteLine($"`{name}` has {(last == null ? "no recorded load" : "an unchanged query since its last load")}: there is no change to acknowledge.");
@@ -87,7 +88,7 @@ internal static class AckCommand
                 (code, detail) = (DiagnosticCatalog.LoadDefinitionChanged.Code, hash);
             }
 
-            var snapshot = await TargetSnapshotReader.ReadAsync(reader, target, schema, [objSchema]);
+            var snapshot = await TargetSnapshotReader.ReadAsync(reader, engine, schema, [objSchema]);
             if (snapshot.Acknowledged.Contains(Acknowledgements.Key(code, name, detail)))
             {
                 output.WriteLine($"{code} on {name} for hash {detail[..Math.Min(12, detail.Length)]} is already acknowledged. Nothing was recorded.");
@@ -97,7 +98,7 @@ internal static class AckCommand
             var runId = Guid.NewGuid();
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), spec.Name, runId);
             await using var gate = await MutationGate.OpenAsync(write, spec.Name, StatementKind.Tracking, log, runId);
-            await AuditLog.AcknowledgeAsync(gate, target, schema, "ack", name, code, detail, write.User ?? Environment.UserName, reason!);
+            await AuditLog.AcknowledgeAsync(gate, engine, schema, "ack", name, code, detail, write.User ?? Environment.UserName, reason!);
             output.Payload("acknowledged", new[] { new { kind, subject = name, key = $"{code}|{name}|{detail}", by = write.User ?? Environment.UserName, reason } });
             output.WriteLine($"Recorded: {code} on {name} for hash {detail[..Math.Min(12, detail.Length)]} acknowledged by {write.User ?? Environment.UserName}. The next plan will accept exactly this change.");
             return CliApp.ExitOk;

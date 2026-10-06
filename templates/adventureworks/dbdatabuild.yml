@@ -13,7 +13,7 @@ string_semantics:
     default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }
 
 # marts.dim_date uses generate_series, which SQL Server has from version 16 (2022).
-targets:
+connections:
   sqlserver: { version: 16 }
 
 # `validate` says where a construct behaves slightly differently on the engine than in DuckDB (DDB-302). Those findings are

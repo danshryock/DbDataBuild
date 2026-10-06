@@ -60,15 +60,18 @@ public static partial class ReadGuard
 public sealed class ReadSession : IAsyncDisposable
 {
     private readonly DbConnection connection;
-    private ReadSession(DbConnection connection) => this.connection = connection;
+    private ReadSession(DbConnection connection, string engine) { this.connection = connection; Engine = engine; }
+
+    /// <summary>The engine of the connection this session reads (sqlserver, fabric, postgres): what the catalog and tracking queries are written for.</summary>
+    public string Engine { get; }
 
     public static async Task<ReadSession> OpenAsync(LoginSettings read, CancellationToken ct = default)
     {
         if (read.Login != Login.Read) throw new ArgumentException("A read session needs the read login.", nameof(read));
-        return new ReadSession(await read.OpenAsync(ct));
+        return new ReadSession(await read.OpenAsync(ct), read.Engine);
     }
 
-    internal static ReadSession ForTesting(DbConnection connection) => new(connection);
+    internal static ReadSession ForTesting(DbConnection connection, string engine = "sqlserver") => new(connection, engine);
 
     public async Task<IReadOnlyList<IReadOnlyList<object?>>> QueryAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
     {

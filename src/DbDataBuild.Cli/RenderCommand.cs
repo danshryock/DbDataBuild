@@ -27,14 +27,13 @@ internal static class RenderCommand
             error.WriteLine("--write and --check cannot be combined: --check writes nothing.");
             return CliApp.ExitUsage;
         }
-        var unknown = targets.FirstOrDefault(t => !TargetNames.All.Contains(t));
+        var ctx = ProjectContext.Load(projectRoot);
+        var unknown = targets.FirstOrDefault(t => !ctx.Config.Connections.ContainsKey(t));
         if (unknown != null)
         {
-            error.WriteLine($"Unknown target `{unknown}`. One of: {string.Join(", ", TargetNames.All)}.");
+            error.WriteLine($"Unknown connection `{unknown}`. One of: {string.Join(", ", ctx.Config.Connections.Keys.Order(StringComparer.Ordinal))}.");
             return CliApp.ExitUsage;
         }
-
-        var ctx = ProjectContext.Load(projectRoot);
         var selected = ctx.Select(models, error);
         if (selected == null) return CliApp.ExitUsage;
         var wholeProject = models.Length == 0 && targets.Length == 0;
@@ -52,7 +51,7 @@ internal static class RenderCommand
         var errors = diags.Count(d => d.Severity == Severity.Error);
 
         var root = Path.Combine(projectRoot, RenderedDir);
-        if (check) return Check(root, files, selected, targets, wholeProject, errors, output, error);
+        if (check) return Check(root, files, selected, targets, wholeProject, errors, ctx.Config.Connections.Keys, output, error);
 
         if (write)
         {
@@ -61,7 +60,7 @@ internal static class RenderCommand
                 output.WriteLine($"Nothing was written: {errors} error(s). Fix them and run render again.");
                 return CliApp.ExitFindings;
             }
-            var (wrote, removed) = Write(root, files, scopeDirs: Scope(files, selected, targets, wholeProject, root));
+            var (wrote, removed) = Write(root, files, scopeDirs: Scope(files, selected, targets, wholeProject, root, ctx.Config.Connections.Keys));
             output.Payload("files", files.Select(f => new { path = $"{RenderedDir}/{f.Path}", hash = DbDataBuild.State.Hashing.ScriptHash(f.Content) }).ToList());
             output.Payload("wrote", wrote); output.Payload("removed", removed);
             foreach (var f in wrote) output.WriteLine($"wrote {RenderedDir}/{f}");
@@ -85,14 +84,14 @@ internal static class RenderCommand
     }
 
     /// <summary>The (target, model) directories under rendered/ this run is responsible for.</summary>
-    private static HashSet<string> Scope(IReadOnlyList<RenderedFile> files, IReadOnlyList<LoadedModel> selected, string[] targets, bool whole, string renderedRoot)
+    private static HashSet<string> Scope(IReadOnlyList<RenderedFile> files, IReadOnlyList<LoadedModel> selected, string[] targets, bool whole, string renderedRoot, IEnumerable<string> connections)
     {
         var scope = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in files) scope.Add(string.Join('/', f.Path.Split('/').Take(2)));
         // directories of selected models that rendered nothing this time (an operation was removed) are in scope too
         foreach (var m in selected)
         {
-            foreach (var t in TargetNames.All.Where(t => targets.Length == 0 || targets.Contains(t)))
+            foreach (var t in connections.Where(t => targets.Length == 0 || targets.Contains(t)))
                 scope.Add($"{t}/{m.Source.Definition.Name}");
             scope.Add($"lowered/{m.Source.Definition.Name}");
         }
@@ -141,7 +140,7 @@ internal static class RenderCommand
         return (wrote, removed);
     }
 
-    private static int Check(string root, IReadOnlyList<RenderedFile> files, IReadOnlyList<LoadedModel> selected, string[] targets, bool whole, int renderErrors, TextWriter output, TextWriter error)
+    private static int Check(string root, IReadOnlyList<RenderedFile> files, IReadOnlyList<LoadedModel> selected, string[] targets, bool whole, int renderErrors, IEnumerable<string> connections, TextWriter output, TextWriter error)
     {
         var desired = files.ToDictionary(f => f.Path, f => f.Content, StringComparer.Ordinal);
         var differences = new List<Diagnostic>();
@@ -153,7 +152,7 @@ internal static class RenderCommand
             if (!File.Exists(full)) differences.Add(Out(path, $"`{RenderedDir}/{path}` is missing."));
             else if (File.ReadAllText(full) != content) differences.Add(Out(path, $"`{RenderedDir}/{path}` differs from a fresh render."));
         }
-        foreach (var dir in Scope(files, selected, targets, whole, root).Order(StringComparer.Ordinal))
+        foreach (var dir in Scope(files, selected, targets, whole, root, connections).Order(StringComparer.Ordinal))
         {
             var full = Path.Combine(root, dir);
             if (!Directory.Exists(full)) continue;

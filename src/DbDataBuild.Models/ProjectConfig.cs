@@ -27,10 +27,22 @@ public static class PolicyKeys
     public static readonly IReadOnlyList<string> All = [Approximated, Emulated, Unverified, NotCovered];
 }
 
+/// <summary>
+/// A named database endpoint: an engine (the SQL dialect: sqlserver, fabric, postgres) and an optional version of it. Its logins come from the environment (`DBDATABUILD_&lt;NAME&gt;_READ` and `_WRITE`),
+/// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
+/// </summary>
+/// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0)
+{
+    /// <summary>The names of connections the tool knows without a declaration: one per engine, named after it.</summary>
+    public static IReadOnlyDictionary<string, ConnectionConfig> Implicit { get; } =
+        TargetNames.All.ToDictionary(e => e, e => new ConnectionConfig(e, e), StringComparer.Ordinal);
+}
+
 /// <summary>Project configuration (<c>dbdatabuild.yml</c>). Offline settings only: credentials never live here (DESIGN.md 9.2).</summary>
 public sealed record ProjectConfig(
     IReadOnlyList<string> DefaultTargets,
-    IReadOnlyDictionary<string, int> TargetVersions,
+    IReadOnlyDictionary<string, ConnectionConfig> Connections,
     string TrackingSchema,
     StringSemantics StringSemantics,
     IReadOnlyDictionary<string, Severity> Policy,
@@ -48,10 +60,16 @@ public sealed record ProjectConfig(
     /// <summary>1-based lines in dbdatabuild.yml of settings that were present, keyed by dotted path (for diagnostics). Empty for defaults.</summary>
     public IReadOnlyDictionary<string, int> Lines { get; } = SourceLines ?? new Dictionary<string, int>();
 
+    /// <summary>The engine of a connection, or null when the project has no such connection.</summary>
+    public string? EngineOf(string connection) => Connections.TryGetValue(connection, out var c) ? c.Engine : null;
+
+    /// <summary>The version a connection is configured with, per connection (two servers of one engine can differ).</summary>
+    public IReadOnlyDictionary<string, int> TargetVersions => Connections.Where(c => c.Value.Version != null).ToDictionary(c => c.Key, c => c.Value.Version!.Value, StringComparer.Ordinal);
+
     /// <summary>Built-in defaults, used when no file exists. Printed in every command header so they are never hidden.</summary>
     public static readonly ProjectConfig Default = new(
         [TargetNames.SqlServer],
-        new Dictionary<string, int>(),
+        ConnectionConfig.Implicit,
         ProductInfo.TrackingSchema,
         new StringSemantics(CaseSensitivity.Insensitive, AccentSensitivity.Sensitive, TrailingSpace.Ignored,
             new Dictionary<string, IReadOnlyDictionary<string, string>>
@@ -73,5 +91,7 @@ public sealed record ProjectConfig(
 
     public string Describe() =>
         $"default targets: {string.Join(", ", DefaultTargets)}; string semantics: {StringSemantics.Describe()}; " +
-        $"target versions: {(TargetVersions.Count == 0 ? "not set" : string.Join(", ", TargetVersions.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} {v.Value}")))}";
+        $"target versions: {(TargetVersions.Count == 0 ? "not set" : string.Join(", ", TargetVersions.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} {v.Value}")))}" +
+        (Connections.Any(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key)
+            ? $"; connections: {string.Join(", ", Connections.Where(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} ({c.Value.Engine})"))}" : "");
 }

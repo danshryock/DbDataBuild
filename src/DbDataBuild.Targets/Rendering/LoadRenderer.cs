@@ -52,15 +52,16 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
 
         foreach (var targetName in targets.Distinct().Order(StringComparer.Ordinal))
         {
-            var target = TargetRegistry.Get(targetName);
-            var lint = linter.Lint(Rules.TargetRules.Apply(bodySql, targetName, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(targetName, out var tv) ? tv : null).Sql, bodyFile ?? queryFile, [targetName], config);
+            var engine = config.EngineOf(targetName) ?? targetName;      // a model names connections; the SQL is written for the connection's engine
+            var target = TargetRegistry.Get(engine);
+            var lint = linter.Lint(Rules.TargetRules.Apply(bodySql, engine, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(targetName, out var tv) ? tv : null).Sql, bodyFile ?? queryFile, [targetName], config);
             var manifestOps = new List<ManifestOperation>();
 
             foreach (var op in LoadPlan.For(def, targetName))
             {
                 var pair = $"{def.Name} x {targetName} x {op.Name}";
                 var findings = FindingIds(lint);
-                var blockers = Blockers(lint, op, targetName, out var strategyStatus);
+                var blockers = Blockers(lint, op, targetName, engine, out var strategyStatus);
                 if (blockers.Count > 0)
                 {
                     diags.Add(new Diagnostic(DiagnosticCatalog.PairUnsupported, new(queryFile, 0, 0), $"{pair} cannot be rendered: {string.Join("; ", blockers)}.",
@@ -69,7 +70,7 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
                     continue;
                 }
 
-                var rendered = RenderOne(def, op, target, bodySql, bodyHash, queryFile, pair, diags);
+                var rendered = RenderOne(def, op, target, targetName, bodySql, bodyHash, queryFile, pair, diags);
                 if (rendered == null)
                 {
                     reports.Add(new OperationReport(def.Name, targetName, op.Name, op.Strategy, op.IsDefault, "unsupported", findings));
@@ -101,11 +102,11 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
 
     private sealed record Rendered(string Script, string? Resolver, IReadOnlyList<RenderedParameter> Parameters);
 
-    private Rendered? RenderOne(ModelDefinition def, LoadOperation op, ITarget target, string bodySql, string bodyHash, string queryFile, string pair, List<Diagnostic> diags)
+    private Rendered? RenderOne(ModelDefinition def, LoadOperation op, ITarget target, string connection, string bodySql, string bodyHash, string queryFile, string pair, List<Diagnostic> diags)
     {
         // The body, as a CTE named ddb_body, transpiled by polyglot. The support matrix decides what is allowed: polyglot's own
         // `unsupportedLevel: raise` is not used because it misses constructs and also rejects supported ones (REGEXP_LIKE on SQL Server 2025).
-        var ruled = Rules.TargetRules.Apply(bodySql, target.Name, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(target.Name, out var targetVersion) ? targetVersion : null);
+        var ruled = Rules.TargetRules.Apply(bodySql, target.Name, RewriteCatalog.For(config, def), config.TargetVersions.TryGetValue(connection, out var targetVersion) ? targetVersion : null);
         bodySql = ruled.Sql;
         var wrapped = $"WITH {LoadersBodyName} AS ({bodySql.Trim().TrimEnd(';').TrimEnd()})\nSELECT * FROM {LoadersBodyName}";
         var (outcome, transpiled) = Polyglot.TranspileOne(wrapped, Dialects.Canonical, target.Dialect);
@@ -131,15 +132,15 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         var request = new LoadRequest(def.Name, def.Columns, op, prefix, Column(op.Watermark?.Column)?.Type, Column(op.Column)?.Type);
         var script = target.Loader.Render(request);
 
-        var header = Header(def.Name, op.Name, target.Name, op.Strategy, bodyHash, script.Parameters, resolver: false, ruled.Rules, RewriteCatalog.For(config, def));
+        var header = Header(def.Name, op.Name, connection, op.Strategy, bodyHash, script.Parameters, resolver: false, ruled.Rules, RewriteCatalog.For(config, def));
         var text = header + script.Text;
-        var resolverText = script.ResolverText == null ? null : Header(def.Name, op.Name, target.Name, op.Strategy, bodyHash, script.Parameters, resolver: true, ruled.Rules, RewriteCatalog.For(config, def)) + script.ResolverText + "\n";
+        var resolverText = script.ResolverText == null ? null : Header(def.Name, op.Name, connection, op.Strategy, bodyHash, script.Parameters, resolver: true, ruled.Rules, RewriteCatalog.For(config, def)) + script.ResolverText + "\n";
 
         var before = diags.Count;
-        int? version = config.TargetVersions.TryGetValue(target.Name, out var v) ? v : null;
-        diags.AddRange(target.Validate(text, $"rendered/{target.Name}/{def.Name}/load.{op.Name}.sql", version).Select(d => d with { Found = $"{pair}: {d.Found}" }));
+        int? version = config.TargetVersions.TryGetValue(connection, out var v) ? v : null;
+        diags.AddRange(target.Validate(text, $"rendered/{connection}/{def.Name}/load.{op.Name}.sql", version).Select(d => d with { Found = $"{pair}: {d.Found}" }));
         if (resolverText != null)
-            diags.AddRange(target.Validate(resolverText, $"rendered/{target.Name}/{def.Name}/load.{op.Name}.resolve.sql", version).Select(d => d with { Found = $"{pair} (resolver): {d.Found}" }));
+            diags.AddRange(target.Validate(resolverText, $"rendered/{connection}/{def.Name}/load.{op.Name}.resolve.sql", version).Select(d => d with { Found = $"{pair} (resolver): {d.Found}" }));
         var declared = script.Parameters.Select(p => p.Name).ToList();
         foreach (var bad in Placeholders.Undeclared(text, declared))
             diags.Add(new Diagnostic(DiagnosticCatalog.PlaceholderUndeclared, new(queryFile, 0, 0), $"{pair}: the rendered script contains the placeholder `{bad}`, which is not a declared parameter."));
@@ -149,14 +150,14 @@ public sealed class LoadRenderer(SupportMatrix matrix, MatrixLinter linter, Proj
         return diags.Skip(before).Any(d => d.Severity == Severity.Error) ? null : new Rendered(text, resolverText, script.Parameters);
     }
 
-    private IReadOnlyList<string> Blockers(IReadOnlyList<Diagnostic> lint, LoadOperation op, string target, out SupportStatus strategyStatus)
+    private IReadOnlyList<string> Blockers(IReadOnlyList<Diagnostic> lint, LoadOperation op, string target, string engine, out SupportStatus strategyStatus)
     {
         var blockers = new List<string>();
         foreach (var d in lint.Where(d => d.Code == DiagnosticCatalog.ConstructUnsupported.Code))
             blockers.Add(d.Found);
         var row = matrix.Strategies.FirstOrDefault(r => r.Id == "strategy." + op.Strategy);
-        strategyStatus = row?.Targets.GetValueOrDefault(target)?.Status ?? SupportStatus.Unverified;
-        if (row != null && row.Targets.TryGetValue(target, out var entry))
+        strategyStatus = row?.Targets.GetValueOrDefault(engine)?.Status ?? SupportStatus.Unverified;
+        if (row != null && row.Targets.TryGetValue(engine, out var entry))
         {
             if (entry.Status == SupportStatus.Unsupported) blockers.Add($"strategy `{op.Strategy}` is unsupported on {target}{(entry.Note == null ? "" : ": " + entry.Note)}");
             if (entry.MinVersion is { } min && config.TargetVersions.TryGetValue(target, out var version) && version < min)

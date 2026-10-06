@@ -19,9 +19,11 @@ public static class ProjectValidator
     public const string ModelsDir = "models";
     public const string SourcesDir = "sources";
 
-    public static ProjectValidationResult Validate(string projectRoot)
+    public static ProjectValidationResult Validate(string projectRoot, ProjectConfig? config = null)
     {
         var diags = new List<Diagnostic>();
+        // the connections a model may name come from the project's configuration (a problem in the configuration itself is reported where the configuration is loaded)
+        var connections = (config ?? ProjectConfigLoader.LoadFromProject(projectRoot, new List<Diagnostic>())).Connections.Keys.ToHashSet(StringComparer.Ordinal);
         var models = new List<ModelSource>();
         var modelsRoot = Path.Combine(projectRoot, ModelsDir);
         if (!Directory.Exists(modelsRoot))
@@ -55,7 +57,7 @@ public static class ProjectValidator
                     $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
 
             var expected = stem[(ModelsDir.Length + 1)..].Replace('/', '.');
-            var def = ModelDefinitionLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags);
+            var def = ModelDefinitionLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags, connections);
             if (def != null) models.Add(new ModelSource(def, file, stem + ".sql"));
         }
 

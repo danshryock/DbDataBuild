@@ -53,8 +53,13 @@ internal static class ApplyCommand
         foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
         if (configDiags.Any(d => d.Severity == Severity.Error)) return CliApp.ExitFindings;
 
-        var (read, readMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Read, env);
-        var (write, writeMissing) = LoginSettings.FromEnvironment(plan.Target, Login.Write, env);
+        if (!config.Connections.TryGetValue(plan.Target, out var connection))
+        {
+            error.WriteLine($"The plan is for the connection `{plan.Target}`, which this project does not have. Connections: {string.Join(", ", config.Connections.Keys.Order(StringComparer.Ordinal))}.");
+            return CliApp.ExitFindings;
+        }
+        var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
+        var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  target: {plan.Target}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());

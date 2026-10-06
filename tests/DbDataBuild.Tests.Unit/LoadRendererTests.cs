@@ -258,7 +258,7 @@ public class LoadRendererTests
     public void A_configured_engine_version_below_a_strategys_minimum_blocks_that_pair()
     {
         var def = Def(AllOpsYaml);
-        var cfg = ProjectConfigLoader.Load("targets:\n  postgres: { version: 14 }\n", "dbdatabuild.yml", [])!;
+        var cfg = ProjectConfigLoader.Load("connections:\n  postgres: { version: 14 }\n", "dbdatabuild.yml", [])!;
         var r = Render(def, AllOpsSql, ["postgres"], cfg);
         var d = Assert.Single(r.Diagnostics, x => x.Code == "DDB-317");
         Assert.Contains("marts.fct_events x postgres x by_key", d.Found);
@@ -266,7 +266,7 @@ public class LoadRendererTests
         Assert.DoesNotContain(r.Files, f => f.Path.EndsWith("load.by_key.sql", StringComparison.Ordinal));
         Assert.Contains(r.Files, f => f.Path.EndsWith("load.everything.sql", StringComparison.Ordinal));   // the other operations still render
 
-        var ok = ProjectConfigLoader.Load("targets:\n  postgres: { version: 15 }\n", "dbdatabuild.yml", [])!;
+        var ok = ProjectConfigLoader.Load("connections:\n  postgres: { version: 15 }\n", "dbdatabuild.yml", [])!;
         Assert.Empty(Render(def, AllOpsSql, ["postgres"], ok).Diagnostics.Where(x => x.Severity == Severity.Error));
     }
 

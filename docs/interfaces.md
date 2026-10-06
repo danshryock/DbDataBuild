@@ -16,7 +16,7 @@ dbdatabuild web --project my-project            # prints http://127.0.0.1:<port>
 dbdatabuild web --project my-project --allow-apply
 ```
 
-It listens on the loopback address only; every request needs the token printed at start. Without `--allow-apply` it can read, plan and compare, not apply. With it, applying needs the write login (`DBDATABUILD_<TARGET>_WRITE`) in the environment of `dbdatabuild web`, every allowance named in the page, and the plan's target typed back. The page reads the target with `DBDATABUILD_<TARGET>_READ` (plan, table diff). Details: `DESIGN.md` 9.7.
+It listens on the loopback address only; every request needs the token printed at start. Without `--allow-apply` it can read, plan and compare, not apply. With it, applying needs the write login (`DBDATABUILD_<CONNECTION>_WRITE`) in the environment of `dbdatabuild web`, every allowance named in the page, and the plan's target typed back. The page reads the target with `DBDATABUILD_<CONNECTION>_READ` (plan, table diff). Details: `DESIGN.md` 9.7.
 
 ## MCP server
 
@@ -32,7 +32,7 @@ What a model is never given: `diff --show-values`, `sample --data`, a path outsi
 
 The server speaks MCP over standard input and output. The settings below are the usual shapes; check your host's current documentation, which changes.
 
-Claude Code: `dbdatabuild agent-kit --write --mcp` adds the server to the project's `.mcp.json` (the other servers in the file are kept; the entry is `dbdatabuild mcp --project .`, read-only, passing the `DBDATABUILD_<TARGET>_READ` logins on by name from your environment, never the write login). It needs `dbdatabuild` on the PATH, and Claude Code asks before it first uses a project server. The skill the same command installs tells the agent how to work with the tools, and what is deliberately not offered.
+Claude Code: `dbdatabuild agent-kit --write --mcp` adds the server to the project's `.mcp.json` (the other servers in the file are kept; the entry is `dbdatabuild mcp --project .`, read-only, passing the `DBDATABUILD_<CONNECTION>_READ` logins on by name from your environment, never the write login). It needs `dbdatabuild` on the PATH, and Claude Code asks before it first uses a project server. The skill the same command installs tells the agent how to work with the tools, and what is deliberately not offered.
 
 Claude Desktop (`claude_desktop_config.json`):
 

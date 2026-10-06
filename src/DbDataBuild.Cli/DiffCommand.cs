@@ -29,8 +29,9 @@ internal static class DiffCommand
         if (string.Equals(left.Schema, right.Schema, StringComparison.OrdinalIgnoreCase) && string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) { error.WriteLine("Both sides name the same table."); return CliApp.ExitUsage; }
 
         var ctx = ProjectContext.Load(root);
-        var target = CommandTargets.Resolve(ctx.Config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
+        var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
 
         // the key: given, or the table's own grain (a model's grain or unique key, a source's grain)
         var key = keyArg.SelectMany(k => k.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).ToList();
@@ -46,7 +47,7 @@ internal static class DiffCommand
             else { error.WriteLine($"{qualified} has no grain or unique key in the project, so there is nothing to match rows on. Give the columns with --key a,b."); return CliApp.ExitUsage; }
         }
 
-        var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
+        var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}  |  values: {(showValues ? "shown (requested)" : "not read")}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
@@ -60,7 +61,7 @@ internal static class DiffCommand
                 await using var read = await ReadSession.OpenAsync(login!);
                 async Task<DiffTable?> Find((string Schema, string Name) t)
                 {
-                    var shapes = await CatalogReader.ReadSchemaAsync(read, target, t.Schema);
+                    var shapes = await CatalogReader.ReadSchemaAsync(read, engine, t.Schema);
                     var shape = shapes.Values.FirstOrDefault(s => string.Equals(s.Name, t.Name, StringComparison.OrdinalIgnoreCase));
                     return shape == null ? null : new DiffTable(shape.Schema, shape.Name, shape.Columns);
                 }
@@ -68,7 +69,7 @@ internal static class DiffCommand
                 if (l == null) { problem = $"{left.Schema}.{left.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
                 var r = await Find(right);
                 if (r == null) { problem = $"{right.Schema}.{right.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
-                (plan, problem) = TableDiffer.Plan(target, l, r, key, only, except);
+                (plan, problem) = TableDiffer.Plan(engine, l, r, key, only, except);
                 if (plan == null) return;
                 outcome = await TableDiffer.RunAsync(read, plan, showValues, limit);
             }).GetAwaiter().GetResult();
@@ -76,7 +77,7 @@ internal static class DiffCommand
         catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
         if (plan == null || outcome == null) { error.WriteLine(problem); return CliApp.ExitUsage; }
 
-        Report(output, plan, outcome, keySource, showValues, limit);
+        Report(output, plan, outcome, keySource, showValues, limit, target);
         return outcome.Identical ? CliApp.ExitOk : CliApp.ExitFindings;
     }
 
@@ -86,10 +87,10 @@ internal static class DiffCommand
         return i <= 0 || i == text.Length - 1 ? null : (text[..i], text[(i + 1)..]);
     }
 
-    private static void Report(TextWriter output, DiffPlan p, DiffOutcome o, string keySource, bool showValues, int limit)
+    private static void Report(TextWriter output, DiffPlan p, DiffOutcome o, string keySource, bool showValues, int limit, string target)
     {
         var others = p.Compared.Where(c => !p.Key.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList();
-        output.Payload("target", p.Target);
+        output.Payload("target", target);
         output.Payload("left", new { table = p.Left.Qualified, rows = o.LeftRows, columns = p.Left.Columns.Count });
         output.Payload("right", new { table = p.Right.Qualified, rows = o.RightRows, columns = p.Right.Columns.Count });
         output.Payload("key", new { columns = p.Key, source = keySource });

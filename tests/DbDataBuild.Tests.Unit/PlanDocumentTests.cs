@@ -159,7 +159,7 @@ public class PlanDocumentTests
     [InlineData("unknown key", "    risk: safe\n", "    risk: safe\n    shell: rm\n")]
     [InlineData("bad step type", "type: ddl", "type: banana")]
     [InlineData("bad risk", "risk: safe", "risk: reckless")]
-    [InlineData("bad target", "target: \"sqlserver\"", "target: \"oracle\"")]
+    [InlineData("bad connection name", "target: \"sqlserver\"", "target: \"9 bad\"")]
     [InlineData("bad state", "state: in_sync", "state: fine")]
     [InlineData("short hash", "hash_after: \"" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"", "hash_after: \"abc\"")]
     public void Structural_damage_fails_the_schema_and_the_parser(string name, string from, string to)

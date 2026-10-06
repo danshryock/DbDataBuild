@@ -18,23 +18,24 @@ internal static class ReportCommand
     public static int Run(CommandSpec spec, string root, string? targetArg, int last, TextWriter output, TextWriter error, Func<string, string?> env)
     {
         var config = ProjectConfigLoader.LoadFromProject(root, new List<Diagnostic>());
-        var target = CommandTargets.Resolve(config, targetArg, error);
-        if (target == null) return CliApp.ExitUsage;
+        var connection = CommandTargets.Resolve(config, targetArg, error);
+        if (connection == null) return CliApp.ExitUsage;
+        var target = connection.Name; var engine = connection.Engine;
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
-        var (login, missing) = LoginSettings.FromEnvironment(target, Login.Read, env);
+        var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  target: {target}  |  login: {login?.Describe() ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var schema = config.TrackingSchema;
-        var ddl = TrackingDdl.For(target);
+        var ddl = TrackingDdl.For(engine);
         string C(string n) => ddl.Quote(n);
         string T(string t) => $"{C(schema)}.{C(t)}";
-        string Top(string cols, string from, string order) => target == "postgres" ? $"SELECT {cols} FROM {from} ORDER BY {order} LIMIT {last}" : $"SELECT TOP ({last}) {cols} FROM {from} ORDER BY {order}";
+        string Top(string cols, string from, string order) => engine == "postgres" ? $"SELECT {cols} FROM {from} ORDER BY {order} LIMIT {last}" : $"SELECT TOP ({last}) {cols} FROM {from} ORDER BY {order}";
 
         return Task.Run(async () =>
         {
             await using var read = await ReadSession.OpenAsync(login!);
-            var status = await TrackingStore.StatusAsync(read, target, schema);
+            var status = await TrackingStore.StatusAsync(read, engine, schema);
             if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             string Cell(object? v) => v switch { null => "", DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), string s => s.Trim(), _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" };
@@ -61,12 +62,12 @@ internal static class ReportCommand
             Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
 
             var versions = await read.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} GROUP BY {C("object_name")} ORDER BY {C("object_name")}");
-            var recorded = await TrackingStore.LatestShapeHashesAsync(read, target, schema);
+            var recorded = await TrackingStore.LatestShapeHashesAsync(read, engine, schema);
             var schemas = recorded.Keys.Select(k => DdlGenerator.Split(k).Schema).Distinct(StringComparer.Ordinal).ToList();
             var live = new Dictionary<string, ObjectShape>();
-            foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, target, s)) live[k] = v;
+            foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, engine, s)) live[k] = v;
             var drifted = new List<string>();
-            var accepted = (await TargetSnapshotReader.ReadAsync(read, target, schema, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
+            var accepted = (await TargetSnapshotReader.ReadAsync(read, engine, schema, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
             bool Accepted(string name) => live.TryGetValue(name, out var l) && accepted.Contains(Acknowledgements.Key(DiagnosticCatalog.ObjectChangedOutsideTool.Code, name, l.ShapeHash));
             Table("objects", "Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
             {
@@ -77,7 +78,7 @@ internal static class ReportCommand
             }));
 
             // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----
-            var (history, unreadable) = await HistoryReader.ReadAsync(read, target, schema);
+            var (history, unreadable) = await HistoryReader.ReadAsync(read, engine, schema);
             output.WriteLine();
             output.Payload("column_history", history.Select(h => new { model = h.Model, column = h.Column, decision = h.Disposition, text = h.Text, needs_attention = h.NeedsAttention, acknowledgement = h.Acknowledgement == null ? null : new { by = h.Acknowledgement.By, reason = h.Acknowledgement.Reason, utc = h.Acknowledgement.Utc } }).ToList());
             output.WriteLine($"Column history ({history.Count})");

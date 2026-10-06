@@ -62,5 +62,5 @@ dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
 - Money here is `DECIMAL(19, 4)`. DuckDB multiplies decimals exactly; SQL Server rounds each product to six decimals when the result would be wider than 38 digits, so a chain of
   products (price, discount, exchange rate) can differ in the last place. `marts.fct_sales_lines` works the discount and the conversion in DOUBLE and rounds to four places, which both engines do alike
   (the support matrix row `type.decimal_product_wide` says more).
-- The project is set for SQL Server (see the comment at the top of `dbdatabuild.yml` for PostgreSQL); it asks for SQL Server 2022 (`targets: sqlserver: {version: 16}`) because of `generate_series` and `greatest`.
+- The project is set for SQL Server (see the comment at the top of `dbdatabuild.yml` for PostgreSQL); it asks for SQL Server 2022 (`connections: sqlserver: {version: 16}`) because of `generate_series` and `greatest`.
 - The shape of the data follows the AdventureWorks sample database (Microsoft Public License); the rows are invented.
