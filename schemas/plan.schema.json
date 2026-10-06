@@ -141,7 +141,8 @@
               "load",
               "backfill",
               "hook",
-              "track"
+              "track",
+              "transfer"
             ]
           },
           "object": {
@@ -255,6 +256,56 @@
             "description": "The full statement or script, executed exactly as written.",
             "type": "string",
             "minLength": 1
+          },
+          "transfer": {
+            "description": "For a transfer step: where the rows come from. The step's `text` is the DDL that (re)creates the staging table; apply then reads `read` on `origin` (a single SELECT), converts each value by the declared type of its column, and writes the rows to `staging` on the plan's connection.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "origin",
+              "staging",
+              "read",
+              "columns"
+            ],
+            "properties": {
+              "origin": {
+                "description": "The connection the rows are read from (its read login, `DBDATABUILD_<NAME>_READ`).",
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+              },
+              "staging": {
+                "description": "`schema.table` of the staging table on the plan's connection.",
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "description": "The query that reads the rows on the origin, in the origin's dialect, hashed with the plan.",
+                "type": "string",
+                "minLength": 1
+              },
+              "columns": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

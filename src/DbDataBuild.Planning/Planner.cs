@@ -13,7 +13,10 @@ namespace DbDataBuild.Planning;
 public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash);
 
 /// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
-public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null)
+/// <summary>Where a copy's rows come from: the origin connection with its engine, and the table (`schema.table`) there.</summary>
+public sealed record CopyOrigin(string Connection, string Engine, string Table);
+
+public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, CopyOrigin? Origin = null)
 {
     public IReadOnlyList<PlannedHook> HookList => Hooks ?? [];
 }
@@ -510,8 +513,33 @@ public static class Planner
         var loadStep = new PlanStep("", backfill ? StepType.Backfill : StepType.Load, def.Name, $"{(backfill ? "backfill" : "load")} {def.Name} ({load.Operation})", load.Script,
             backfill ? RiskClass.Risky : RiskClass.Safe, backfill ? ["load.backfill", "requested with --backfill"] : ["load.routine"], null, parameters,
             load.ResolverText, resolverResult, HasResolver: load.ResolverText != null, FileHash: load.FileHash, Operation: load.Operation, DefinitionHash: c.Model.DefinitionHash);
+        if (def.IsCopy && c.Model.Origin is { } origin)
+        {
+            // a copy: the rows are staged on the destination first, loaded from there by the ordinary strategy, and the staging table is dropped when the load is done
+            loadSteps.Add(TransferStep(c, origin));
+            loadSteps.AddRange(Hooked.Around(c.Model, backfill ? "backfill" : "load", loadStep));
+            var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
+            loadSteps.Add(Step(StepType.Ddl, $"{stagingSchema}.{stagingTable}", $"drop staging table of {def.Name}", c.Ddl.DropTableIfExists(stagingSchema, stagingTable), RiskClass.Safe, ["copy.staging.drop"]));
+            return true;
+        }
         loadSteps.AddRange(Hooked.Around(c.Model, backfill ? "backfill" : "load", loadStep));
         return true;
+    }
+
+    /// <summary>
+    /// The step that moves a copy's rows: its text creates the staging table (declared columns, so a NOT NULL column refuses a NULL at once), and apply reads <see cref="TransferSpec.ReadText"/> on the origin
+    /// and writes the rows to it. The read names every column in the origin's own quoting, in the declared order.
+    /// </summary>
+    private static PlanStep TransferStep(ModelContext c, CopyOrigin origin)
+    {
+        var def = c.Def;
+        var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
+        var create = c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
+        var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config);
+        var (originSchema, originName) = DdlGenerator.Split(origin.Table);
+        var read = $"SELECT {string.Join(", ", def.Columns.Select(x => originDdl.QuoteIdentifier(x.Name)))} FROM {originDdl.Qualified(originSchema, originName)}";
+        var spec = new TransferSpec(origin.Connection, read, $"{stagingSchema}.{stagingTable}", def.Columns.Select(x => new PlanColumn(x.Name, x.Type)).ToList());
+        return new PlanStep("", StepType.Transfer, def.Name, $"copy {def.Name} from {origin.Connection} ({origin.Table})", create, RiskClass.Safe, ["copy.transfer"], null, [], Transfer: spec);
     }
 
     private static bool ParameterFits(ModelContext c, RenderedLoad load, RenderedParameter p, string value, List<Diagnostic> blocks)

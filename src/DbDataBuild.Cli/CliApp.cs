@@ -14,7 +14,7 @@ public static class CliApp
     /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
     /// <param name="environment">Where logins are read from (connection strings in environment variables). Defaults to the process environment.</param>
     public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
-        Guarded(args, error, () => Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error }), output);
+        Guarded(args, error, () => { DbDataBuild.Execution.DriverSettings.Apply(); return Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error }); }, output);
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body, TextWriter? output = null)
@@ -326,7 +326,7 @@ public static class CliApp
         // inheritance is never hidden either: what each model took from a project file above it, and from where
         foreach (var s in result.Sources.Where(s => s.Inherited.Count > 0).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
             output.WriteLine($"Inherited by {s.Definition.Name}: {string.Join(", ", s.Inherited.Select(o => $"{o.Path} = {o.Value} ({o.File}:{o.Line})"))}");
-        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.Descriptors, config)));
+        diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.AllDescriptors, config)));
 
         foreach (var d in diagnostics) error.Diag(d);
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);
@@ -340,7 +340,7 @@ public static class CliApp
             var ctx = ProjectContext.Load(projectRoot);
             output.Payload("project", MetadataBuilder.Project(ctx));
             output.Payload("sources", MetadataBuilder.Sources(ctx, null));
-            output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(projectRoot, s.QueryFile)))).ToList());
+            output.Payload("models", ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => MetadataBuilder.Model(ctx, s, s.ReadQuery(projectRoot))).ToList());
         }
         output.WriteLine(errors == 0
             ? $"OK: {result.Sources.Count} model(s) valid. {tail}"

@@ -10,8 +10,11 @@ namespace DbDataBuild.Models;
 /// </summary>
 /// <param name="DeclaredConnections">The connections the table exists on (after the project files above it were merged in); null when nothing says, which is the project's default connections.</param>
 public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinition> Columns, IReadOnlyList<string> Grain,
-    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null, IReadOnlyList<string>? DeclaredConnections = null)
+    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null, IReadOnlyList<string>? DeclaredConnections = null, bool Generated = false)
 {
+    /// <summary>True for a table the tool declares itself, not a file of the project: the staging table a copy is read from (`CopyModels`). It is bound by queries like any mapped model and is left out of what is listed, imported and checked.</summary>
+    public bool IsGenerated => Generated;
+
     public IReadOnlyList<string>? Connections => DeclaredConnections;
     public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];
     public IReadOnlyList<SourceForeignKey> ForeignKeys => DeclaredForeignKeys ?? [];

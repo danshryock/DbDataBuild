@@ -108,6 +108,26 @@
               "$ref": "#/$defs/duration"
             }
           }
+        },
+        {
+          "title": "copy",
+          "description": "A table filled by copying the rows of another model that lives on another connection. No query and no columns: the columns are the origin's. Always persisted; the load is a full replace from a staging table.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "from"
+          ],
+          "properties": {
+            "type": {
+              "const": "copy"
+            },
+            "from": {
+              "description": "The model to copy: a model, a mapped model or another copy, `schema.table`, on exactly one connection other than this model's.",
+              "type": "string",
+              "pattern": "^[^.\\s/\\\\]+\\.[^.\\s/\\\\]+$"
+            }
+          }
         }
       ]
     },
@@ -580,8 +600,7 @@
         }
       },
       "required": [
-        "name",
-        "columns"
+        "name"
       ],
       "properties": {
         "name": {
@@ -730,6 +749,38 @@
         }
       },
       "allOf": [
+        {
+          "description": "A copy has the columns of the model it copies and declares none; every other model declares its columns.",
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "copy"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "columns"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "columns"
+            ]
+          }
+        },
         {
           "description": "Incremental kinds require a grain.",
           "if": {

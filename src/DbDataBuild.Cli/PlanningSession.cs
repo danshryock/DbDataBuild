@@ -124,7 +124,7 @@ internal sealed class PlanningSession
         findings.AddRange(ProjectChecks.Run(sources, ctx.Config, [target], root, ctx.Lowering));
         var defineTargets = mine.Select(m => new DefineTarget(m.Source.Definition.Name, m.Source.DefinitionFile, m.Source.QueryFile, m.Sql,
             File.ReadAllText(Path.Combine(root, m.Source.DefinitionFile)), m.Source.Definition, [])).ToList();
-        var graph = new ModelGraph(ctx.Project.Models, ctx.Project.Descriptors);
+        var graph = new ModelGraph(ctx.Project.Models, ctx.Project.AllDescriptors);
         findings.AddRange(new DefineEngine(graph, ctx.Config, ctx.Linter).Check(defineTargets));
 
         var renderedOps = new List<RenderedOperation>();
@@ -153,10 +153,11 @@ internal sealed class PlanningSession
         var planned = mine.Select(m =>
         {
             var hash = AstHasher.Hash(m.Sql).Hash ?? "";
-            var bases = QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
+            // a copy reads its staging table, which the plan's own transfer step creates: it has no base table to wait for
+            var bases = m.Source.Definition.IsCopy ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
             var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql).Model is { } lowered ? lowered.Sql : m.Sql;
-            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()));
+            return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginOf(m.Source.Definition));
         }).ToList();
 
         TargetSnapshot snapshot;

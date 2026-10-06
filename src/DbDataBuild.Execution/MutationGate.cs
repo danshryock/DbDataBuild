@@ -15,6 +15,10 @@ internal interface IWriteExecutor : IAsyncDisposable
 {
     Task<long> ExecuteAsync(string text, IReadOnlyList<GateParameter> parameters, CancellationToken ct);
 
+    /// <summary>Writes the rows to a table with the engine's bulk route and returns how many were written. The default refuses: only the real executors know a bulk route.</summary>
+    Task<long> BulkCopyAsync(string schema, string table, IReadOnlyList<TransferColumn> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct) =>
+        throw new NotSupportedException("This executor has no bulk route.");
+
     /// <summary>Tries to take a session-level application lock without waiting. The lock lives as long as this connection (or until <see cref="UnlockAsync"/>).</summary>
     Task<bool> TryLockAsync(string resource, CancellationToken ct);
     Task UnlockAsync(string resource, CancellationToken ct);
@@ -57,6 +61,86 @@ internal sealed class AdoWriteExecutor(DbConnection connection, bool postgres) :
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = postgres ? "ROLLBACK;" : "IF @@TRANCOUNT > 0 ROLLBACK;";
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Rows per batch handed to SqlBulkCopy: the memory a copy holds at once, whatever the table's size.</summary>
+    private const int Batch = 20_000;
+
+    public async Task<long> BulkCopyAsync(string schema, string table, IReadOnlyList<TransferColumn> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct)
+    {
+        if (connection is Microsoft.Data.SqlClient.SqlConnection sql) return await BulkCopySqlServerAsync(sql, schema, table, columns, rows, ct);
+        if (connection is Npgsql.NpgsqlConnection pg) return await BulkCopyPostgresAsync(pg, schema, table, columns, rows, ct);
+        throw new NotSupportedException("No bulk route for this connection.");
+    }
+
+    private static Type ClrType(string logicalType)
+    {
+        var t = logicalType.Trim().ToUpperInvariant();
+        return t switch
+        {
+            "BIGINT" => typeof(long), "INTEGER" or "INT" => typeof(int), "SMALLINT" or "TINYINT" => typeof(short), "DOUBLE" => typeof(double), "FLOAT" or "REAL" => typeof(float),
+            "BOOLEAN" => typeof(bool), "DATE" or "TIMESTAMP" => typeof(DateTime), "TIME" => typeof(TimeSpan), "TIMESTAMP WITH TIME ZONE" => typeof(DateTimeOffset), "UUID" => typeof(Guid), "BLOB" => typeof(byte[]),
+            _ when t.StartsWith("DECIMAL", StringComparison.Ordinal) => typeof(decimal),
+            _ => typeof(string),
+        };
+    }
+
+    private static async Task<long> BulkCopySqlServerAsync(Microsoft.Data.SqlClient.SqlConnection connection, string schema, string table, IReadOnlyList<TransferColumn> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct)
+    {
+        using var bulk = new Microsoft.Data.SqlClient.SqlBulkCopy(connection) { DestinationTableName = $"[{schema.Replace("]", "]]")}].[{table.Replace("]", "]]")}]", BulkCopyTimeout = 0, BatchSize = Batch };
+        var buffer = new DataTable();
+        for (var i = 0; i < columns.Count; i++)
+        {
+            buffer.Columns.Add(columns[i].Name, ClrType(columns[i].LogicalType));
+            bulk.ColumnMappings.Add(i, columns[i].Name);                 // by name: the staging table was created from these columns, in this order
+        }
+        long total = 0;
+        await foreach (var row in rows.WithCancellation(ct))
+        {
+            buffer.Rows.Add(row.Select(v => v ?? DBNull.Value).ToArray());
+            if (buffer.Rows.Count < Batch) continue;
+            await bulk.WriteToServerAsync(buffer, ct);
+            total += buffer.Rows.Count;
+            buffer.Clear();
+        }
+        if (buffer.Rows.Count > 0) { await bulk.WriteToServerAsync(buffer, ct); total += buffer.Rows.Count; }
+        return total;
+    }
+
+    private static NpgsqlTypes.NpgsqlDbType PgType(string logicalType)
+    {
+        var t = logicalType.Trim().ToUpperInvariant();
+        return t switch
+        {
+            "BIGINT" => NpgsqlTypes.NpgsqlDbType.Bigint, "INTEGER" or "INT" => NpgsqlTypes.NpgsqlDbType.Integer, "SMALLINT" or "TINYINT" => NpgsqlTypes.NpgsqlDbType.Smallint,
+            "DOUBLE" => NpgsqlTypes.NpgsqlDbType.Double, "FLOAT" or "REAL" => NpgsqlTypes.NpgsqlDbType.Real, "BOOLEAN" => NpgsqlTypes.NpgsqlDbType.Boolean,
+            "DATE" => NpgsqlTypes.NpgsqlDbType.Date, "TIMESTAMP" => NpgsqlTypes.NpgsqlDbType.Timestamp, "TIME" => NpgsqlTypes.NpgsqlDbType.Time,
+            "TIMESTAMP WITH TIME ZONE" => NpgsqlTypes.NpgsqlDbType.TimestampTz, "UUID" => NpgsqlTypes.NpgsqlDbType.Uuid, "BLOB" => NpgsqlTypes.NpgsqlDbType.Bytea,
+            _ when t.StartsWith("DECIMAL", StringComparison.Ordinal) => NpgsqlTypes.NpgsqlDbType.Numeric,
+            _ => NpgsqlTypes.NpgsqlDbType.Text,
+        };
+    }
+
+    private static async Task<long> BulkCopyPostgresAsync(Npgsql.NpgsqlConnection connection, string schema, string table, IReadOnlyList<TransferColumn> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct)
+    {
+        static string Q(string id) => "\"" + id.Replace("\"", "\"\"") + "\"";
+        var types = columns.Select(c => PgType(c.LogicalType)).ToArray();
+        await using var importer = await connection.BeginBinaryImportAsync($"COPY {Q(schema)}.{Q(table)} ({string.Join(", ", columns.Select(c => Q(c.Name)))}) FROM STDIN (FORMAT BINARY)", ct);
+        long total = 0;
+        await foreach (var row in rows.WithCancellation(ct))
+        {
+            await importer.StartRowAsync(ct);
+            for (var i = 0; i < types.Length; i++)
+            {
+                if (row[i] == null) { await importer.WriteNullAsync(ct); continue; }
+                // Npgsql writes a date from DateOnly, and a time of day from TimeSpan
+                var value = types[i] == NpgsqlTypes.NpgsqlDbType.Date && row[i] is DateTime d ? DateOnly.FromDateTime(d) : row[i];
+                await importer.WriteAsync(value, types[i], ct);
+            }
+            total++;
+        }
+        await importer.CompleteAsync(ct);
+        return total;
     }
 
     public async Task<long> ExecuteAsync(string text, IReadOnlyList<GateParameter> parameters, CancellationToken ct)
@@ -131,6 +215,33 @@ public sealed class MutationGate : IAsyncDisposable
         catch (Exception ex) when (ex is not GateRefusedException)
         {
             // type and driver error number only: driver messages can quote data (DESIGN.md 14.2)
+            var number = ex is DbException { ErrorCode: var code } && code != 0 ? $" code={code}" : "";
+            TryRecord(n, "end", statement, $"failed {ex.GetType().Name}{number}");
+            await RecoverAsync(statement.StepId, ct);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes the rows of a copy to the table the statement names, through the engine's bulk route, and returns the row count. The same checks, the same log entries (before and after) and the same
+    /// dry-run behaviour as <see cref="ExecuteAsync"/>; in a dry run the rows are not read.
+    /// </summary>
+    public async Task<long> BulkCopyAsync(GateStatement statement, string schema, string table, IReadOnlyList<TransferColumn> columns, IAsyncEnumerable<object?[]> rows, CancellationToken ct = default)
+    {
+        if ((permitted & statement.Kind) == 0)
+            throw new GateRefusedException(new Diagnostic(DiagnosticCatalog.GateRefused, new($"step:{statement.StepId}", 0, 0),
+                $"`{command}` permits {Describe(permitted)} statements; step `{statement.StepId}` is a {statement.Kind.ToString().ToLowerInvariant()} statement. Nothing was executed."));
+        var n = Interlocked.Increment(ref ordinal);
+        Record(n, DryRun ? "dry-run" : "begin", statement, includeText: true, outcome: null);
+        if (DryRun) return 0;
+        try
+        {
+            var written = await executor!.BulkCopyAsync(schema, table, columns, rows, ct);
+            Record(n, "end", statement, includeText: false, outcome: $"ok rows={written.ToString(CultureInfo.InvariantCulture)}");
+            return written;
+        }
+        catch (Exception ex) when (ex is not GateRefusedException)
+        {
             var number = ex is DbException { ErrorCode: var code } && code != 0 ? $" code={code}" : "";
             TryRecord(n, "end", statement, $"failed {ex.GetType().Name}{number}");
             await RecoverAsync(statement.StepId, ct);

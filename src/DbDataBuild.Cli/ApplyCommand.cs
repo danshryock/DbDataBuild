@@ -60,6 +60,15 @@ internal static class ApplyCommand
         }
         var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var (write, writeMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, env);
+        // a plan with a copy reads rows from other connections: each needs its read login, and is opened by name when the transfer runs
+        var originLogins = new Dictionary<string, LoginSettings>(StringComparer.Ordinal);
+        var originMissing = new List<Diagnostic>();
+        foreach (var origin in plan.Steps.Where(s => s.Transfer != null).Select(s => s.Transfer!.Origin).Distinct(StringComparer.Ordinal))
+        {
+            if (!config.Connections.TryGetValue(origin, out var originConnection)) { originMissing.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new($"connection:{origin}", 0, 0), $"The plan reads rows from the connection `{origin}`, which this project does not have.")); continue; }
+            var (originLogin, missingLogin) = LoginSettings.FromEnvironment(originConnection.Name, originConnection.Engine, Login.Read, env);
+            if (originLogin != null) originLogins[origin] = originLogin; else if (missingLogin != null) originMissing.Add(missingLogin);
+        }
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());
@@ -69,7 +78,8 @@ internal static class ApplyCommand
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested);
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, config.TrackingSchema, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested,
+            (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"));
 
         // refusals that need no connection come first
         var offline = new List<Diagnostic>(ApplyEngine.CheckAllowances(plan, options));
@@ -79,6 +89,7 @@ internal static class ApplyCommand
             if (dryRun) error.Diag(dirtyDiag with { SeverityOverride = Severity.Warning }); else offline.Add(dirtyDiag);
         }
         if (readMissing != null) offline.Add(readMissing);
+        if (!dryRun) offline.AddRange(originMissing);
         if (!dryRun && writeMissing != null) offline.Add(writeMissing);
         if (offline.Count > 0)
         {

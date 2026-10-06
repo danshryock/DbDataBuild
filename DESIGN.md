@@ -267,6 +267,25 @@ foreign_keys:
 
 **Modes.** `--check` asks nothing and writes nothing, and fails (DDB-420 per difference, with the definition line) if a definition is missing or out of sync; it cannot be combined with `--write`, `--answers` or `--accept-inferred`. `--write` is non-interactive and needs `--answers` for any open question. Without either, `define` is interactive and refuses to run without a terminal. `--accept-inferred` accepts only high-certainty proposals and each acceptance is printed with the diff. Models are processed in dependency order, so a model sees the columns an upstream model has just been given; a model whose upstream is not defined is skipped with a note, and a dependency cycle is DDB-221.
 
+### 6.5.2 Copies: rows from one connection to another (as built)
+
+`kind: {type: copy, from: schema.table}` is a table filled with the rows of another model that lives on **another connection**, which is how data moves between connections (a query always runs on one connection; the tool
+never joins across two, and uses no linked server and no DuckDB in the middle). It has no `.sql` and no `columns`: the columns (and the grain, unless it names its own) are the origin's. `from` is a model, a mapped model or
+another copy of the project; it must be on exactly one connection (fan-in from several is not built), and the copy must be on others. It is always persisted, with the `full_replace` strategy, `indexes`, `hooks` and drift as
+for any table. `connections` places it like any model; `validate` and `render` need no database.
+
+How it runs. The copy is an ordinary load over a **staging table** on its own connection (`<tracking schema>.stg_<schema>__<table>`, shortened with a hash past 60 bytes, so deterministic): its generated query is
+`SELECT <the columns> FROM <staging table>`, and the staging table is declared to the project as a generated mapped table, so lowering, linting, rendering and the matrix treat it like any model. `plan` adds, after the table's own
+steps, a **transfer** step (its text drops and creates the staging table from the declared columns; its `transfer:` block names the origin connection, the exact read in the origin's dialect with every column quoted, and the
+columns with their declared types), then the load step from the render, then a drop of the staging table. `apply` runs the transfer with the origin's read login (`DBDATABUILD_<ORIGIN>_READ`, checked, and the connection opened,
+before the first statement of the plan): a streaming read of the one SELECT, each value converted **by the declared logical type** (a value that does not fit is an error naming the column, never printing the value), written
+to the staging table by the engine's bulk route through the gate (`GateStatement.BulkCopy`: SQL Server's bulk copy in batches, PostgreSQL's binary `COPY`), and logged in `run_log` as operation `transfer` with a row count and no
+values. The load then replaces the table in one destination transaction. A transfer that failed is run again from the start (the staging table is recreated); the load step never ran, so the table is untouched.
+Dates at the engines' limits (0001-01-01, 9999-12-31) are copied as dates, not as infinity (the driver setting is `DriverSettings`).
+
+Not built: several origins (fan-in), incremental copies (a watermark on the origin), `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover,
+a check at `plan` time that the origin still has the declared shape (apply compares the names the read returns with the plan's).
+
 ### 6.6 Load operations: paired with targets, committed, parameterized
 
 A **load operation** is a named way to load one model on one target. A model can have several operations per target (for example a routine watermark load, a period reload, and a keyed merge). The SQL for every operation is **rendered to disk and committed**. At execution time the only unresolved things are the operation's declared runtime parameters.

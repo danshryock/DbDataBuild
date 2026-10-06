@@ -10,6 +10,8 @@ public enum Login { Read, Write }
 /// <summary>A connection string found in the environment. Never printed whole: <see cref="Describe"/> shows the variable and the user only.</summary>
 public sealed class LoginSettings
 {
+    static LoginSettings() => DriverSettings.Apply();
+
     /// <summary>The connection this login is for (its name: `warehouse`, or `sqlserver` for a connection named after its engine).</summary>
     public string Connection { get; }
 

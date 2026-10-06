@@ -33,6 +33,13 @@ public sealed class GateStatement
     /// <summary>A batch of rows of a bulk load: an INSERT with a parameter per value. A data statement; its values are not written to the statement log.</summary>
     public static GateStatement BulkInsert(string stepId, string text, IReadOnlyList<GateParameter> parameters) => new(stepId, StatementKind.Data, text, parameters, bulkValues: true);
 
+    /// <summary>
+    /// The rows of a copy, written to a staging table with the engine's bulk route (SQL Server's bulk copy, PostgreSQL's binary `COPY`). A data statement; the log records the table, the columns and the row count, never a value.
+    /// <paramref name="table"/> is the already-quoted qualified name the plan carries, so the text in the log says what the plan says.
+    /// </summary>
+    public static GateStatement BulkCopy(string stepId, string table, IReadOnlyList<TransferColumn> columns) =>
+        new(stepId, StatementKind.Data, $"BULK COPY INTO {table} ({string.Join(", ", columns.Select(c => c.Name))})", [], bulkValues: true);
+
     /// <summary>A step of a plan. Plan steps are data loads or DDL; tracking writes never come from a plan.</summary>
     public static GateStatement FromPlanStep(string stepId, StatementKind kind, string text, IReadOnlyList<GateParameter>? parameters = null)
     {

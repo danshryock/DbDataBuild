@@ -82,7 +82,7 @@ public static class LoadPlan
 
     private static LoadOperation Implicit(ModelDefinition m) => m.KindType switch
     {
-        ModelKinds.Full => new(ImplicitName, true, LoadStrategies.FullReplace, [], null, null, [], null, null, Declared: false),
+        ModelKinds.Full or ModelKinds.Copy => new(ImplicitName, true, LoadStrategies.FullReplace, [], null, null, [], null, null, Declared: false),
         ModelKinds.IncrementalByUniqueKey => new(ImplicitName, true, LoadStrategies.DeleteInsertByKey, m.UniqueKey, null, null, [], null, null, Declared: false),
         // the range comes from MAX(time_column) in the target minus the lookback, never from a state table; an empty target needs a value
         ModelKinds.IncrementalByTimeRange => new(ImplicitName, true, LoadStrategies.WatermarkAppend, [], null,

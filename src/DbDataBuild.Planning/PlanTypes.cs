@@ -4,13 +4,20 @@ using DbDataBuild.State;
 namespace DbDataBuild.Planning;
 
 /// <summary>`track` is a tracking-table write (recording an adopted or acknowledged shape); the other types are those of DESIGN.md 10.2.</summary>
-public enum StepType { Ddl, Load, Backfill, Hook, Track }
+public enum StepType { Ddl, Load, Backfill, Hook, Track, Transfer }
 
 public enum RiskClass { Safe, Risky, Destructive }
 
 /// <param name="Source">runtime (a person supplied it) or resolver (read from the target).</param>
 /// <param name="Value">Invariant-culture text of the value in the parameter's logical type, or null for SQL NULL.</param>
 public sealed record PlanParameter(string Name, string Type, string Source, string? Value);
+
+/// <summary>The rows a `transfer` step moves: read on <see cref="Origin"/> with <see cref="ReadText"/> (a single SELECT, hashed like any statement), converted by the declared types of <see cref="Columns"/>, and written to <see cref="Staging"/> on the plan's connection.</summary>
+/// <param name="Staging">`schema.table` of the staging table; the step's text creates it.</param>
+public sealed record TransferSpec(string Origin, string ReadText, string Staging, IReadOnlyList<PlanColumn> Columns);
+
+/// <summary>A column of a transfer: its name and declared logical type.</summary>
+public sealed record PlanColumn(string Name, string Type);
 
 /// <summary>One thing apply will do. <see cref="Text"/> is the full statement or script, executed exactly as written.</summary>
 /// <param name="Reasons">The reason chain: a decision-table row, a model change, an answer.</param>
@@ -21,11 +28,12 @@ public sealed record PlanParameter(string Name, string Type, string Source, stri
 /// <param name="Expect">For an index step: what the catalog must report afterwards, `index:&lt;name&gt;=&lt;canonical definition&gt;` (index steps leave the shape hash alone, so this is their post-check).</param>
 /// <param name="Hook">For a hook step: the hook's name (`group.name` for a group member). The event is in <see cref="Operation"/>.</param>
 /// <param name="Effect">For a hook step: `ddl` or `data`, which decides which command may run it.</param>
+/// <param name="Transfer">For a transfer step: where the rows come from and which columns they are. <see cref="Text"/> is the DDL that (re)creates the staging table they are written to.</param>
 /// <param name="DefinitionHash">For a load: the hash of the model query it was planned from, recorded in `run_log` so a later plan can see the query changed.</param>
 public sealed record PlanStep(
     string Id, StepType Type, string Object, string Description, string Text, RiskClass Risk, IReadOnlyList<string> Reasons,
     string? HashAfter, IReadOnlyList<PlanParameter> Parameters, string? ResolverText = null, string? ResolverResult = null, bool HasResolver = false,
-    string? FileHash = null, string? Operation = null, string? ShapeSource = null, string? DefinitionHash = null, string? Expect = null, string? Hook = null, string? Effect = null);
+    string? FileHash = null, string? Operation = null, string? ShapeSource = null, string? DefinitionHash = null, string? Expect = null, string? Hook = null, string? Effect = null, TransferSpec? Transfer = null);
 
 /// <summary>What the plan assumed about an object, verified against the live target at apply (a mismatch is a stale plan).</summary>
 public sealed record ObjectBase(string Object, ObjectState State, string? LiveShapeHash, string? RecordedShapeHash);

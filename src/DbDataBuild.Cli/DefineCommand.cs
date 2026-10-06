@@ -81,7 +81,7 @@ internal static class DefineCommand
         }
 
         // The graph holds every valid model (their declared columns) and the sources. Selected models with a valid definition are among them.
-        var graph = new ModelGraph(project.Models, project.Descriptors);
+        var graph = new ModelGraph(project.Models, project.AllDescriptors);
         var engine = new DefineEngine(graph, config, linter);
 
         // project-level findings worth showing: config problems and source descriptor problems

@@ -104,3 +104,5 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **`agent-kit --mcp`** (entry 60): written from Claude Code's documentation, not run in it; check `${VAR:-}` with an empty default for an unset login, and the approval prompt.
 - **Cross-server and domains** (entries 62, 63): investigated and drafted (`docs/research/cross-server.md`), nothing built; direction chosen by the owner (connections, tool-moved data, domains); next: connections and `transfer`.
 
+
+- Copies (progress 71): fan-in from several origin connections, incremental copies with a watermark on the origin, a plan-time check that the origin still has the declared shape, a throughput test (the bulk route measured 190k rows/s), types the logical types do not cover.

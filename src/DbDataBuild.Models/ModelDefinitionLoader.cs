@@ -67,13 +67,22 @@ public static class ModelDefinitionLoader
                     fix: $"Change `name:` to `{expectedName}`, or move the file.");
 
             var (kindType, uniqueKey, timeColumn, lookback, kindNode) = ReadKind(top);
+            var isCopy = kindType?.Value == ModelKinds.Copy;
+            YamlScalar? from = null;
+            if (isCopy)
+            {
+                from = (kindNode as YamlMapping)?.Get("from") as YamlScalar;
+                if (from == null || !System.Text.RegularExpressions.Regex.IsMatch(from.Value, @"^[^.\s/\\]+\.[^.\s/\\]+$"))
+                    Add(DiagnosticCatalog.InvalidValue, (YamlNode?)from ?? kindNode ?? top, "A copy names the model it copies, `kind: {type: copy, from: schema.table}`.");
+                if (top.Get("columns") is { } own) Add(DiagnosticCatalog.InvalidValue, own, "A copy has no `columns`: it has the columns of the model it copies.", "Remove `columns:`.");
+            }
             var grain = StringList(top, "grain", required: false);
             var targets = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
             if (targets != null)
                 foreach (var t in targets.Where(t => !connections.Contains(t.Value)))
                     Add(DiagnosticCatalog.InvalidValue, t, $"Unknown connection `{t.Value}`.", $"One of: {string.Join(", ", connections.Order(StringComparer.Ordinal))}.");
 
-            var columns = ReadColumns(top);
+            var columns = isCopy ? [] : ReadColumns(top);
             var loads = ReadLoads(top, kindType?.Value, uniqueKey, timeColumn, columns);
             var renames = ReadRenames(top);
             var indexes = ReadIndexes(top, columns, targets?.Select(t => t.Value).ToList());
@@ -115,7 +124,7 @@ public static class ModelDefinitionLoader
             return new ModelDefinition(name.Value, kindType.Value,
                 uniqueKey?.Select(k => k.Value).ToList() ?? [], timeColumn?.Value, lookback?.Value,
                 grain?.Select(g => g.Value).ToList() ?? [], targets?.Select(t => t.Value).ToList(),
-                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites);
+                columns, renames, loads, indexes, hooks, lintIgnore?.Select(c => c.Value).ToList(), rewrites, from?.Value, from?.Line ?? 0);
         }
 
         private static readonly string[] IndexAdvisorCodes = [DiagnosticCatalog.MergeKeyNotIndexed.Code, DiagnosticCatalog.LoadColumnNotIndexed.Code, DiagnosticCatalog.LoadSliceNotPushable.Code];
@@ -134,6 +143,7 @@ public static class ModelDefinitionLoader
             var allowed = new List<string> { "type" };
             if (type?.Value == ModelKinds.IncrementalByUniqueKey) allowed.Add("unique_key");
             if (type?.Value == ModelKinds.IncrementalByTimeRange) { allowed.Add("time_column"); allowed.Add("lookback"); }
+            if (type?.Value == ModelKinds.Copy) allowed.Add("from");
             if (valid) CheckKeys(kind, allowed, $"kind `{type!.Value}`");
 
             var uniqueKey = StringList(kind, "unique_key", required: false);

@@ -144,8 +144,8 @@ internal static class TestCommand
             return;
         }
 
-        var sql = File.ReadAllText(Path.Combine(ctx.Root, source.QueryFile));
-        var declared = ctx.Project.Models.Select(m => (m.Name, m.Columns)).Concat(ctx.Project.Descriptors.Select(s => (s.Name, s.Columns))).ToDictionary(t => t.Name, t => t.Columns, StringComparer.OrdinalIgnoreCase);
+        var sql = source.ReadQuery(ctx.Root);
+        var declared = ctx.Project.Models.Select(m => (m.Name, m.Columns)).Concat(ctx.Project.AllDescriptors.Select(s => (s.Name, s.Columns))).ToDictionary(t => t.Name, t => t.Columns, StringComparer.OrdinalIgnoreCase);
         var upstream = (QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(b => b.QualifiedName) ?? [])
             .Distinct(StringComparer.OrdinalIgnoreCase).Where(declared.ContainsKey).Select(n => new UpstreamTable(n, declared[n])).ToList();
 

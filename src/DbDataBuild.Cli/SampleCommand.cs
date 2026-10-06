@@ -25,13 +25,13 @@ internal static class SampleCommand
 
         var all = ctx.Project.Sources.Select(s =>
         {
-            var sql = File.ReadAllText(Path.Combine(projectRoot, s.QueryFile));
+            var sql = s.ReadQuery(projectRoot);
             var upstream = QueryAnalyzer.Analyze(sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
             return new SampleModel(s.Definition.Name, s.Definition.Columns, sql, upstream);
         }).ToList();
 
         SampleResult result;
-        try { result = SampleRun.Run(ctx.Project.Descriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir, SeedLoader.Load(projectRoot), scale)); }
+        try { result = SampleRun.Run(ctx.Project.AllDescriptors, all, selected.Select(m => m.Source.Definition.Name).ToList(), new SampleOptions(rows, seed, limit, dataDir, SeedLoader.Load(projectRoot), scale)); }
         catch (SampleException ex) { error.WriteLine(ex.Message); return CliApp.ExitFindings; }
 
         var tables = result.Tables.Where(t => t.Kind == "model" || showSources || t.Error != null).ToList();

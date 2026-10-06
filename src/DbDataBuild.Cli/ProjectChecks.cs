@@ -22,7 +22,7 @@ internal static class ProjectChecks
         var diagnostics = new List<Diagnostic>();
         foreach (var source in sources)
         {
-            var sql = File.ReadAllText(Path.Combine(projectRoot ?? Directory.GetCurrentDirectory(), source.QueryFile));
+            var sql = source.ReadQuery(projectRoot ?? Directory.GetCurrentDirectory());
             var targets = (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
             // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
             var body = sql;

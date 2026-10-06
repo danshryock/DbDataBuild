@@ -6,6 +6,12 @@ namespace DbDataBuild.Models;
 /// <summary>A valid model definition with the project-relative paths of its two files.</summary>
 public sealed record ModelSource(ModelDefinition Definition, string DefinitionFile, string QueryFile)
 {
+    /// <summary>The query of a model that has none on disk: a copy reads its generated staging table (DuckDB dialect). Null for a model with a `.sql` file.</summary>
+    public string? GeneratedQuery { get; init; }
+
+    /// <summary>The model's query in DuckDB dialect: its `.sql` file, or the generated one of a copy.</summary>
+    public string ReadQuery(string projectRoot) => GeneratedQuery ?? File.ReadAllText(Path.Combine(projectRoot, QueryFile));
+
     /// <summary>The settings this model took from a project file above it (`defaults:` of the root file or of a folder's `_dbdatabuild.yml`), with the file and line each was written on. Empty when the model's own file says everything.</summary>
     public IReadOnlyList<SettingOrigin> Inherited { get; init; } = [];
 }
@@ -16,7 +22,11 @@ public sealed record SettingOrigin(string Path, string File, int Line, string Va
 public sealed record ProjectValidationResult(
     IReadOnlyList<ModelSource> Sources, IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<SourceDescriptor>? SourceDescriptors = null)
 {
-    public IReadOnlyList<SourceDescriptor> Descriptors => SourceDescriptors ?? [];
+    /// <summary>The mapped models of the project, as files.</summary>
+    public IReadOnlyList<SourceDescriptor> Descriptors => (SourceDescriptors ?? []).Where(d => !d.IsGenerated).ToList();
+
+    /// <summary>Everything a query binds against: the mapped models and the staging tables that copies read from.</summary>
+    public IReadOnlyList<SourceDescriptor> AllDescriptors => SourceDescriptors ?? [];
     public IReadOnlyList<ModelDefinition> Models => Sources.Select(s => s.Definition).ToList();
     public bool HasErrors => Diagnostics.Any(d => d.Severity == Severity.Error);
 }
@@ -57,7 +67,8 @@ public static class ProjectValidator
             .ToList();
         var set = files.ToHashSet(StringComparer.Ordinal);
         var folders = new FolderLayers(projectRoot, diags);
-        var mappedStems = new HashSet<string>(StringComparer.Ordinal);
+        var mappedStems = new HashSet<string>(StringComparer.Ordinal);      // files with no query: mapped models and copies
+        var copies = new List<(ModelDefinition Definition, string File)>();
 
         foreach (var file in files.Where(f => f.EndsWith(".yml", StringComparison.Ordinal)))
         {
@@ -82,10 +93,15 @@ public static class ProjectValidator
                     if (SourceDescriptorLoader.LoadMerged(merged, file, expected, diags, connections) is { } mapped) descriptors.Add(mapped);
                     continue;
                 }
-                if (!set.Contains(stem + ".sql"))
+                var isCopy = ((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == ModelKinds.Copy;
+                if (isCopy) mappedStems.Add(stem);
+                else if (!set.Contains(stem + ".sql"))
                     diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
                 if (ModelDefinitionLoader.LoadMerged(merged, file, expected, diags, connections) is { } def)
-                    models.Add(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file) });
+                {
+                    if (isCopy) copies.Add((def, file));
+                    else models.Add(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file) });
+                }
                 continue;
             }
             // empty, damaged or not a mapping: the loader says what is wrong with it, once
@@ -99,12 +115,83 @@ public static class ProjectValidator
         {
             var stem = file[..^".sql".Length];
             if (mappedStems.Contains(stem))
-                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{stem}.yml` is a mapped model, which is not built, so `{file}` has no use.", Fix: $"Remove `{file}`, or give `{stem}.yml` a kind that builds."));
+                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{stem}.yml` has no query of its own (a mapped model is not built, a copy reads its origin), so `{file}` has no use.", Fix: $"Remove `{file}`, or give `{stem}.yml` a kind that has a query."));
             else if (!set.Contains(stem + ".yml"))
                 diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no definition file `{stem}.yml`.", Fix: $"Run `{ProductInfo.Cli} define {file}`."));
         }
 
+        ResolveCopies(copies, models, descriptors, effectiveConfig, diags);
         return new(models, diags, descriptors);
+    }
+
+    /// <summary>
+    /// A copy has the columns (and the grain, unless it names its own) of the model it copies, found among the project's models, mapped models and other copies. The origin must be on one connection and
+    /// the copy on others: a copy moves rows between connections. Each resolved copy gets its generated query and the staging table it reads declared as a generated mapped table.
+    /// </summary>
+    private static void ResolveCopies(List<(ModelDefinition Definition, string File)> copies, List<ModelSource> models, List<SourceDescriptor> descriptors, ProjectConfig config, List<Diagnostic> diags)
+    {
+        var pending = copies.ToDictionary(c => c.Definition.Name, c => c, StringComparer.OrdinalIgnoreCase);
+        var done = new Dictionary<string, ModelDefinition>(StringComparer.OrdinalIgnoreCase);
+        var failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // the columns, grain and connections of what a copy copies; null when it cannot be found (reported by the caller)
+        (IReadOnlyList<ColumnDefinition> Columns, IReadOnlyList<string> Grain, IReadOnlyList<string> Connections)? Origin(string name, List<string> stack)
+        {
+            if (models.FirstOrDefault(m => string.Equals(m.Definition.Name, name, StringComparison.OrdinalIgnoreCase)) is { } m)
+                return (m.Definition.Columns, m.Definition.Grain, m.Definition.Targets ?? config.DefaultConnections);
+            if (descriptors.FirstOrDefault(d => !d.IsGenerated && string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)) is { } d)
+                return (d.Columns, d.Grain, d.Connections ?? config.DefaultConnections);
+            if (pending.TryGetValue(name, out var c))
+            {
+                if (done.TryGetValue(name, out var resolved)) return (resolved.Columns, resolved.Grain, resolved.Targets ?? config.DefaultConnections);
+                if (stack.Contains(name, StringComparer.OrdinalIgnoreCase) || failed.Contains(name)) return null;
+                stack.Add(name);
+                return Resolve(c, stack) is { } r ? (r.Columns, r.Grain, r.Targets ?? config.DefaultConnections) : null;
+            }
+            return null;
+        }
+
+        ModelDefinition? Resolve((ModelDefinition Definition, string File) c, List<string> stack)
+        {
+            var def = c.Definition;
+            if (done.TryGetValue(def.Name, out var already)) return already;
+            SourceLocation At() => new(c.File, def.FromLine, 1);
+            var origin = Origin(def.From!, stack);
+            if (origin == null)
+            {
+                diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.Name}` copies `{def.From}`, which is not a model, a mapped model or a copy of this project{(stack.Contains(def.From!, StringComparer.OrdinalIgnoreCase) ? " (it copies itself, through the others)" : "")}.",
+                    Fix: "Name the model to copy as `kind: {type: copy, from: schema.table}`."));
+                failed.Add(def.Name);
+                return null;
+            }
+            if (origin.Value.Connections.Count != 1)
+            {
+                diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.From}` is on {string.Join(", ", origin.Value.Connections)}; a copy reads from exactly one connection (copying from several is not built yet).",
+                    Fix: $"Give `{def.From}` a single connection."));
+                failed.Add(def.Name);
+                return null;
+            }
+            var originConnection = origin.Value.Connections[0];
+            foreach (var destination in def.Targets ?? config.DefaultConnections)
+                if (string.Equals(destination, originConnection, StringComparison.Ordinal))
+                {
+                    diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.Name}` is on `{destination}`, the connection of `{def.From}`, which it copies: a copy moves rows between connections.",
+                        Fix: "Build a model for a table on the same connection, or give the copy another connection."));
+                    failed.Add(def.Name);
+                    return null;
+                }
+            var resolved = def with { Columns = origin.Value.Columns.Select(x => x with { Line = 0, CollationLine = 0 }).ToList(), Grain = def.Grain.Count > 0 ? def.Grain : origin.Value.Grain };
+            done[def.Name] = resolved;
+            return resolved;
+        }
+
+        foreach (var c in copies)
+        {
+            var resolved = Resolve(c, [c.Definition.Name]);
+            if (resolved == null) continue;
+            models.Add(new ModelSource(resolved, c.File, c.File) { GeneratedQuery = CopyModels.Query(config, resolved) });
+            descriptors.Add(CopyModels.StagingDescriptor(config, resolved, resolved.Columns));
+        }
     }
 
     /// <summary>What a model's effective settings took from other files: the scalars under a layered key written in a file other than the model's own.</summary>

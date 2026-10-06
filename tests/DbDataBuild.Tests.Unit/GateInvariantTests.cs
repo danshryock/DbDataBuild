@@ -27,7 +27,7 @@ public class GateInvariantTests
     [Fact]
     public void Commands_are_created_and_executed_only_in_the_gate_and_the_read_session()
     {
-        var pattern = new Regex(@"\b(ExecuteNonQuery(Async)?|ExecuteScalar(Async)?|ExecuteReader(Async)?|CreateCommand|SqlCommand|NpgsqlCommand|DbCommand|NpgsqlBatch|SqlBatch|DbBatch)\b");
+        var pattern = new Regex(@"\b(ExecuteNonQuery(Async)?|ExecuteScalar(Async)?|ExecuteReader(Async)?|CreateCommand|SqlCommand|NpgsqlCommand|DbCommand|NpgsqlBatch|SqlBatch|DbBatch|SqlBulkCopy|BeginBinaryImport(Async)?|BeginBinaryExport(Async)?|BeginTextImport(Async)?|BeginTextExport(Async)?|BeginRawBinaryCopy(Async)?)\b");
         var offenders = SourceFiles()
             .Where(f => !Rel(f).StartsWith("DbDataBuild.Targets.DuckDb/") && !Rel(f).StartsWith("DbDataBuild.Sample/")) // the in-memory DuckDB describer and sample runner have no target connection
             .Where(f => !DriverFiles.Contains(Rel(f)) && pattern.IsMatch(File.ReadAllText(f)))

@@ -62,7 +62,7 @@ internal static class MetadataBuilder
                 name = s.Definition.Name,
                 kind = s.Definition.KindType,
                 connections = ctx.TargetsOf(s.Definition),
-                definition_hash = AstHasher.Hash(File.ReadAllText(Path.Combine(ctx.Root, s.QueryFile))).Hash,
+                definition_hash = AstHasher.Hash(s.ReadQuery(ctx.Root)).Hash,
             }).ToList(),
         };
     }
@@ -77,7 +77,7 @@ internal static class MetadataBuilder
     private static List<SchemaTableSpec> UpstreamSpecs(ProjectContext ctx, string modelName)
     {
         var upstream = ctx.Project.Models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns))
-            .Concat(ctx.Project.Descriptors.Select(d => (d.Name, d.Columns))).ToList();
+            .Concat(ctx.Project.AllDescriptors.Select(d => (d.Name, d.Columns))).ToList();
         return upstream.Select(u =>
         {
             var i = u.Name.LastIndexOf('.');
@@ -89,16 +89,16 @@ internal static class MetadataBuilder
     public static IReadOnlyList<string> SourcesRead(ProjectContext ctx, string modelName, string sql)
     {
         var (facts, _) = QueryAnalyzer.Analyze(sql, UpstreamSpecs(ctx, modelName));
-        var names = ctx.Project.Descriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return facts?.BaseTables.Select(b => b.QualifiedName).Where(names.Contains).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).ToList() ?? [];
     }
 
     /// <summary>Which models read each source, across the whole project (so a source's document does not change with the models selected for a run).</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> Consumers(ProjectContext ctx)
     {
-        var result = ctx.Project.Descriptors.ToDictionary(d => d.Name, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+        var result = ctx.Project.AllDescriptors.ToDictionary(d => d.Name, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
         foreach (var m in ctx.Project.Sources.OrderBy(m => m.Definition.Name, StringComparer.Ordinal))
-            foreach (var n in SourcesRead(ctx, m.Definition.Name, File.ReadAllText(Path.Combine(ctx.Root, m.QueryFile)))) result[n].Add(m.Definition.Name);
+            foreach (var n in SourcesRead(ctx, m.Definition.Name, m.ReadQuery(ctx.Root))) result[n].Add(m.Definition.Name);
         return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
     /// <summary>The path of a mapped model: `staging.orders` is `models/staging/orders.yml`.</summary>
@@ -138,7 +138,7 @@ internal static class MetadataBuilder
         var specs = UpstreamSpecs(ctx, def.Name);
         var (facts, _) = QueryAnalyzer.Analyze(sql, specs);
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var sources = ctx.Project.Descriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sources = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var ddls = targets.ToDictionary(t => t, t => TargetRegistry.Get(ctx.Config.EngineOf(t) ?? t).CreateDdl(ctx.Config));      // the DDL is the engine's; the keys are the model's connections
         object Native(ColumnDefinition c) => targets.ToDictionary(t => t, t =>

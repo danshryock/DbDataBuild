@@ -87,6 +87,19 @@ public static class PlanDocument
                 sb.Append("      text: ").AppendLineLf(Q(s.ResolverText!));
                 if (s.ResolverResult != null) sb.Append("      result: ").AppendLineLf(Q(s.ResolverResult));
             }
+            if (s.Transfer is { } t)
+            {
+                sb.AppendLineLf("    transfer:");
+                sb.Append("      origin: ").AppendLineLf(Q(t.Origin));
+                sb.Append("      staging: ").AppendLineLf(Q(t.Staging));
+                sb.Append("      read: ").AppendLineLf(Q(t.ReadText));
+                sb.AppendLineLf("      columns:");
+                foreach (var c in t.Columns)
+                {
+                    sb.Append("        - name: ").AppendLineLf(Q(c.Name));
+                    sb.Append("          type: ").AppendLineLf(Q(c.Type));
+                }
+            }
             if (s.Parameters.Count > 0)
             {
                 sb.AppendLineLf("    parameters:");
@@ -114,7 +127,7 @@ public static class PlanDocument
     private static readonly string[] PlanKeys = ["id", "hash", "connection", "tool_version", "git_commit", "git_dirty"];
     private static readonly string[] BaseKeys = ["object", "state", "live_shape_hash", "recorded_shape_hash"];
     private static readonly string[] AnswerKeys = ["id", "choice", "value", "note", "source"];
-    private static readonly string[] StepKeys = ["id", "type", "object", "description", "risk", "reasons", "hash_after", "operation", "file_hash", "shape_source", "definition_hash", "expect", "hook", "effect", "resolver", "parameters", "text"];
+    private static readonly string[] StepKeys = ["id", "type", "object", "description", "risk", "reasons", "hash_after", "operation", "file_hash", "shape_source", "definition_hash", "expect", "hook", "effect", "resolver", "transfer", "parameters", "text"];
     private static readonly string[] ParamKeys = ["name", "type", "source", "value"];
 
     /// <summary>Reads a plan file. Returns null with diagnostics when it is malformed, has unknown keys, or its content hash does not match.</summary>
@@ -179,8 +192,18 @@ public static class PlanDocument
                     Keys(rm, ["text", "result"], "a resolver");
                     hasResolver = true; resolverText = Req(rm, "text"); resolverResult = S(rm, "result");
                 }
+                TransferSpec? transfer = null;
+                if (m.Get("transfer") is YamlMapping tm)
+                {
+                    Keys(tm, ["origin", "staging", "read", "columns"], "a transfer");
+                    var columns = new List<PlanColumn>();
+                    foreach (var cn in (tm.Get("columns") as YamlSequence)?.Items ?? [])
+                        if (cn is YamlMapping cm) { Keys(cm, ["name", "type"], "a transfer column"); columns.Add(new(Req(cm, "name"), Req(cm, "type"))); }
+                        else Bad(cn, "Each transfer column must be a mapping.");
+                    transfer = new TransferSpec(Req(tm, "origin"), Req(tm, "read"), Req(tm, "staging"), columns);
+                }
                 steps.Add(new PlanStep(Req(m, "id"), EnumOf<StepType>(m, "type"), Req(m, "object"), Req(m, "description"), Req(m, "text"), EnumOf<RiskClass>(m, "risk"), reasons,
-                    S(m, "hash_after"), parameters, resolverText, resolverResult, hasResolver, S(m, "file_hash"), S(m, "operation"), S(m, "shape_source"), S(m, "definition_hash"), S(m, "expect"), S(m, "hook"), S(m, "effect")));
+                    S(m, "hash_after"), parameters, resolverText, resolverResult, hasResolver, S(m, "file_hash"), S(m, "operation"), S(m, "shape_source"), S(m, "definition_hash"), S(m, "expect"), S(m, "hook"), S(m, "effect"), transfer));
             }
         var noticed = (top.Get("noticed") as YamlSequence)?.Items.OfType<YamlScalar>().Select(x => x.Value).ToList() ?? [];
 

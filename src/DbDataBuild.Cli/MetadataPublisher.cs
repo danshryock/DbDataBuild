@@ -25,7 +25,7 @@ internal static class MetadataPublisher
         var wanted = models?.ToHashSet(StringComparer.Ordinal);
         IReadOnlyDictionary<string, IReadOnlyList<string>>? sourceConsumers = null;
         foreach (var s in ctx.Project.Sources.Where(s => wanted == null || wanted.Contains(s.Definition.Name)).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
-            docs.Add(Make("model", s.Definition.Name, MetadataBuilder.Model(ctx, s, File.ReadAllText(Path.Combine(ctx.Root, s.QueryFile)))));
+            docs.Add(Make("model", s.Definition.Name, MetadataBuilder.Model(ctx, s, s.ReadQuery(ctx.Root))));
         foreach (var d in ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal))
         {
             // computed once for the whole project, so a source's document is the same whichever models are published

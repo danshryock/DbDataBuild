@@ -11,16 +11,16 @@ internal static class ProjectGraph
         var edges = new List<(string Model, string Reads)>();
         foreach (var m in ctx.Project.Sources)
         {
-            var sql = File.ReadAllText(Path.Combine(ctx.Root, m.QueryFile));
+            var sql = m.ReadQuery(ctx.Root);
             foreach (var t in QueryAnalyzer.Analyze(sql).Facts?.BaseTables ?? []) edges.Add((m.Definition.Name, t.QualifiedName));
         }
-        return new DependencyGraph(ctx.Project.Sources.Select(s => s.Definition.Name), ctx.Project.Descriptors.Select(d => d.Name), edges);
+        return new DependencyGraph(ctx.Project.Sources.Select(s => s.Definition.Name), ctx.Project.AllDescriptors.Select(d => d.Name), edges);
     }
 
     /// <summary>Which column of which table each output column of a model comes from, with the kind of transformation (direct, expression, aggregation, ...).</summary>
     public static IReadOnlyList<ColumnEdge> ColumnEdges(ProjectContext ctx, ModelSource model)
     {
-        var sql = File.ReadAllText(Path.Combine(ctx.Root, model.QueryFile));
+        var sql = model.ReadQuery(ctx.Root);
         var facts = QueryAnalyzer.Analyze(sql, MetadataBuilder.UpstreamSchema(ctx, model.Definition.Name)).Facts;
         var edges = new List<ColumnEdge>();
         foreach (var p in facts?.Projections ?? [])

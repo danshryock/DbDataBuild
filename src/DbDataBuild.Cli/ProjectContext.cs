@@ -30,7 +30,7 @@ internal sealed class ProjectContext
         var matrix = MatrixLoader.LoadEmbedded(matrixDiags);
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
         var linter = new MatrixLinter(matrix);
-        return new ProjectContext { Root = root, Project = project, Config = config, Matrix = matrix, Linter = linter, Renderer = new LoadRenderer(matrix, linter, config), Diagnostics = diags, Lowering = new ModelLowering(project.Models, project.Descriptors, config) };
+        return new ProjectContext { Root = root, Project = project, Config = config, Matrix = matrix, Linter = linter, Renderer = new LoadRenderer(matrix, linter, config), Diagnostics = diags, Lowering = new ModelLowering(project.Models, project.AllDescriptors, config) };
     }
 
     /// <summary>
@@ -45,6 +45,17 @@ internal sealed class ProjectContext
         var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}");
         var files = result.Files.Append(new RenderedFile(lowered.ArtifactPath, lowered.ArtifactText)).OrderBy(f => f.Path, StringComparer.Ordinal).ToList();
         return (result with { Files = files }, lowered.Sql);
+    }
+
+    /// <summary>Where a copy reads from: the single connection of the model it copies (validation guarantees there is one), its engine, and the table there. Null for a model that is not a copy.</summary>
+    public DbDataBuild.Planning.CopyOrigin? OriginOf(ModelDefinition model)
+    {
+        if (!model.IsCopy || model.From == null) return null;
+        var connections = Project.Models.FirstOrDefault(m => string.Equals(m.Name, model.From, StringComparison.OrdinalIgnoreCase)) is { } built
+            ? built.Targets ?? Config.DefaultConnections
+            : Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, model.From, StringComparison.OrdinalIgnoreCase))?.Connections ?? Config.DefaultConnections;
+        var connection = connections[0];
+        return new DbDataBuild.Planning.CopyOrigin(connection, Config.EngineOf(connection) ?? connection, model.From);
     }
 
     /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>
@@ -81,7 +92,7 @@ internal sealed class ProjectContext
         }
         var byName = all.ToDictionary(s => s.Definition.Name, StringComparer.OrdinalIgnoreCase);
         return chosen.Where(n => !excluded.Contains(n) && byName.ContainsKey(n)).Select(n => byName[n]).DistinctBy(s => s.Definition.Name)
-            .Select(s => new LoadedModel(s, File.ReadAllText(Path.Combine(Root, s.QueryFile)))).ToList();
+            .Select(s => new LoadedModel(s, s.ReadQuery(Root))).ToList();
     }
 
     /// <summary>One argument: terms joined by commas are intersected, each term is an optional operator around a core.</summary>

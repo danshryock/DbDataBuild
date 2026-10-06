@@ -19,6 +19,8 @@ public class PlanDocumentTests
                 "SELECT MAX(at) FROM t", "2024-03-01 00:00:00", true, new string('c', 64), "default", DefinitionHash: new string('e', 64)),
             new PlanStep("4", StepType.Ddl, "marts.fct", "create index ix_a", "CREATE INDEX ix_a ON t (a);", RiskClass.Safe, ["index.added"], null, [], Expect: "index:ix_a=unique=0;keys=a;include="),
             new PlanStep("5", StepType.Hook, "marts.fct", "hook audit.stamp (post_load)", "UPDATE t SET x = 1;", RiskClass.Risky, ["hook.fired", "event post_load"], null, [], Operation: "post_load", FileHash: new string('f', 64), Hook: "audit.stamp", Effect: "data"),
+            new PlanStep("6", StepType.Transfer, "dst.items", "copy dst.items from crm (src.items)", "DROP TABLE IF EXISTS [dbdatabuild].[stg_dst__items];\nCREATE TABLE [dbdatabuild].[stg_dst__items] ([id] bigint NOT NULL);", RiskClass.Safe, ["copy.transfer"], null, [],
+                Transfer: new TransferSpec("crm", "SELECT \"id\", \"name\" FROM \"src\".\"items\"", "dbdatabuild.stg_dst__items", [new PlanColumn("id", "BIGINT"), new PlanColumn("name", "VARCHAR(20)")])),
             new PlanStep("3", StepType.Track, "marts.old", "adopt marts.old", "record shape x", RiskClass.Safe, ["obj.untracked"], new string('d', 64), [], ShapeSource: "adopted"),
         ],
         ["Rows loaded before this plan will have NULL in `discount_code`.", "line with \"quotes\" and 'apostrophes'"]);
@@ -36,7 +38,7 @@ public class PlanDocumentTests
         Assert.NotNull(parsed);
         Assert.Equal(plan.Steps.Select(s => s.Text), parsed!.Steps.Select(s => s.Text));          // scripts byte for byte, including \r\n, quotes and non-ASCII
         static string Show(PlanStep s) => string.Join("|", s.Id, s.Type, s.Object, s.Description, s.Text, s.Risk, string.Join(",", s.Reasons), s.HashAfter, s.ResolverText, s.ResolverResult, s.HasResolver, s.FileHash, s.Operation, s.ShapeSource, s.DefinitionHash, s.Expect, s.Hook, s.Effect,
-            string.Join(",", s.Parameters.Select(p => $"{p.Name}:{p.Type}:{p.Source}:{p.Value ?? "<null>"}")));
+            string.Join(",", s.Parameters.Select(p => $"{p.Name}:{p.Type}:{p.Source}:{p.Value ?? "<null>"}")), s.Transfer == null ? "" : $"{s.Transfer.Origin}|{s.Transfer.ReadText}|{s.Transfer.Staging}|{string.Join(",", s.Transfer.Columns.Select(c => c.Name + " " + c.Type))}");
         Assert.Equal(plan.Steps.Select(Show), parsed.Steps.Select(Show));
         Assert.Equal(plan.Bases, parsed.Bases);
         Assert.Equal(plan.Answers, parsed.Answers);

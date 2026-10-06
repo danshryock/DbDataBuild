@@ -9,8 +9,9 @@ using DbDataBuild.Targets.Ddl;
 
 namespace DbDataBuild.Apply;
 
+/// <param name="OpenOrigin">Opens the read session of the connection a `transfer` step reads from (by name). A plan with a transfer step cannot be applied for real without it.</param>
 /// <param name="AllowDestructive">Object names (`marts.fct`) whose destructive steps are allowed. Never "all".</param>
-public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, bool Resume, string TrackingSchema, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null);
+public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, bool Resume, string TrackingSchema, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null, Func<string, CancellationToken, Task<ReadSession>>? OpenOrigin = null);
 
 /// <param name="Status">ok, dry-run, skipped (done in an earlier attempt), stopped (the operator stopped before it) or failed.</param>
 public sealed record StepOutcome(string StepId, string Description, string Status, string? Detail = null);
@@ -53,6 +54,18 @@ public static class ApplyEngine
         await using var reader = await ReadSession.OpenAsync(read, ct);
         var status = await TrackingStore.StatusAsync(reader, engine, schema, ct);
         if (status.AsDiagnostic(schema) is { } notReady) return new ApplyResult([], [notReady]);
+
+        // every connection the plan reads rows from answers before the first statement runs: a copy that cannot read its origin fails before it touches anything
+        if (!o.DryRun)
+            foreach (var origin in plan.Steps.Where(s => s.Transfer != null).Select(s => s.Transfer!.Origin).Distinct(StringComparer.Ordinal))
+            {
+                if (o.OpenOrigin == null) return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.StepFailed, new($"connection:{origin}", 0, 0), $"The plan reads rows from `{origin}`, and this run has no way to open it. Nothing was executed.")]);
+                try { await using var probe = await o.OpenOrigin(origin, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException and not GateRefusedException)
+                {
+                    return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.StepFailed, new($"connection:{origin}", 0, 0), $"The connection `{origin}`, which the plan reads rows from, could not be opened ({ex.GetType().Name}). Nothing was executed.")]);
+                }
+            }
 
         await using var gate = o.DryRun
             ? MutationGate.DryRunGate("apply", StatementKind.Tracking | StatementKind.Data | StatementKind.Ddl, log, runId)
@@ -176,7 +189,7 @@ public static class ApplyEngine
     private static bool IsDone(PlanStep s, PlanProgress p) => s.Type switch
     {
         StepType.Ddl => p.CompletedDdlHashes.Contains(Hashing.ScriptHash(s.Text)),
-        StepType.Load or StepType.Backfill or StepType.Hook => p.CompletedRunSteps.Contains(s.Id),
+        StepType.Load or StepType.Backfill or StepType.Hook or StepType.Transfer => p.CompletedRunSteps.Contains(s.Id),
         StepType.Track => s.HashAfter != null && p.RecordedShapes.Contains((s.Object, s.HashAfter)),
         _ => false,
     };
@@ -294,8 +307,71 @@ public static class ApplyEngine
                 return null;
             }
 
+            case StepType.Transfer:
+                return await TransferAsync(plan, step, reader, gate, o, runId, ct);
+
             default:
                 throw new InvalidOperationException($"Step type {step.Type} cannot be applied yet.");
+        }
+    }
+
+    /// <summary>
+    /// A copy's transfer: the staging table is (re)created from the step's text, then the rows are read on the origin (a streaming read, one SELECT), converted by the declared type of each column and
+    /// written to it with the engine's bulk route. The run is logged like a load (operation `transfer`, the row count, no values). The load that follows reads the staging table.
+    /// </summary>
+    private static async Task<Diagnostic?> TransferAsync(Plan plan, PlanStep step, ReadSession reader, MutationGate gate, ApplyOptions o, Guid runId, CancellationToken ct)
+    {
+        var spec = step.Transfer!;
+        var engine = reader.Engine;
+        var schema = o.TrackingSchema;
+        var columns = spec.Columns.Select(c => new TransferColumn(c.Name, c.Type)).ToList();
+        var (stagingSchema, stagingTable) = DdlGenerator.Split(spec.Staging);
+        var statement = GateStatement.BulkCopy(step.Id, spec.Staging, columns);
+
+        if (gate.DryRun)
+        {
+            await gate.ExecuteAsync(GateStatement.FromPlanStep(step.Id + ":staging", StatementKind.Ddl, step.Text), ct);
+            await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, EmptyRows(), ct);
+            return null;
+        }
+
+        await gate.ExecuteAsync(GateStatement.FromPlanStep(step.Id + ":staging", StatementKind.Ddl, step.Text), ct);
+        await AuditLog.BeginRunAsync(gate, engine, schema, step.Id, runId, step.Object, "transfer", plan.Id, o.GitCommit, null, null, "transfer", null, null, null, null, ct);
+        try
+        {
+            await using var origin = await o.OpenOrigin!(spec.Origin, ct);
+            await using var stream = await origin.OpenStreamAsync(spec.ReadText, ct);
+            var names = stream.Names;
+            if (!names.SequenceEqual(columns.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
+            {
+                await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "failed", null, null, ct);
+                return new Diagnostic(DiagnosticCatalog.StepResultDiffers, new($"step:{step.Id}", 0, 0),
+                    $"The read on `{spec.Origin}` returned the columns [{string.Join(", ", names)}], but the plan expects [{string.Join(", ", columns.Select(c => c.Name))}]. Nothing was copied.");
+            }
+            var written = await gate.BulkCopyAsync(statement, stagingSchema, stagingTable, columns, Converted(stream.ReadAsync(ct), columns, ct), ct);
+            await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "ok", written, null, ct);
+            return null;
+        }
+        catch (TransferException ex)
+        {
+            await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "failed", null, null, ct);
+            return new Diagnostic(DiagnosticCatalog.StepFailed, new($"step:{step.Id}", 0, 0), $"step {step.Id} ({step.Description}): {ex.Message} Later steps did not run.");
+        }
+        catch (Exception)
+        {
+            await AuditLog.FinishRunAsync(gate, engine, schema, step.Id, runId, "failed", null, null, ct);
+            throw;
+        }
+    }
+
+    private static async IAsyncEnumerable<object?[]> EmptyRows() { await Task.CompletedTask; yield break; }
+
+    private static async IAsyncEnumerable<object?[]> Converted(IAsyncEnumerable<object?[]> rows, IReadOnlyList<TransferColumn> columns, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (var row in rows.WithCancellation(ct))
+        {
+            for (var i = 0; i < columns.Count; i++) row[i] = TransferValues.Convert(row[i], columns[i]);
+            yield return row;
         }
     }
 

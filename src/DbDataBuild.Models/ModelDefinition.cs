@@ -6,7 +6,10 @@ public static class ModelKinds
     public const string Full = "full";
     public const string IncrementalByUniqueKey = "incremental_by_unique_key";
     public const string IncrementalByTimeRange = "incremental_by_time_range";
-    public static readonly IReadOnlyList<string> All = [View, Full, IncrementalByUniqueKey, IncrementalByTimeRange];
+
+    /// <summary>A table filled by copying the rows of another model that lives on another connection: no query, the columns are the origin's, always persisted.</summary>
+    public const string Copy = "copy";
+    public static readonly IReadOnlyList<string> All = [View, Full, IncrementalByUniqueKey, IncrementalByTimeRange, Copy];
 }
 
 public static class TargetNames
@@ -35,8 +38,13 @@ public sealed record ModelDefinition(
     IReadOnlyList<IndexDefinition>? DeclaredIndexes = null,
     IReadOnlyList<HookDefinition>? DeclaredHooks = null,
     IReadOnlyList<string>? DeclaredLintIgnore = null,
-    RewriteSettings? Rewrites = null)
+    RewriteSettings? Rewrites = null,
+    string? From = null,
+    int FromLine = 0)
 {
+    /// <summary>True for a model that copies another one (<see cref="ModelKinds.Copy"/>): `From` is the model it copies.</summary>
+    public bool IsCopy => KindType == ModelKinds.Copy;
+
     /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224) the operator has silenced for this model (`lint_ignore:`).</summary>
     public IReadOnlyList<string> LintIgnore => DeclaredLintIgnore ?? [];
 

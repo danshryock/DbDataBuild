@@ -104,7 +104,7 @@ public class SourceDescriptorTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "DDB-108");              // nothing is missing: there is no query to have
 
         File.WriteAllText(Path.Combine(dir, "models/staging/orders.sql"), "SELECT 1");
-        Assert.Contains(ProjectValidator.Validate(dir).Diagnostics, d => d.Code == "DDB-108" && d.Found.Contains("is a mapped model"));
+        Assert.Contains(ProjectValidator.Validate(dir).Diagnostics, d => d.Code == "DDB-108" && d.Found.Contains("has no query of its own"));
     }
 
     [Fact]
