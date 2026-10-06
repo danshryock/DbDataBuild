@@ -200,4 +200,44 @@ public class CopyModelTests
         Assert.Equal(staged, CopyModels.StagingTable(longName));                                       // deterministic: an interrupted run is run again on the same table
         Assert.NotEqual(staged, CopyModels.StagingTable("warehouse." + new string('x', 79) + "y"));
     }
+
+    // ---- a query runs on one connection ----
+
+    private static (int Exit, string Text) CliValidate(string dir)
+    {
+        var o = new StringWriter(); var e = new StringWriter();
+        var exit = CliApp.Run(["validate", "--project", dir], o, e, environment: _ => null);
+        return (exit, o + "\n" + e);
+    }
+
+    [Fact]
+    public void A_model_that_reads_a_table_on_another_connection_is_refused_until_the_table_is_copied_there()
+    {
+        var dir = Project();
+        Write(dir, "models/marts/local.yml", "name: marts.local\nkind: {type: view}\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n");
+        Write(dir, "models/marts/local.sql", "SELECT customer_id FROM crm.customers\n");
+        var (exit, text) = CliValidate(dir);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("DDB-231", text);
+        Assert.Contains("marts.local is built on `wh` and reads `crm.customers`, which is on `crm`, not on `wh`", text);
+
+        Copy(dir, "staging.customers", "crm.customers");                                                     // the copy is on wh (the default)
+        Write(dir, "models/marts/local.sql", "SELECT customer_id FROM staging.customers\n");
+        var fixedUp = CliValidate(dir);
+        Assert.True(fixedUp.Exit == 0, fixedUp.Text);
+        Assert.DoesNotContain("DDB-231", fixedUp.Text);
+    }
+
+    [Fact]
+    public void A_model_may_read_a_copy_built_on_another_default_connection_and_models_on_the_connection_of_the_table_are_fine()
+    {
+        var dir = Project(Config + "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n");
+        Write(dir, "models/crm/recent.yml", "name: crm.recent\nkind: {type: view}\nconnections=: [crm]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n");
+        Write(dir, "models/crm/recent.sql", "SELECT customer_id FROM crm.customers\n");                    // on crm, where crm.customers is
+        Copy(dir, "lake.customers", "crm.customers", "connections=: [lake]\n");
+        Write(dir, "models/lake/summary.yml", "name: lake.summary\nkind: {type: view}\nconnections=: [lake]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n");
+        Write(dir, "models/lake/summary.sql", "SELECT customer_id FROM lake.customers\n");                  // the copy's own connection
+        var (exit, text) = CliValidate(dir);
+        Assert.True(exit == 0, text);
+    }
 }

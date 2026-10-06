@@ -49,6 +49,33 @@ internal static class ProjectChecks
         return diagnostics;
     }
 
+    /// <summary>
+    /// A query runs on one connection (DDB-231): every table a model reads must exist on each connection the model is built on, as a mapped model declared there or a model (or copy) built there. The staging
+    /// table of a copy is its own. Reads of a table the project does not know are reported by the lowering (DDB-218), not here.
+    /// </summary>
+    public static List<Diagnostic> Reachability(ProjectContext ctx, IReadOnlyList<string>? onlyTargets)
+    {
+        var found = new List<Diagnostic>();
+        var config = ctx.Config;
+        IReadOnlyList<string>? ConnectionsOf(string table)
+        {
+            if (ctx.Project.Sources.FirstOrDefault(s => string.Equals(s.Definition.Name, table, StringComparison.OrdinalIgnoreCase)) is { } model) return ctx.TargetsOf(model.Definition);
+            if (ctx.Project.AllDescriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase)) is { } mapped) return mapped.Connections ?? config.DefaultConnections;
+            return null;
+        }
+        foreach (var source in ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
+        {
+            var targets = ctx.TargetsOf(source.Definition).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
+            foreach (var read in ctx.Graph.Reads(source.Definition.Name))
+                if (ConnectionsOf(read) is { } where)
+                    foreach (var target in targets.Where(t => !where.Contains(t, StringComparer.Ordinal)))
+                        found.Add(new Diagnostic(DiagnosticCatalog.ModelReadsAnotherConnection, new(source.DefinitionFile, 0, 0),
+                            $"{source.Definition.Name} is built on `{target}` and reads `{read}`, which is on {string.Join(", ", where.Select(w => $"`{w}`"))}, not on `{target}`.",
+                            Fix: $"Copy `{read}` to `{target}` (a model of `kind: {{type: copy, from: {read}}}` on `{target}`) and read the copy, or build {source.Definition.Name} on {where[0]}."));
+        }
+        return found;
+    }
+
     /// <summary>Index lint (DDB-223, DDB-224): advice only, with the exact index to declare. A model silences single codes with `lint_ignore`.</summary>
     internal static IEnumerable<Diagnostic> IndexAdvice(ModelSource source, IReadOnlyList<string> targets)
     {

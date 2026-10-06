@@ -149,6 +149,10 @@ public static class DiagnosticCatalog
         "an origin whose table still has the columns and types the mapped model declares (an added column is fine)",
         "Bring the origin's table back to the declaration, update the mapped model (`dbdatabuild import`), or set `on_mismatch: skip` on the copy to leave that origin out until it is fixed.",
         "A copy reads each origin with the declared columns. When one system of an application is on another version, its table may have lost a column or changed a type, and reading it would fail or load the wrong thing. `plan` compares each origin's live table with the declaration and names every origin that differs; `on_mismatch` says whether that stops the plan (`fail`) or leaves that origin out (`skip`). An origin whose login is not in the environment is reported as not checked.");
+    public static readonly DiagnosticDescriptor ModelReadsAnotherConnection = E("231", "A model reads a table that is not on its connection",
+        "every table a query reads exists on the connection the model is built on: a mapped model or a model built there, or a copy of the table to that connection",
+        "Copy the table to the model's connection (`kind: {type: copy, from: ...}`) and read the copy, or build the model on the connection where the table is.",
+        "A query runs on one connection and never reaches across to another; moving rows between connections is a copy. A model that reads a table declared (or built) only on other connections would fail when it runs, so it is refused when the project is checked.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
@@ -384,7 +388,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

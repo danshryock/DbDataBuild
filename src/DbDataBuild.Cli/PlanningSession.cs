@@ -122,6 +122,7 @@ internal sealed class PlanningSession
         var findings = new List<Diagnostic>(ctx.Diagnostics.Where(d => d.Code != DiagnosticCatalog.OrphanFile.Code));
         var sources = mine.Select(m => m.Source).ToList();
         findings.AddRange(ProjectChecks.Run(sources, ctx.Config, [target], root, ctx.Lowering));
+        findings.AddRange(ProjectChecks.Reachability(ctx, [target]));
         var defineTargets = mine.Select(m => new DefineTarget(m.Source.Definition.Name, m.Source.DefinitionFile, m.Source.QueryFile, m.Sql,
             File.ReadAllText(Path.Combine(root, m.Source.DefinitionFile)), m.Source.Definition, [])).ToList();
         var graph = new ModelGraph(ctx.Project.Models, ctx.Project.AllDescriptors);

@@ -327,6 +327,7 @@ public static class CliApp
         foreach (var s in result.Sources.Where(s => s.Inherited.Count > 0).OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
             output.WriteLine($"Inherited by {s.Definition.Name}: {string.Join(", ", s.Inherited.Select(o => $"{o.Path} = {o.Value} ({o.File}:{o.Line})"))}");
         diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.AllDescriptors, config)));
+        if (!diagnostics.Any(d => d.Severity == Severity.Error)) diagnostics.AddRange(ProjectChecks.Reachability(ProjectContext.Load(projectRoot), null));
 
         foreach (var d in diagnostics) error.Diag(d);
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);
