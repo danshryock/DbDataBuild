@@ -75,7 +75,7 @@ Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cros
 | **`mapped`** | A model with no body: it **maps** an existing physical table into the project's namespace. The tool never creates or alters it; it declares the columns, optionally the physical name, keys, indexes and tests, and the live table is checked against it. What the old "source" was. A `sources/` folder is only a place to keep them. |
 | **`copy`** | A model with no SQL: `from: <model>`, the connection it lives on, and a strategy. Its columns come from the model it copies. The copy is always persisted (a table). |
 | **Project** | The folder with `dbdatabuild.yml`: its models, tests, rendered files and plans. Unchanged. |
-| **Attribute** | A key and a value on a connection (`store_id: "017"`, `region: eu`), used where a value differs per connection (below). Not "parameter": that word already means the runtime parameters of a load operation. |
+| **Parameter** | A named value. The same word at every level; the scope says whose it is. Declared under `parameters:` in the place it belongs (the project, a connection, a model or folder default, an operation); referenced with its scope as a prefix: `${connection.store_id}`, `${project.region}`, `${model.system}`. A load operation's runtime parameters (`@watermark`) are the same concept at the operation scope and keep their SQL form (below). |
 | **Connection group** | A named set of connections that run the same application (below). |
 
 **The rule behind all of it: a query runs against one connection.** SQL in a model reads only models that live on the model's own connection; a reference to a model on another connection is refused,
@@ -117,14 +117,31 @@ models/
   Two models cannot have one name; a mapped model's physical name may differ from its project name (`physical: {schema: dbo, table: CUSTOMER_MST}`).
 - The underscore file is not a model: the loader and the orphan check skip it.
 
+## Parameters
+
+One concept, four scopes. The key is `parameters:` wherever it is declared; where it is declared decides whose it is.
+
+| Scope | Declared in | Referenced as | Used for |
+|---|---|---|---|
+| project | `dbdatabuild.yml` | `${project.name}` | values the whole project shares |
+| connection | the connection's entry | `${connection.name}` | values that differ per connection (a store id, a region): fan-in |
+| model | a model file, a `_dbdatabuild.yml` or the root `defaults:` (so it inherits like any setting) | `${model.name}` | values that differ per model or folder |
+| operation | a load operation (as today) | `@name` in the operation's SQL | runtime values: a watermark, a backfill start |
+
+- **A reference carries its scope, so nothing shadows anything**: `${connection.region}` and `${model.region}` are two values.
+- **Two ways a value is used, and they are not the same**: a project, connection or model parameter is substituted **into configuration** (a column added by a copy, the value of a slice, a schema name) when the project
+  loads, and `validate` shows the result. An operation parameter is **bound** by the driver at run time and never written into statement text. A value that reaches a statement (a slice's value in the
+  `DELETE` and the `INSERT`) is bound, not concatenated: the principle that statement text never contains values holds for every scope.
+- Model SQL stays plain DuckDB: a parameter is not interpolated into a query (my default; see the open points). The seeds' `scale` and `seed` are DuckDB variables of the seed queries and stay as they are.
+
 ## Fan-in: one application, many deployments
 
-A **connection group** names the connections that run the same application, with each member's **attributes**:
+A **connection group** names the connections that run the same application, with each member's **parameters**:
 
 ```yaml
 connections:
-  store_017: { engine: postgres, attributes: { store_id: "017", region: eu } }
-  store_018: { engine: postgres, attributes: { store_id: "018", region: eu } }
+  store_017: { engine: postgres, parameters: { store_id: "017", region: eu } }
+  store_018: { engine: postgres, parameters: { store_id: "018", region: eu } }
   warehouse: { engine: sqlserver }
 groups:
   stores: [store_017, store_018]            # or a pattern: store_*
@@ -140,13 +157,13 @@ connection: warehouse
 kind: copy
 from: stores.orders
 strategy: full_replace
-slice: { column: store_id, value: "${store_id}" }     # which rows are this member's; the column is added if the data does not have it
+slice: { column: store_id, value: "${connection.store_id}" }     # which rows are this member's; the column is added if the data does not have it
 ```
 
 - One declaration and one dimension of expansion (the group's members) into one destination table: the only product there is, and the intended one.
-- **Attributes are general**: a value per connection that a copy can add as a column (`add: { region: "${region}" }`), use as the slice of a replacement, and, later, any other place a setting differs per connection
-  (a schema name, a hook argument). **No new column is dictated**: if the systems already carry a distinguishing column (a site code in the data), the slice names it and the attribute only says
-  which value is this member's; if they do not, the slice adds one from an attribute. The destination key must include the slice column (`validate` checks).
+- **Parameters are general**: a value per connection that a copy can add as a column (`add: { region: "${connection.region}" }`), use as the slice of a replacement, and, later, any other place a setting differs per connection
+  (a schema name, a hook argument). **No new column is dictated**: if the systems already carry a distinguishing column (a site code in the data), the slice names it and the parameter only says
+  which value is this member's; if they do not, the slice adds one from a parameter. The destination key must include the slice column (`validate` checks).
 - **Isolation**: a member's run replaces only its slice (delete where the slice column equals the value, then insert), so one failing or offline member leaves the others' data untouched. The check
   that every row of a member's extract carries that member's value is made before the swap: a member cannot write into another's slice.
 - **Version skew**: `plan` compares each member's live table with the shared declaration and reports every member that differs by name; `on_mismatch: fail | skip` (default `fail`) decides, never silently.
@@ -187,6 +204,6 @@ Everything that reads "target" in the code, the schemas, the documentation and t
 ## Still open
 
 1. Whether a `copy` may select columns or filter rows (my default: no; do it at the origin with a model).
-2. Attribute syntax in YAML (`${store_id}` as above) and whether attributes may also be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
+2. Whether a project, connection or model parameter may be used inside a model's SQL (my default: no; the SQL stays plain DuckDB, so a per-connection value goes in through a copy).
 3. Whether `mapped` models are checked against the live table at every `plan` (my default: yes, as drift is now) or only by `import --check`.
 4. Names for the commands (`import`, `copy`) and for `slice`.
