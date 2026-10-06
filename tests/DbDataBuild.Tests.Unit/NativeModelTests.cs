@@ -129,4 +129,51 @@ public class NativeModelTests
         Write(dir, "models/marts/v2.sql", "SELECT n FROM src.bound\n");
         Assert.Equal(0, Cli("render", "--write", "--project", dir).Exit);                   // rendering views has no load script; the plan is where the refusal is (conformance tests plan and apply)
     }
+
+    [Fact]
+    public void Reads_place_a_native_model_in_the_graph_and_the_build_order_and_a_missing_list_is_a_note()
+    {
+        var dir = Project();
+        Write(dir, "models/marts/stock.yml", "name: marts.stock\nkind: {type: full}\n" + Cols);
+        Write(dir, "models/marts/stock.sql", "SELECT 1 AS n\n");
+        Write(dir, "models/src/a.yml", "name: src.a\nreads: [marts.stock]\nkind:\n  type: native\n  query: SELECT n FROM marts.stock\n" + Cols);
+        Write(dir, "models/src/b.yml", "name: src.b\nkind:\n  type: native\n  query: SELECT 2 AS n\n" + Cols);
+        Write(dir, "models/marts/top.yml", "name: marts.top\nkind: {type: full}\n" + Cols);
+        Write(dir, "models/marts/top.sql", "SELECT n FROM src.a UNION ALL SELECT n FROM src.b\n");
+        var ctx = ProjectContext.Load(dir);
+        Assert.Equal(["marts.stock"], ctx.Graph.Reads("src.a"));
+        Assert.Contains("marts.stock", ctx.Graph.Ancestors("marts.top").Keys);                       // through the native model
+        Assert.Contains("marts.top", ctx.Graph.Descendants("marts.stock").Keys);
+        Assert.Equal(["src.a", "marts.stock"], ctx.WithNativeReads(["src.a"]));
+        var notes = ProjectChecks.Reachability(ctx, null).Where(d => d.Code == "DDB-233").ToList();
+        Assert.Equal("src.b is a native select and does not declare what it reads, so it has no ancestors in the graph.", Assert.Single(notes).Found);
+    }
+
+    [Fact]
+    public void Metadata_and_graph_show_a_native_model_with_its_reads_and_the_hash_of_its_text()
+    {
+        var dir = Project();
+        Write(dir, "models/marts/stock.yml", "name: marts.stock\nkind: {type: full}\n" + Cols);
+        Write(dir, "models/marts/stock.sql", "SELECT 1 AS n\n");
+        Write(dir, "models/src/a.yml", "name: src.a\nreads: [marts.stock]\nkind:\n  type: native\n  query: SELECT n FROM marts.stock\n" + Cols);
+        Write(dir, "models/marts/top.yml", "name: marts.top\nkind: {type: full}\n" + Cols);
+        Write(dir, "models/marts/top.sql", "SELECT n FROM src.a\n");
+        var metadata = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json").Out)!["data"]!;
+        var source = metadata["sources"]!.AsArray().Single()!;
+        Assert.Equal("src.a", (string?)source["name"]);
+        Assert.Equal("models/src/a.yml", (string?)source["file"]);
+        Assert.Equal("select", (string?)source["native"]!["access"]);
+        Assert.Equal(["marts.stock"], source["native"]!["reads"]!.AsArray().Select(r => (string?)r));
+        Assert.Matches("^[0-9a-f]{64}$", (string?)source["native"]!["text_hash"]);
+        Assert.Contains(metadata["models"]!.AsArray(), m => (string?)m!["name"] == "marts.top");
+
+        var hash = (string?)source["definition_hash"];
+        Write(dir, "models/src/a.yml", "name: src.a\nreads: [marts.stock]\nkind:\n  type: native\n  query: SELECT n FROM marts.stock WHERE n > 0\n" + Cols);
+        var changed = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json").Out)!["data"]!["sources"]!.AsArray().Single()!;
+        Assert.NotEqual(hash, (string?)changed["definition_hash"]);                                    // the text is part of what the model is
+
+        var graph = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "marts.top").Out)!["data"]!;
+        Assert.Equal(["marts.stock:model", "marts.top:model", "src.a:native"], graph["nodes"]!.AsArray().Select(n => $"{(string?)n!["name"]}:{(string?)n["kind"]}").Order(StringComparer.Ordinal));
+        Assert.Contains(graph["edges"]!.AsArray(), e => (string?)e!["from"] == "marts.stock" && (string?)e["to"] == "src.a");
+    }
 }

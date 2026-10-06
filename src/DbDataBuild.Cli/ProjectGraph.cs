@@ -14,6 +14,8 @@ internal static class ProjectGraph
             var sql = m.ReadQuery(ctx.Root, ctx.Config);
             foreach (var t in QueryAnalyzer.Analyze(sql).Facts?.BaseTables ?? []) edges.Add((m.Definition.Name, t.QualifiedName));
         }
+        foreach (var n in ctx.Project.NativeModels)
+            foreach (var read in n.Native?.Reads ?? []) edges.Add((n.Name, read));            // a native text is opaque: `reads:` is how it has ancestors
         return new DependencyGraph(ctx.Project.Sources.Select(s => s.Definition.Name), ctx.Project.AllDescriptors.Select(d => d.Name), edges);
     }
 

@@ -66,6 +66,8 @@ internal static class ProjectChecks
             if (ctx.Project.AllDescriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase)) is { } mapped) return mapped.Connections ?? config.DefaultConnections;
             return null;
         }
+        foreach (var n in ctx.Project.NativeModels.Where(n => n.Native is { Reads.Count: 0 }).OrderBy(n => n.Name, StringComparer.Ordinal))
+            found.Add(new Diagnostic(DiagnosticCatalog.NativeReadsNotDeclared, new(n.Native!.File, n.Native.Line, 0), $"{n.Name} is a native {n.Native.Access} and does not declare what it reads, so it has no ancestors in the graph."));
         foreach (var source in ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
         {
             var targets = ctx.TargetsOf(source.Definition).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();

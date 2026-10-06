@@ -29,18 +29,21 @@ internal static class GraphCommand
         var graph = ctx.Graph;
         var levels = graph.Levels();
         var chosen = selected.Select(m => m.Source.Definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var nodeNames = chosen.Concat(chosen.SelectMany(graph.Reads)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => levels.GetValueOrDefault(n)).ThenBy(n => n, StringComparer.Ordinal).ToList();
+        var natives = ctx.Project.NativeModels.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+        var direct = chosen.SelectMany(graph.Reads).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var behindNatives = direct.Where(natives.ContainsKey).SelectMany(graph.Reads).ToList();                // a native model's `reads:` are shown behind it
+        var nodeNames = chosen.Concat(direct).Concat(behindNatives).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => levels.GetValueOrDefault(n)).ThenBy(n => n, StringComparer.Ordinal).ToList();
         var sources = ctx.Project.Descriptors.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
         var byName = ctx.Project.Sources.ToDictionary(s => s.Definition.Name, StringComparer.OrdinalIgnoreCase);
-        string KindOf(string n) => byName.ContainsKey(n) ? "model" : sources.ContainsKey(n) ? "source" : "unknown";
+        string KindOf(string n) => byName.ContainsKey(n) ? "model" : natives.ContainsKey(n) ? "native" : sources.ContainsKey(n) ? "source" : "unknown";
         var nodes = nodeNames.Select(n => new
         {
             name = n, kind = KindOf(n), level = levels.GetValueOrDefault(n),
-            file = byName.TryGetValue(n, out var m) ? m.QueryFile : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
+            file = byName.TryGetValue(n, out var m) ? m.QueryFile : natives.TryGetValue(n, out var nd) ? MetadataBuilder.SourceFile(nd) : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
             model_kind = byName.TryGetValue(n, out var mk) ? mk.Definition.KindType : null,
             connections = byName.TryGetValue(n, out var mt) ? ctx.TargetsOf(mt.Definition) : (IReadOnlyList<string>)[],
         }).ToList();
-        var edges = chosen.OrderBy(n => n, StringComparer.Ordinal).SelectMany(n => graph.Reads(n).Select(r => (From: r, To: n))).ToList();
+        var edges = chosen.Concat(direct.Where(natives.ContainsKey)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).SelectMany(n => graph.Reads(n).Select(r => (From: r, To: n))).ToList();
 
         // columns: the edges of the chosen models, or the whole project's when one column is followed
         var allColumnEdges = new List<ColumnEdge>();
@@ -70,7 +73,7 @@ internal static class GraphCommand
         var text = diagram switch { "dot" => Dot(nodes.Select(n => (n.name, n.kind)).ToList(), edges), "mermaid" => Mermaid(nodes.Select(n => (n.name, n.kind)).ToList(), edges), _ => null };
         output.Payload("nodes", nodes);
         output.Payload("edges", edges.Select(e => new { from = e.From, to = e.To }).ToList());
-        output.Payload("unknown_tables", graph.Unknown.Where(u => chosen.SelectMany(graph.Reads).Contains(u, StringComparer.OrdinalIgnoreCase)).ToList());
+        output.Payload("unknown_tables", graph.Unknown.Where(u => direct.Concat(behindNatives).Contains(u, StringComparer.OrdinalIgnoreCase)).ToList());
         if (columns || column != null)
         {
             var shown = column != null ? allColumnEdges : allColumnEdges.Where(e => chosen.Contains(e.ToModel)).ToList();

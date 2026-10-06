@@ -1,6 +1,6 @@
 # Models over a native query or command
 
-Status: design **agreed** (the owner accepted the five decisions below, and added local copies); steps 0 to 2 built (entry 77: local copies, native selects inline in YAML or a file, inlining in tables and views, native as a copy origin); `access: command` is built too (entry 78); change feeds, `reads:` in the graph, the plan-time describe and `track_definition` are not. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
+Status: design **agreed** (the owner accepted the five decisions below, and added local copies); steps 0 to 2 built (entry 77: local copies, native selects inline in YAML or a file, inlining in tables and views, native as a copy origin); `access: command` is built too (entry 78); `reads:` in the graph, the plan-time describe and native models in the metadata are built (entry 79); change feeds (backlog) and `track_definition` are not. It follows the cross-server work (`cross-server.md`, entries 62 to 76 of `docs/progress/state-and-apply.md`), whose terms it uses: a **connection** is a named
 endpoint, a **mapped** model declares a table that exists, a **copy** moves rows between connections, and a query runs on one connection.
 
 ## What is being asked

@@ -29,7 +29,7 @@ public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinitio
 /// </summary>
 /// <param name="Reads">The tables the text reads (optional): how a native model takes part in the dependency graph.</param>
 /// <param name="Parameters">The model's own parameters (`${model.x}` in the text).</param>
-public sealed record NativeQuery(string Access, string Text, IReadOnlyList<string> Reads, IReadOnlyDictionary<string, ParameterValue> Parameters, int Line = 0)
+public sealed record NativeQuery(string Access, string Text, IReadOnlyList<string> Reads, IReadOnlyDictionary<string, ParameterValue> Parameters, int Line = 0, string File = "")
 {
     public const string Select = "select";
     public const string Command = "command";

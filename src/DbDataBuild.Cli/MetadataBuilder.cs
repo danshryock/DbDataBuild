@@ -51,11 +51,12 @@ internal static class MetadataBuilder
                 policy = cfg.Policy.ToDictionary(p => p.Key, p => p.Value.ToString().ToLowerInvariant()),
                 hook_groups = cfg.HookGroups.ToDictionary(g => g.Key, g => g.Value.Select(HookJson).ToList()),
             },
-            sources = ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => new
+            sources = ctx.Project.Descriptors.Concat(ctx.Project.NativeModels).OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => new
             {
                 name = d.Name,
-                file = SourceFile(d.Name),
-                definition_hash = Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d)),
+                file = SourceFile(d),
+                definition_hash = DefinitionHash(d),
+                native = NativeJson(d),
             }).ToList(),
             models = ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal).Select(s => new
             {
@@ -106,12 +107,28 @@ internal static class MetadataBuilder
     public static string SourceFile(string name) => $"{ProjectValidator.ModelsDir}/{name.Replace('.', '/')}.yml";
 
     /// <summary>The metadata document of a source descriptor: what the project declares about a table it reads but does not build, and which models read it.</summary>
+    /// <summary>The file a source is declared in: the native model's own, else the conventional path of a mapped one.</summary>
+    public static string SourceFile(SourceDescriptor d) => d.Native is { File.Length: > 0 } n ? n.File.Replace('\\', '/') : SourceFile(d.Name);
+
+    /// <summary>A native model's text is part of what it is, so a change to it changes the hash.</summary>
+    private static string DefinitionHash(SourceDescriptor d) => Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d) + (d.Native == null ? "" : "\n" + d.Native.Access + "\n" + d.Native.Text));
+
+    /// <summary>What makes a source native, or null for a mapped one: how it is run, where, the hash of its text (the text itself is in the file), and the tables it says it reads.</summary>
+    private static object? NativeJson(SourceDescriptor d) => d.Native == null ? null : new
+    {
+        access = d.Native.Access,
+        connections = d.Connections ?? [],
+        text_hash = Hashing.ScriptHash(d.Native.Text),
+        reads = d.Native.Reads,
+    };
+
     public static object Source(SourceDescriptor d, IReadOnlyList<string> consumers) => new
     {
         schema = SourceSchema,
         name = d.Name,
-        file = SourceFile(d.Name),
-        definition_hash = Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d)),
+        file = SourceFile(d),
+        definition_hash = DefinitionHash(d),
+        native = NativeJson(d),
         grain = d.Grain,
         columns = d.Columns.Select(c => new { name = c.Name, logical_type = c.Type, nullable = c.Nullable, collation = c.Collation }).ToList(),
         indexes = d.Indexes.Select(i => new { name = i.Name, columns = i.Columns, unique = i.Unique, include = i.Include }).ToList(),
@@ -123,7 +140,7 @@ internal static class MetadataBuilder
     {
         var consumers = Consumers(ctx);
         var wanted = selectedModels?.ToHashSet(StringComparer.Ordinal);
-        return ctx.Project.Descriptors.OrderBy(d => d.Name, StringComparer.Ordinal)
+        return ctx.Project.Descriptors.Concat(ctx.Project.NativeModels).OrderBy(d => d.Name, StringComparer.Ordinal)
             .Where(d => wanted == null || consumers[d.Name].Any(wanted.Contains))
             .Select(d => Source(d, consumers[d.Name])).ToList();
     }
@@ -200,7 +217,7 @@ internal static class MetadataBuilder
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             inherited = source.Inherited.Select(o => new { path = o.Path, file = o.File, line = o.Line, value = o.Value }).ToList(),
             definition_hash = hash,
-            upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
+            upstream = facts?.BaseTables.Select(b => new { name = b.QualifiedName, kind = known.Contains(b.QualifiedName) ? "model" : ctx.Project.NativeModels.Any(n => string.Equals(n.Name, b.QualifiedName, StringComparison.OrdinalIgnoreCase)) ? "native" : sources.Contains(b.QualifiedName) ? "source" : "unknown" }).ToList(),
             rewrites_off = RewriteCatalog.For(ctx.Config, def).Disabled.Order(StringComparer.Ordinal).ToList(),
             lowered = lowered == null ? null : new
             {

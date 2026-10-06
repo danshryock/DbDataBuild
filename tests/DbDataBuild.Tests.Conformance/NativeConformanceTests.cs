@@ -210,4 +210,45 @@ public partial class NativeConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_native_select_that_returns_other_than_it_declares_stops_the_plan_without_running_the_text(string name)
+    {
+        var engine = EngineEnv.Require(name);
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-native-drift-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v == LoginSettings.VariableName(name, Login.Read) || v == LoginSettings.VariableName(name, Login.Write) ? engine.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        try
+        {
+            Write("dbdatabuild.yml", Config(name));
+            Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: |\n    " + NumsText(name) + "\n" + Cols);
+            Write("models/marts/big.yml", "name: marts.big\nkind: {type: full}\n" + Cols);
+            Write("models/marts/big.sql", "SELECT n FROM src.nums\n");
+            Assert.Equal(0, Cli("init", "--connection", name, "--apply").Exit);
+            Assert.Equal(0, Cli("render", "--write").Exit);
+            var fine = Cli("plan", "--connection", name);
+            Assert.True(fine.Exit == 0, fine.Out + fine.Err);                                                     // the declaration agrees with the engine
+
+            // the text now returns a string and a column of another name
+            Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT 'x' AS n, 1 AS extra, 2 AS gone\n" + Cols.Replace("columns:\n", "columns:\n  - {name: gone, type: INTEGER, nullable: false}\n").Replace("grain: [n]", "grain: [n]"));
+            var drift = Cli("plan", "--connection", name);
+            Assert.NotEqual(0, drift.Exit);
+            Assert.Contains("returns something other than it declares", drift.Err + drift.Out);
+            Assert.Contains("column `n` is returned as another type", drift.Err + drift.Out);
+
+            Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT 1 AS m\n" + Cols);
+            var missing = Cli("plan", "--connection", name);
+            Assert.NotEqual(0, missing.Exit);
+            Assert.Contains("column `n` is not returned", missing.Err + missing.Out);
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 }

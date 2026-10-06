@@ -219,6 +219,40 @@
               "definition_hash": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
+              },
+              "native": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "enum": [
+                      "select",
+                      "command"
+                    ]
+                  },
+                  "connections": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "text_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "reads": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "access",
+                  "connections",
+                  "text_hash",
+                  "reads"
+                ]
               }
             },
             "required": [
@@ -668,6 +702,7 @@
                 "enum": [
                   "model",
                   "source",
+                  "native",
                   "unknown"
                 ]
               }
@@ -943,6 +978,40 @@
             "type": "string"
           },
           "description": "Models whose query reads this table, across the whole project."
+        },
+        "native": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "enum": [
+                "select",
+                "command"
+              ]
+            },
+            "connections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "text_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "reads": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "access",
+            "connections",
+            "text_hash",
+            "reads"
+          ]
         }
       },
       "required": [

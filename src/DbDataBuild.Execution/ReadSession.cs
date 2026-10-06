@@ -66,6 +66,43 @@ public sealed class ReadSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// The columns a SELECT would return, asked of the engine without running it (the driver's schema-only mode: `sp_describe_first_result_set` on SQL Server, a parse-and-describe on PostgreSQL). Guarded like
+    /// every read. Null when the engine cannot say (dynamic SQL, a temporary table); the caller says it was not checked.
+    /// </summary>
+    public async Task<IReadOnlyList<DbDataBuild.State.ColumnShape>?> DescribeAsync(string sql, string engine, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
+    {
+        if (ReadGuard.Check(sql) is { } refused) throw new GateRefusedException(refused);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        foreach (var p in parameters ?? [])
+        {
+            var dp = cmd.CreateParameter();
+            dp.ParameterName = p.Name.StartsWith('@') ? p.Name : "@" + p.Name;
+            dp.DbType = p.Type;
+            dp.Value = p.Value ?? DBNull.Value;
+            cmd.Parameters.Add(dp);
+        }
+        try
+        {
+            await using var rd = await cmd.ExecuteReaderAsync(System.Data.CommandBehavior.SchemaOnly, ct);
+            var postgres = engine == "postgres";
+            var columns = new List<DbDataBuild.State.ColumnShape>();
+            foreach (var c in await rd.GetColumnSchemaAsync(ct))
+            {
+                var type = (c.DataTypeName ?? "").ToLowerInvariant();
+                if (type.Length == 0) return null;
+                var text = type is "char" or "varchar" or "nchar" or "nvarchar" or "character varying" or "character" or "bpchar";
+                var numeric = type is "decimal" or "numeric";
+                var temporal = type.StartsWith("timestamp") || type is "datetime2" or "time" or "datetimeoffset";
+                columns.Add(new(c.ColumnName, type, text && c.ColumnSize is > 0 and < int.MaxValue ? c.ColumnSize : null, numeric ? c.NumericPrecision : null,
+                    numeric || temporal ? c.NumericScale : null, c.AllowDBNull != false, null));
+            }
+            return columns;
+        }
+        catch (DbException) { return null; }
+    }
+
+    /// <summary>
     /// Runs a **native command** (a call that returns rows: `EXEC proc @x = @p`, `CALL proc(@p)`) on the read login and streams its first result set. It is not a SELECT, so the read guard does not apply; what
     /// holds it read-only is the login's permissions and the transaction it runs in, which is **rolled back** when the stream is disposed (PostgreSQL's read login is also read-only at the session level).
     /// Only a connection that allows native commands is asked to (the caller checks).

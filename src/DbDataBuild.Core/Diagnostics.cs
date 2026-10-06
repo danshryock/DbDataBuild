@@ -153,6 +153,10 @@ public static class DiagnosticCatalog
         "every table a query reads exists on the connection the model is built on: a mapped model or a model built there, or a copy of the table to that connection",
         "Copy the table to the model's connection (`kind: {type: copy, from: ...}`) and read the copy, or build the model on the connection where the table is.",
         "A query runs on one connection and never reaches across to another; moving rows between connections is a copy. A model that reads a table declared (or built) only on other connections would fail when it runs, so it is refused when the project is checked.");
+    public static readonly DiagnosticDescriptor NativeReadsNotDeclared = N("233", "A native model does not say what it reads",
+        "a `reads:` list on the native model naming the tables its text reads (`reads: [dbo.orders, dbo.customers]`)",
+        "Add `reads:` to the model's definition, listing the models or mapped tables the native text reads. It is not checked against the text; it only places the model in the graph.",
+        "The text of a native model is the engine's own and the tool does not parse it, so without `reads:` the model has no ancestors: `graph` and `--column` impact stop at it, a selector such as `+model` does not reach what it is made from, and a model that reads it is not ordered after those tables.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
         "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
         "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
@@ -392,7 +396,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, TrackingNotConfigured,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, TrackingNotConfigured,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

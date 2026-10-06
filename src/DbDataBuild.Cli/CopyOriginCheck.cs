@@ -21,8 +21,9 @@ internal static class CopyOriginCheck
         var skipped = new HashSet<(string, string)>();
         foreach (var copy in copies)
         {
-            var declared = ctx.Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, copy.From, StringComparison.OrdinalIgnoreCase));
+            var declared = ctx.Project.Descriptors.Concat(ctx.Project.NativeModels).FirstOrDefault(d => string.Equals(d.Name, copy.From, StringComparison.OrdinalIgnoreCase));
             if (declared == null) continue;
+            if (declared.Native is { Access: NativeQuery.Command }) continue;      // a command is not described: the transfer's own check at apply is its net
             foreach (var origin in ctx.OriginsOf(copy, destination))
             {
                 var (login, missing) = LoginSettings.FromEnvironment(origin.Connection, origin.Engine, Login.Read, env);
@@ -31,7 +32,12 @@ internal static class CopyOriginCheck
                     findings.Add(new Diagnostic(DiagnosticCatalog.CopyOriginDiffers, new(copy.From ?? copy.Name, 0, 0), $"{copy.Name}: the origin `{origin.Connection}` was not checked against `{copy.From}`: {missing?.Found}") with { SeverityOverride = Severity.Note });
                     continue;
                 }
-                var differences = Task.Run(() => Differences(login, origin, declared)).GetAwaiter().GetResult();
+                var differences = declared.IsNative ? Task.Run(() => NativeShapeCheck.DifferencesAsync(ctx.Config, declared, origin.Connection, login)).GetAwaiter().GetResult() : Task.Run(() => Differences(login, origin, declared)).GetAwaiter().GetResult();
+                if (differences == null)
+                {
+                    findings.Add(new Diagnostic(DiagnosticCatalog.CopyOriginDiffers, new(copy.From ?? copy.Name, 0, 0), $"{copy.Name}: the engine on `{origin.Connection}` could not describe `{copy.From}`, so its columns were not checked.") with { SeverityOverride = Severity.Warning });
+                    continue;
+                }
                 if (differences.Count == 0) continue;
                 var text = $"{copy.Name}: `{copy.From}` on `{origin.Connection}` differs from its declaration: {string.Join("; ", differences)}.";
                 if (copy.OnMismatch == CopySlice.Skip)

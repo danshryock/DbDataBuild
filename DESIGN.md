@@ -352,8 +352,14 @@ connection (the text is that engine's dialect, never lowered or transpiled). The
   origin is the destination's connection, which is its local-copy form: the call's first result set lands in the model's table, matched to the declared columns by name (extra columns ignored). The call
   runs on the origin with the read login **inside a transaction that is rolled back**, its parameters bound. The step is **risky** (`--allow-risky`, also for a dry run, which does not run it); `apply`
   refuses a plan whose origin connection does not allow commands. An incremental copy of a command must pass the bound itself (`@watermark` in the text).
-- **Not built**: change feeds with deletes (`deleted_when`), `reads:` in the dependency graph (accepted, informational), a plan-time describe
-  of the native text's result shape (drift), `track_definition`, and a native model in the metadata documents.
+- **`reads:`** (optional list of the models or mapped tables the text reads) is how an opaque native text takes part in the graph: `graph` and its selectors (`+model`), `metadata`'s `metadata_upstream` and
+  `metadata_ancestors`, and the build order (a model reading a native select is built after the models in its `reads:`). It is not checked against the text. A native model without it gets a note (DDB-233).
+- **Plan-time describe**: `plan` asks the engine for the result shape of each native **select** it reads or copies (the driver's schema-only mode: nothing runs) and compares column names and types with the
+  declaration (DDB-230; a copy's `on_mismatch: skip` applies to a native origin too). Nullability is not compared (an engine calls every computed column nullable, so NOT NULL stays an assertion). A command
+  is not described; a text the engine cannot describe is a warning that it was not checked.
+- **Metadata**: a native model is a `source` document with a `native` block (`access`, `connections`, `text_hash`, `reads`); its `definition_hash` covers the text; an upstream entry of a model that reads one has kind
+  `native`; `graph` nodes have kind `native` and show the `reads:` behind it.
+- **Not built**: change feeds with deletes (backlog, `OPEN-ITEMS.md` L) and `track_definition` (which routine to hash and where to keep the baseline are undecided).
 
 ### 6.6 Load operations: paired with targets, committed, parameterized
 

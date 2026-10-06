@@ -320,7 +320,7 @@ public static class ProjectValidator
             Problem($"a native command runs a procedure, which can write, so the connection must allow it: `connections.{connections[0]}.allow_native_commands: true` (the read login's permissions are what keeps it read-only).");
         else if (native.Access == NativeQuery.Select && config.EngineOf(connections[0]) is "sqlserver" or "fabric" && native.Text.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
             Problem("a T-SQL native select starts with SELECT: a WITH cannot sit inside the derived table it is inlined as. Wrap the common table expression in a table-valued function.");
-        var withParameters = new NativeQuery(native.Access, native.Text, native.Reads, native.Parameters, native.Line)
+        var withParameters = new NativeQuery(native.Access, native.Text, native.Reads, native.Parameters, native.Line, file)
         {
             ProjectParameters = project,
             ConnectionParameterOverrides = overrides.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, ParameterValue>)kv.Value, StringComparer.Ordinal),

@@ -72,6 +72,22 @@ internal sealed class ProjectContext
     /// <summary>The targets a model is built for: its own `connections:`, else the project default.</summary>
     public IReadOnlyList<string> TargetsOf(ModelDefinition model) => model.Targets ?? Config.DefaultConnections;
 
+    /// <summary>
+    /// What a query reads for ordering: the tables it names, and for each native model among them the tables that model declares under `reads:` (the native text is opaque, so the declaration is all the
+    /// tool knows), so a model that reads a native select is built after the models inside it.
+    /// </summary>
+    public IReadOnlyList<string> WithNativeReads(IEnumerable<string> bases)
+    {
+        var result = new List<string>();
+        foreach (var b in bases)
+        {
+            result.Add(b);
+            if (Project.NativeModels.FirstOrDefault(n => string.Equals(n.Name, b, StringComparison.OrdinalIgnoreCase)) is { Native: { } native })
+                result.AddRange(native.Reads);
+        }
+        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     private DependencyGraph? graph;
 
     /// <summary>Which tables each model reads, from parsing the queries (names only; no DuckDB, no target).</summary>

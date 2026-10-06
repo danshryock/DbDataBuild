@@ -132,6 +132,7 @@ internal sealed class PlanningSession
         var copyDefinitions = mine.Select(m => m.Source.Definition).Where(d => d.IsCopy && !d.LocalCopy).ToList();
         var originCheck = copyDefinitions.Count == 0 ? new CopyOriginCheck.Result([], new HashSet<(string, string)>()) : CopyOriginCheck.Run(ctx, copyDefinitions, target, env);
         findings.AddRange(originCheck.Findings);
+        findings.AddRange(NativeShapeCheck.Run(ctx, mine.SelectMany(m => QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName) ?? []), target, env));
 
         var renderedOps = new List<RenderedOperation>();
         foreach (var m in mine)
@@ -160,7 +161,7 @@ internal sealed class PlanningSession
         {
             var hash = AstHasher.Hash(m.Sql).Hash ?? "";
             // a copy reads its staging table, which the plan's own transfer step creates: it has no base table to wait for
-            var bases = m.Source.Definition is { IsCopy: true, LocalCopy: false } ? [] : QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName).ToList() ?? [];
+            var bases = m.Source.Definition is { IsCopy: true, LocalCopy: false } ? [] : ctx.WithNativeReads(QueryAnalyzer.Analyze(m.Sql).Facts?.BaseTables.Select(t => t.QualifiedName) ?? []);
             // views are transpiled from the lowered query too (errors were reported in the preflight, so a failed lowering here is not reachable)
             var body = ctx.Lowering.Enabled && ctx.Lowering.Lower(m.Source, m.Sql, m.Source.QueryParameterList(root, ctx.Config)).Model is { } lowered ? lowered.Sql : m.Sql;
             return new PlannedModel(m.Source.Definition, body, m.Source.QueryFile, hash, bases, HookLoader.Load(m.Source, ctx.Config, target, root, new List<Diagnostic>()), ctx.OriginsOf(m.Source.Definition, target).Where(o => !originCheck.Skipped.Contains((m.Source.Definition.Name, o.Connection))).ToList(), Merge(m.Source.ParametersFor(ctx.Config, target), ctx.Lowering.NativeValuesFor(m.Sql, target)), ctx.Lowering.NativeUsesFor(m.Sql));

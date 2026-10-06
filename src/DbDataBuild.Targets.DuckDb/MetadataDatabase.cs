@@ -40,12 +40,15 @@ FROM metadata_current m WHERE m.kind = 'model';
 
 CREATE VIEW metadata_sources AS
 SELECT m.subject AS source, CAST(m.document->'grain' AS VARCHAR[]) AS grain, m.document->>'file' AS file, m.document->>'definition_hash' AS definition_hash,
-  CAST(m.document->'consumers' AS VARCHAR[]) AS consumers, json_array_length(m.document->'columns') AS column_count
+  CAST(m.document->'consumers' AS VARCHAR[]) AS consumers, json_array_length(m.document->'columns') AS column_count,
+  m.document->'native'->>'access' AS native_access, CAST(m.document->'native'->'reads' AS VARCHAR[]) AS native_reads
 FROM metadata_current m WHERE m.kind = 'source';
 
 CREATE VIEW metadata_upstream AS
 SELECT m.subject AS model, u->>'name' AS upstream, u->>'kind' AS upstream_kind
-FROM metadata_current m, unnest(CAST(m.document->'upstream' AS JSON[])) AS t(u) WHERE m.kind = 'model';
+FROM metadata_current m, unnest(CAST(m.document->'upstream' AS JSON[])) AS t(u) WHERE m.kind = 'model'
+UNION ALL
+SELECT m.subject, r, 'source' FROM metadata_current m, unnest(CAST(m.document->'native'->'reads' AS VARCHAR[])) AS t(r) WHERE m.kind = 'source';
 
 CREATE VIEW metadata_ancestors AS
 WITH RECURSIVE a(model, ancestor, depth) AS (
