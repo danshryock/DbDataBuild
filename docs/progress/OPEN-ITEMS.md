@@ -106,3 +106,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 
 - Copies (progress 71): fan-in from several origin connections, incremental copies with a watermark on the origin, a plan-time check that the origin still has the declared shape, a throughput test (the bulk route measured 190k rows/s), types the logical types do not cover.
+
+## L. Backlog: change feeds (2026-10-06)
+
+- **Change feeds** (native models over `CHANGETABLE`, PostgreSQL change capture and the like, with deletes applied through `deleted_when`) are **parked**: the design is incomplete. Known from `docs/research/native-queries.md`: a feed is a native model used as a copy origin; slot-consuming feeds (logical decoding, where reading changes engine state) are refused in a first version, perhaps later `access: command` with an explicit `consumes: true`; today an incremental copy never sees origin deletes. Undecided: the `deleted_when` syntax and meaning, where a feed's own position (a sync version, an LSN) is kept in place of a column watermark, and ordering and replay safety. Nothing is built.
