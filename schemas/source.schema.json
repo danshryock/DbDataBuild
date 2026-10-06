@@ -1,19 +1,48 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "source.schema.json",
-  "title": "DbDataBuild source descriptor",
-  "description": "A committed schema export of an upstream table that is not a model (sources/<schema>/<table>.yml). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. This schema is for editors; `dbdatabuild validate` applies the same rules with diagnostic codes.",
+  "title": "DbDataBuild mapped model",
+  "description": "A mapped model: the declaration of a table that exists and that the tool does not build (models/<schema>/<table>.yml with `kind: {type: mapped}` and no .sql). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. `indexes` and `foreign_keys` are what the table has, as exported by `dbdatabuild import`; the tool reads them (metadata, advice) and never creates them. In an editor this applies to a file that says `kind: {type: mapped}` itself (model.schema.json hands such files to this schema); a file that gets its kind from a folder's _dbdatabuild.yml is read as a model definition.",
   "type": "object",
   "additionalProperties": false,
+  "patternProperties": {
+    "^(connections|kind)[=+-]$": {
+      "description": "A suffix on a setting that inherits from the project files above: `key=` replaces what was inherited, `key-` removes the listed items, `key+` merges (the default)."
+    }
+  },
   "required": [
     "name",
+    "kind",
     "columns"
   ],
   "properties": {
     "name": {
-      "description": "Schema-qualified table name. Must equal the path under sources/ with '/' replaced by '.' (sources/staging/orders.yml is staging.orders).",
+      "description": "Schema-qualified table name. Must equal the path under models/ with '/' replaced by '.' (models/staging/orders.yml is staging.orders).",
       "type": "string",
       "minLength": 1
+    },
+    "kind": {
+      "description": "Always `{type: mapped}`: a mapped model builds nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "mapped"
+        }
+      }
+    },
+    "connections": {
+      "description": "The connections the table exists on. Without it, the project's default connections. A list adds to what the project files above the model give; write `connections=` to replace it.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+      }
     },
     "grain": {
       "description": "Columns that uniquely identify a row. Optional; used to propose grain candidates for models built on this table.",

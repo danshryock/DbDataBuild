@@ -25,21 +25,28 @@ public sealed record ProjectValidationResult(
 public static class ProjectValidator
 {
     public const string ModelsDir = "models";
-    public const string SourcesDir = "sources";
+
+    /// <summary>The folder `sources/` held the descriptors of tables the tool does not build, before they became **mapped** models in `models/`.</summary>
+    public const string RetiredSourcesDir = "sources";
 
     public static ProjectValidationResult Validate(string projectRoot, ProjectConfig? config = null)
     {
         var diags = new List<Diagnostic>();
+        var effectiveConfig = config ?? ProjectConfigLoader.LoadFromProject(projectRoot, new List<Diagnostic>());
         // the connections a model may name come from the project's configuration (a problem in the configuration itself is reported where the configuration is loaded)
-        var connections = (config ?? ProjectConfigLoader.LoadFromProject(projectRoot, new List<Diagnostic>())).Connections.Keys.ToHashSet(StringComparer.Ordinal);
+        var connections = effectiveConfig.Connections.Keys.ToHashSet(StringComparer.Ordinal);
         var models = new List<ModelSource>();
+        var descriptors = new List<SourceDescriptor>();
+        if (Directory.Exists(Path.Combine(projectRoot, RetiredSourcesDir)))
+            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(RetiredSourcesDir, 0, 0),
+                $"`{RetiredSourcesDir}/` is no longer read: the tables the tool does not build are mapped models now.",
+                Fix: $"Move each `{RetiredSourcesDir}/<schema>/<table>.yml` to `{ModelsDir}/<schema>/<table>.yml` and add `kind: {{type: mapped}}` (or set it once in a folder's `{ProductInfo.FolderConfigFile}`)."));
         var modelsRoot = Path.Combine(projectRoot, ModelsDir);
         if (!Directory.Exists(modelsRoot))
         {
-            // the sources still load: `seed` and `import-sources` need them in a project that has no models yet
             diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(ModelsDir, 0, 0),
                 $"Directory `{ModelsDir}/` was not found under {projectRoot}.", Fix: $"Create `{ModelsDir}/` or run from the project root."));
-            return new(models, diags, LoadSources(projectRoot, diags));
+            return new(models, diags, descriptors);
         }
 
         var files = Directory.EnumerateFiles(modelsRoot, "*.*", SearchOption.AllDirectories)
@@ -50,36 +57,53 @@ public static class ProjectValidator
             .ToList();
         var set = files.ToHashSet(StringComparer.Ordinal);
         var folders = new FolderLayers(projectRoot, diags);
-        var effectiveConfig = config ?? ProjectConfigLoader.LoadFromProject(projectRoot, new List<Diagnostic>());
+        var mappedStems = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var file in files)
+        foreach (var file in files.Where(f => f.EndsWith(".yml", StringComparison.Ordinal)))
         {
-            var stem = file[..file.LastIndexOf('.')];
-            if (file.EndsWith(".sql", StringComparison.Ordinal))
-            {
-                if (!set.Contains(stem + ".yml"))
-                    diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0),
-                        $"`{file}` has no definition file `{stem}.yml`.",
-                        Fix: $"Run `{ProductInfo.Cli} define {file}`."));
-                continue;
-            }
-            if (!set.Contains(stem + ".sql"))
-                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0),
-                    $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
-
+            var stem = file[..^".yml".Length];
             var expected = stem[(ModelsDir.Length + 1)..].Replace('/', '.');
             var text = File.ReadAllText(Path.Combine(projectRoot, file));
             var above = new List<YamlLayer>();
             if (effectiveConfig.Defaults != null) above.Add(new YamlLayer(ProductInfo.ConfigFile, effectiveConfig.Defaults));
             above.AddRange(folders.Above(file));
-            MergedYaml? merged = null;
-            var def = ModelDefinitionLoader.Load(text, file, expected, diags, connections, above, m => merged = m);
-            if (def != null) models.Add(new ModelSource(def, file, stem + ".sql") { Inherited = merged == null ? [] : Inherited(merged, file) });
+
+            // the kind decides what the file is, and the kind may come from a folder: so the file is merged first
+            var before = diags.Count;
+            var root = StrictYamlReader.Read(text, file, diags);
+            if (root is YamlMapping own)
+            {
+                if (diags.Count > before) continue;
+                var merged = YamlMerge.Merge([.. above, new YamlLayer(file, own)], ModelDefinitionLoader.LayeredKeys, diags);
+                if (diags.Count > before) continue;
+                if (((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == SourceDescriptorLoader.MappedKind)
+                {
+                    mappedStems.Add(stem);
+                    if (SourceDescriptorLoader.LoadMerged(merged, file, expected, diags, connections) is { } mapped) descriptors.Add(mapped);
+                    continue;
+                }
+                if (!set.Contains(stem + ".sql"))
+                    diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
+                if (ModelDefinitionLoader.LoadMerged(merged, file, expected, diags, connections) is { } def)
+                    models.Add(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file) });
+                continue;
+            }
+            // empty, damaged or not a mapping: the loader says what is wrong with it, once
+            diags.RemoveRange(before, diags.Count - before);
+            if (!set.Contains(stem + ".sql"))
+                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
+            ModelDefinitionLoader.Load(text, file, expected, diags, connections);
         }
 
-        var descriptors = LoadSources(projectRoot, diags);
-        foreach (var clash in descriptors.Select(d => d.Name).Intersect(models.Select(m => m.Definition.Name), StringComparer.OrdinalIgnoreCase))
-            diags.Add(new Diagnostic(DiagnosticCatalog.DuplicateKey, new(SourcesDir, 0, 0), $"`{clash}` is defined as both a source and a model."));
+        foreach (var file in files.Where(f => f.EndsWith(".sql", StringComparison.Ordinal)))
+        {
+            var stem = file[..^".sql".Length];
+            if (mappedStems.Contains(stem))
+                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{stem}.yml` is a mapped model, which is not built, so `{file}` has no use.", Fix: $"Remove `{file}`, or give `{stem}.yml` a kind that builds."));
+            else if (!set.Contains(stem + ".yml"))
+                diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no definition file `{stem}.yml`.", Fix: $"Run `{ProductInfo.Cli} define {file}`."));
+        }
+
         return new(models, diags, descriptors);
     }
 
@@ -123,20 +147,5 @@ public static class ProjectValidator
                 diags.Add(new Diagnostic(DiagnosticCatalog.UnknownKey, new(file, e.Key.Line, e.Key.Column), $"Unknown key `{e.Key.Value}` in `defaults`.", $"Keys: {string.Join(", ", ModelDefinitionLoader.LayeredKeys.Order(StringComparer.Ordinal))}."));
             return diags.Count > before ? null : new YamlLayer(file, defaults);
         }
-    }
-
-    private static List<SourceDescriptor> LoadSources(string projectRoot, List<Diagnostic> diags)
-    {
-        var result = new List<SourceDescriptor>();
-        var dir = Path.Combine(projectRoot, SourcesDir);
-        if (!Directory.Exists(dir)) return result;     // sources are optional: a project may build only from models
-        var files = Directory.EnumerateFiles(dir, "*.yml", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(projectRoot, f).Replace('\\', '/')).OrderBy(f => f, StringComparer.Ordinal);
-        foreach (var file in files)
-        {
-            var expected = file[(SourcesDir.Length + 1)..^".yml".Length].Replace('/', '.');
-            if (SourceDescriptorLoader.Load(File.ReadAllText(Path.Combine(projectRoot, file)), file, expected, diags) is { } d) result.Add(d);
-        }
-        return result;
     }
 }

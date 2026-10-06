@@ -26,7 +26,7 @@ public static class SeedRun
 
         var bySource = sources.ToDictionary(s => s.Name, StringComparer.OrdinalIgnoreCase);
         foreach (var s in seeds.Seeds.Where(s => !bySource.ContainsKey(s.Name)))
-            throw new SampleException($"{s.File} is a seed for `{s.Name}`, which is not a source of the project (there is no sources/{s.Name.Replace('.', '/')}.yml).");
+            throw new SampleException($"{s.File} is a seed for `{s.Name}`, which is not a mapped model of the project (there is no models/{s.Name.Replace('.', '/')}.yml with kind: {{type: mapped}}).");
 
         var order = Order(seeds, only);
         var loaded = new List<SeededTable>();

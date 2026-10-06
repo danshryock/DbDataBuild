@@ -101,7 +101,7 @@ public static class DiagnosticCatalog
 
     public static readonly DiagnosticDescriptor UpstreamNotFound = E("218", "Upstream table not found",
         "Every table a model queries is another model or a source descriptor, named schema.table.",
-        "Add sources/<schema>/<table>.yml for it, or define the model that produces it.",
+        "Add a mapped model models/<schema>/<table>.yml for it, or define the model that produces it.",
         "A model's declared schema is checked against an empty DuckDB schema built from its upstream tables' declared columns, so each one must be declared somewhere.");
     public static readonly DiagnosticDescriptor QueryNotDescribable = E("219", "DuckDB cannot describe the model query",
         "A query DuckDB can bind against the declared upstream columns.",
@@ -134,7 +134,7 @@ public static class DiagnosticCatalog
         "Declare the column by hand in the source descriptor with the type a model should see (`VARCHAR` for text), and `import-sources` keeps it. Or leave it out if no model reads it.",
         "A source descriptor describes a table to DuckDB so models over it can be bound offline. A column whose native type has no representation as a logical type (geography, intervals, arrays, user types) is left out of the generated descriptor rather than guessed at: a wrong type would flow into every model that selects it. Unlimited text is not one of them: it is a bare VARCHAR. A column you declared yourself in the descriptor is kept as written.");
     public static readonly DiagnosticDescriptor SourceOutOfSync = W("227", "A source descriptor differs from the table it describes",
-        "a committed `sources/<schema>/<table>.yml` with the columns, types and nullability the table has now",
+        "a committed mapped model `models/<schema>/<table>.yml` with the columns, types and nullability the table has now",
         $"Run `{ProductInfo.Cli} import-sources --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} define --check` to see which models are affected.",
         "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `import-sources --check` makes the difference a finding for CI; it needs the read login.");
     public static readonly DiagnosticDescriptor RewriteNotOptional = E("229", "A rewrite cannot be turned off",
@@ -142,9 +142,9 @@ public static class DiagnosticCatalog
         "Remove the name from `disable`, or take the target out of the model's `targets`. `dbdatabuild matrix --rewrites` lists every rewrite and where each is required.",
         "Some rewrites are what makes a query valid on an engine (SQL Server has no LPAD, PostgreSQL's round takes no double). Turning one off would send the engine a statement it rejects, so the tool refuses before it renders. The rewrites that only keep an engine's answer equal to DuckDB's (a trailing space counted, a week counted) can be turned off.");
     public static readonly DiagnosticDescriptor SourceNotImportable = W("228", "A table cannot be imported as a source",
-        "a table or view whose schema and table names can be a path (`sources/<schema>/<table>.yml`), or a descriptor whose table exists",
+        "a table or view whose schema and table names can be a path (`models/<schema>/<table>.yml`), or a descriptor whose table exists",
         "Rename the object, or write the descriptor by hand under a name the project can use. If a descriptor names a table that no longer exists, delete the descriptor or restore the table.",
-        "A descriptor's name is its path under `sources/` with `/` replaced by `.`, so a dot, slash or backslash in a schema or table name cannot be represented. A committed descriptor whose table is not found in its schema is reported and left alone: the tool never deletes a file you may still need.");
+        "A descriptor's name is its path under `models/` with `/` replaced by `.`, so a dot, slash or backslash in a schema or table name cannot be represented. A committed descriptor whose table is not found in its schema is reported and left alone: the tool never deletes a file you may still need.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
         "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",

@@ -8,7 +8,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild import-sources` (effect: target read-only; with --write it also writes `sources/` files). Reads the columns, types, nullability and primary key of tables and views in the
+/// `dbdatabuild import-sources` (effect: target read-only; with --write it also writes mapped models under `models/`). Reads the columns, types, nullability and primary key of tables and views in the
 /// target through the read login and exports them as source descriptors (DESIGN.md 6.5.1), so models over those tables bind offline against what the tables really are. It never
 /// runs a query against the data and never changes the target. Without arguments it refreshes the descriptors the project already has.
 /// The live table wins for columns, types and nullability; a committed grain and a column the catalog cannot type are kept (SourceImport).
@@ -37,7 +37,7 @@ internal static class ImportSourcesCommand
         {
             if (committed.Count == 0)
             {
-                error.WriteLine($"The project has no source descriptors yet. Name what to import, for example `{ProductInfo.Cli} {spec.Name} staging.*` or `{ProductInfo.Cli} {spec.Name} sales.orders`.");
+                error.WriteLine($"The project has no mapped models yet. Name what to import, for example `{ProductInfo.Cli} {spec.Name} staging.*` or `{ProductInfo.Cli} {spec.Name} sales.orders`.");
                 return CliApp.ExitUsage;
             }
             foreach (var n in committed.Keys) { var (s, t) = Split(n)!.Value; wanted.Add((Glob(s), Glob(t), s)); }
@@ -49,7 +49,7 @@ internal static class ImportSourcesCommand
                 wanted.Add((Glob(st.Schema), Glob(st.Table), st.Schema.AsSpan().IndexOfAny('*', '?') < 0 ? st.Schema : null));
             }
 
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes sources/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes models/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var rows = new List<Row>();
@@ -77,11 +77,11 @@ internal static class ImportSourcesCommand
                         var live = SourceImport.Describe(engine, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name));
                         if (live.File == null)
                         {
-                            diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under sources/."));
+                            diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under models/."));
                             skipped.Add(new(qualified, "its name cannot be a file name"));
                             continue;
                         }
-                        rows.Add(Compare(root, live, committed.GetValueOrDefault(qualified), diags));
+                        rows.Add(Compare(root, target, live, committed.GetValueOrDefault(qualified), diags));
                     }
                 }
                 // descriptors the project has for tables the target does not show (in the schemas searched)
@@ -90,7 +90,7 @@ internal static class ImportSourcesCommand
                     var (s, _) = Split(d.Name)!.Value;
                     if (seen.Contains(d.Name) || models.Contains(d.Name)) continue;
                     var file = SourceDescriptorWriter.PathFor(s, d.Name[(s.Length + 1)..]);
-                    diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(file ?? d.Name, 0, 0), $"`{d.Name}` has a source descriptor, but {target} shows no table or view of that name.", Fix: "Delete the descriptor or restore the table. The tool never deletes it for you."));
+                    diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(file ?? d.Name, 0, 0), $"`{d.Name}` has a mapped model, but {target} shows no table or view of that name.", Fix: "Delete the descriptor or restore the table. The tool never deletes it for you."));
                     rows.Add(new Row(d.Name, "unknown", file, "stale", [], null, d, null, null, null));
                 }
             }).GetAwaiter().GetResult();
@@ -138,12 +138,12 @@ internal static class ImportSourcesCommand
 
         if (check)
         {
-            if (changed.Count == 0 && stale == 0) { output.WriteLine($"{rows.Count} source descriptor(s) match {target}."); return CliApp.ExitOk; }
+            if (changed.Count == 0 && stale == 0) { output.WriteLine($"{rows.Count} mapped model(s) match {target}."); return CliApp.ExitOk; }
             foreach (var r in changed) error.Diag(new Diagnostic(DiagnosticCatalog.SourceOutOfSync, new(r.File!, 0, 0), $"`{r.File}` differs from {target}: {string.Join("; ", r.Changes.Select(c => c.Column == null ? c.Kind.ToString().ToLowerInvariant() : $"{c.Kind.ToString().ToLowerInvariant()} {c.Column} ({c.Detail})"))}."));
             output.WriteLine($"{changed.Count} descriptor(s) differ from {target}{(stale > 0 ? $", {stale} describe(s) no table" : "")}.");
             return CliApp.ExitFindings;
         }
-        if (changed.Count == 0) { output.WriteLine($"{rows.Count} source descriptor(s) already match {target}; nothing to write."); return CliApp.ExitOk; }
+        if (changed.Count == 0) { output.WriteLine($"{rows.Count} mapped model(s) already match {target}; nothing to write."); return CliApp.ExitOk; }
         if (!write) { output.WriteLine($"{changed.Count} descriptor(s) would be written. Review the diff above, then run again with --write."); return CliApp.ExitOk; }
 
         var failed = false;
@@ -161,7 +161,7 @@ internal static class ImportSourcesCommand
         return failed ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
-    private static Row Compare(string root, ImportedObject live, SourceDescriptor? committed, List<Diagnostic> diags)
+    private static Row Compare(string root, string connection, ImportedObject live, SourceDescriptor? committed, List<Diagnostic> diags)
     {
         var path = Path.Combine(root, live.File!);
         var exists = File.Exists(path);
@@ -169,7 +169,7 @@ internal static class ImportSourcesCommand
         if (exists && committed == null)
         {
             // a file is there that did not load: a damaged descriptor is never overwritten unseen
-            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(live.File!, 0, 0), $"`{live.File}` exists but is not a valid source descriptor, so it was left alone.", Fix: $"Fix it (`{ProductInfo.Cli} validate` shows what is wrong), or delete it and import again."));
+            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(live.File!, 0, 0), $"`{live.File}` exists but is not a valid mapped model, so it was left alone.", Fix: $"Fix it (`{ProductInfo.Cli} validate` shows what is wrong), or delete it and import again."));
             return new Row(live.QualifiedName, kind, live.File, "invalid", [], live, null, null, null, null);
         }
         foreach (var c in live.Columns.Where(c => c.LogicalType == null))
@@ -178,7 +178,8 @@ internal static class ImportSourcesCommand
             diags.Add(new Diagnostic(DiagnosticCatalog.SourceColumnNoLogicalType, new(live.File!, 0, 0),
                 $"`{live.QualifiedName}.{c.Name}` is {c.NativeType}: {c.Reason}. {(kept ? "The committed declaration was kept." : "The column was left out of the descriptor.")}"));
         }
-        var descriptor = SourceImport.ToDescriptor(live, committed);
+        // a new mapped model says which connection it exists on; a refresh keeps what the file already said
+        var descriptor = SourceImport.ToDescriptor(live, committed) with { DeclaredConnections = committed == null ? [connection] : committed.Connections };
         var changes = SourceImport.Compare(committed, descriptor);
         var oldText = exists ? File.ReadAllText(path) : null;
         var hash = exists ? DefinitionFile.Hash(File.ReadAllBytes(path)) : null;

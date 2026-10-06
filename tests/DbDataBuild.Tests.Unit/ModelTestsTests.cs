@@ -9,16 +9,16 @@ namespace DbDataBuild.Tests.Unit;
 /// <summary>`test` for models: `tests/models/*.yml`, given rows and what the query must return (DESIGN.md 9.8).</summary>
 public class ModelTestsTests
 {
-    private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\n";
+    private const string Orders = "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\n";
     private const string Fct = "name: marts.fct_orders\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note2, type: VARCHAR}\n";
     private const string FctSql = "SELECT o.order_id, o.amount, o.note || '!' AS note2 FROM staging.orders o WHERE o.order_id > 0\n";
 
     private static string Project(params (string Path, string Text)[] tests)
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n");
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Orders);
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Orders);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), Fct);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), FctSql);
         foreach (var (path, text) in tests)

@@ -7,7 +7,7 @@ namespace DbDataBuild.Tests.Unit;
 
 public class RenderCommandTests
 {
-    private const string Orders = "name: staging.orders\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: order_date, type: DATE, nullable: false}\n";
+    private const string Orders = "name: staging.orders\nkind:\n  type: mapped\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: order_date, type: DATE, nullable: false}\n";
 
     private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\nconnections: [sqlserver, postgres]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string FctSql = "SELECT o.order_id, o.amount FROM staging.orders o\n";
@@ -15,8 +15,8 @@ public class RenderCommandTests
     private static string Project(string? config = "defaults: {connections: [sqlserver]}\n")
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Orders);
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Orders);
         if (config != null) File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
         return dir;
     }

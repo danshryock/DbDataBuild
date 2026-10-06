@@ -116,8 +116,8 @@ public class IndexAdvisorTests
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/t.yml"), "name: staging.t\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: event_ts, type: TIMESTAMP}\n");
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/t.yml"), "name: staging.t\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: event_ts, type: TIMESTAMP}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), modelYaml);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT order_id, customer_id, event_ts FROM staging.t");
         return dir;

@@ -132,5 +132,5 @@ internal sealed class ProjectContext
         return found.Select(s => s.Definition.Name).ToList();
     }
 
-    private static string ModelSourcePath(string name) => $"{ProjectValidator.SourcesDir}/{name.Replace('.', '/')}.yml";
+    private static string ModelSourcePath(string name) => $"{ProjectValidator.ModelsDir}/{name.Replace('.', '/')}.yml";
 }

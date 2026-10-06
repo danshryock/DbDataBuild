@@ -595,3 +595,11 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Provenance**: a diagnostic about an inherited setting names the file and line it is in; `validate` prints what each model inherited and from where; the model metadata document has `inherited`. A folder file is fuzzed with the other inputs.
 - **Verified**: unit suite (1546). Real engines not needed (no SQL changes); the conformance groups were last run at entry 67.
 - **Left**: parameters, tags, `schema` as a setting, project-wide sections in a folder file (a folder file may only hold `defaults:`), `define` ignores inheritance when it reads an existing definition, and the effective settings are shown per model only where something was inherited.
+
+## 69. Mapped models replace sources
+
+- **Built** (`DESIGN.md` 6.5): a table that exists and that the tool does not build is a **mapped model**: `models/<schema>/<table>.yml` with `kind: {type: mapped}` and no `.sql`. `sources/` is no longer read; if it exists, `validate` says where its files go (`models/<schema>/<table>.yml`, plus the kind). The file may get `kind` and `connections` from a folder's `_dbdatabuild.yml`, so a folder named `sources` (or anything) with `defaults: {kind: {type: mapped}}` is the old layout in one line. A `.sql` beside a mapped model is an error; `define` skips mapped models (and says so when one is named). `import-sources` writes mapped models (new ones with `connections=: [<connection>]`; a refresh keeps what the file said). The templates were moved (`sources/<s>` to `models/<s>`, kind added).
+- **Editors**: `model.schema.json` hands a file that says `kind: {type: mapped}` to `source.schema.json` (if/then/else), so one glob serves both; `kind` is no longer required by the model schema (it may be inherited) but still by the loader.
+- **Not renamed yet**: the command `import-sources` (to `import`), the JSON key `sources`, the metadata document kind `dbdatabuild.source/1` and the `metadata_source*` views; the C# names.
+- **Not built**: a check that a model's connections have every mapped table it reads (`connections` of a mapped model is recorded, not enforced); that belongs with `copy`.
+- **Verified**: unit suite (1555) and all conformance groups on SQL Server 2022/2025 and PostgreSQL 17 (111 + 4 release, 2 skipped).

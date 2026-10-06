@@ -92,7 +92,7 @@ public class SourceImportTests
     {
         var shape = Shape("staging", "orders", Col("bigint", nullable: false, name: "order_id"), Col("decimal", precision: 14, scale: 2, name: "amount"), Col("text", name: "notes"));
         var live = SourceImport.Describe("sqlserver", shape, ["order_id"]);
-        Assert.Equal("sources/staging/orders.yml", live.File);
+        Assert.Equal("models/staging/orders.yml", live.File);
         var d = SourceImport.ToDescriptor(live, null);
         Assert.Equal("staging.orders", d.Name);
         Assert.Equal(["order_id"], d.Grain);
@@ -106,9 +106,9 @@ public class SourceImportTests
         var live = SourceImport.Describe("postgres", Shape("sales", "line items", Col("bigint", nullable: false, name: "id"), Col("character varying", 12, name: "Sku Code")), ["id"]);
         var d = SourceImport.ToDescriptor(live, null);
         var yaml = SourceDescriptorWriter.Yaml(d);
-        Assert.Equal("name: sales.line items\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: Sku Code\n    type: VARCHAR(12)\n", yaml);
+        Assert.Equal("name: sales.line items\nkind:\n  type: mapped\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: Sku Code\n    type: VARCHAR(12)\n", yaml);
         var diags = new List<Diagnostic>();
-        var loaded = SourceDescriptorLoader.Load(yaml, "sources/sales/line items.yml", "sales.line items", diags);
+        var loaded = SourceDescriptorLoader.Load(yaml, "models/sales/line items.yml", "sales.line items", diags);
         Assert.Empty(diags);
         Assert.Equal(d.Columns.Select(c => (c.Name, c.Type, c.Nullable)), loaded!.Columns.Select(c => (c.Name, c.Type, c.Nullable)));
         Assert.Equal(d.Grain, loaded.Grain);
@@ -165,7 +165,7 @@ public class SourceImportTests
         Assert.EndsWith("indexes:\n  - {name: IX_orders_customer, columns: [customer_id, placed], include: [notes]}\n  - {name: UQ_orders_placed, columns: [placed], unique: true}\n" +
                         "foreign_keys:\n  - {name: FK_orders_customer, columns: [customer_id], references: {table: sales.customers, columns: [id]}}\n", yaml);
         var diags = new List<Diagnostic>();
-        var loaded = SourceDescriptorLoader.Load(yaml, "sources/sales/orders.yml", "sales.orders", diags)!;
+        var loaded = SourceDescriptorLoader.Load(yaml, "models/sales/orders.yml", "sales.orders", diags)!;
         Assert.Empty(diags);
         Assert.Equal(d.Indexes.Select(i => (i.Name, i.Unique)), loaded.Indexes.Select(i => (i.Name, i.Unique)));
         Assert.Equal(d.ForeignKeys.Select(f => (f.Name, f.Table)), loaded.ForeignKeys.Select(f => (f.Name, f.Table)));
@@ -201,7 +201,7 @@ public class SourceImportTests
         Assert.Null(SourceDescriptorWriter.PathFor("sales", "a.b"));
         Assert.Null(SourceDescriptorWriter.PathFor("s/x", "t"));
         Assert.Null(SourceImport.Describe("postgres", Shape("sales", "a.b", Col("bigint")), null).File);
-        Assert.Equal("sources/sales/orders.yml", SourceDescriptorWriter.PathFor("sales", "orders"));
+        Assert.Equal("models/sales/orders.yml", SourceDescriptorWriter.PathFor("sales", "orders"));
     }
 
     // ---- the command, without a database ----
@@ -219,8 +219,8 @@ public class SourceImportTests
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         if (withSource)
         {
-            Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-            File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n");
+            Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+            File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n");
         }
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), "name: marts.fct_orders\nkind: {type: view}\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id FROM staging.orders o\n");
@@ -243,7 +243,7 @@ public class SourceImportTests
     {
         var (exit, _, err) = Run("import-sources", "--project", Project(withSource: false));
         Assert.Equal(CliApp.ExitUsage, exit);
-        Assert.Contains("no source descriptors yet", err);
+        Assert.Contains("no mapped models yet", err);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class SourceImportTests
         Assert.True(Valid(source), source.ToJsonString());
         Assert.Equal("dbdatabuild.source/1", (string?)source["schema"]);
         Assert.Equal("staging.orders", (string?)source["name"]);
-        Assert.Equal("sources/staging/orders.yml", (string?)source["file"]);
+        Assert.Equal("models/staging/orders.yml", (string?)source["file"]);
         Assert.Equal(["marts.fct_orders"], source["consumers"]!.AsArray().Select(x => (string)x!));
         Assert.Equal(["order_id"], source["grain"]!.AsArray().Select(x => (string)x!));
         Assert.Equal("staging.orders", (string?)doc["data"]!["project"]!["sources"]![0]!["name"]);

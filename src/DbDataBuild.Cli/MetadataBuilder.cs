@@ -101,9 +101,9 @@ internal static class MetadataBuilder
             foreach (var n in SourcesRead(ctx, m.Definition.Name, File.ReadAllText(Path.Combine(ctx.Root, m.QueryFile)))) result[n].Add(m.Definition.Name);
         return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
-
+    /// <summary>The path of a mapped model: `staging.orders` is `models/staging/orders.yml`.</summary>
     /// <summary>The path of a source descriptor: `staging.orders` is `sources/staging/orders.yml`.</summary>
-    public static string SourceFile(string name) => $"{ProjectValidator.SourcesDir}/{name.Replace('.', '/')}.yml";
+    public static string SourceFile(string name) => $"{ProjectValidator.ModelsDir}/{name.Replace('.', '/')}.yml";
 
     /// <summary>The metadata document of a source descriptor: what the project declares about a table it reads but does not build, and which models read it.</summary>
     public static object Source(SourceDescriptor d, IReadOnlyList<string> consumers) => new

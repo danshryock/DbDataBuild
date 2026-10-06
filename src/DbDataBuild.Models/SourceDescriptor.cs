@@ -4,13 +4,15 @@ using DbDataBuild.Models.Yaml;
 namespace DbDataBuild.Models;
 
 /// <summary>
-/// A committed schema export of an upstream table that is not a model (<c>sources/&lt;schema&gt;/&lt;table&gt;.yml</c>). Models refer to
-/// these by plain table name; <c>define</c> builds an empty DuckDB schema from them (DESIGN.md 6.5). Optional <c>grain</c> feeds
-/// grain candidates. <c>indexes</c> and <c>foreign_keys</c> are what the table has, as exported by `import-sources`; the tool reads them (metadata, advice) and never creates them.
+/// A **mapped** model: the declaration of a table that exists and that the tool does not build (<c>kind: {type: mapped}</c>, a <c>models/&lt;schema&gt;/&lt;table&gt;.yml</c> with no query). Models refer to
+/// it by plain table name; <c>define</c> builds an empty DuckDB schema from it (DESIGN.md 6.5). Optional <c>grain</c> feeds
+/// grain candidates. <c>indexes</c> and <c>foreign_keys</c> are what the table has, as exported by `import`; the tool reads them (metadata, advice) and never creates them.
 /// </summary>
+/// <param name="DeclaredConnections">The connections the table exists on (after the project files above it were merged in); null when nothing says, which is the project's default connections.</param>
 public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinition> Columns, IReadOnlyList<string> Grain,
-    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null)
+    IReadOnlyList<IndexDefinition>? DeclaredIndexes = null, IReadOnlyList<SourceForeignKey>? DeclaredForeignKeys = null, IReadOnlyList<string>? DeclaredConnections = null)
 {
+    public IReadOnlyList<string>? Connections => DeclaredConnections;
     public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];
     public IReadOnlyList<SourceForeignKey> ForeignKeys => DeclaredForeignKeys ?? [];
 }
@@ -20,27 +22,46 @@ public sealed record SourceForeignKey(string Name, IReadOnlyList<string> Columns
 
 public static class SourceDescriptorLoader
 {
-    private static readonly string[] Keys = ["name", "columns", "grain", "indexes", "foreign_keys"];
+    private static readonly string[] Keys = ["name", "kind", "connections", "columns", "grain", "indexes", "foreign_keys"];
 
-    public static SourceDescriptor? Load(string text, string file, string? expectedName, List<Diagnostic> diags)
+    /// <summary>The kind of a model that maps an existing table: no query, nothing built, everything declared.</summary>
+    public const string MappedKind = "mapped";
+
+    /// <summary>Reads a mapped model from its own file alone (the layers above it, if any, are merged by <see cref="LoadMerged"/>).</summary>
+    public static SourceDescriptor? Load(string text, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
     {
         var before = diags.Count;
         var root = StrictYamlReader.Read(text, file, diags);
         if (root == null)
         {
-            if (diags.Count == before) diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(file, 1, 1), "The file is empty. Required keys: name, columns."));
+            if (diags.Count == before) diags.Add(new Diagnostic(DiagnosticCatalog.MissingKey, new(file, 1, 1), "The file is empty. Required keys: name, kind, columns."));
             return null;
         }
-        var result = new Reader(file, diags).Read(root, expectedName);
+        var known = connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal);
+        if (root is not YamlMapping own) { new Reader(file, diags, known).Read(root, expectedName); return null; }
+        var merged = YamlMerge.Merge([new YamlLayer(file, own)], ModelDefinitionLoader.LayeredKeys, diags);
+        return diags.Count > before ? null : LoadMerged(merged, file, expectedName, diags, known);
+    }
+
+    /// <summary>Reads a mapped model that was merged from the project files above it and its own file (`kind` and `connections` may come from a folder).</summary>
+    public static SourceDescriptor? LoadMerged(MergedYaml merged, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
+    {
+        var before = diags.Count;
+        var result = new Reader(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal)) { NodeFiles = merged.FileOf }.Read(merged.Root, expectedName);
         return diags.Count > before ? null : result;
     }
 
-    private sealed class Reader(string file, List<Diagnostic> diags) : YamlFieldReader(file, diags)
+    private sealed class Reader(string file, List<Diagnostic> diags, IReadOnlySet<string> knownConnections) : YamlFieldReader(file, diags)
     {
         public SourceDescriptor? Read(YamlNode root, string? expectedName)
         {
-            if (root is not YamlMapping top) { Add(DiagnosticCatalog.InvalidValue, root, "A source descriptor must be a mapping with `name` and `columns`."); return null; }
-            CheckKeys(top, Keys, "a source descriptor");
+            if (root is not YamlMapping top) { Add(DiagnosticCatalog.InvalidValue, root, "A mapped model must be a mapping with `name`, `kind` and `columns`."); return null; }
+            CheckKeys(top, Keys, "a mapped model");
+            if (top.Get("kind") is not YamlMapping kind || kind.Get("type") is not YamlScalar { Value: MappedKind } || kind.Entries.Count != 1)
+                Add(DiagnosticCatalog.InvalidValue, top.Get("kind") ?? top, "A mapped model's kind is `{type: mapped}` and nothing else.");
+            var connections = StringList(top, "connections", required: false, allowEmpty: false, unique: true);
+            foreach (var c in (connections ?? []).Where(c => !knownConnections.Contains(c.Value)))
+                Add(DiagnosticCatalog.InvalidValue, c, $"Unknown connection `{c.Value}`.", $"One of: {string.Join(", ", knownConnections.Order(StringComparer.Ordinal))}.");
             var name = Scalar(top, "name", required: true, at: top);
             if (name != null && expectedName != null && name.Value != expectedName)
                 Add(DiagnosticCatalog.NameMismatch, name, $"name is `{name.Value}`, but the path implies `{expectedName}`.", fix: $"Change `name:` to `{expectedName}`, or move the file.");
@@ -52,7 +73,7 @@ public static class SourceDescriptorLoader
                     Add(DiagnosticCatalog.UnknownColumnReference, g, $"grain refers to `{g.Value}`, which is not declared in `columns`.");
             var indexes = ReadIndexes(top, columns);
             var foreignKeys = ReadForeignKeys(top, columns);
-            return name == null ? null : new SourceDescriptor(name.Value, columns, grain?.Select(g => g.Value).ToList() ?? [], indexes, foreignKeys);
+            return name == null ? null : new SourceDescriptor(name.Value, columns, grain?.Select(g => g.Value).ToList() ?? [], indexes, foreignKeys, connections?.Select(c => c.Value).ToList());
         }
 
         private List<IndexDefinition> ReadIndexes(YamlMapping top, List<ColumnDefinition> columns)
@@ -127,6 +148,8 @@ public static class SourceDescriptorWriter
     {
         var sb = new System.Text.StringBuilder();
         sb.Append("name: ").Append(YamlText.Scalar(d.Name)).Append('\n');
+        sb.Append("kind:\n  type: mapped\n");
+        if (d.Connections is { Count: > 0 }) sb.Append("connections=: ").Append(YamlText.FlowList(d.Connections)).Append('\n');
         if (d.Grain.Count > 0) sb.Append("grain: ").Append(YamlText.FlowList(d.Grain)).Append('\n');
         sb.Append("columns:\n");
         foreach (var c in d.Columns)
@@ -157,10 +180,10 @@ public static class SourceDescriptorWriter
         return sb.ToString();
     }
 
-    /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `sources/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema or table name).</summary>
+    /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `models/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema or table name).</summary>
     public static string? PathFor(string schema, string table)
     {
         static bool Bad(string s) => s.Length == 0 || s.AsSpan().IndexOfAny('.', '/', '\\') >= 0 || s.Trim() != s;
-        return Bad(schema) || Bad(table) ? null : $"{ProjectValidator.SourcesDir}/{schema}/{table}.yml";
+        return Bad(schema) || Bad(table) ? null : $"{ProjectValidator.ModelsDir}/{schema}/{table}.yml";
     }
 }

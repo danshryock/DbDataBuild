@@ -73,8 +73,8 @@ public class CliTests
     {
         var dir = NewProjectDir();
         if (config != null) File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/t.yml"), "name: staging.t\ncolumns:\n  - {name: a, type: INTEGER}\n  - {name: b, type: INTEGER}\n  - {name: s, type: VARCHAR(20)}\n");
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/t.yml"), "name: staging.t\nkind:\n  type: mapped\ncolumns:\n  - {name: a, type: INTEGER}\n  - {name: b, type: INTEGER}\n  - {name: s, type: VARCHAR(20)}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("connections: [sqlserver, fabric]", $"connections: {targets}"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), sql);
         return dir;

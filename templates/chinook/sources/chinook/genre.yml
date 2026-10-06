@@ -1,5 +1,0 @@
-name: chinook.genre
-grain: [genre_id]
-columns:
-  - {name: genre_id, type: INTEGER, nullable: false}
-  - {name: name, type: "VARCHAR(40)", nullable: false}

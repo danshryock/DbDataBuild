@@ -141,7 +141,7 @@ public class InferenceTests
         Assert.Null(v2);
         var missing = Assert.Single(d2);
         Assert.Equal("DDB-218", missing.Code);
-        Assert.Contains("sources/staging/nope.yml", missing.Fix);
+        Assert.Contains("models/staging/nope.yml", missing.Fix);
 
         var (_, d3) = Run("SELECT o.nope FROM staging.orders o");
         Assert.Equal("DDB-219", Assert.Single(d3).Code);

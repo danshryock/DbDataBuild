@@ -7,16 +7,16 @@ namespace DbDataBuild.Tests.Unit;
 
 public class DefineCommandTests
 {
-    private const string Sources = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: code, type: VARCHAR(20), nullable: false}\n  - {name: order_date, type: DATE, nullable: false}\n";
-    private const string Customers = "name: staging.customers\ngrain: [customer_id]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n  - {name: name, type: VARCHAR(50)}\n";
+    private const string Sources = "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: customer_id, type: BIGINT}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: code, type: VARCHAR(20), nullable: false}\n  - {name: order_date, type: DATE, nullable: false}\n";
+    private const string Customers = "name: staging.customers\nkind:\n  type: mapped\ngrain: [customer_id]\ncolumns:\n  - {name: customer_id, type: BIGINT, nullable: false}\n  - {name: name, type: VARCHAR(50)}\n";
     private const string OrdersSql = "SELECT o.order_id, o.customer_id, o.amount FROM staging.orders o\n";
 
     private static string Project(string? config = null)
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources", "staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Sources);
-        File.WriteAllText(Path.Combine(dir, "sources/staging/customers.yml"), Customers);
+        Directory.CreateDirectory(Path.Combine(dir, "models", "staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Sources);
+        File.WriteAllText(Path.Combine(dir, "models/staging/customers.yml"), Customers);
         if (config != null) File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
         return dir;
     }
@@ -93,7 +93,7 @@ public class DefineCommandTests
         var dir = Project();
         Model(dir, "marts.fct_orders", OrdersSql);
         Assert.Equal(CliApp.ExitUsage, Define(dir, "--check", "models/nope.sql").Exit);
-        Assert.Equal(CliApp.ExitUsage, Define(dir, "--check", "sources/staging/orders.yml").Exit);
+        Assert.Equal(CliApp.ExitUsage, Define(dir, "--check", "models/staging/orders.yml").Exit);
         Assert.Equal(CliApp.ExitUsage, Define(dir, "--check", "dbdatabuild.yml").Exit);
     }
 

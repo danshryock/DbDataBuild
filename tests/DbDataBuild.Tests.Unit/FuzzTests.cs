@@ -55,7 +55,7 @@ public class FuzzTests
             - { name: grant, event: post_create, script: hooks/grant.sql }
         """;
 
-    private const string Source = "name: staging.events\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: seq, type: BIGINT, nullable: false}\n  - {name: payload, type: \"VARCHAR(100)\"}\n";
+    private const string Source = "name: staging.events\nkind:\n  type: mapped\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: seq, type: BIGINT, nullable: false}\n  - {name: payload, type: \"VARCHAR(100)\"}\n";
 
     private const string Answers = "answers:\n  - {id: Q-history-marts.fct_events.payload, answer: not_backfilled, note: \"no history\"}\n";
 
@@ -65,10 +65,10 @@ public class FuzzTests
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config ?? Config);
-        Directory.CreateDirectory(Path.Combine(dir, "sources", "staging"));
+        Directory.CreateDirectory(Path.Combine(dir, "models", "staging"));
         Directory.CreateDirectory(Path.Combine(dir, "hooks"));
         File.WriteAllText(Path.Combine(dir, "hooks", "grant.sql"), "GRANT SELECT ON marts.fct_events TO reader;\n");
-        File.WriteAllText(Path.Combine(dir, "sources", "staging", "events.yml"), source ?? Source);
+        File.WriteAllText(Path.Combine(dir, "models", "staging", "events.yml"), source ?? Source);
         File.WriteAllText(Path.Combine(dir, "models", "marts", "fct_events.yml"), model ?? (LoadRendererTests.AllOpsYaml + "\nindexes:\n  - {name: ix_seq, columns: [seq]}\nhooks:\n  - {use: standard}\n"));
         File.WriteAllText(Path.Combine(dir, "models", "marts", "fct_events.sql"), sql ?? LoadRendererTests.AllOpsSql);
         File.WriteAllText(Path.Combine(dir, "answers.yml"), Answers);

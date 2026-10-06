@@ -1,0 +1,7 @@
+name: production.product_category
+kind:
+  type: mapped
+grain: [product_category_id]
+columns:
+  - {name: product_category_id, type: INTEGER, nullable: false}
+  - {name: name, type: "VARCHAR(50)", nullable: false}

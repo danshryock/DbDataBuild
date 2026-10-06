@@ -34,7 +34,14 @@ public static class ModelDefinitionLoader
         var result = YamlMerge.Merge([.. above ?? [], new YamlLayer(file, own)], LayeredKeys, diags);
         if (diags.Count > errorsBefore) return null;
         merged?.Invoke(result);
-        var def = new Validator(file, diags, known) { NodeFiles = result.FileOf }.Validate(result.Root, expectedName);
+        return LoadMerged(result, file, expectedName, diags, known);
+    }
+
+    /// <summary>Validates a definition that was already merged from the project files above it and its own file. <paramref name="file"/> is the model's own file, for a problem that belongs to the whole definition.</summary>
+    public static ModelDefinition? LoadMerged(MergedYaml merged, string file, string? expectedName, List<Diagnostic> diags, IReadOnlySet<string>? connections = null)
+    {
+        var errorsBefore = diags.Count;
+        var def = new Validator(file, diags, connections ?? TargetNames.All.ToHashSet(StringComparer.Ordinal)) { NodeFiles = merged.FileOf }.Validate(merged.Root, expectedName);
         return diags.Count > errorsBefore ? null : def;
     }
 

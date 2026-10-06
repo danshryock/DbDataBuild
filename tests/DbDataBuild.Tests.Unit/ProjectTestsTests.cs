@@ -10,18 +10,18 @@ namespace DbDataBuild.Tests.Unit;
 /// <summary>`test`: metadata rules (DuckDB SELECTs over the metadata views, DESIGN.md 9.8).</summary>
 public class ProjectTestsTests
 {
-    private const string Orders = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\nindexes:\n  - {name: IX_orders_amount, columns: [amount], include: [note]}\nforeign_keys:\n  - {name: FK_orders_self, columns: [order_id], references: {table: staging.orders, columns: [order_id]}}\n";
+    private const string Orders = "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: VARCHAR}\nindexes:\n  - {name: IX_orders_amount, columns: [amount], include: [note]}\nforeign_keys:\n  - {name: FK_orders_self, columns: [order_id], references: {table: staging.orders, columns: [order_id]}}\n";
     private const string Fct = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note2, type: VARCHAR}\nindexes:\n  - {name: ux_fct_orders_order_id, columns: [order_id], unique: true}\nhooks:\n  - {name: grant, event: post_create, script: hooks/grant.sql}\n";
     private const string Config = "defaults: {connections: [sqlserver]}\nstring_semantics:\n  case: sensitive\n  trailing_space: ignored\n  collations:\n    default: { duckdb: NFC, sqlserver: Latin1_General_100_CS_AS }\n";
 
     private static string Project(params (string Path, string Text)[] rules)
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
         Directory.CreateDirectory(Path.Combine(dir, "hooks"));
         File.WriteAllText(Path.Combine(dir, "hooks/grant.sql"), "GRANT SELECT ON marts.fct_orders TO reader;\n");
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Config);
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Orders);
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Orders);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), Fct);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, o.amount, o.note || '!' AS note2 FROM staging.orders o\n");
         foreach (var (path, text) in rules)

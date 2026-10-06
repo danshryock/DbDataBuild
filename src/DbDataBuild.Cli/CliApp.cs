@@ -250,7 +250,7 @@ public static class CliApp
                     var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
                     var impProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var impTarget = new Option<string?>("--connection") { Description = "Connection to read (default: the project's only default connection)" };
-                    var impWrite = new Option<bool>("--write") { Description = "Write the new and changed descriptors under sources/ (without it the command only shows the diff)" };
+                    var impWrite = new Option<bool>("--write") { Description = "Write the new and changed mapped models under models/ (without it the command only shows the diff)" };
                     var impCheck = new Option<bool>("--check") { Description = "CI: fail if a descriptor differs from the table it describes; writes nothing" };
                     cmd.Arguments.Add(impTables); cmd.Options.Add(impProject); cmd.Options.Add(impTarget); cmd.Options.Add(impWrite); cmd.Options.Add(impCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ImportSourcesCommand.Run(spec, pr.GetValue(impProject)!.FullName, pr.GetValue(impTarget), pr.GetValue(impTables) ?? [], pr.GetValue(impWrite), pr.GetValue(impCheck), o, e, environment ?? Environment.GetEnvironmentVariable)));

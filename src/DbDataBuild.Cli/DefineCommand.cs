@@ -14,6 +14,11 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class DefineCommand
 {
+    /// <summary>A definition with no query beside it: a mapped model, whose problems `define` shows because it reads them as the tables models are written over.</summary>
+    private static bool IsMappedModelFile(string projectRoot, string file) =>
+        file.StartsWith(ProjectValidator.ModelsDir + "/", StringComparison.Ordinal) && file.EndsWith(".yml", StringComparison.Ordinal)
+        && !File.Exists(Path.Combine(projectRoot, file[..^".yml".Length] + ".sql"));
+
     public static int Run(CommandSpec spec, string projectRoot, string[] paths, FileInfo? answersFile, bool write, bool check, bool acceptInferred,
         TextWriter output, TextWriter error, TextReader input, bool interactive)
     {
@@ -39,7 +44,8 @@ internal static class DefineCommand
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
 
         // ---- choose the models ----
-        var selection = Select(projectRoot, paths, error, out var selectionProblem);
+        var mapped = project.Descriptors.Select(d => $"{ProjectValidator.ModelsDir}/{d.Name.Replace('.', '/')}").ToHashSet(StringComparer.Ordinal);
+        var selection = Select(projectRoot, paths, mapped, error, out var selectionProblem);
         if (selectionProblem) return CliApp.ExitUsage;
 
         var targets = new List<DefineTarget>();
@@ -81,7 +87,7 @@ internal static class DefineCommand
         // project-level findings worth showing: config problems and source descriptor problems
         var shown = new List<Diagnostic>();
         shown.AddRange(configDiags);
-        shown.AddRange(project.Diagnostics.Where(d => d.Location.File.StartsWith(ProjectValidator.SourcesDir + "/", StringComparison.Ordinal) || d.Location.File == ProjectValidator.SourcesDir));
+        shown.AddRange(project.Diagnostics.Where(d => d.Location.File == ProjectValidator.RetiredSourcesDir || IsMappedModelFile(projectRoot, d.Location.File)));
         shown.AddRange(problems);
         output.WriteLine($"Config: {(File.Exists(Path.Combine(projectRoot, Core.ProductInfo.ConfigFile)) ? Core.ProductInfo.ConfigFile : "built-in defaults")}; {config.Describe()}");
 
@@ -197,7 +203,7 @@ internal static class DefineCommand
     };
 
     /// <summary>The model stems (project-relative path without extension, under models/) the given paths select; all models when none are given.</summary>
-    private static List<string> Select(string projectRoot, string[] paths, TextWriter error, out bool problem)
+    private static List<string> Select(string projectRoot, string[] paths, IReadOnlySet<string> mapped, TextWriter error, out bool problem)
     {
         problem = false;
         var modelsRoot = Path.GetFullPath(Path.Combine(projectRoot, ProjectValidator.ModelsDir));
@@ -210,7 +216,9 @@ internal static class DefineCommand
 
         IEnumerable<string> StemsUnder(string dir) => Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories)
             .Where(f => f.EndsWith(".sql", StringComparison.Ordinal) || f.EndsWith(".yml", StringComparison.Ordinal))
-            .Select(f => Stem(projectRoot, f));
+            .Where(f => Path.GetFileName(f) != Core.ProductInfo.FolderConfigFile)         // a project file, not a model
+            .Select(f => Stem(projectRoot, f))
+            .Where(s => !mapped.Contains(s));                                          // a mapped model has no query to define from
 
         var stems = new SortedSet<string>(StringComparer.Ordinal);
         if (paths.Length == 0) stems.UnionWith(StemsUnder(modelsRoot));
@@ -225,7 +233,12 @@ internal static class DefineCommand
                 continue;
             }
             if (Directory.Exists(full)) stems.UnionWith(StemsUnder(full));
-            else if (full.EndsWith(".sql", StringComparison.Ordinal) || full.EndsWith(".yml", StringComparison.Ordinal)) stems.Add(Stem(projectRoot, full));
+            else if (full.EndsWith(".sql", StringComparison.Ordinal) || full.EndsWith(".yml", StringComparison.Ordinal))
+            {
+                if (mapped.Contains(Stem(projectRoot, full))) { error.WriteLine($"`{p}` is a mapped model: it is declared, not built, so there is no query to define it from."); problem = true; }
+                else if (Path.GetFileName(full) == Core.ProductInfo.FolderConfigFile) { error.WriteLine($"`{p}` is a project file, not a model."); problem = true; }
+                else stems.Add(Stem(projectRoot, full));
+            }
             else { error.WriteLine($"`{p}` is not a .sql or .yml file or a directory."); problem = true; }
         }
         return stems.ToList();

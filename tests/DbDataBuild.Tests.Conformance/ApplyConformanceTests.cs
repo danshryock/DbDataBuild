@@ -56,7 +56,7 @@ public partial class ApplyConformanceTests
     [GeneratedRegex(@"plan:\s+(\S+\.plan\.yml)")]
     private static partial Regex PlanPath();
 
-    private const string Staging = "name: staging.orders\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
+    private const string Staging = "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string FctYaml = "name: marts.fct_orders\nkind: {type: incremental_by_unique_key, unique_key: [order_id]}\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string FctSql = "SELECT o.order_id, o.amount FROM staging.orders o\n";
     private const string FctYaml2 = FctYaml + "  - {name: discount_code, type: VARCHAR(20)}\n";
@@ -73,7 +73,7 @@ public partial class ApplyConformanceTests
         run.Write("dbdatabuild.yml", name == "postgres"
             ? "defaults: {connections: [postgres]}\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n"
             : "defaults: {connections: [sqlserver]}\n" + extraConfig);
-        run.Write("sources/staging/orders.yml", Staging);
+        run.Write("models/staging/orders.yml", Staging);
         run.Write("models/marts/fct_orders.yml", FctYaml);
         run.Write("models/marts/fct_orders.sql", FctSql);
         run.Write("models/marts/v_orders.yml", ViewYaml);
@@ -340,7 +340,7 @@ public partial class ApplyConformanceTests
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
 
-    private const string EventsSource = "name: staging.events\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
+    private const string EventsSource = "name: staging.events\nkind:\n  type: mapped\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n";
     private const string EventsYaml = "name: marts.fct_events\nkind: {type: incremental_by_time_range, time_column: event_ts}\ngrain: [event_id]\ncolumns:\n  - {name: event_id, type: BIGINT, nullable: false}\n  - {name: event_ts, type: TIMESTAMP, nullable: false}\n  - {name: amount, type: \"DECIMAL(14, 2)\"}\n" +
         "loads:\n  daily:\n    default: true\n    strategy: watermark_append\n    watermark: {column: event_ts, resolver: target_max, on_null: initial, initial: \"2000-01-01 00:00:00\"}\n" +
         "  reload:\n    strategy: delete_insert_by_range\n    params: {start: TIMESTAMP, end: TIMESTAMP}\n    max_span: 10 days\n";
@@ -356,7 +356,7 @@ public partial class ApplyConformanceTests
             // a different project: one time-range model with a routine operation and a reload operation
             File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
             File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
-            run.Write("sources/staging/events.yml", EventsSource);
+            run.Write("models/staging/events.yml", EventsSource);
             run.Write("models/marts/fct_events.yml", EventsYaml);
             run.Write("models/marts/fct_events.sql", EventsSql);
             await engine.ExecAsync($"CREATE TABLE staging.events ({run.Q("event_id")} BIGINT NOT NULL, {run.Q("event_ts")} {engine.ColumnType("TIMESTAMP")} NOT NULL, {run.Q("amount")} {engine.ColumnType("DECIMAL(14,2)")})");
@@ -761,9 +761,9 @@ public partial class ApplyConformanceTests
             // the preview shows the diff and writes nothing
             var preview = Json(run.Cli("import-sources", "staging.imp", "--format", "json"));
             var imp = preview["data"]!["sources"]!.AsArray().Single()!;
-            Assert.Equal(("staging.imp", "table", "new", "sources/staging/imp.yml", "preview"), ((string)imp["name"]!, (string)imp["kind"]!, (string)imp["status"]!, (string)imp["file"]!, (string)preview["data"]!["mode"]!));
+            Assert.Equal(("staging.imp", "table", "new", "models/staging/imp.yml", "preview"), ((string)imp["name"]!, (string)imp["kind"]!, (string)imp["status"]!, (string)imp["file"]!, (string)preview["data"]!["mode"]!));
             Assert.Equal(["id"], imp["grain"]!.AsArray().Select(x => (string)x!));
-            Assert.False(File.Exists(file("sources/staging/imp.yml")));
+            Assert.False(File.Exists(file("models/staging/imp.yml")));
             Assert.Equal(["DDB-226"], codes(preview));                                                   // only `odd`: unlimited text and xml/json are text
             var tiny = imp["columns"]!.AsArray().Single(c => (string?)c!["name"] == "tiny")!;
             Assert.Equal(pg ? "exact" : "widened", (string?)tiny["fit"]);
@@ -772,14 +772,14 @@ public partial class ApplyConformanceTests
 
             // writing it
             var written = Json(run.Cli("import-sources", "staging.imp", "--write", "--format", "json"));
-            Assert.Equal(["sources/staging/imp.yml"], written["data"]!["written"]!.AsArray().Select(x => (string)x!));
+            Assert.Equal(["models/staging/imp.yml"], written["data"]!["written"]!.AsArray().Select(x => (string)x!));
             Assert.Equal(
-                "name: staging.imp\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
+                $"name: staging.imp\nkind:\n  type: mapped\nconnections=: [{name}]\ngrain: [id]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: qty\n    type: INTEGER\n    nullable: false\n  - name: price\n    type: DECIMAL(12, 3)\n" +
                 "  - name: ratio\n    type: DOUBLE\n  - name: flag\n    type: BOOLEAN\n  - name: born\n    type: DATE\n  - name: seen\n    type: TIMESTAMP\n  - name: code\n    type: VARCHAR(20)\n  - name: notes\n    type: VARCHAR\n" +
                 "  - name: tiny\n    type: SMALLINT\n  - name: ref\n    type: UUID\n  - name: blobby\n    type: BLOB\n  - name: j\n    type: VARCHAR\n" +
                 "indexes:\n  - {name: ix_imp_code, columns: [code], include: [qty]}\n  - {name: ux_imp_ref, columns: [ref], unique: true}\n" +
                 "foreign_keys:\n  - {name: fk_imp_ref, columns: [id], references: {table: staging.ref, columns: [id]}}\n",
-                File.ReadAllText(file("sources/staging/imp.yml")));
+                File.ReadAllText(file("models/staging/imp.yml")));
             Ok(run.Cli("validate"), "the exported descriptor is valid");
             var again = Json(run.Cli("import-sources", "staging.imp", "--check", "--format", "json"));
             Assert.Equal("unchanged", (string?)again["data"]!["sources"]![0]!["status"]);
@@ -796,11 +796,11 @@ public partial class ApplyConformanceTests
             Assert.Equal("unchanged", (string?)stale["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.orders")!["status"]);   // the hand-written descriptor already matched
 
             // human knowledge survives: a grain, a length put on unlimited text, and a type for a column the catalog cannot type
-            var text = File.ReadAllText(file("sources/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n").Replace("indexes:\n", "  - {name: odd, type: VARCHAR(40)}\nindexes:\n");
-            run.Write("sources/staging/imp.yml", text);
+            var text = File.ReadAllText(file("models/staging/imp.yml")).Replace("grain: [id]", "grain: [id, code]") .Replace("  - name: notes\n    type: VARCHAR\n", "  - name: notes\n    type: VARCHAR(500)\n").Replace("indexes:\n", "  - {name: odd, type: VARCHAR(40)}\nindexes:\n");
+            run.Write("models/staging/imp.yml", text);
             var refreshed = Json(run.Cli("import-sources", "--write", "--format", "json"));
-            Assert.Equal(["sources/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
-            var after = File.ReadAllText(file("sources/staging/imp.yml"));
+            Assert.Equal(["models/staging/imp.yml"], refreshed["data"]!["written"]!.AsArray().Select(x => (string)x!));
+            var after = File.ReadAllText(file("models/staging/imp.yml"));
             Assert.Contains("grain: [id, code]", after);
             Assert.Contains("  - name: extra\n    type: INTEGER\n", after);
             Assert.Contains("  - {name: ix_imp_extra, columns: [extra]}\n", after);
@@ -812,24 +812,24 @@ public partial class ApplyConformanceTests
             // a view is a source too; a pattern takes both; the tool's own schema and a damaged file are never touched
             await engine.ExecAsync($"CREATE VIEW staging.imp_view AS SELECT id, qty FROM staging.imp");
             Ok(run.Cli("init", "--apply"), "init");
-            run.Write("sources/staging/broken.yml", "name: staging.broken\ncolumns: nope\n");
+            run.Write("models/staging/broken.yml", "name: staging.broken\nkind:\n  type: mapped\ncolumns: nope\n");
             await engine.ExecAsync("CREATE TABLE staging.broken (id bigint)");
             var all = Json(run.Cli("import-sources", "staging.*", "dbdatabuild.*", "--write", "--format", "json"));
             var byName = all["data"]!["sources"]!.AsArray().ToDictionary(x => (string)x!["name"]!, x => x!);
             Assert.Equal(("view", "new"), ((string)byName["staging.imp_view"]["kind"]!, (string)byName["staging.imp_view"]["status"]!));
             Assert.Equal("invalid", (string?)byName["staging.broken"]["status"]);
-            Assert.Equal("name: staging.broken\ncolumns: nope\n", File.ReadAllText(file("sources/staging/broken.yml")));
+            Assert.Equal("name: staging.broken\nkind:\n  type: mapped\ncolumns: nope\n", File.ReadAllText(file("models/staging/broken.yml")));
             Assert.Contains(all["data"]!["skipped"]!.AsArray(), x => (string?)x!["object"] == "dbdatabuild");
-            Assert.True(File.Exists(file("sources/staging/imp_view.yml")));
-            File.Delete(file("sources/staging/broken.yml"));
+            Assert.True(File.Exists(file("models/staging/imp_view.yml")));
+            File.Delete(file("models/staging/broken.yml"));
 
             // a descriptor whose table is gone is reported and kept
-            run.Write("sources/staging/ghost.yml", "name: staging.ghost\ncolumns:\n  - {name: id, type: BIGINT}\n");
+            run.Write("models/staging/ghost.yml", "name: staging.ghost\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: BIGINT}\n");
             var ghost = Json(run.Cli("import-sources", "--format", "json"));
             Assert.Equal("stale", (string?)ghost["data"]!["sources"]!.AsArray().Single(x => (string?)x!["name"] == "staging.ghost")!["status"]);
             Assert.Contains("DDB-228", codes(ghost));
-            Assert.True(File.Exists(file("sources/staging/ghost.yml")));
-            File.Delete(file("sources/staging/ghost.yml"));
+            Assert.True(File.Exists(file("models/staging/ghost.yml")));
+            File.Delete(file("models/staging/ghost.yml"));
 
             // published with the rest of the metadata, and queryable next to the models' columns
             Ok(run.Cli("render", "--write"), "render");
@@ -945,7 +945,7 @@ public partial class ApplyConformanceTests
 
             // exported as the source says it is: no length on the unlimited column
             Ok(run.Cli("import-sources", "staging.docs", "--write"), "import");
-            Assert.Equal("name: staging.docs\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: body\n    type: VARCHAR\n  - name: tag\n    type: VARCHAR(10)\n", File.ReadAllText(Path.Combine(run.Dir, "sources/staging/docs.yml")));
+            Assert.Equal($"name: staging.docs\nkind:\n  type: mapped\nconnections=: [{name}]\ncolumns:\n  - name: id\n    type: BIGINT\n    nullable: false\n  - name: body\n    type: VARCHAR\n  - name: tag\n    type: VARCHAR(10)\n", File.ReadAllText(Path.Combine(run.Dir, "models/staging/docs.yml")));
 
             // a model that passes it through and computes from it declares no length either, and `define` agrees with that
             run.Write("models/marts/docs_out.yml", "name: marts.docs_out\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: body, type: VARCHAR}\n  - {name: body2, type: VARCHAR}\n  - {name: tag_up, type: VARCHAR(10)}\n");
@@ -1077,8 +1077,8 @@ public partial class ApplyConformanceTests
         try
         {
             foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
-            run.Write("sources/staging/s1.yml", "name: staging.s1\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: x, type: INTEGER}\n  - {name: y, type: INTEGER}\n");
-            run.Write("sources/staging/s2.yml", "name: staging.s2\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: z, type: INTEGER}\n  - {name: w, type: INTEGER}\n");
+            run.Write("models/staging/s1.yml", "name: staging.s1\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: x, type: INTEGER}\n  - {name: y, type: INTEGER}\n");
+            run.Write("models/staging/s2.yml", "name: staging.s2\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: z, type: INTEGER}\n  - {name: w, type: INTEGER}\n");
             const string rows1 = "(1, 5, 1), (2, NULL, 1), (3, 1, NULL), (4, 10, 2), (5, 3, 3), (6, NULL, NULL), (7, 5, NULL), (8, 2, 2)";
             const string rows2 = "(1, 2, 1), (2, NULL, 2), (3, 7, 3), (4, 3, 3), (5, 5, NULL)";
             foreach (var (t, cols, rows) in new[] { ("s1", "id INT NOT NULL, x INT, y INT", rows1), ("s2", "id INT NOT NULL, z INT, w INT", rows2) })
@@ -1207,7 +1207,7 @@ public partial class ApplyConformanceTests
         {
             File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
             File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
-            run.Write("sources/staging/probe.yml", "name: staging.probe\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n  - {name: t, type: VARCHAR(40)}\n  - {name: x, type: DOUBLE}\n");
+            run.Write("models/staging/probe.yml", "name: staging.probe\nkind:\n  type: mapped\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n  - {name: t, type: VARCHAR(40)}\n  - {name: x, type: DOUBLE}\n");
             run.Write("models/marts/fct_probe.yml", "name: marts.fct_probe\nkind: {type: full}\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: len, type: BIGINT}\n  - {name: i, type: INTEGER}\n  - {name: d, type: \"DECIMAL(10, 2)\"}\n  - {name: f, type: DOUBLE}\n  - {name: r2, type: DOUBLE}\n  - {name: r0, type: DOUBLE}\n  - {name: rm, type: DOUBLE}\n");
             run.Write("models/marts/fct_probe.sql", "SELECT id, length(s) AS len, TRY_CAST(t AS INTEGER) AS i, TRY_CAST(s AS DECIMAL(10, 2)) AS d, TRY_CAST(s AS DOUBLE) AS f, round(x, 2) AS r2, round(x) AS r0, round(x, -2) AS rm FROM staging.probe\n");
             var dbl = name == "postgres" ? "DOUBLE PRECISION" : "FLOAT";
@@ -1235,7 +1235,7 @@ public partial class ApplyConformanceTests
         {
             File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
             File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
-            run.Write("sources/staging/big.yml", "name: staging.big\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: n, type: INTEGER}\n  - {name: b, type: BIGINT}\n");
+            run.Write("models/staging/big.yml", "name: staging.big\nkind:\n  type: mapped\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: n, type: INTEGER}\n  - {name: b, type: BIGINT}\n");
             run.Write("models/marts/fct_big.yml", "name: marts.fct_big\nkind: {type: full}\ncolumns:\n  - {name: sn, type: BIGINT}\n  - {name: sb, type: \"DECIMAL(38, 0)\"}\n");
             // DuckDB sums into a HUGEINT: three INTs near 2^31 and two BIGINTs near 2^63 are over what SQL Server's own SUM holds
             run.Write("models/marts/fct_big.sql", "SELECT CAST(sum(n) AS BIGINT) AS sn, CAST(sum(b) AS DECIMAL(38, 0)) AS sb FROM staging.big\n");
@@ -1260,7 +1260,7 @@ public partial class ApplyConformanceTests
         {
             File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
             File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/fct_orders.sql"));
-            run.Write("sources/staging/raw.yml", "name: staging.raw\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n");
+            run.Write("models/staging/raw.yml", "name: staging.raw\nkind:\n  type: mapped\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: s, type: VARCHAR(40)}\n");
             run.Write("models/marts/fct_num.yml", "name: marts.fct_num\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: n, type: INTEGER}\n");
             run.Write("models/marts/fct_num.sql", "SELECT id, CAST(s AS INTEGER) AS n FROM staging.raw\n");
             await engine.ExecAsync($"CREATE TABLE staging.raw (id BIGINT NOT NULL, s {engine.ColumnType("VARCHAR(40)")} NULL)");

@@ -16,7 +16,7 @@ internal sealed class WebBackend
     internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review", "plan", "sample", "diff"];
 
     /// <summary>The parts of a project a person may read: what the project is made of, not the plans, the state or the environment.</summary>
-    private static readonly string[] ReadableDirectories = ["models", "sources", "seeds", "tests", "rendered", "hooks"];
+    private static readonly string[] ReadableDirectories = ["models", "seeds", "tests", "rendered", "hooks"];
     private static readonly string[] ReadableExtensions = [".sql", ".yml", ".yaml", ".md", ".json", ".txt", ".csv"];
     private const int MaxFileBytes = 2 << 20;
 

@@ -15,8 +15,8 @@ public class ProjectLayersTests
     private static string Project(string config)
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), "name: staging.orders\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), "name: staging.orders\nkind:\n  type: mapped\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
         return dir;
     }

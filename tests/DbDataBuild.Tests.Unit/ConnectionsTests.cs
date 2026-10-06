@@ -78,13 +78,13 @@ public class ConnectionsTests
 
     // ---- through the commands ----
 
-    private const string Source = "name: staging.orders\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: note, type: \"VARCHAR(40)\"}\n";
+    private const string Source = "name: staging.orders\nkind:\n  type: mapped\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: note, type: \"VARCHAR(40)\"}\n";
 
     private static string Project(string config, params (string Name, string Targets, string Sql)[] models)
     {
         var dir = NewProjectDir();
-        Directory.CreateDirectory(Path.Combine(dir, "sources/staging"));
-        File.WriteAllText(Path.Combine(dir, "sources/staging/orders.yml"), Source);
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), Source);
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), config);
         foreach (var (name, targets, sql) in models)
         {

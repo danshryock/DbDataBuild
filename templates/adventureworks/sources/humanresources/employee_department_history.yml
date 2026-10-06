@@ -1,7 +1,0 @@
-name: humanresources.employee_department_history
-grain: [employee_id, start_date]
-columns:
-  - {name: employee_id, type: INTEGER, nullable: false}
-  - {name: department_id, type: INTEGER, nullable: false}
-  - {name: start_date, type: DATE, nullable: false}
-  - {name: end_date, type: DATE}

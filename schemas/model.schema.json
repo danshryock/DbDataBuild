@@ -2,230 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "model.schema.json",
   "title": "DbDataBuild model definition",
-  "description": "A model definition file (models/**/<name>.yml), the companion of the plain DuckDB-dialect <name>.sql body. This schema is for editors; `dbdatabuild validate` applies the same rules plus semantic checks (name against path, grain against unique_key, column references) with diagnostic codes. The tool reads every scalar as a string, so values here that YAML would type (nullable) accept the quoted and unquoted forms.",
-  "type": "object",
-  "additionalProperties": false,
-  "patternProperties": {
-    "^(connections|kind|hooks|rewrites|lint_ignore)[=+-]$": {
-      "description": "A suffix on a setting that inherits from the project files above (`defaults:` in dbdatabuild.yml and in each folder's _dbdatabuild.yml): `key=` replaces what was inherited, `key-` removes the listed items or keys, `key+` merges (what happens without a suffix)."
-    }
-  },
-  "required": [
-    "name",
-    "columns"
-  ],
-  "properties": {
-    "name": {
-      "description": "Schema-qualified model name. Must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml is marts.fct_orders).",
-      "$ref": "#/$defs/nonEmptyString"
-    },
-    "kind": {
-      "$ref": "#/$defs/kind"
-    },
-    "grain": {
-      "description": "Columns that uniquely identify an output row. Required for incremental kinds; for incremental_by_unique_key it must equal unique_key.",
-      "$ref": "#/$defs/columnList"
-    },
-    "connections": {
-      "description": "Connections the model is on: built natively on each. The `defaults.connections` of the project files above the model are inherited and this list adds to them; write `connections=` to replace them.",
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {
-        "$ref": "#/$defs/connectionName"
-      }
-    },
-    "columns": {
-      "description": "The declared output schema. Required for every model: it drives the shape hash, the plan's DDL, and offline validation.",
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "#/$defs/column"
-      }
-    },
-    "renames": {
-      "description": "Declared column renames. Renames are never inferred.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/rename"
-      }
-    },
-    "loads": {
-      "description": "Named load operations (DESIGN.md 6.6). Without `loads`, the kind supplies a single operation named `default`: full_replace for full, delete_insert_by_key for incremental_by_unique_key, and a watermark load over the time column for incremental_by_time_range. A view has no loads. Declared operations replace the implicit one. At most one operation per target may be the default.",
-      "type": "object",
-      "propertyNames": {
-        "pattern": "^[a-z][a-z0-9_]*$"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/loadOperation"
-      }
-    },
-    "indexes": {
-      "description": "Indexes the operator wants on the table. Created by `plan` when missing; an index that exists but is not declared is left alone and reported. Merging or loading by a key never requires an index or constraint.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/index"
-      }
-    },
-    "hooks": {
-      "description": "Ordered hooks: native-SQL scripts run before or after plan steps (events pre_/post_ create, alter, load, backfill), or `use:` a group of hooks defined in dbdatabuild.yml.",
-      "type": "array",
-      "items": {
-        "oneOf": [
-          {
-            "$ref": "#/$defs/hook"
-          },
-          {
-            "$ref": "#/$defs/hookUse"
-          }
-        ]
-      }
-    },
-    "lint_ignore": {
-      "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index) and DDB-225 (a load's slice cannot be applied below part of the query).",
-      "type": "array",
-      "uniqueItems": true,
-      "minItems": 1,
-      "items": {
-        "enum": [
-          "DDB-223",
-          "DDB-224",
-          "DDB-225"
-        ]
-      }
-    },
-    "rewrites": {
-      "description": "Which rewrites make the engines give DuckDB's answers (`dbdatabuild matrix --rewrites` lists them). The default is `fidelity: exact`: all of them. `fidelity: native` turns off every rewrite the targets can do without, for shorter queries and simpler plans, at the price of each engine's own behavior (a trailing space not counted, an integer cut instead of rounded, a week counted another way); `disable` and `enable` change single rewrites. A rewrite a target cannot do without (SQL Server has no LPAD, PostgreSQL's round takes no double) cannot be turned off (DDB-229). A model's section is applied on top of the project's.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "fidelity": {
-          "enum": [
-            "exact",
-            "native"
-          ]
-        },
-        "disable": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "length-trailing-spaces",
-              "round-double",
-              "try-cast-parse",
-              "double-to-int",
-              "decimal-to-int",
-              "double-to-decimal",
-              "avg-double",
-              "sum-widen",
-              "date-to-timestamp",
-              "weekday-datefirst",
-              "date-diff-boundaries",
-              "date-diff-weeks",
-              "date-plus-days",
-              "concat-plus",
-              "pad-to-length",
-              "split-part",
-              "string-agg-array"
-            ]
-          }
-        },
-        "enable": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "length-trailing-spaces",
-              "round-double",
-              "try-cast-parse",
-              "double-to-int",
-              "decimal-to-int",
-              "double-to-decimal",
-              "avg-double",
-              "sum-widen",
-              "date-to-timestamp",
-              "weekday-datefirst",
-              "date-diff-boundaries",
-              "date-diff-weeks",
-              "date-plus-days",
-              "concat-plus",
-              "pad-to-length",
-              "split-part",
-              "string-agg-array"
-            ]
+  "description": "A model definition file (models/**/<name>.yml), the companion of the plain DuckDB-dialect <name>.sql body. This schema is for editors; `dbdatabuild validate` applies the same rules plus semantic checks (name against path, grain against unique_key, column references) with diagnostic codes. The tool reads every scalar as a string, so values here that YAML would type (nullable) accept the quoted and unquoted forms. A file that says `kind: {type: mapped}` is a mapped model and is checked against source.schema.json instead.",
+  "if": {
+    "required": [
+      "kind"
+    ],
+    "properties": {
+      "kind": {
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "mapped"
           }
         }
       }
     }
   },
-  "allOf": [
-    {
-      "description": "Incremental kinds require a grain.",
-      "if": {
-        "required": [
-          "kind"
-        ],
-        "properties": {
-          "kind": {
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "enum": [
-                  "incremental_by_unique_key",
-                  "incremental_by_time_range"
-                ]
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "grain"
-        ]
-      }
-    },
-    {
-      "description": "A view has no data load.",
-      "if": {
-        "required": [
-          "kind"
-        ],
-        "properties": {
-          "kind": {
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "const": "view"
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "not": {
-          "anyOf": [
-            {
-              "required": [
-                "loads"
-              ]
-            },
-            {
-              "required": [
-                "indexes"
-              ]
-            }
-          ]
-        }
-      }
-    }
-  ],
+  "then": {
+    "$ref": "source.schema.json"
+  },
+  "else": {
+    "$ref": "#/$defs/builtModel"
+  },
   "$defs": {
     "nonEmptyString": {
       "type": "string",
@@ -770,6 +570,231 @@
     "connectionName": {
       "type": "string",
       "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "builtModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(connections|kind|hooks|rewrites|lint_ignore)[=+-]$": {
+          "description": "A suffix on a setting that inherits from the project files above (`defaults:` in dbdatabuild.yml and in each folder's _dbdatabuild.yml): `key=` replaces what was inherited, `key-` removes the listed items or keys, `key+` merges (what happens without a suffix)."
+        }
+      },
+      "required": [
+        "name",
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "description": "Schema-qualified model name. Must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml is marts.fct_orders).",
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "kind": {
+          "$ref": "#/$defs/kind"
+        },
+        "grain": {
+          "description": "Columns that uniquely identify an output row. Required for incremental kinds; for incremental_by_unique_key it must equal unique_key.",
+          "$ref": "#/$defs/columnList"
+        },
+        "connections": {
+          "description": "Connections the model is on: built natively on each. The `defaults.connections` of the project files above the model are inherited and this list adds to them; write `connections=` to replace them.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/connectionName"
+          }
+        },
+        "columns": {
+          "description": "The declared output schema. Required for every model: it drives the shape hash, the plan's DDL, and offline validation.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "renames": {
+          "description": "Declared column renames. Renames are never inferred.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rename"
+          }
+        },
+        "loads": {
+          "description": "Named load operations (DESIGN.md 6.6). Without `loads`, the kind supplies a single operation named `default`: full_replace for full, delete_insert_by_key for incremental_by_unique_key, and a watermark load over the time column for incremental_by_time_range. A view has no loads. Declared operations replace the implicit one. At most one operation per target may be the default.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/loadOperation"
+          }
+        },
+        "indexes": {
+          "description": "Indexes the operator wants on the table. Created by `plan` when missing; an index that exists but is not declared is left alone and reported. Merging or loading by a key never requires an index or constraint.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/index"
+          }
+        },
+        "hooks": {
+          "description": "Ordered hooks: native-SQL scripts run before or after plan steps (events pre_/post_ create, alter, load, backfill), or `use:` a group of hooks defined in dbdatabuild.yml.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/hook"
+              },
+              {
+                "$ref": "#/$defs/hookUse"
+              }
+            ]
+          }
+        },
+        "lint_ignore": {
+          "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index) and DDB-225 (a load's slice cannot be applied below part of the query).",
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "DDB-223",
+              "DDB-224",
+              "DDB-225"
+            ]
+          }
+        },
+        "rewrites": {
+          "description": "Which rewrites make the engines give DuckDB's answers (`dbdatabuild matrix --rewrites` lists them). The default is `fidelity: exact`: all of them. `fidelity: native` turns off every rewrite the targets can do without, for shorter queries and simpler plans, at the price of each engine's own behavior (a trailing space not counted, an integer cut instead of rounded, a week counted another way); `disable` and `enable` change single rewrites. A rewrite a target cannot do without (SQL Server has no LPAD, PostgreSQL's round takes no double) cannot be turned off (DDB-229). A model's section is applied on top of the project's.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fidelity": {
+              "enum": [
+                "exact",
+                "native"
+              ]
+            },
+            "disable": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "length-trailing-spaces",
+                  "round-double",
+                  "try-cast-parse",
+                  "double-to-int",
+                  "decimal-to-int",
+                  "double-to-decimal",
+                  "avg-double",
+                  "sum-widen",
+                  "date-to-timestamp",
+                  "weekday-datefirst",
+                  "date-diff-boundaries",
+                  "date-diff-weeks",
+                  "date-plus-days",
+                  "concat-plus",
+                  "pad-to-length",
+                  "split-part",
+                  "string-agg-array"
+                ]
+              }
+            },
+            "enable": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "length-trailing-spaces",
+                  "round-double",
+                  "try-cast-parse",
+                  "double-to-int",
+                  "decimal-to-int",
+                  "double-to-decimal",
+                  "avg-double",
+                  "sum-widen",
+                  "date-to-timestamp",
+                  "weekday-datefirst",
+                  "date-diff-boundaries",
+                  "date-diff-weeks",
+                  "date-plus-days",
+                  "concat-plus",
+                  "pad-to-length",
+                  "split-part",
+                  "string-agg-array"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "Incremental kinds require a grain.",
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "incremental_by_unique_key",
+                      "incremental_by_time_range"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "grain"
+            ]
+          }
+        },
+        {
+          "description": "A view has no data load.",
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "view"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "loads"
+                  ]
+                },
+                {
+                  "required": [
+                    "indexes"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
