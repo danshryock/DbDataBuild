@@ -28,7 +28,8 @@ scoop install https://raw.githubusercontent.com/danshryock/DbDataBuild/main/buck
 dbdatabuild validate                      # check config and models, lower and lint every query
 dbdatabuild import staging.*     # export tables from the connection as mapped models under models/ (diff first; --write to save)
 dbdatabuild graph +marts.fct_orders       # what a model depends on (also: marts.fct_orders+, --column m.c, --diagram mermaid)
-dbdatabuild diff marts.fct_orders --against-schema dev   # compare two tables of one target (counts only; --show-values to see rows)
+dbdatabuild diff marts.fct_orders --against-schema dev   # compare two tables of one connection (counts only; --show-values to see rows)
+dbdatabuild diff marts.fct_orders --connection sqlserver --against-connection postgres   # the same table on another engine, by digests
 dbdatabuild sample marts.fct_orders       # run a model on generated sample data, offline
 dbdatabuild new adventureworks my-project   # a complete example project (seeds, models, tests) to explore offline; also starter, retail, chinook
 dbdatabuild render --write                # write the committed load scripts

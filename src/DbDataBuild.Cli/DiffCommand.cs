@@ -13,11 +13,12 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class DiffCommand
 {
-    public static int Run(CommandSpec spec, string root, string table, string? against, string? againstSchema, string? targetArg, string[] keyArg, string[] only, string[] except, bool showValues, int limit,
+    public static int Run(CommandSpec spec, string root, string table, string? against, string? againstSchema, string? againstConnection, string? targetArg, string[] keyArg, string[] only, string[] except, bool showValues, int limit,
         TextWriter output, TextWriter error, Func<string, string?> env)
     {
         if (limit < 0) { error.WriteLine("--limit must not be negative."); return CliApp.ExitUsage; }
-        if ((against == null) == (againstSchema == null)) { error.WriteLine("Name the other table with exactly one of --against <schema_name.table_name> or --against-schema <schema name> (the same table name under another schema name)."); return CliApp.ExitUsage; }
+        if (against != null && againstSchema != null || against == null && againstSchema == null && againstConnection == null)
+        { error.WriteLine("Name the other table with --against <schema_name.table_name>, or --against-schema <schema name> (the same table name under another schema name), or --against-connection <connection> (the same table on another connection)."); return CliApp.ExitUsage; }
         if (Split(table) is not { } left) { error.WriteLine($"`{table}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
         (string SchemaName, string Name) right;
         if (against != null)
@@ -25,13 +26,19 @@ internal static class DiffCommand
             if (Split(against) is not { } r) { error.WriteLine($"`{against}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
             right = r;
         }
-        else right = (againstSchema!, left.Name);
-        if (string.Equals(left.SchemaName, right.SchemaName, StringComparison.OrdinalIgnoreCase) && string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) { error.WriteLine("Both sides name the same table."); return CliApp.ExitUsage; }
+        else right = (againstSchema ?? left.SchemaName, left.Name);
 
         var ctx = ProjectContext.Load(root);
         var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
+        var otherConnection = connection;
+        if (againstConnection != null)
+        {
+            if (!ctx.Config.Connections.TryGetValue(againstConnection, out otherConnection)) { error.WriteLine($"Unknown connection `{againstConnection}`. One of: {string.Join(", ", ctx.Config.Connections.Keys.Order(StringComparer.Ordinal))}."); return CliApp.ExitUsage; }
+        }
+        var across = !string.Equals(otherConnection.Name, connection.Name, StringComparison.Ordinal);
+        if (!across && string.Equals(left.SchemaName, right.SchemaName, StringComparison.OrdinalIgnoreCase) && string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) { error.WriteLine("Both sides name the same table."); return CliApp.ExitUsage; }
 
         // the key: given, or the table's own grain (a model's grain or unique key, a source's grain)
         var key = keyArg.SelectMany(k => k.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).ToList();
@@ -48,8 +55,10 @@ internal static class DiffCommand
         }
 
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}  |  values: {(showValues ? "shown (requested)" : "not read")}");
+        var (otherLogin, otherMissing) = across ? LoginSettings.FromEnvironment(otherConnection.Name, otherConnection.Engine, Login.Read, env) : (login, null);
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}{(across ? $" against {otherConnection.Name}" : "")}  |  login: {login?.Describe() ?? "none"}{(across ? $", {otherLogin?.Describe() ?? "none"}" : "")}  |  values: {(showValues ? "shown (requested)" : "not read")}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
+        if (otherMissing != null) { error.Diag(otherMissing); return CliApp.ExitFindings; }
 
         DiffPlan? plan = null;
         DiffOutcome? outcome = null;
@@ -59,16 +68,24 @@ internal static class DiffCommand
             Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
-                async Task<DiffTable?> Find((string SchemaName, string Name) t)
+                await using var otherRead = across ? await ReadSession.OpenAsync(otherLogin!) : read;
+                async Task<DiffTable?> Find(ReadSession session, string sessionEngine, (string SchemaName, string Name) t)
                 {
-                    var shapes = await CatalogReader.ReadObjectsAsync(read, engine, t.SchemaName);
+                    var shapes = await CatalogReader.ReadObjectsAsync(session, sessionEngine, t.SchemaName);
                     var shape = shapes.Values.FirstOrDefault(s => string.Equals(s.Name, t.Name, StringComparison.OrdinalIgnoreCase));
                     return shape == null ? null : new DiffTable(shape.SchemaName, shape.Name, shape.Columns);
                 }
-                var l = await Find(left);
+                var l = await Find(read, engine, left);
                 if (l == null) { problem = $"{left.SchemaName}.{left.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
-                var r = await Find(right);
-                if (r == null) { problem = $"{right.SchemaName}.{right.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
+                var r = await Find(otherRead, otherConnection.Engine, right);
+                if (r == null) { problem = $"{right.SchemaName}.{right.Name} is not a table or view of {otherConnection.Name} (or the read login cannot see it)."; return; }
+                if (across)
+                {
+                    (plan, problem) = CrossDiffer.Plan(engine, otherConnection.Engine, l, r, key, only, except);
+                    if (plan == null) return;
+                    outcome = await CrossDiffer.RunAsync(read, otherRead, plan, showValues, limit);
+                    return;
+                }
                 (plan, problem) = TableDiffer.Plan(engine, l, r, key, only, except);
                 if (plan == null) return;
                 outcome = await TableDiffer.RunAsync(read, plan, showValues, limit);
@@ -77,7 +94,7 @@ internal static class DiffCommand
         catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
         if (plan == null || outcome == null) { error.WriteLine(problem); return CliApp.ExitUsage; }
 
-        Report(output, plan, outcome, keySource, showValues, limit, target);
+        Report(output, plan, outcome, keySource, showValues, limit, target, across ? otherConnection : null);
         return outcome.Identical ? CliApp.ExitOk : CliApp.ExitFindings;
     }
 
@@ -87,10 +104,12 @@ internal static class DiffCommand
         return i <= 0 || i == text.Length - 1 ? null : (text[..i], text[(i + 1)..]);
     }
 
-    private static void Report(TextWriter output, DiffPlan p, DiffOutcome o, string keySource, bool showValues, int limit, string target)
+    private static void Report(TextWriter output, DiffPlan p, DiffOutcome o, string keySource, bool showValues, int limit, string target, ConnectionConfig? other)
     {
+        var typeDiffers = (DiffColumn c) => other != null ? !CrossDiffer.SameType(p, other.Engine, c) : !string.Equals(Type(c.Left), Type(c.Right), StringComparison.OrdinalIgnoreCase);
         var others = p.Compared.Where(c => !p.Key.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList();
         output.Payload("connection", target);
+        output.Payload("against_connection", other?.Name);
         output.Payload("left", new { table = p.Left.Qualified, rows = o.LeftRows, columns = p.Left.Columns.Count });
         output.Payload("right", new { table = p.Right.Qualified, rows = o.RightRows, columns = p.Right.Columns.Count });
         output.Payload("key", new { columns = p.Key, source = keySource });
@@ -99,7 +118,7 @@ internal static class DiffCommand
             compared_columns = p.Compared.Select(c => c.Name).ToList(),
             only_left = p.OnlyLeft, only_right = p.OnlyRight,
             not_compared = p.Skipped.Select(s => new { column = s.Column, left_type = s.Left, right_type = s.Right, reason = s.Reason }).ToList(),
-            type_differences = p.Compared.Where(c => !string.Equals(Type(c.Left), Type(c.Right), StringComparison.OrdinalIgnoreCase)).Select(c => new { column = c.Name, left_type = Type(c.Left), right_type = Type(c.Right) }).ToList(),
+            type_differences = p.Compared.Where(typeDiffers).Select(c => new { column = c.Name, left_type = Type(c.Left), right_type = Type(c.Right) }).ToList(),
         });
         output.Payload("duplicate_keys", new { left = o.LeftDuplicateKeys, right = o.RightDuplicateKeys });
         output.Payload("rows", new
@@ -118,13 +137,13 @@ internal static class DiffCommand
 
         output.WriteLine();
         output.WriteLine($"{p.Left.Qualified}  ({o.LeftRows} row(s), {p.Left.Columns.Count} column(s))   against   {p.Right.Qualified}  ({o.RightRows} row(s), {p.Right.Columns.Count} column(s))");
-        output.WriteLine($"matched on {string.Join(", ", p.Key)} ({keySource})");
+        output.WriteLine($"matched on {string.Join(", ", p.Key)} ({keySource}){(other != null ? $"; {target} against {other.Name}: each engine computed a digest of every value, and only digests were compared" : "")}");
         output.WriteLine();
         output.WriteLine("Columns");
         output.WriteLine($"  compared: {p.Compared.Count}{(others.Count < p.Compared.Count ? $" ({p.Key.Count} of them the key)" : "")}");
         if (p.OnlyLeft.Count > 0) output.WriteLine($"  only in {p.Left.Qualified}: {string.Join(", ", p.OnlyLeft)}");
         if (p.OnlyRight.Count > 0) output.WriteLine($"  only in {p.Right.Qualified}: {string.Join(", ", p.OnlyRight)}");
-        foreach (var c in p.Compared.Where(c => !string.Equals(Type(c.Left), Type(c.Right), StringComparison.OrdinalIgnoreCase))) output.WriteLine($"  type differs: {c.Name} is {Type(c.Left)} and {Type(c.Right)}");
+        foreach (var c in p.Compared.Where(typeDiffers)) output.WriteLine($"  type differs: {c.Name} is {Type(c.Left)} and {Type(c.Right)}");
         foreach (var s in p.Skipped) output.WriteLine($"  not compared: {s.Column} ({s.Reason})");
 
         output.WriteLine();

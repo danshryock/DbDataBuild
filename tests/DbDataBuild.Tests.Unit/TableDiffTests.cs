@@ -139,8 +139,8 @@ public class TableDiffTests
     [Fact]
     public void Diff_needs_exactly_one_other_table_and_schema_qualified_names()
     {
-        Assert.Contains("exactly one of --against", Run("staging.orders").Err);
-        Assert.Contains("exactly one of --against", Run("staging.orders", "--against", "dev.orders", "--against-schema", "dev").Err);
+        Assert.Contains("--against-schema", Run("staging.orders").Err);
+        Assert.Contains("--against-schema", Run("staging.orders", "--against", "dev.orders", "--against-schema", "dev").Err);
         Assert.Contains("is not `schema_name.table_name`", Run("orders", "--against-schema", "dev").Err);
         Assert.Contains("is not `schema_name.table_name`", Run("staging.orders", "--against", "orders").Err);
         Assert.Contains("same table", Run("staging.orders", "--against", "staging.orders").Err);

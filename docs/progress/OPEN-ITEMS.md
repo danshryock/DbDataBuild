@@ -53,7 +53,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
 
-1. `diff` across connections, and the rest of section M that is not string semantics (`copy_to`, offline tracking).
+1. The rest of section M that is not string semantics (`copy_to`, offline tracking). `diff` across connections is built (entry 92).
 2. Lowering gaps as real models need them (section A), and the documentation debt (section D).
 3. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
 4. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
@@ -87,7 +87,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 
 ## K. Graph and diff (2026-10-03)
 
-- **Built**: selectors and `graph` (entry 42), `diff` version 1 (entry 43). **Not built**: `diff` across targets (SQL Server against PostgreSQL: range hashes and a canonical text form per type), a floating-point tolerance, comparing a table with a DuckDB run of its model; `changed:` ignores hook scripts and rendered files; `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan. A model-level `tags:` setting (and `tag:` selectors) is not there.
+- **Built**: selectors and `graph` (entry 42), `diff` version 1 (entry 43). **Not built**: `diff` across connections is built (entry 92); not built: a floating-point comparison, a row filter for it, comparing a table with a DuckDB run of its model; `changed:` ignores hook scripts and rendered files; `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan. A model-level `tags:` setting (and `tag:` selectors) is not there.
 - **Loading from a source query**: `load-seeds` loads seeds (DuckDB queries) into SQL Server and PostgreSQL (entry 45). Not built: loading from a query on another engine (SQL Server or PostgreSQL to DuckDB or to each other), CSV through DuckDB `read_csv` (seeds run with external access off).
 - **Template backlog**: Chinook, AdventureWorks.
 - **Refused constructs the templates found** (docs/research/template-findings.md): `split_part` on SQL Server, a lateral or date series (`generate_series` bounds from another table, or dates), `UNNEST` of list columns, a quantile with a list of fractions or a DISTINCT or FILTER, `json_extract`/`json_valid`/`json_type`/`json_keys`, `json_array_length` and every regular expression on SQL Server, `nth_value` on SQL Server.
@@ -114,7 +114,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 
 - **Built** (entries 66 to 82): connections and engines, layered project files, mapped and native models, copies (remote and local, fan-in with slices, incremental with a watermark, `--full-refresh`, the origin shape check for mapped, native and built-model origins, `on_mismatch`), central or per-connection tracking and its upgrade from layout 3 (`init --upgrade`), parameters (values and names), native selects and commands (`reads:`, plan-time describe, `track_definition`), macros and types, `report` per copy origin.
 - **String semantics across engines**: parked until the owner designs it as a whole (section P). Nothing more is added to it before that.
-- **Not built**: `diff` across connections (SQL Server against PostgreSQL: a canonical form per type, range hashes); `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
+- **Not built**: `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
 - **Not verified on a real engine**: Fabric (never run); large objects and time zones other than UTC in copies; a SQL Server login without VIEW DEFINITION for `track_definition`; a command copied across engines (the transfer is the one verified for native selects).
 
 ## N. Schema name and object name out of the folder path (2026-10-06)

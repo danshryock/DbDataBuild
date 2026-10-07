@@ -62,7 +62,7 @@ public static class TableDiffer
             if (!rightByName.TryGetValue(l.Name, out var r)) continue;
             if (only is { Count: > 0 } && !only.Contains(l.Name, StringComparer.OrdinalIgnoreCase) && !key.Contains(l.Name, StringComparer.OrdinalIgnoreCase)) continue;
             if (except != null && except.Contains(l.Name, StringComparer.OrdinalIgnoreCase) && !key.Contains(l.Name, StringComparer.OrdinalIgnoreCase)) continue;
-            var reason = Incomparable(l, r);
+            var reason = Incomparable(target, l, r);
             if (reason != null) skipped.Add((l.Name, Describe(l), Describe(r), reason));
             else compared.Add(new DiffColumn(l.Name, l, r));
         }
@@ -82,9 +82,12 @@ public static class TableDiffer
     private static string Describe(ColumnShape c) =>
         c.Type + (c.Precision != null ? $"({c.Precision}{(c.Scale != null ? $",{c.Scale}" : "")})" : c.Length != null ? $"({(c.Length == -1 ? "max" : c.Length.ToString())})" : "");
 
-    private static string? Incomparable(ColumnShape l, ColumnShape r)
+    /// <summary>`text` has no equality on SQL Server (the old large-object type) and is an ordinary string on PostgreSQL.</summary>
+    private static bool HasNoEquality(string engine, string type) => NoEquality.Contains(type) && !(engine == "postgres" && string.Equals(type, "text", StringComparison.OrdinalIgnoreCase));
+
+    private static string? Incomparable(string engine, ColumnShape l, ColumnShape r)
     {
-        if (NoEquality.Contains(l.Type) || NoEquality.Contains(r.Type)) return $"{(NoEquality.Contains(l.Type) ? l.Type : r.Type)} has no equality";
+        if (HasNoEquality(engine, l.Type) || HasNoEquality(engine, r.Type)) return $"{(HasNoEquality(engine, l.Type) ? l.Type : r.Type)} has no equality";
         var fl = Families.GetValueOrDefault(l.Type);
         var fr = Families.GetValueOrDefault(r.Type);
         if (fl != null && fl == fr) return null;

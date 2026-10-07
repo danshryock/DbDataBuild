@@ -229,14 +229,15 @@ public static class CliApp
                     var diffTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var diffAgainst = new Option<string?>("--against") { Description = "The table or view to compare it with, as schema_name.table_name" };
                     var diffAgainstSchema = new Option<string?>("--against-schema") { Description = "Compare with the table of the same name under this schema name (a development copy, for example)" };
+                    var diffAgainstConnection = new Option<string?>("--against-connection") { Description = "Compare with the table on this connection (the same table name unless --against or --against-schema says another); the connections may be on different engines, and only digests of the values are compared" };
                     var diffKey = new Option<string[]>("--key") { Description = "Columns that identify a row (default: the model's grain or unique key, or a source's grain)", AllowMultipleArgumentsPerToken = true };
                     var diffOnly = new Option<string[]>("--columns") { Description = "Compare only these columns (and the key)", AllowMultipleArgumentsPerToken = true };
                     var diffExcept = new Option<string[]>("--exclude-columns") { Description = "Leave these columns out of the comparison", AllowMultipleArgumentsPerToken = true };
                     var diffValues = new Option<bool>("--show-values") { Description = "Read and show values: the smallest and largest of each column and sample rows of each difference (without it only counts are read)" };
                     var diffLimit = new Option<int>("--limit") { Description = "With --show-values, how many sample rows of each kind of difference", DefaultValueFactory = _ => 10 };
-                    cmd.Arguments.Add(diffTable); cmd.Options.Add(diffProject); cmd.Options.Add(diffTarget); cmd.Options.Add(diffAgainst); cmd.Options.Add(diffAgainstSchema); cmd.Options.Add(diffKey);
+                    cmd.Arguments.Add(diffTable); cmd.Options.Add(diffProject); cmd.Options.Add(diffTarget); cmd.Options.Add(diffAgainst); cmd.Options.Add(diffAgainstSchema); cmd.Options.Add(diffAgainstConnection); cmd.Options.Add(diffKey);
                     cmd.Options.Add(diffOnly); cmd.Options.Add(diffExcept); cmd.Options.Add(diffValues); cmd.Options.Add(diffLimit);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => DiffCommand.Run(spec, pr.GetValue(diffProject)!.FullName, pr.GetValue(diffTable)!, pr.GetValue(diffAgainst), pr.GetValue(diffAgainstSchema), pr.GetValue(diffTarget),
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => DiffCommand.Run(spec, pr.GetValue(diffProject)!.FullName, pr.GetValue(diffTable)!, pr.GetValue(diffAgainst), pr.GetValue(diffAgainstSchema), pr.GetValue(diffAgainstConnection), pr.GetValue(diffTarget),
                         pr.GetValue(diffKey) ?? [], pr.GetValue(diffOnly) ?? [], pr.GetValue(diffExcept) ?? [], pr.GetValue(diffValues), pr.GetValue(diffLimit), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "graph":

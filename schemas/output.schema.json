@@ -2803,6 +2803,13 @@
         "connection": {
           "type": "string"
         },
+        "against_connection": {
+          "description": "The connection of the right-hand table when it is not the left one's; the comparison is then by digests computed in each engine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "left": {
           "type": "object",
           "additionalProperties": false,
