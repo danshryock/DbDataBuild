@@ -191,6 +191,56 @@ public partial class NativeConformanceTests
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
 
+    [SkippableTheory]
+    [InlineData("postgres", "sqlserver")]
+    [InlineData("sqlserver", "postgres")]
+    public async Task A_native_command_on_one_engine_is_run_there_and_its_rows_are_copied_to_the_other(string originName, string destinationName)
+    {
+        var origin = EngineEnv.Require(originName);
+        var destination = EngineEnv.Require(destinationName);
+        await origin.StartAsync(); await destination.StartAsync();
+        await using var _o = origin; await using var _d = destination;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-command-copy-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v == LoginSettings.VariableName(originName, Login.Read) ? origin.ConnectionString
+            : v == LoginSettings.VariableName(destinationName, Login.Read) || v == LoginSettings.VariableName(destinationName, Login.Write) ? destination.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
+        var schema = originName == "postgres" ? "public" : "dbo";
+        var (create, call) = ProcedureFor(originName);
+        try
+        {
+            await origin.ExecAsync($"DROP TABLE IF EXISTS {schema}.side_effect");
+            await origin.ExecAsync($"CREATE TABLE {schema}.side_effect (v int)");
+            await origin.ExecAsync(originName == "postgres" ? "DROP FUNCTION IF EXISTS public.usp_nums(text)" : "DROP PROCEDURE IF EXISTS dbo.usp_nums");
+            await origin.ExecAsync(create);
+
+            Write("dbdatabuild.yml", $"defaults: {{connections: [{destinationName}]}}\ntracking: {{ connection: {destinationName} }}\nconnections:\n  {originName}: {{ allow_native_commands: true }}\nparameters:\n  list: \"7,8,9\"\n" +
+                (destinationName == "postgres" ? "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n" : ""));
+            Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  access: command\n  query: " + call + $"\nconnections=: [{originName}]\n" + Cols);
+            Write("models/dst/nums.yml", "name: dst.nums\nkind:\n  type: copy\n  from: src.nums\n");
+            Ok(Cli("init", "--connection", destinationName, "--apply"), "init");
+            Ok(Cli("render", "--write"), "render");
+            var plan = Cli("plan", "--connection", destinationName);
+            Ok(plan, "plan");
+            var file = Path.Combine(dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+            var text = File.ReadAllText(file);
+            Assert.Contains("type: transfer", text);
+            Assert.Contains("command: true", text);
+            Assert.Equal("0", (await origin.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // planning never calls it
+            Assert.NotEqual(0, Cli("apply", file).Exit);                                                                                        // running a procedure is a risky step
+            Ok(Cli("apply", file, "--allow-risky"), "apply");
+            Assert.Equal(["7", "8", "9"], await destination.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM dst.nums ORDER BY n"));
+            Assert.Equal("0", (await origin.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // rolled back on the origin
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
     [SkippableFact]
     public async Task A_native_command_is_refused_on_a_connection_that_does_not_allow_it()
     {

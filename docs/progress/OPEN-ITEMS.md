@@ -115,7 +115,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1782, real-engine 
 - **Built** (entries 66 to 82): connections and engines, layered project files, mapped and native models, copies (remote and local, fan-in with slices, incremental with a watermark, `--full-refresh`, the origin shape check for mapped, native and built-model origins, `on_mismatch`), central or per-connection tracking and its upgrade from layout 3 (`init --upgrade`), parameters (values and names), native selects and commands (`reads:`, plan-time describe, `track_definition`), macros and types, `report` per copy origin.
 - **String semantics across engines**: parked until the owner designs it as a whole (section P). Nothing more is added to it before that.
 - **Not built**: `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
-- **Not verified on a real engine**: Fabric (never run); large objects in copies (and time zones: the copy and cross-connection `diff` tests pass with the host in America/Los_Angeles and Asia/Kolkata for `TIMESTAMP` and timestamp-with-zone columns, entry 103; not varied: the server's own time zone); a command copied across engines (the transfer is the one verified for native selects).
+- **Not verified on a real engine**: Fabric (never run); large objects in copies (and time zones: the copy and cross-connection `diff` tests pass with the host in America/Los_Angeles and Asia/Kolkata for `TIMESTAMP` and timestamp-with-zone columns, entry 103; not varied: the server's own time zone).
 
 ## N. Schema name and object name out of the folder path (2026-10-06)
 
@@ -125,7 +125,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1782, real-engine 
 ## O. Limits recorded in the progress log, collected here (2026-10-06)
 
 - **Macros** (entries 81, 87): folder-scoped macros; a `NAME` parameter reaches a query only as a macro argument; enum-typed expressions are not mapped to engine types.
-- **Native models** (entries 77 to 80): the plan-time describe does not compare nullability and does not describe commands; `reads:` is not checked against the text; a command copied across engines was verified only through the transfer that native selects use.
+- **Native models** (entries 77 to 80): the plan-time describe does not compare nullability and does not describe commands; `reads:` is not checked against the text; a command copied across engines is verified in both directions (entry 104).
 - **Parameters** (entry 76): boolean, decimal and double types; a view cannot use value parameters.
 - **Tracking** (entries 74, 82): `copy_to`, offline tracking; `init --upgrade` handles layouts 2 and 3 and not Fabric.
 - **Copies** (entries 71 to 75, 83): `--full-refresh` does not see rows deleted at the origin; author aliases are not recovered for derived tables and subqueries (section A5).
