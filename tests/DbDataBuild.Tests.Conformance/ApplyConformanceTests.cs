@@ -477,6 +477,44 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Constants_of_every_type_come_back_exactly_from_a_load_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("models/marts/consts.yml", "name: marts.consts\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n" +
+                "  - {name: ts, type: TIMESTAMP}\n  - {name: d1, type: DATE}\n  - {name: d2, type: DATE}\n  - {name: big, type: \"DECIMAL(36, 6)\"}\n  - {name: tiny, type: \"DECIMAL(10, 7)\"}\n" +
+                "  - {name: mx, type: BIGINT}\n  - {name: mn, type: BIGINT}\n  - {name: t, type: BOOLEAN}\n  - {name: f, type: BOOLEAN}\n  - {name: nul, type: INTEGER}\n  - {name: empty, type: \"VARCHAR(10)\"}\n  - {name: spaces, type: \"VARCHAR(10)\"}\n" +
+                "  - {name: id, type: UUID}\n  - {name: dbl, type: DOUBLE}\n");
+            run.Write("models/marts/consts.sql", "SELECT order_id, TIMESTAMP '2024-02-29 13:14:15.123456' AS ts, DATE '0001-01-01' AS d1, DATE '9999-12-31' AS d2, CAST(123456789012345678901234567890.123456 AS DECIMAL(36, 6)) AS big, " +
+                "CAST(-0.0000001 AS DECIMAL(10, 7)) AS tiny, CAST(9223372036854775807 AS BIGINT) AS mx, CAST(-9223372036854775808 AS BIGINT) AS mn, TRUE AS t, FALSE AS f, CAST(NULL AS INTEGER) AS nul, '' AS empty, '  ' AS spaces, " +
+                "CAST('0e984725-c51c-4bf4-9960-e1c80e27aba0' AS UUID) AS id, CAST(1.5e300 AS DOUBLE) AS dbl FROM staging.orders WHERE order_id = 1\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            var render = run.Cli("render", "--write"); Ok(render, "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            string Text(string col, string kind) => (pg, kind) switch
+            {
+                (true, "ts") => $"to_char({col}, 'YYYY-MM-DD HH24:MI:SS.US')", (false, "ts") => $"CONVERT(VARCHAR(30), {col}, 121)",
+                (true, "date") => $"to_char({col}, 'YYYY-MM-DD')", (false, "date") => $"CONVERT(VARCHAR(10), {col}, 23)",
+                (true, "bool") => $"CASE WHEN {col} THEN '1' ELSE '0' END", (false, "bool") => $"CAST({col} AS VARCHAR(1))",
+                (true, "uuid") => $"LOWER(CAST({col} AS TEXT))", (false, "uuid") => $"LOWER(CAST({col} AS VARCHAR(36)))",
+                (true, "len") => $"CAST(LENGTH({col}) AS TEXT)", (false, "len") => $"CAST(LEN(REPLACE({col}, ' ', '_')) AS VARCHAR(10))",      // LEN ignores trailing spaces on SQL Server: count them as characters
+                (true, "dbl") => $"CAST({col} AS TEXT)", (false, "dbl") => $"CAST({col} AS VARCHAR(40))",
+                _ => $"CAST({col} AS {(pg ? "TEXT" : "VARCHAR(60)")})",
+            };
+            var parts = new[] { Text("ts", "ts"), Text("d1", "date"), Text("d2", "date"), Text("big", ""), Text("tiny", ""), Text("mx", ""), Text("mn", ""), Text("t", "bool"), Text("f", "bool"), "COALESCE(CAST(nul AS VARCHAR(5)), 'NULL')", "CAST(LEN(empty) AS VARCHAR(5))".Replace("LEN", pg ? "LENGTH" : "LEN"), Text("spaces", "len"), Text("id", "uuid") };
+            var row = (await engine.RowsAsync($"SELECT {string.Join(", ", parts)} FROM marts.consts")).Single().Split('|');
+            Assert.Equal(["2024-02-29 13:14:15.123456", "0001-01-01", "9999-12-31", "123456789012345678901234567890.123456", "-0.0000001", "9223372036854775807", "-9223372036854775808", "1", "0", "NULL", "0", "2", "0e984725-c51c-4bf4-9960-e1c80e27aba0"], row);
+            Assert.Equal(1.5e300, double.Parse((await engine.RowsAsync($"SELECT {Text("dbl", "dbl")} FROM marts.consts")).Single(), System.Globalization.CultureInfo.InvariantCulture));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

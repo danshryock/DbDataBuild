@@ -580,6 +580,21 @@ public class PlanLowererTests
         Assert.DoesNotContain('\u0003', lowered);
     }
 
+    // a constant DuckDB stores in 128 bits (a DECIMAL wider than 18 digits, a HUGEINT) arrives in the plan as {upper, lower}, not as a number
+    [Theory]
+    [InlineData("SELECT CAST(123456789012345678901234567890.123456 AS DECIMAL(36, 6)) AS x", "123456789012345678901234567890.123456")]
+    [InlineData("SELECT CAST(-123456789012345678901234567890.5 AS DECIMAL(38, 1)) AS x", "-123456789012345678901234567890.5")]
+    [InlineData("SELECT CAST(0.000000000000000000000001 AS DECIMAL(30, 24)) AS x", "0.000000000000000000000001")]
+    [InlineData("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38, 0)) AS x", "99999999999999999999999999999999999999")]
+    public void A_wide_decimal_constant_is_lowered_with_every_digit(string source, string digits)
+    {
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Contains(digits, lowered);
+        string AsText(string sql) => $"SELECT CAST(x AS VARCHAR) AS x FROM ({sql}) q";                    // a .NET decimal cannot hold 38 digits: compare the text
+        Assert.Equal(Rows(c, AsText(source), false), Rows(c, AsText(lowered), false));
+    }
+
     // used as a value, the mark is written as `CASE WHEN <a row matches> THEN TRUE WHEN <none can> THEN FALSE ELSE NULL END`: DuckDB's three-valued answer, on data with NULLs on both sides
     public static TheoryData<string> ComparisonSubqueriesAsValues => new()
     {

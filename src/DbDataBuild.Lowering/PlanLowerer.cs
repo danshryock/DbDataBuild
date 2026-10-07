@@ -227,7 +227,7 @@ public sealed class PlanLowerer
             case "DECIMAL":
             {
                 var scale = v.GetProperty("type").TryGetProperty("type_info", out var ti) && ti.TryGetProperty("scale", out var sc) ? sc.GetInt32() : 0;
-                var n = BigInteger.Parse(x.GetRawText());
+                var n = IntegerValue(x);
                 var digits = BigInteger.Abs(n).ToString().PadLeft(scale + 1, '0');
                 return (n.Sign < 0 ? "-" : "") + (scale > 0 ? digits[..^scale] + "." + digits[^scale..] : digits);
             }
@@ -240,10 +240,18 @@ public sealed class PlanLowerer
                 return d.Contains('.') || d.Contains('E') ? d : d + ".0";
             }
             default:
-                if (IntegerTypes.Contains(type)) return x.GetRawText();
+                if (IntegerTypes.Contains(type)) return IntegerValue(x).ToString();
                 throw new LoweringException($"a literal of type {type}");
         }
     }
+
+    /// <summary>
+    /// A whole number of a plan: a JSON number, or, for what DuckDB stores in 128 bits (a HUGEINT, a DECIMAL wider than 18 digits), `{"upper": signed 64 bits, "lower": unsigned 64 bits}`, whose value is upper * 2^64 + lower.
+    /// </summary>
+    private static BigInteger IntegerValue(JsonElement x) =>
+        x.ValueKind == JsonValueKind.Object && x.TryGetProperty("upper", out var upper) && x.TryGetProperty("lower", out var lower)
+            ? (new BigInteger(upper.GetInt64()) << 64) + new BigInteger(lower.GetUInt64())
+            : BigInteger.Parse(x.GetRawText());
 
     // ---------------------------------------------------------------------------------------------------------------------------------------------------------
     // expressions
