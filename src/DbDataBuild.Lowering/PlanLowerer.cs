@@ -966,6 +966,8 @@ public sealed class PlanLowerer
                     c.HasWindow = true;
                     c = Wrap(c);
                 }
+                // SQL Server refuses an aggregate (and a GROUP BY key) that contains a subquery: the subquery is computed in a derived table first and the aggregate reads its column
+                if (aggregateExprs.Any(x => !IsQuantile(x) && HoldsSubquery(Expr(x, c.Outs()))) || Arr(p, "groups").Any(g => HoldsSubquery(Expr(g, c.Outs())))) c = Wrap(c);
                 var outs = c.Outs();
                 var childItems = c.Sel;
                 var groups = Arr(p, "groups").Select(g => (Sql: Trim(g, Expr(g, outs)), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems), Const: IsColumnFree(g, childItems))).ToList();
@@ -1430,6 +1432,8 @@ public sealed class PlanLowerer
             return $"(CASE WHEN {mark.True} THEN TRUE WHEN {mark.False} THEN FALSE ELSE NULL END)";
         });
     }
+
+    private static bool HoldsSubquery(string sql) => Regex.IsMatch(sql, @"\(\s*(WITH|SELECT)\b", RegexOptions.IgnoreCase);
 
     private static bool ReferencesMark(JsonElement e, IReadOnlyList<string> outs)
     {

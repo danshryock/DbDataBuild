@@ -1162,6 +1162,34 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task An_aggregate_over_a_subquery_runs_on_both_engines_through_a_derived_table(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("models/staging/s1.yml", "name: staging.s1\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n");
+            run.Write("models/staging/s2.yml", "name: staging.s2\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: z, type: INTEGER}\n");
+            await engine.ExecAsync("CREATE TABLE staging.s1 (id INT NOT NULL)");
+            await engine.ExecAsync("INSERT INTO staging.s1 VALUES (1), (2), (3), (4), (5), (6), (7), (8)");
+            await engine.ExecAsync("CREATE TABLE staging.s2 (id INT NOT NULL, z INT)");
+            await engine.ExecAsync("INSERT INTO staging.s2 VALUES (1, 2), (2, NULL), (3, 7), (4, 3), (5, 5)");
+            run.Write("models/marts/agg_a.yml", "name: marts.agg_a\nkind: {type: full}\ncolumns:\n  - {name: total, type: BIGINT}\n");
+            run.Write("models/marts/agg_a.sql", "SELECT CAST(sum((SELECT count(*) FROM staging.s2 b WHERE b.id = s.id)) AS BIGINT) AS total FROM staging.s1 s\n");
+            run.Write("models/marts/agg_b.yml", "name: marts.agg_b\nkind: {type: full}\ncolumns:\n  - {name: m, type: INTEGER}\n  - {name: n, type: BIGINT, nullable: false}\n");
+            run.Write("models/marts/agg_b.sql", "SELECT max(coalesce((SELECT max(b.z) FROM staging.s2 b WHERE b.id = s.id), 0)) AS m, count(*) AS n FROM staging.s1 s\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            Assert.Equal(["5"], await engine.RowsAsync("SELECT total FROM marts.agg_a"));
+            Assert.Equal(["7|8"], await engine.RowsAsync("SELECT m, n FROM marts.agg_b"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task DISTINCT_ON_with_a_deciding_order_gives_the_same_rows_on_both_engines(string name)
     {
         var run = await SetUp(name);

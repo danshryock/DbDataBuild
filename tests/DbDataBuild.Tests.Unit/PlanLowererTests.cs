@@ -526,6 +526,19 @@ public class PlanLowererTests
         Assert.Contains("SELECT", lowered);
     }
 
+    [Theory]
+    [InlineData("SELECT sum((SELECT count(*) FROM u WHERE u.a = t.a)) AS s FROM t")]
+    [InlineData("SELECT max(coalesce((SELECT max(u.b) FROM u WHERE u.a = t.a), 0)) AS m, count(*) AS n FROM t")]
+    [InlineData("SELECT t.a, sum((SELECT count(*) FROM u WHERE u.a = t.a) + 1) AS s FROM t GROUP BY t.a")]
+    public void An_aggregate_over_a_subquery_reads_the_subquerys_column_of_a_derived_table(string source)
+    {
+        // SQL Server rejects `sum((SELECT ...))`: "Cannot perform an aggregate function on an expression containing an aggregate or a subquery"
+        using var c = Open();
+        var lowered = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+        Assert.DoesNotMatch(@"(sum|max|min|count|avg)\(\s*\(?\s*\(\s*SELECT", lowered);
+    }
+
     // x op ANY / ALL (subquery) and a row-value IN, as filter conditions: lowered with predicates only, and equal to DuckDB's rows on data with NULLs on both sides
     // (t.a is NULL for id 3, u.a is NULL in one row; none of these may differ from DuckDB, which is why they were refused or wrong before). A correlated row-value IN is not in the list: DuckDB itself
     // cannot run it ("Correlated IN/ANY/ALL with multiple columns not yet supported").

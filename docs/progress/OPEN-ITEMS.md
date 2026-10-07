@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine tests 149 (147 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1763, real-engine tests 153 (151 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -22,7 +22,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 4. **Correlated subquery over `UNION`/`INTERSECT`/`EXCEPT`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset.** Refused; no plan to build unless a real model needs them.
 5. **Author table aliases: built** (DESIGN.md 7.6; entry 89): the aliases written for tables come back in the lowered query. Not for a query with a CTE or one that reaches a macro (they keep the table names); derived-table and subquery aliases the author wrote (`FROM (SELECT ...) x`) are still generated names (`s1`).
 6. **Date/timestamp series, `UNNEST`, list/struct constructors, `USING SAMPLE`, `LIMIT ... PERCENT`.** Refused by decision. A date series could be an integer series plus `DATEADD`/interval arithmetic; I left it out because every interval unit needs its own differential check.
-7. **Engine limit, not a lowering gap**: SQL Server rejects an aggregate over a subquery (`sum((SELECT ...))`). Could be worked around by lifting the subquery into a join; not done.
+7. **Aggregate over a subquery: built** (entry 96). SQL Server rejects `sum((SELECT ...))` and a `GROUP BY` on a subquery; the lowerer computes the subquery in a derived table first and the aggregate reads its column.
 8. **Plan JSON is DuckDB-internal.** A DuckDB upgrade can change plans, which shows as a stale lowered artifact in `render --check`. The header records the DuckDB version; there is no tooling to explain *why* an artifact changed.
 9. **Evidence gaps**: the `fn.generate_series` matrix row cites a spike case that has not been run (the conformance test is the real evidence). Re-run the spike when convenient.
 
