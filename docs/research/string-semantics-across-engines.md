@@ -1,6 +1,6 @@
 # String comparison across engines: what the profile guarantees
 
-Status: **review** (2026-10-06) with a per-connection setting built. The choice between the ways of making connections agree is open.
+Status: **parked** (2026-10-06, owner): the review below and the pieces built from it (a per-connection setting, DDB-236, `trimmed`, the DuckDB-side emulation) were patches; the owner wants one design of the whole before anything more is added (`OPEN-ITEMS.md` section P lists what exists and the questions a design must answer). Read this note as the record of how it came to be, not as the plan.
 
 ## What the setting is
 

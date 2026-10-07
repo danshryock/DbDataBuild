@@ -42,7 +42,7 @@ To try it by hand: `scripts/fetch-native.sh`, `dotnet build`, `scripts/test-engi
 10. `model_layout` defaults to `folder` only because every existing project is laid out that way.
 11. An unused macro is not created in a binding, and `validate` only warns about one DuckDB refuses.
 12. A change to a routine under `track_definition` is a warning (`policy.severity.native_definition_changed` makes it an error).
-13. The string profile is a checked declaration, not an imposed behavior (the review is `docs/research/string-semantics-across-engines.md`).
+13. The string profile is a checked declaration, not an imposed behavior. **The owner has parked the whole of string comparison until it is designed as one thing** (`OPEN-ITEMS.md` section P); the pieces built so far came from patches, and nothing is added meanwhile.
 
 ## Things that went wrong or surprised me (all fixed, all with tests)
 

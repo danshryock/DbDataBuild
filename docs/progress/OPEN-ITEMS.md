@@ -49,15 +49,16 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 
 - DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.
 - Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Not written: user-facing getting-started docs, a generated command reference.
-- REVIEW.md accumulates dated updates; it needs a consolidated rewrite before anyone else reads it.
+- REVIEW.md was rewritten as one document on 2026-10-06; keep it a summary (the log is `state-and-apply.md`).
 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
 
-1. The rest of section M as demand appears (a rewrite of comparisons on an engine that cannot match the profile, a profile per folder).
-2. Declaring the object in the query file (section N), which the owner wants to revisit.
+1. `diff` across connections, and the rest of section M that is not string semantics (`copy_to`, offline tracking, a per-connection schema).
+2. More options in the head, heads for native models and copies (section N), once the owner has said which belong there.
 3. Lowering gaps as real models need them (section A), and the documentation debt (section D).
 4. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
-5. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release. (Done since the first version of this list: target rules, `sum` widening, milestone 9 hardening, the single-file publish for linux and Windows, `ANY`/`ALL`, index lint, per-command JSON Schemas.)
+5. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
+6. **Parked until designed as a whole**: string comparison (section P), change feeds (section L).
 
 ## F. Terminal interface and agents (added 2026-10-02)
 
@@ -113,7 +114,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 ## M. Cross-connection work: what is built and what is not (2026-10-06)
 
 - **Built** (entries 66 to 82): connections and engines, layered project files, mapped and native models, copies (remote and local, fan-in with slices, incremental with a watermark, `--full-refresh`, the origin shape check for mapped, native and built-model origins, `on_mismatch`), central or per-connection tracking and its upgrade from layout 3 (`init --upgrade`), parameters (values and names), native selects and commands (`reads:`, plan-time describe, `track_definition`), macros and types, `report` per copy origin.
-- **String semantics across engines** (2026-10-06): per-connection `string_semantics` (built), DDB-236 (a model that compares strings where its connections differ) and `trimmed: true` with its check (DDB-237), built; see `docs/research/string-semantics-across-engines.md`. The DuckDB-side emulation for `sample` and `test` is built too (a collation for the model's query, `rtrim()` where trailing spaces are ignored; not set operations, `count(DISTINCT)` or `LIKE`). Open: a rewrite of comparisons on the engine that cannot match, a profile per folder, and whether a model on connections with different profiles should be an error.
+- **String semantics across engines**: parked until the owner designs it as a whole (section P). Nothing more is added to it before that.
 - **Not built**: `diff` across connections (SQL Server against PostgreSQL: a canonical form per type, range hashes); `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
 - **Not verified on a real engine**: Fabric (never run); large objects and time zones other than UTC in copies; a SQL Server login without VIEW DEFINITION for `track_definition`; a command copied across engines (the transfer is the one verified for native selects).
 
@@ -130,3 +131,9 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 - **Tracking** (entries 74, 82): `copy_to`, offline tracking; `init --upgrade` handles layouts 2 and 3 and not Fabric.
 - **Copies** (entries 71 to 75, 83): `--full-refresh` does not see rows deleted at the origin; author aliases are not recovered for derived tables and subqueries (section A5).
 - **Support matrix**: a `current_date` depends on each engine's time zone (`fn.current_date`).
+
+## P. String comparison: parked until it is designed as a whole (2026-10-06)
+
+- **Decision (owner)**: the string profile was built by patches (a project setting, a per-connection override, a lint, a `trimmed` declaration and its check, a DuckDB-side emulation), each answering a question that a whole design would have answered together. Continuing to patch it would leave more code and configuration than the design needs. It is **frozen**: no further string-profile settings, lints, rewrites or emulation are added until the owner has time to design it. Bugs in what exists are fixed.
+- **What exists today** (so the design starts from facts, not from the history): `string_semantics` at the project (case, accent, trailing_space, collations per logical name and engine) and `connections.<name>.string_semantics`; collation checks offline and against the live catalog (DDB-310 to 312); explicit collations in all DDL; the `LEN` rule and matrix rows `str.*` (mostly `approximated` on the engines); DDB-236 (a model comparing strings on connections that disagree; `lint_ignore`); `trimmed: true` on columns and its count in `check` (DDB-237); `sample` and `test` run under the model's first connection's profile (a `default_collation` and `rtrim()` for trailing spaces; not set operations, `count(DISTINCT)` or `LIKE`). Nothing rewrites a comparison on an engine. The review is `docs/research/string-semantics-across-engines.md`.
+- **What a design has to decide** (a list of questions, not proposals): what "string semantics" covers (case, accent, trailing space, collation, ordering, `LIKE`, length, concatenation with NULL, the empty string, Unicode normalization, identifier case); who owns it (project, connection, folder, model, column, expression) and in how many places it may be said; what is promised (a declaration that is checked, a behavior the tool imposes by rewriting, or a result that is tested against DuckDB), and what a model on connections that disagree gets; where emulation lives (DuckDB runs, the engines, both) and what it costs (index use); how data (`trimmed`) and query (rewrites) share the work; how it relates to the lowerer, the matrix and `rewrites:`; and how one place in the configuration says all of it.
