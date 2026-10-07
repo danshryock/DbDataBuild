@@ -14,6 +14,9 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class DefineCommand
 {
+    /// <summary>The text of a file read as bytes (to hash it), without a byte order mark: `Encoding.GetString` keeps it as a character, and an editor on Windows writes one.</summary>
+    private static string Utf8Text(byte[] bytes) => System.Text.Encoding.UTF8.GetString(bytes, bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0, bytes.Length - (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0));
+
     /// <summary>A definition with no query beside it: a mapped model, whose problems `define` shows because it reads them as the tables models are written over.</summary>
     private static bool IsMappedModelFile(string projectRoot, string file) =>
         file.StartsWith(ProjectValidator.ModelsDir + "/", StringComparison.Ordinal) && file.EndsWith(".yml", StringComparison.Ordinal)
@@ -67,7 +70,7 @@ internal static class DefineCommand
             var sqlBytes = File.ReadAllBytes(sqlPath);
             queryHashes[sqlRel] = DefinitionFile.Hash(sqlBytes);
             // a head (`CREATE TABLE schema_name.object_name WITH (...) AS`) has said the name and the kind: the query is what follows it
-            var parsedHead = QueryHeadParser.Parse(sqlRel, System.Text.Encoding.UTF8.GetString(sqlBytes));
+            var parsedHead = QueryHeadParser.Parse(sqlRel, Utf8Text(sqlBytes));
             if (parsedHead.Problems.Count > 0) { problems.AddRange(parsedHead.Problems); continue; }
             var head = parsedHead.Head;
             // the name is the definition's; a file with none yet is named by the layout (only a layout that spells the schema name in the file's name can say it)
@@ -87,7 +90,7 @@ internal static class DefineCommand
             {
                 var bytes = File.ReadAllBytes(ymlPath);
                 hashes[ymlRel] = DefinitionFile.Hash(bytes);
-                existingText = System.Text.Encoding.UTF8.GetString(bytes);
+                existingText = Utf8Text(bytes);
                 if (head != null)
                 {
                     // the definition does not say its name and kind: the project's own reading of it (with the head) is what exists
