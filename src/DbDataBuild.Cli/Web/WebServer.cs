@@ -32,8 +32,46 @@ internal sealed class WebServer : IDisposable
     private readonly bool portWasChosenHere;
     public string Address => $"http://127.0.0.1:{Port}/?token={Token}";
 
-    public WebServer(string projectRoot, ICommandHost host, int port = 0, bool allowApply = false)
+    /// <summary>
+    /// A new link for a person to open: it works once, for ten minutes. Opening it makes a session (a cookie the browser keeps, and a token the page keeps for its requests) and the link is spent, so the text of
+    /// the link, wherever it was written down, opens nothing afterwards. Whoever uses it first gets the session: a link handed to an agent is the agent's to pass on.
+    /// </summary>
+    public string NewLink(string? screen = null)
     {
+        var link = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+        lock (linkLock)
+        {
+            foreach (var old in links.Where(l => l.Value < DateTime.UtcNow).Select(l => l.Key).ToList()) links.Remove(old);
+            links[link] = DateTime.UtcNow + LinkLifetime;
+        }
+        return $"http://127.0.0.1:{Port}/?token={link}" + (screen != null ? "&screen=" + Uri.EscapeDataString(screen) : "");
+    }
+
+    private bool TakeLink(string? given)
+    {
+        if (given == null) return false;
+        lock (linkLock)
+            return links.Remove(given, out var expires) && expires >= DateTime.UtcNow;
+    }
+
+    private string NewSession() { var s = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant(); lock (linkLock) sessions.Add(s); return s; }
+
+    private bool IsSession(string? given)
+    {
+        if (given == null) return false;
+        lock (linkLock) return sessions.Any(s => CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given), Encoding.UTF8.GetBytes(s)));
+    }
+
+    /// <summary>One-time links (see <see cref="NewLink"/>): a link is opened once and turns into a session of the browser that opened it. Off, the address carries a token that works for as long as the server runs.</summary>
+    private readonly bool oneTimeLinks;
+    private readonly Dictionary<string, DateTime> links = new();
+    private readonly HashSet<string> sessions = [];
+    private readonly object linkLock = new();
+    internal static readonly TimeSpan LinkLifetime = TimeSpan.FromMinutes(10);
+
+    public WebServer(string projectRoot, ICommandHost host, int port = 0, bool allowApply = false, bool oneTimeLinks = false)
+    {
+        this.oneTimeLinks = oneTimeLinks;
         this.projectRoot = Path.GetFullPath(projectRoot);
         backend = new WebBackend(this.projectRoot, host, allowApply);
         Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
@@ -118,10 +156,11 @@ internal sealed class WebServer : IDisposable
         if (origin != null && origin != $"http://127.0.0.1:{Port}" && origin != $"http://localhost:{Port}") return Refuse(403, "Wrong origin.");
 
         var path = request.Url!.AbsolutePath;
+        if (oneTimeLinks && request.HttpMethod == "GET" && path == "/") return OpenWithLink(request);
         if (request.HttpMethod == "GET" && path == "/")
             return TokenMatches(request.QueryString["token"]) ? (200, "text/html; charset=utf-8", page) : Refuse(403, "Open the address `dbdatabuild web` printed: it carries the token.");
 
-        if (!TokenMatches(request.Headers["X-DDB-Token"])) return Refuse(403, "Missing or wrong token.");
+        if (oneTimeLinks ? !IsSession(request.Headers["X-DDB-Token"]) : !TokenMatches(request.Headers["X-DDB-Token"])) return Refuse(403, "Missing or wrong token.");
         if (request.HttpMethod == "POST" && path == "/api/run") return WithJsonBody(request, backend.RunCommand);
         if (request.HttpMethod == "GET" && path == "/api/capabilities") return backend.Capabilities();
         if (request.HttpMethod == "POST" && path == "/api/answers") return WithJsonBody(request, backend.SaveAnswers);
@@ -130,6 +169,22 @@ internal sealed class WebServer : IDisposable
         if (request.HttpMethod == "POST" && path == "/api/job/stop") return backend.StopJob(request.QueryString["id"]);
         if (request.HttpMethod == "GET" && path == "/api/file") return backend.ReadFile(request.QueryString["path"]);
         return Refuse(404, "Not found.");
+    }
+
+    /// <summary>The address with a link makes a session and is answered with a redirect to the address without it; the address with the session's cookie is the page.</summary>
+    private (int, string, string) OpenWithLink(HttpListenerRequest request)
+    {
+        var cookie = request.Cookies["ddb_session"]?.Value;
+        if (request.QueryString["token"] is { } link)
+        {
+            if (!TakeLink(link)) return Refuse(403, "This link was already used or has expired. Ask for a new one.");
+            var session = NewSession();
+            var screen = request.QueryString["screen"];
+            var to = "/" + (screen != null ? "?screen=" + Uri.EscapeDataString(screen) : "");
+            return (302, "text/plain; charset=utf-8", $"{to}\n{session}");        // Write() turns this into the redirect and the cookie
+        }
+        if (IsSession(cookie)) return (200, "text/html; charset=utf-8", page.Replace(Token, cookie!));
+        return Refuse(403, "Open the link you were given: it works once. Ask for a new one if it was used.");
     }
 
     private static (int, string, string) Refuse(int status, string message) => (status, "text/plain; charset=utf-8", message);
@@ -150,6 +205,14 @@ internal sealed class WebServer : IDisposable
 
     private static void Write(HttpListenerResponse response, int status, string contentType, string body)
     {
+        if (status == 302)
+        {
+            // OpenWithLink hands over where to go and the new session: the redirect drops the link from the address, the cookie keeps the session for a reload
+            var parts = body.Split('\n');
+            response.Headers["Location"] = parts[0];
+            response.Headers.Add("Set-Cookie", $"ddb_session={parts[1]}; Path=/; HttpOnly; SameSite=Strict");
+            body = "";
+        }
         var bytes = new UTF8Encoding(false).GetBytes(body);
         response.StatusCode = status;
         response.ContentType = contentType;

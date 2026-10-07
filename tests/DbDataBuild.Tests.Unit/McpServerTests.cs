@@ -298,12 +298,36 @@ public class McpServerTests : IDisposable
     private static string Text(JsonObject result) => (string)result["content"]![0]!["text"]!;
 
     [Fact]
+    public void Show_in_a_host_without_the_app_gives_a_link_that_works_once()
+    {
+        var s = Server();
+        Result(s, "initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = new JsonObject() });
+        try
+        {
+            var r = Call(s, "show", new JsonObject { ["screen"] = "plans" });
+            Assert.False((bool)r["isError"]!);
+            var url = (string)r["structuredContent"]!["url"]!;
+            Assert.Matches(@"^http://127\.0\.0\.1:\d+/\?token=[0-9a-f]{48}&screen=plans$", url);
+            Assert.True((bool)r["structuredContent"]!["single_use"]!);
+            Assert.Contains("Do not open it yourself", Text(r));
+            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+            Assert.Equal(System.Net.HttpStatusCode.Redirect, http.GetAsync(url).GetAwaiter().GetResult().StatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, http.GetAsync(url).GetAwaiter().GetResult().StatusCode);      // spent
+            var second = (string)Call(s, "show")["structuredContent"]!["url"]!;                                              // another link, the same server
+            Assert.NotEqual(url, second);
+            Assert.Equal(new Uri(url).Port, new Uri(second).Port);
+        }
+        finally { s.DisposePage(); }
+    }
+
+    [Fact]
     public void A_host_without_the_app_extension_sees_no_app_no_app_only_tool_and_cannot_call_one()
     {
         var s = Server();
         Result(s, "initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = new JsonObject() });
         var tools = Result(s, "tools/list")["tools"]!.AsArray();
-        Assert.DoesNotContain(tools, t => ((string)t!["name"]!).StartsWith("ui_") || (string)t["name"]! == "show");
+        Assert.DoesNotContain(tools, t => ((string)t!["name"]!).StartsWith("ui_"));
+        Assert.Contains("a link", (string)tools.Single(t => (string)t!["name"]! == "show")!["description"]!);         // `show` is there, as a link to the page in a browser
         Assert.All(tools, t => Assert.Null(t!["_meta"]));
         Assert.DoesNotContain("ui://dbdatabuild/app", Result(s, "resources/list")["resources"]!.AsArray().Select(r => (string)r!["uri"]!));
         Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "ui_run", ["arguments"] = new JsonObject { ["command"] = "validate" } })).Single()["error"]!["code"]!);

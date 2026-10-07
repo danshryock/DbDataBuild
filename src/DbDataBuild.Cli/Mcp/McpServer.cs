@@ -90,6 +90,7 @@ internal sealed class McpServer
             foreach (var reply in Handle(message))
                 if (!(reply["id"] is { } id && cancelled.ContainsKey(id.ToJsonString()))) Send(reply);
         }
+        pageServer?.Dispose();
     }
 
     private readonly object writing = new();
@@ -149,14 +150,16 @@ internal sealed class McpServer
             if (clientHasUi && ToolsWithApp.Contains(t.Name)) d["_meta"] = UiMeta(false);
             yield return d;
         }
-        if (!clientHasUi) yield break;
         yield return new JsonObject
         {
-            ["name"] = "show", ["title"] = "Show the interface", ["_meta"] = UiMeta(false),
-            ["description"] = "Open the dbdatabuild interface for the person (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something.",
+            ["name"] = "show", ["title"] = "Show the interface", ["_meta"] = clientHasUi ? UiMeta(false) : null,
+            ["description"] = clientHasUi
+                ? "Open the dbdatabuild interface for the person (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something."
+                : "Give the person a link to the dbdatabuild interface in a browser (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something. Tell them the link, once; it works once, for ten minutes, on the machine this server runs on. Do not open it yourself.",
             ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["screen"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(Screens), ["description"] = "Which screen to open (default: health)" } }, ["additionalProperties"] = false },
             ["annotations"] = new JsonObject { ["readOnlyHint"] = true, ["destructiveHint"] = false, ["idempotentHint"] = true, ["openWorldHint"] = false },
         };
+        if (!clientHasUi) yield break;
         // what the page calls: visible to the app, not to the model. Applying a plan is among them: the person presses the button in the app, the model cannot.
         foreach (var (name, what) in new[] { ("ui_run", "Run a command that does not change a database, for the page"), ("ui_file", "Read a file of the project, for the page"), ("ui_capabilities", "What the page may do"),
                                              ("ui_answers", "Save the answers a person gave to the questions of a plan"), ("ui_apply", "Apply a plan the person confirmed (needs --allow-apply on the server)"),
@@ -189,6 +192,33 @@ internal sealed class McpServer
         return new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = $"The interface is open on the {screen} screen for the person." }), ["structuredContent"] = doc, ["isError"] = false };
     }
 
+    private Web.WebServer? pageServer;
+    internal void DisposePage() { pageServer?.Dispose(); pageServer = null; }
+
+    /// <summary>
+    /// For a host that cannot render the app: the page is served on this machine's loopback address and the result is a link that works once. The model hands it to the person; opening it makes the browser's own
+    /// session, and the link is spent. Whoever opens it first gets the session, so the model is told not to.
+    /// </summary>
+    private JsonObject ShowByLink(JsonObject? arguments)
+    {
+        var screen = arguments?["screen"] is JsonValue v && v.TryGetValue<string>(out var s) && Screens.Contains(s) ? s : "health";
+        try
+        {
+            if (pageServer == null)
+            {
+                pageServer = new Web.WebServer(projectRoot, host0, 0, allowAppApply, oneTimeLinks: true);
+                pageServer.StartAsync();
+            }
+        }
+        catch (Exception ex) when (ex is System.Net.HttpListenerException or InvalidOperationException)
+        {
+            return Failure("The page could not be started on this machine. The person can run `dbdatabuild web --project <project>` in a terminal instead.");
+        }
+        var url = pageServer.NewLink(screen);
+        var text = $"Give the person this link, once, and say it works once, for ten minutes, in a browser on the machine this server runs on: {url}\nDo not open it yourself (it would become your session, not theirs). It shows the {screen} screen; the other screens are in the page's menu. For another link, call `show` again.";
+        return new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["structuredContent"] = new JsonObject { ["command"] = "show", ["screen"] = screen, ["url"] = url, ["single_use"] = true, ["expires_minutes"] = 10 }, ["isError"] = false };
+    }
+
     private JsonObject CallAppTool(string name, JsonObject? arguments)
     {
         var a = arguments ?? new JsonObject();
@@ -219,7 +249,7 @@ internal sealed class McpServer
         clientHasUi = p?["capabilities"]?["extensions"]?[UiExtension] != null;
         // standard error is where a host keeps a server's log: say what this host can do, because a host that does not advertise MCP Apps silently gets no app
         var client = p?["clientInfo"];
-        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered (`dbdatabuild web` shows the same screens in a browser)")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}.");
+        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered, and `show` gives the person a one-time link to the page in a browser")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}.");
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
@@ -234,7 +264,7 @@ internal sealed class McpServer
     {
         var name = p?["name"]?.GetValue<string>() ?? throw new McpException(-32602, "tools/call needs a tool name");
         if (name.StartsWith("ui_", StringComparison.Ordinal) && clientHasUi && AppOnlyTools.Contains(name)) return CallAppTool(name, p?["arguments"] as JsonObject);
-        if (name == "show" && clientHasUi) return Show(p?["arguments"] as JsonObject);
+        if (name == "show") return clientHasUi ? Show(p?["arguments"] as JsonObject) : ShowByLink(p?["arguments"] as JsonObject);
         if (!tools.TryGetValue(name, out var command)) throw new McpException(-32602, $"Unknown tool: {name}");
         var arguments = p?["arguments"] as JsonObject ?? new JsonObject();
         if (!surface.TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);

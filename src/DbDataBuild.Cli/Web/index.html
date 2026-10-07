@@ -768,7 +768,12 @@ async function render() {
 $("refresh").addEventListener("click", () => { cache.clear(); render(); });
 addEventListener("hashchange", render);
 if (TRANSPORT === "mcp") { document.documentElement.classList.add("mcp"); mcp.start().then(render, (e) => { $("view").replaceChildren(failure(e)); }); }
-else render();
+else {
+  // a link from `show` names the screen to open first (?screen=plans)
+  const first = new URLSearchParams(location.search).get("screen");
+  if (first && views[first] && !location.hash) location.hash = "#/" + first;
+  render();
+}
 </script>
 </body>
 </html>

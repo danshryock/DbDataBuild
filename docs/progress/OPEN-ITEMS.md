@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-07. Unit tests 1811, real-engine tests 184 (179 run and 5 skipped, among them the scale tests that need DDB_SCALE=1; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-07. Unit tests 1815, real-engine tests 184 (179 run and 5 skipped, among them the scale tests that need DDB_SCALE=1; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -64,7 +64,7 @@ Written 2026-10-02, brought up to date 2026-10-07. Unit tests 1811, real-engine 
 - **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; the terminal interface runs on Windows (checked by the owner); view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
 - **Sample data gaps**: string comparison follows the model's connection profile (collation and `rtrim`, DESIGN.md 7.4), other target behaviors are not emulated (it runs in DuckDB only); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
 - **Agents**: the MCP server exists (`dbdatabuild mcp`, section K: typed tools and schema resources, writers off by default); the owner has tried the skill and the MCP server from Windows (2026-10-07) and they work at some level, but not thoroughly: the skill still needs a real task and revision from what an agent gets wrong (the tests keep it true, not useful); no per-engine variants of the skill (it says Fabric is unverified).
-- **The MCP app is only offered to a host that says it supports MCP Apps** (the `io.modelcontextprotocol/ui` capability when it connects). On 2026-10-07 the owner could not make Claude Code in the Claude Desktop app on Windows use it, which is what that rule predicts if the host does not advertise the extension: the server then offers no app and no `show` tool, and says nothing in the conversation. `dbdatabuild mcp` now writes one line to its standard error at connect (client name, whether MCP Apps and confirmations are supported). Which hosts advertise it is not known here; `dbdatabuild web` shows the same screens in a browser on any host.
+- **The MCP app is only offered to a host that says it supports MCP Apps** (the `io.modelcontextprotocol/ui` capability when it connects). On 2026-10-07 the owner could not make Claude Code in the Claude Desktop app on Windows use it, which is what that rule predicts if the host does not advertise the extension: the server then offers no app and no `show` tool, and says nothing in the conversation. `dbdatabuild mcp` now writes one line to its standard error at connect (client name, whether MCP Apps and confirmations are supported), and `show` is offered to every host: where the app is not advertised it returns a one-time link to the page in a browser (entry 129; whoever opens the link first gets the session). Which hosts advertise MCP Apps is not known here.
 
 ## G. After the slice and parameter work (2026-10-02)
 
@@ -148,7 +148,7 @@ The owner decided to keep these. A short name is fine where it is plainly a key 
 - Code: local variables and parameters called `schema` or `schemas`.
 - Correct under the terms: `schema_version` and `TrackingSchema` (the defined shape of the tracking tables), `diff`'s `schema` payload (column shapes), JSON Schema.
 
-## R. Left from the 2026-10-07 work: decisions and limits (entries 91 to 128)
+## R. Left from the 2026-10-07 work: decisions and limits (entries 91 to 129)
 
 For the owner to decide:
 
