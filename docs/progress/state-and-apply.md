@@ -837,3 +837,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Cause**: after each DDL step (and in the staleness check of each base object) the executor read the live shape of the object it had just touched through `CatalogReader.ReadObjectsAsync`, which read **every** table and view of the schema name (two catalog queries, about 1,200 rows) and then picked one: the cost of a step grew with the objects in the schema name, and an apply with the square of them.
 - **Fixed**: `ReadObjectsAsync` takes an optional object name and the four catalog queries filter on it (`@object`); the executor asks for the one object. Planning still reads each schema name once.
 - **After**: the same plan applies in 9 s (a twentieth). A plan, `plan` again after the apply and `report` take 12 s and 1.5 s; the plan's own time is the offline checks of entry 107.
+
+## 109. More probes of size, and lineage against the tables a query names
+
+- **Probed** (Debug build, generated projects): a model of 600 columns validates, renders and passes `define --check` in about a second; a chain of 1,500 views each reading the previous one validates in 38 s, and `graph` follows it from either end in under a second (no recursion limit is hit); a project of 300 models in one schema name plans in 12 s and applies 401 steps in 13 s on SQL Server 2022 (9 s on PostgreSQL 17, entry 108).
+- **Fixed** (`MetadataBuilder.AnalyzeAgainstUpstream`): lineage and nullability analysis (`metadata`, `graph --columns`, string-use lint) was given the declared columns of every table of the project for each model, as lowering had been (entry 107); it is now given those of the tables the query names. `metadata` for 300 models: 11.6 s to 9.3 s. Output unchanged (the unit suite passes).
+- **Left**: `metadata` still costs about 30 ms a model (1,500 models: 95 s before this change); most of it is DuckDB binding each query.

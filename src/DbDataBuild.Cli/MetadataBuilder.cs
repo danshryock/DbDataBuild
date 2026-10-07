@@ -75,6 +75,19 @@ internal static class MetadataBuilder
     /// <summary>The declared columns of everything a model could read, for lineage and nullability.</summary>
     public static IReadOnlyList<SchemaTableSpec> UpstreamSchema(ProjectContext ctx, string modelName) => UpstreamSpecs(ctx, modelName);
 
+    /// <summary>
+    /// The query analysed against the declared columns of the tables it names (not of every table of the project: handing the analyzer all of them for each model made the cost grow with the square of the
+    /// models). A text whose tables cannot be found is analysed against all of them.
+    /// </summary>
+    public static (QueryFacts? Facts, string? Error) AnalyzeAgainstUpstream(ProjectContext ctx, string modelName, string sql)
+    {
+        var all = UpstreamSpecs(ctx, modelName);
+        var named = QueryAnalyzer.Analyze(sql).Facts?.BaseTables;
+        if (named == null) return QueryAnalyzer.Analyze(sql, all);
+        var wanted = named.Select(t => ((t.SchemaName ?? "").ToLowerInvariant(), t.Table.ToLowerInvariant())).ToHashSet();
+        return QueryAnalyzer.Analyze(sql, all.Where(s => wanted.Contains(((s.SchemaName ?? "").ToLowerInvariant(), s.Name.ToLowerInvariant()))).ToList());
+    }
+
     private static List<SchemaTableSpec> UpstreamSpecs(ProjectContext ctx, string modelName)
     {
         var upstream = ctx.Project.Models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns))
@@ -89,7 +102,7 @@ internal static class MetadataBuilder
     /// <summary>The source descriptors a model's query reads, by name.</summary>
     public static IReadOnlyList<string> SourcesRead(ProjectContext ctx, string modelName, string sql)
     {
-        var (facts, _) = QueryAnalyzer.Analyze(sql, UpstreamSpecs(ctx, modelName));
+        var (facts, _) = AnalyzeAgainstUpstream(ctx, modelName, sql);
         var names = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return facts?.BaseTables.Select(b => b.QualifiedName).Where(names.Contains).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).ToList() ?? [];
     }
@@ -152,8 +165,7 @@ internal static class MetadataBuilder
         var hash = ctx.DefinitionHashOf(sql);
 
         // lineage and inferred nullability, against the declared columns of everything upstream
-        var specs = UpstreamSpecs(ctx, def.Name);
-        var (facts, _) = QueryAnalyzer.Analyze(ctx.AnalysisSql(source, sql), specs);
+        var (facts, _) = AnalyzeAgainstUpstream(ctx, def.Name, ctx.AnalysisSql(source, sql));
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

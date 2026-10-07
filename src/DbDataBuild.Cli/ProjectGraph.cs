@@ -29,7 +29,7 @@ internal static class ProjectGraph
     public static IReadOnlyList<ColumnEdge> ColumnEdges(ProjectContext ctx, ModelSource model)
     {
         var sql = model.ReadQuery(ctx.Root, ctx.Config);
-        var facts = QueryAnalyzer.Analyze(ctx.AnalysisSql(model, sql), MetadataBuilder.UpstreamSchema(ctx, model.Definition.Name)).Facts;
+        var facts = MetadataBuilder.AnalyzeAgainstUpstream(ctx, model.Definition.Name, ctx.AnalysisSql(model, sql)).Facts;
         var edges = new List<ColumnEdge>();
         foreach (var p in facts?.Projections ?? [])
         {
