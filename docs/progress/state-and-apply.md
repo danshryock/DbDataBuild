@@ -831,7 +831,7 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Fixed** (`ModelLowering.UpstreamFor`): DuckDB is given only the declared tables the query's text names (found by the parser); every table when the query reaches a macro (a macro can name a table through an argument) or its text cannot be read. A refusal is never given on the restricted set: when the quick way fails, the lowering is computed again on every table and that answer is the one reported, so a table the quick way missed cannot cause a refusal.
 - **After**: `validate` 3.3 s for 100 models and 8.8 s for 300; `render --check` 8.5 s; `metadata` 11.6 s; `loads` 3.3 s; `graph --columns` 2 s. Output is byte-identical (the unit suite, with its goldens, passes). **Not done**: `plan` on such a project (it needs a database; the planner's own cost was not measured), and a release build (the numbers are Debug).
 
-## 108. `apply` read the whole schema name after every step
+## 108. `apply` re-read the schemas of every object under the schema name after every step
 
 - **Measured** (the generated project of entry 107, 300 models in one schema name on PostgreSQL 17, 401 steps): `apply` took 199 s, 0.5 s a step.
 - **Cause**: after each DDL step (and in the staleness check of each base object) the executor read the live shape of the object it had just touched through `CatalogReader.ReadObjectsAsync`, which read **every** table and view of the schema name (two catalog queries, about 1,200 rows) and then picked one: the cost of a step grew with the objects in the schema name, and an apply with the square of them.
