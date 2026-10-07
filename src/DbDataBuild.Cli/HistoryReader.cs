@@ -23,8 +23,15 @@ internal static class HistoryReader
             if (PlanDocument.Parse((string)r[3]!, "migration_log", new List<Diagnostic>()) is { } p) applied.Add(new(Cell(r[0]), Cell(r[1]), (DateTime)r[2]!, p));
             else unreadable.Add(Cell(r[0]));
 
-        var shapeRows = await read.QueryAsync($"SELECT s.{C("object_name")}, s.{C("shape_hash")}, s.{C("first_seen_utc")}, s.{C("source")}, s.{C("plan_id")} FROM {T("schema_version")} s WHERE s.{C("connection")} = @connection", byConnection, ct);
-        var intervalRows = await read.QueryAsync($"SELECT DISTINCT i.{C("model")}, i.{C("range_start")}, i.{C("range_end")}, i.{C("operation")}, r.{C("started_utc")} FROM {T("operation_interval")} i JOIN {T("run_log")} r ON r.{C("run_id")} = i.{C("run_id")} AND r.{C("model")} = i.{C("model")} WHERE i.{C("connection")} = @connection", byConnection, ct);
+        // the shapes and the load ranges of the models that have a history answer, and no others: a connection's `operation_interval` grows with every load, and nothing here is about a model that never had a column added
+        var models = applied.SelectMany(a => a.Plan.Answers).Where(a => a.QuestionId.StartsWith("Q-history-", StringComparison.Ordinal))
+            .Select(a => a.QuestionId["Q-history-".Length..]).Where(s => s.LastIndexOf('.') > 0).Select(s => s[..s.LastIndexOf('.')]).Distinct(StringComparer.Ordinal).Take(1000).ToList();
+        if (models.Count == 0) return ([], unreadable);
+        var forModels = models.Select((m, i) => new GateParameter($"m{i}", System.Data.DbType.String, m)).ToList();
+        var inModels = (string column) => $"{column} IN ({string.Join(", ", forModels.Select(p => "@" + p.Name))})";
+        var withModels = byConnection.Concat(forModels).ToList();
+        var shapeRows = await read.QueryAsync($"SELECT s.{C("object_name")}, s.{C("shape_hash")}, s.{C("first_seen_utc")}, s.{C("source")}, s.{C("plan_id")} FROM {T("schema_version")} s WHERE s.{C("connection")} = @connection AND {inModels("s." + C("object_name"))}", withModels, ct);
+        var intervalRows = await read.QueryAsync($"SELECT DISTINCT i.{C("model")}, i.{C("range_start")}, i.{C("range_end")}, i.{C("operation")}, r.{C("started_utc")} FROM {T("operation_interval")} i JOIN {T("run_log")} r ON r.{C("run_id")} = i.{C("run_id")} AND r.{C("model")} = i.{C("model")} WHERE i.{C("connection")} = @connection AND {inModels("i." + C("model"))}", withModels, ct);
         var ackRows = await read.QueryAsync($"SELECT b.{C("code")}, b.{C("model")}, b.{C("detail")}, b.{C("ack_by")}, b.{C("ack_reason")}, b.{C("ack_utc")} FROM {T("block_log")} b WHERE b.{C("connection")} = @connection AND b.{C("ack_utc")} IS NOT NULL AND b.{C("code")} = 'DDB-443' ORDER BY b.{C("ack_utc")}", byConnection, ct);
 
         var entries = ColumnHistory.Build(applied,
