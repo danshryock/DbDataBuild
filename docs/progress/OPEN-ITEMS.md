@@ -53,7 +53,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
 
-1. `diff` across connections, and the rest of section M that is not string semantics (`copy_to`, offline tracking, a per-connection schema).
+1. `diff` across connections, and the rest of section M that is not string semantics (`copy_to`, offline tracking).
 2. Lowering gaps as real models need them (section A), and the documentation debt (section D).
 3. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
 4. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
@@ -120,7 +120,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 ## N. Schema and name out of the folder path (2026-10-06)
 
 - **Built**: the name is the definition's `name:` (`model_layout: folder | dotted | object | none`, `DESIGN.md` 6.5.6), and a query file may start with a head, `CREATE TABLE schema.name WITH (kind = ..., unique_key = (...)) AS` or `CREATE VIEW schema.name AS`, which says the name, table or view and the reload options (`DESIGN.md` 6.5.7; the options and what is open are in `docs/research/model-naming.md`).
-- **Parked (owner, 2026-10-06)**: more options in the head (`grain`, `connections`, `loads:`), heads for native models and copies, `define` writing a head into a `.sql` that has none. The head keeps its four reload options (`kind`, `unique_key`, `time_column`, `lookback`) until the owner picks this up. **Open, not parked**: a per-connection schema (a dev/prod split as a setting, not a name).
+- **Parked (owner, 2026-10-06)**: more options in the head (`grain`, `connections`, `loads:`), heads for native models and copies, `define` writing a head into a `.sql` that has none. The head keeps its four reload options (`kind`, `unique_key`, `time_column`, `lookback`) until the owner picks this up. **Parked (owner, 2026-10-06)**: a per-connection **schema name** (a dev/prod split as a setting, not a name). Terminology: *schema name* is the namespace (`marts`), *schema* is only the defined shape of a table or view (`DESIGN.md` 6.5.6).
 
 ## O. Limits recorded in the progress log, collected here (2026-10-06)
 

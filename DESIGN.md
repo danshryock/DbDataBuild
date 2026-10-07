@@ -353,14 +353,17 @@ on exactly as written (its hash, its lowering and its line numbers are those of 
 the definition file may leave out `name:` and `kind:`, and **the kind is said in one place**: `CREATE VIEW` or a `kind` in `WITH` together with a `kind:` in the definition file is an error, as is a `name:` that differs from the head's, or
 `CREATE TABLE` over a definition that says `kind: view`. A plain `CREATE TABLE` leaves a kind that the definition file gives alone. `model_layout` applies to the name the head gives. `define` takes the name, the kind and the
 options from the head (it does not ask for them) and writes a definition without `name:` and `kind:`. Not built: options other than the four (the multi-operation `loads:` stays in YAML), heads for native models and copies,
-and a per-connection schema.
+and a per-connection schema name (parked).
 
 ### 6.5.6 Where a model's name comes from (as built; design note: `docs/research/model-naming.md`)
 
-A model's name is the `name:` of its definition file, whatever its path (`schema.object`: the schema is the part before the last dot). `model_layout` in `dbdatabuild.yml` says whether the files must spell the name:
+**Terms.** A *schema name* is the namespace an object lives in (`marts` in `marts.fct_orders`); a *schema* is only the defined shape of a table or view (its columns, types and other metadata). The word is overloaded among DBAs, so this project says
+"schema name" for the namespace and keeps "schema" for the shape, in documents and in discussion (older text and some diagnostics still say "schema" for the namespace; they are corrected as they are touched).
+
+A model's name is the `name:` of its definition file, whatever its path (`schema name` + `.` + `object name`: the schema name is the part before the last dot). `model_layout` in `dbdatabuild.yml` says whether the files must spell the name:
 `folder` (the default, as before: `models/<schema>/<object>.yml`, any depth, the path is the name; mismatch is DDB-107), `dotted` (`<schema>.<object>.yml` in any folder), `object` (`<object>.yml` in any folder) or
 `none` (no check). The query is always the file beside the definition (same stem, `.sql`; `.native.sql` for a native model). Two files that claim one name are an error. `define` and `import` follow the layout for a
-file that does not exist yet and the definition's own file for one that does; the graph and the metadata show each mapped model's real file. Declaring the object in the query file is 6.5.7; not built: a per-connection schema.
+file that does not exist yet and the definition's own file for one that does; the graph and the metadata show each mapped model's real file. Declaring the object in the query file is 6.5.7; not built (parked): a per-connection schema name.
 
 ### 6.5.5 Macros and types (as built; design: this section)
 

@@ -1,10 +1,10 @@
-# Where a model's schema and name come from
+# Where a model's schema name and object name come from
 
 Status: option A (`model_layout`, `DESIGN.md` 6.5.6) and then the head of the query file (option B, in the owner's chosen `WITH (...)` form, `DESIGN.md` 6.5.7) are built. This note records the options, the reasoning and what is still open.
 
 ## The problem
 
-A model's name is `schema.object` (`marts.fct_orders`). It identifies the model everywhere: references in queries, the dependency graph, plans, rendered files, tracking records, metadata. It used to be the **path** under `models/` (`models/marts/fct_orders.sql` is `marts.fct_orders`), and the `name:` in the definition file had to equal it (DDB-107). That dictates a folder structure, which the owner does not want to do: folders should be for the author's organisation, not for the tool.
+A model's name is `schema name.object name` (`marts.fct_orders`). It identifies the model everywhere: references in queries, the dependency graph, plans, rendered files, tracking records, metadata. It used to be the **path** under `models/` (`models/marts/fct_orders.sql` is `marts.fct_orders`), and the `name:` in the definition file had to equal it (DDB-107). That dictates a folder structure, which the owner does not want to do: folders should be for the author's organisation, not for the tool.
 
 ## The options that were laid out
 
@@ -38,7 +38,7 @@ model_layout: folder      # folder | dotted | object | none
 |---|---|---|
 | `folder` (default, as before) | the path is the name: `models/<schema>/<object>.yml`, any depth (`a/b/c` is `a.b.c`) | `models/marts/fct_orders.yml` |
 | `dotted` | `<schema>.<object>.yml` in any folder | `models/finance/marts.fct_orders.yml` |
-| `object` | `<object>.yml` in any folder; the schema comes only from `name:` | `models/finance/fct_orders.yml` |
+| `object` | `<object>.yml` in any folder; the schema name comes only from `name:` | `models/finance/fct_orders.yml` |
 | `none` | anything; no check | `models/whatever/x.yml` |
 
 The default is `folder` only because it is what every existing project already does; a project that does not want folders says `dotted`, `object` or `none`. In every layout the name is the definition's `name:` and a name belongs to one model (two files claiming one name is an error). The query file is always the file beside the definition (same stem, `.sql`; `.native.sql` for a native model). Selectors by name, by path and by directory work as before.
@@ -72,5 +72,5 @@ What stays open (items 1, 2 and 4 are **parked** by the owner, 2026-10-06, until
 
 1. More options in the head (`grain`, `connections`, the operations of `loads:`): each removes a line from the YAML and adds a second place that says it. Only the four reload options are in the head.
 2. A head for a native model (`.native.sql`, the engine's own text) and for copies (no query).
-3. A per-connection schema (a dev/prod split as a setting, not a name).
+3. A per-connection **schema name** (a dev/prod split as a setting, not a name). **Parked** by the owner, 2026-10-06.
 4. Whether `define` should be able to write a head into a query file that has none (today it never writes a `.sql`).

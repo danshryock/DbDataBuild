@@ -73,6 +73,9 @@ Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cros
 | **Kinds that build from SQL** | `view`, `full`, `incremental_by_unique_key`, `incremental_by_time_range`, as today: SQL in DuckDB's dialect, run on the model's connection. |
 | **`mapped`** | A model with no body: it **maps** an existing physical table into the project's namespace. The tool never creates or alters it; it declares the columns, optionally the physical name, keys, indexes and tests, and the live table is checked against it. What the old "source" was. A `sources/` folder is only a place to keep them. |
 | **`copy`** | A model with no SQL: `from: <model>`, the connection it lives on, and a strategy. Its columns come from the model it copies. The copy is always persisted (a table). |
+| **Schema name** | The namespace an object lives in inside a database (`marts` in `marts.fct_orders`): what DBAs usually call a "schema" (SQL Server, PostgreSQL). Always written **schema name** in this project's documents, code comments and discussions. |
+| **Schema** | Only the defined shape of a table or view: its columns, types, nullability and other metadata ("the schema of `marts.fct_orders`", "schema drift", a JSON Schema). Never a namespace. |
+| **Model name** | `schema name` + `.` + `object name`, as in `marts.fct_orders`; the object name is the part after the last dot. |
 | **Project** | Everything under the root `dbdatabuild.yml`: its models, tests, rendered files and plans. |
 | **Project file** | `dbdatabuild.yml` at the root, or `_dbdatabuild.yml` in any folder: the same kind of file with the same sections. The root one is only the outermost; the others refine it for what is beneath them. |
 | **Parameter** | A named value. The same word at every level; the scope says whose it is (below). |
