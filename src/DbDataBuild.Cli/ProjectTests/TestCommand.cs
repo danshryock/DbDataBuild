@@ -144,14 +144,15 @@ internal static class TestCommand
             return;
         }
 
-        var sql = source.ReadQueryWithValues(ctx.Root, ctx.Config, ctx.TargetsOf(source.Definition)[0]);
+        var valuesSql = source.ReadQueryWithValues(ctx.Root, ctx.Config, ctx.TargetsOf(source.Definition)[0]);
+        var (sql, collation, _) = ctx.StringEmulation(source, valuesSql);
         var declared = ctx.Project.Models.Select(m => (m.Name, m.Columns)).Concat(ctx.Project.AllDescriptors.Select(s => (s.Name, s.Columns))).ToDictionary(t => t.Name, t => t.Columns, StringComparer.OrdinalIgnoreCase);
-        var upstream = ctx.BaseTablesOf(source, sql)
+        var upstream = ctx.BaseTablesOf(source, valuesSql)
             .Distinct(StringComparer.OrdinalIgnoreCase).Where(declared.ContainsKey).Select(n => new UpstreamTable(n, declared[n])).ToList();
 
         foreach (var c in test.Cases)
         {
-            var result = ModelTestRunner.Run(source.Definition.Name, source.Definition.Columns, sql, upstream, c, limit, ctx.Project.Macros.PreludeFor([sql]));
+            var result = ModelTestRunner.Run(source.Definition.Name, source.Definition.Columns, sql, upstream, c, limit, ctx.Project.Macros.PreludeFor([valuesSql]), collation);
             var outcome = result.Outcome switch { CaseOutcome.Pass => RuleOutcome.Ran, CaseOutcome.Fail => RuleOutcome.Ran, CaseOutcome.NotASelect => RuleOutcome.NotASelect, _ => RuleOutcome.CouldNotRun };
             var o = Judge("model", $"{test.Name}::{c.Name}", test.File, test.Model, c.Name, test.Description, test.Severity, test.Tags, outcome, result.Message, result.Line, result.Columns, result.Rows,
                 result.Outcome == CaseOutcome.Fail ? Math.Max(1, result.Count) : 0, error);

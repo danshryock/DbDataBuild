@@ -49,6 +49,14 @@ public sealed class PlanLowerer
 
     private Func<string, IReadOnlyList<string>>? grainOf;
     private readonly Dictionary<string, string> aliasTables = new(StringComparer.Ordinal);
+    private bool trimTrailing;
+
+    /// <summary>The text of an operand, trimmed when the query must ignore trailing spaces and the operand is a string.</summary>
+    private string Trim(JsonElement e, string sql) => trimTrailing && TypeNameOf(e) == "VARCHAR" ? $"rtrim({sql})" : sql;
+
+    /// <summary>A comparison of two operands; with trailing spaces ignored, both are trimmed when either is a string.</summary>
+    private string Compare(JsonElement left, string leftSql, string op, JsonElement right, string rightSql) =>
+        trimTrailing && (TypeNameOf(left) == "VARCHAR" || TypeNameOf(right) == "VARCHAR") ? $"(rtrim({leftSql}) {op} rtrim({rightSql}))" : $"({leftSql} {op} {rightSql})";
     private int aliasCounter;
 
     /// <summary>Every table and CTE name in the plan. A generated alias (`s1`, `series`, `orders_2`) never takes one of them: a table that is itself called `s1` would otherwise be captured by a derived table named `s1`.</summary>
@@ -107,7 +115,12 @@ public sealed class PlanLowerer
     /// The columns that identify one row of a table (its declared grain), by the name the query uses (`staging.orders`). `DISTINCT ON` keeps one arbitrary row per key unless its
     /// ordering decides which, so it is lowered only when the ordering includes the grain of every table it reads; an unknown or empty grain means "cannot prove it".
     /// </param>
-    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null)
+    /// <param name="ignoreTrailingSpaces">
+    /// Write the query as DuckDB must run it to answer as an engine that **ignores trailing spaces** in a string comparison does (the project's default profile; DuckDB cannot do it with any collation): string operands
+    /// of a comparison, `IN`, `BETWEEN`, a join condition, a window partition, a `GROUP BY` key and a `DISTINCT` are wrapped in `rtrim()`. For DuckDB runs only (`sample`, `test`); never what an engine is given.
+    /// Not covered: set operations without ALL, `count(DISTINCT x)`, and `LIKE` (which keeps trailing spaces on SQL Server too).
+    /// </param>
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null, bool ignoreTrailingSpaces = false)
     {
         using var doc = JsonDocument.Parse(PlanNormalizer.Normalize(planJson));
         var root = doc.RootElement;
@@ -115,7 +128,7 @@ public sealed class PlanLowerer
             throw new LoweringException(root.TryGetProperty("error_message", out var m) ? m.GetString()! : "unknown error", root.TryGetProperty("error_type", out var et) ? et.GetString()! : "binder");
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
-        var lowerer = new PlanLowerer { grainOf = grainOf, rewrites = rewrites ?? RewritePolicy.Exact };
+        var lowerer = new PlanLowerer { grainOf = grainOf, rewrites = rewrites ?? RewritePolicy.Exact, trimTrailing = ignoreTrailingSpaces };
         lowerer.Reserve(plans);
         Rel rel;
         try { rel = lowerer.Node(plans[0]); }
@@ -160,6 +173,9 @@ public sealed class PlanLowerer
     private static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     private static IEnumerable<JsonElement> Arr(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : [];
     private static string? TypeId(JsonElement e) => e.TryGetProperty("return_type", out var t) ? t.GetProperty("id").GetString() : null;
+
+    /// <summary>The column name behind a marker (`\0alias\u0001name\0`), or null when the text is not just a column.</summary>
+    private static string? ColumnNameOf(string sql) => Regex.Match(sql, "^\0([^\u0001\0]*)\u0001([^\0]*)\0$") is { Success: true } m ? m.Groups[2].Value : null;
 
     /// <summary>The marker for a column of a source; <see cref="Rel.Render"/> turns it into `source.column` or a bare name.</summary>
     private static string Token(string alias, string name) => $"\0{alias}\u0001{name}\0";
@@ -210,16 +226,17 @@ public sealed class PlanLowerer
             case "COMPARE_BETWEEN" or "COMPARE_NOT_BETWEEN":
             {
                 // the binder keeps BETWEEN as one node when its input is not a plain column or constant (a subquery, for example)
-                var input = Expr(e.GetProperty("input"), outs);
-                var lower = Expr(e.GetProperty("lower"), outs);
-                var upper = Expr(e.GetProperty("upper"), outs);
+                var input = Trim(e.GetProperty("input"), Expr(e.GetProperty("input"), outs));
+                var lower = Trim(e.GetProperty("lower"), Expr(e.GetProperty("lower"), outs));
+                var upper = Trim(e.GetProperty("upper"), Expr(e.GetProperty("upper"), outs));
                 var both = e.GetProperty("lower_inclusive").ValueKind == JsonValueKind.True && e.GetProperty("upper_inclusive").ValueKind == JsonValueKind.True;
                 if (!both) throw new LoweringException("a BETWEEN with an exclusive bound");
                 return $"({input} {(t == "COMPARE_NOT_BETWEEN" ? "NOT " : "")}BETWEEN {lower} AND {upper})";
             }
             case "COMPARE_IN" or "COMPARE_NOT_IN":
             {
-                var ch = Arr(e, "children").Select(c => Expr(c, outs)).ToList();
+                var members = Arr(e, "children").ToList();
+                var ch = members.Select(c => Trim(c, Expr(c, outs))).ToList();
                 return $"({ch[0]} {(t == "COMPARE_NOT_IN" ? "NOT " : "")}IN ({string.Join(", ", ch.Skip(1))}))";
             }
             case "OPERATOR_COALESCE": return $"coalesce({string.Join(", ", Arr(e, "children").Select(c => Expr(c, outs)))})";
@@ -244,7 +261,7 @@ public sealed class PlanLowerer
                 return sb.Append("END").ToString();
             }
         }
-        if (Comparisons.TryGetValue(t, out var op)) return $"({Expr(e.GetProperty("left"), outs)} {op} {Expr(e.GetProperty("right"), outs)})";
+        if (Comparisons.TryGetValue(t, out var op)) return Compare(e.GetProperty("left"), Expr(e.GetProperty("left"), outs), op, e.GetProperty("right"), Expr(e.GetProperty("right"), outs));
         if (t.StartsWith("WINDOW_", StringComparison.Ordinal)) return Window(e, outs);
         throw new LoweringException($"expression kind {t}");
     }
@@ -579,7 +596,7 @@ public sealed class PlanLowerer
         }
         var parts = new List<string>();
         var partitions = Arr(e, "partitions").ToList();
-        if (partitions.Count > 0) parts.Add("PARTITION BY " + string.Join(", ", partitions.Select(p => Expr(p, outs))));
+        if (partitions.Count > 0) parts.Add("PARTITION BY " + string.Join(", ", partitions.Select(p => Trim(p, Expr(p, outs)))));
         var orders = Arr(e, "orders").ToList();
         if (orders.Count > 0) parts.Add("ORDER BY " + string.Join(", ", orders.Select(o => OrderItem(o, outs))));
         var start = Str(e, "start");
@@ -916,7 +933,7 @@ public sealed class PlanLowerer
                 }
                 var outs = c.Outs();
                 var childItems = c.Sel;
-                var groups = Arr(p, "groups").Select(g => (Sql: Expr(g, outs), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems), Const: IsColumnFree(g, childItems))).ToList();
+                var groups = Arr(p, "groups").Select(g => (Sql: Trim(g, Expr(g, outs)), Type: TypeNameOf(g), Outer: IsOuterRef(g, childItems), Const: IsColumnFree(g, childItems))).ToList();
                 var aggs = aggregateExprs.Select((a, i) => (Sql: quantileColumns.TryGetValue(i, out var cols) ? Quantile(a, outs, cols.Rank, cols.Count) : Expr(a, outs), Type: TypeNameOf(a), Outer: false, Const: false)).ToList();
                 if (groups.Count == 0 && aggs.Count == 0) throw new LoweringException("an empty aggregate");
                 // a group on a value of the enclosing query is constant for each outer row (DuckDB added it when it decorrelated the subquery), so it is not a GROUP BY any more
@@ -960,6 +977,8 @@ public sealed class PlanLowerer
                 if (c.SetOp != null && c.SetOpDistinct) return c; // a set operation without ALL is already distinct
                 if (!c.Mergeable() || c.HasWindow) c = Wrap(c);
                 c.Distinct = true;
+                // two values that differ only in trailing spaces are one row, and the row shows the trimmed one (SQL Server shows either; a comparison of results trims both)
+                if (trimTrailing) c.Sel = c.Sel.Select(i => i.Type == "VARCHAR" && (i.Alias ?? ColumnNameOf(i.Sql)) is { } name ? i with { Sql = $"rtrim({i.Sql})", Alias = name } : i).ToList();
                 return c;
             }
             case "LOGICAL_DELIM_GET":
@@ -1010,7 +1029,7 @@ public sealed class PlanLowerer
                 var joinType = joinKind switch { "INNER" => "JOIN", "LEFT" => "LEFT JOIN", "RIGHT" => "RIGHT JOIN", "OUTER" or "FULL" => "FULL JOIN", var other => throw new LoweringException($"the join type {other}") };
                 if (p.TryGetProperty("expression", out _)) throw new LoweringException("a join with an extra expression");
                 var lo = l.Outs(); var ro = r.Outs();
-                var conditions = Arr(p, "conditions").Select(c => $"({Expr(c.GetProperty("left"), lo)} {Comparisons[Str(c, "comparison")!]} {Expr(c.GetProperty("right"), ro)})");
+                var conditions = Arr(p, "conditions").Select(c => Compare(c.GetProperty("left"), Expr(c.GetProperty("left"), lo), Comparisons[Str(c, "comparison")!], c.GetProperty("right"), Expr(c.GetProperty("right"), ro)));
                 rel.Frm = $"{l.Frm}\n{joinType} {r.Frm}\n  ON {string.Join(" AND ", conditions.Concat(filled))}";
                 return rel;
             }
@@ -1419,7 +1438,7 @@ public sealed class PlanLowerer
                 var bothOuter = IsOuterRef(le, l.Sel) && IsOuterRef(re, r.Sel);
                 if (bothOuter) continue;      // the join back to the outer value: true by construction
                 if (other.HasAgg) throw new LoweringException("a correlated predicate over an aggregate");
-                other.Where.Add($"({Expr(le, lo)} {Comparisons[Str(c, "comparison")!]} {Expr(re, ro)})");
+                other.Where.Add(Compare(le, Expr(le, lo), Comparisons[Str(c, "comparison")!], re, Expr(re, ro)));
             }
             if (p.TryGetProperty("expression", out _)) throw new LoweringException("a correlated join with an extra expression");
         }

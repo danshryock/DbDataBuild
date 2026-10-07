@@ -21,7 +21,7 @@ public sealed record CaseResult(CaseOutcome Outcome, string? Message, int Line, 
 /// </summary>
 public static class ModelTestRunner
 {
-    public static CaseResult Run(string modelName, IReadOnlyList<ColumnDefinition> declared, string sql, IReadOnlyList<UpstreamTable> upstream, ModelTestCase test, int keep, DbDataBuild.Core.DuckPrelude? macros = null)
+    public static CaseResult Run(string modelName, IReadOnlyList<ColumnDefinition> declared, string sql, IReadOnlyList<UpstreamTable> upstream, ModelTestCase test, int keep, DbDataBuild.Core.DuckPrelude? macros = null, string? collation = null)
     {
         CaseResult Error(string message, int line = 0) => new(CaseOutcome.Error, message, line > 0 ? line : test.Line, [], [], 0);
 
@@ -57,7 +57,10 @@ public static class ModelTestRunner
             }
 
             foreach (var statement in macros?.Macros ?? []) Exec(db, statement);
-            Exec(db, $"CREATE TABLE result AS {sql.Trim().TrimEnd(';').TrimEnd()}");
+            // the query runs the way the model's connection compares strings; what it made is compared exactly (plain columns), as a test must
+            if (collation != null) Exec(db, $"SET default_collation = '{collation}'");
+            try { Exec(db, $"CREATE TABLE result AS {sql.Trim().TrimEnd(';').TrimEnd()}"); }
+            finally { if (collation != null) Exec(db, "RESET default_collation"); }
             var actualNames = new List<string>();
             using (var d = db.CreateCommand())
             {

@@ -611,7 +611,14 @@ the lint should say where a model's result depends on the difference, is open (`
   `trimmed` is not reported, since `=` then agrees everywhere. `check` counts the rows that break the declaration on the connection (DDB-237, an error; `DATALENGTH` on SQL Server, `length` on PostgreSQL; a count, never a
   value; a table that does not exist yet is not counted).
 
-Not built: the DuckDB-side emulation of a profile for `sample` and `test` (a `default_collation`, an `rtrim()` rewrite for trailing spaces), and any rewrite of a comparison on an engine that cannot match the profile.
+- **The profile in `sample` and `test` (as built).** A model runs in DuckDB the way its connection (its first) compares strings. **Case and accent**: the profile's `duckdb` collation (`collations.default.duckdb`, for
+  example `NOCASE`) is set as `default_collation` for the model's query only; the table it makes keeps plain `VARCHAR` columns, so a test compares expected and actual values exactly. **Trailing spaces** (DuckDB cannot
+  ignore them with any collation): where the profile says `ignored`, the query is lowered (`PlanLowerer.Lower(..., ignoreTrailingSpaces: true)`) and string operands are wrapped in `rtrim()` in comparisons, `IN`,
+  `BETWEEN`, join conditions, window partitions, `GROUP BY` keys and `DISTINCT` (a grouped or distinct value is shown trimmed; SQL Server shows either). **Not covered**: set operations without ALL, `count(DISTINCT x)`
+  (DuckDB's `default_collation` does not reach it either), and `LIKE`. The run says what it did (a note with the result of `sample`). A model that cannot be lowered is run as written, with a note. Checked against SQL
+  Server and PostgreSQL: the same data and collation give the same group, join and filter counts as the emulation.
+
+Not built: any rewrite of a comparison on an **engine** that cannot match the profile (the profile is still a checked declaration there).
 
 **How the profile is applied:**
 

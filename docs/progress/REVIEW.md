@@ -4,7 +4,7 @@ Rewritten 2026-10-06 as one document (it had grown into a dated log of updates; 
 
 ## Where things stand
 
-dbdatabuild is a .NET 10 CLI that builds analytics tables and views on **SQL Server, PostgreSQL and Fabric** from **DuckDB-dialect SQL**: DuckDB binds each model offline, the tool lowers it to one explicit query, transpiles it per engine, and `plan` then `apply` run exactly the statements the plan recorded. Fabric has never been run. **1705 unit tests and 144 real-engine tests** (142 run, 2 skipped) pass; the real engines are SQL Server 2022 and 2025 and PostgreSQL 17 in containers, plus dialect probes for Oracle, Spark SQL and the BigQuery emulator. CI runs the unit suite on Linux and Windows and the conformance groups on every push; a weekly job and the release workflow run everything.
+dbdatabuild is a .NET 10 CLI that builds analytics tables and views on **SQL Server, PostgreSQL and Fabric** from **DuckDB-dialect SQL**: DuckDB binds each model offline, the tool lowers it to one explicit query, transpiles it per engine, and `plan` then `apply` run exactly the statements the plan recorded. Fabric has never been run. **1711 unit tests and 147 real-engine tests** (145 run, 2 skipped) pass; the real engines are SQL Server 2022 and 2025 and PostgreSQL 17 in containers, plus dialect probes for Oracle, Spark SQL and the BigQuery emulator. CI runs the unit suite on Linux and Windows and the conformance groups on every push; a weekly job and the release workflow run everything.
 
 | Area | What exists | Where |
 |---|---|---|
@@ -54,4 +54,4 @@ To try it by hand: `scripts/fetch-native.sh`, `dotnet build`, `scripts/test-engi
 
 ## Known gaps and risks
 
-The full, current list is `docs/progress/OPEN-ITEMS.md`. The ones that matter most: Fabric has never run; declaring a model's object in its query file (to revisit); the string profile is not emulated in `sample` and `test` (in progress); `diff` across connections, `copy_to` and offline tracking are not built; change feeds are parked; the interfaces have not been checked against real MCP hosts; `apply` is sequential on one connection, with no test of two real `apply` processes under load.
+The full, current list is `docs/progress/OPEN-ITEMS.md`. The ones that matter most: Fabric has never run; declaring a model's object in its query file (to revisit); `diff` across connections, `copy_to` and offline tracking are not built; change feeds are parked; the interfaces have not been checked against real MCP hosts; `apply` is sequential on one connection, with no test of two real `apply` processes under load.

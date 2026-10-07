@@ -51,4 +51,29 @@ public class StringProfileConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    public static TheoryData<string, string, int, long, int> Profiles => new()
+    {
+        // engine, the collation its text column has, groups of a / A / "a " , rows of a self-join on them, rows equal to 'a'
+        { "sqlserver", "Latin1_General_100_CI_AS", 1, 9, 3 },        // case-insensitive, trailing spaces ignored
+        { "sqlserver", "Latin1_General_100_BIN2", 2, 5, 2 },         // case-sensitive, trailing spaces ignored
+        { "postgres", "C", 3, 3, 1 },                                // case-sensitive, trailing spaces significant
+    };
+
+    /// <summary>The numbers the emulation gives in DuckDB (`StringEmulationTests`) are the numbers the engine gives for the same data and collation.</summary>
+    [SkippableTheory, MemberData(nameof(Profiles))]
+    public async Task The_engine_gives_the_answers_the_duckdb_emulation_gives(string name, string collation, int groups, long joined, int equalToA)
+    {
+        var engine = EngineEnv.Require(name);
+        await engine.StartAsync();
+        await using var _ = engine;
+        await engine.ExecAsync(name == "postgres" ? "CREATE SCHEMA IF NOT EXISTS src" : "IF SCHEMA_ID('src') IS NULL EXEC('CREATE SCHEMA src')");
+        await engine.ExecAsync("DROP TABLE IF EXISTS src.codes");
+        await engine.ExecAsync($"CREATE TABLE src.codes (id bigint NOT NULL, code varchar(10) COLLATE {(name == "postgres" ? $"\"{collation}\"" : collation)} NOT NULL)");
+        await engine.ExecAsync("INSERT INTO src.codes VALUES (1, 'a'), (2, 'A'), (3, 'a ')");
+        async Task<long> One(string sql) => long.Parse((await engine.RowsAsync(sql)).Single());
+        Assert.Equal(groups, await One("SELECT CAST(COUNT(*) AS VARCHAR(20)) FROM (SELECT code FROM src.codes GROUP BY code) g"));
+        Assert.Equal(joined, await One("SELECT CAST(COUNT(*) AS VARCHAR(20)) FROM src.codes a JOIN src.codes b ON a.code = b.code"));
+        Assert.Equal(equalToA, await One("SELECT CAST(COUNT(*) AS VARCHAR(20)) FROM src.codes WHERE code = 'a' AND code IN ('a', 'q')"));
+    }
 }

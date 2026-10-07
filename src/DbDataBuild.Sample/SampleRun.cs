@@ -5,7 +5,9 @@ using DuckDB.NET.Data;
 namespace DbDataBuild.Sample;
 
 /// <summary>A model to run: its declared columns, its DuckDB-dialect query, and the tables that query reads (sources or other models).</summary>
-public sealed record SampleModel(string Name, IReadOnlyList<ColumnDefinition> Columns, string Sql, IReadOnlyList<string> Upstream);
+/// <param name="Collation">DuckDB's `default_collation` for the query (the model's connection profile); null for none.</param>
+/// <param name="Notes">What was done to make DuckDB compare strings as the model's connection does, shown with the result.</param>
+public sealed record SampleModel(string Name, IReadOnlyList<ColumnDefinition> Columns, string Sql, IReadOnlyList<string> Upstream, string? Collation = null, IReadOnlyList<string>? Notes = null);
 
 /// <param name="Rows">Rows generated per source.</param>
 /// <param name="Limit">Rows of each result that are returned (the row count is always complete).</param>
@@ -174,13 +176,15 @@ public static class SampleRun
         try
         {
             Exec(db, $"CREATE SCHEMA IF NOT EXISTS {Q(schema)}");
-            Exec(db, $"CREATE TABLE {Q(schema)}.{Q(table)} AS {m.Sql.Trim().TrimEnd(';').TrimEnd()}");
+            if (m.Collation != null) Exec(db, $"SET default_collation = '{m.Collation}'");           // for this query only: the table it makes keeps plain VARCHAR columns
+            try { Exec(db, $"CREATE TABLE {Q(schema)}.{Q(table)} AS {m.Sql.Trim().TrimEnd(';').TrimEnd()}"); }
+            finally { if (m.Collation != null) Exec(db, "RESET default_collation"); }
             using var d = db.CreateCommand();
             d.CommandText = $"DESCRIBE {Q(schema)}.{Q(table)}";
             var columns = new List<SampleColumn>();
             using (var r = d.ExecuteReader()) while (r.Read()) columns.Add(new SampleColumn(r.GetString(0), r.GetString(1)));
             var declared = m.Columns.Select(c => c.Name).ToList();
-            var warnings = new List<string>();
+            var warnings = new List<string>(m.Notes ?? []);
             var missing = declared.Where(n => !columns.Any(c => string.Equals(c.Name, n, StringComparison.OrdinalIgnoreCase))).ToList();
             var extra = columns.Where(c => !declared.Any(n => string.Equals(c.Name, n, StringComparison.OrdinalIgnoreCase))).Select(c => c.Name).ToList();
             if (missing.Count > 0) warnings.Add($"the query does not return the declared column(s) {string.Join(", ", missing)}");

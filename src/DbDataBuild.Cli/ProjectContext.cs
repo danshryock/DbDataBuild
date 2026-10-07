@@ -118,6 +118,37 @@ internal sealed class ProjectContext
         return Lowering.Lower(source, sql, source.QueryParameterList(Root, Config)).Model?.Sql ?? sql;
     }
 
+    private static readonly System.Text.RegularExpressions.Regex SafeCollation = new(@"^[A-Za-z0-9_.\-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// A model run in DuckDB (`sample`, `test`) the way its connection compares strings (DESIGN.md 7.4): the profile of the model's first connection, as a `default_collation` for the query and, where the
+    /// profile ignores trailing spaces, the lowered query with `rtrim()` where it matters. What was done is returned as notes, so a run never hides it. Falls back to the query as written, with a note, when it
+    /// cannot be lowered.
+    /// </summary>
+    public (string Sql, string? Collation, IReadOnlyList<string> Notes) StringEmulation(ModelSource source, string valuesSql)
+    {
+        var connection = TargetsOf(source.Definition).FirstOrDefault();
+        if (connection == null) return (valuesSql, null, []);
+        var semantics = Config.SemanticsOf(connection);
+        var notes = new List<string>();
+        string? collation = null;
+        if (semantics.Collations.TryGetValue("default", out var byEngine) && byEngine.TryGetValue("duckdb", out var name) && SafeCollation.IsMatch(name)) collation = name;
+        var sql = valuesSql;
+        var trailing = "";
+        if (semantics.TrailingSpace == DbDataBuild.Models.TrailingSpace.Ignored)
+        {
+            if (!Lowering.Enabled) notes.Add("trailing spaces are not ignored in this run: lowering is off, so the query is run as written");
+            else
+            {
+                var (lowered, error) = Lowering.LowerForDuckDb(source, valuesSql);
+                if (lowered != null) { sql = lowered; trailing = "; trailing spaces ignored (rtrim in comparisons, joins, GROUP BY, DISTINCT, window partitions; not in set operations, count(DISTINCT) or LIKE)"; }
+                else notes.Add($"trailing spaces are not ignored in this run: the query could not be lowered ({error})");
+            }
+        }
+        notes.Insert(0, $"strings compare as on `{connection}` ({semantics.Describe()}): collation {collation ?? "none (binary)"}{trailing}");
+        return (sql, collation, notes);
+    }
+
     /// <summary>What binding a query that calls macros needs (null for one that does not): the macros it reaches and the tables its bound plan scans.</summary>
     public DbDataBuild.Define.MacroSupport? MacroSupportFor(ModelSource source, string sql)
     {

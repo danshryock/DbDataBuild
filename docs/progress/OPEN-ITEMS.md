@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1705, real-engine tests 144 (142 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine tests 147 (145 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -53,7 +53,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1705, real-engine 
 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
 
-1. The string profile in `sample` and `test` (section M), then the rest of M as demand appears.
+1. The rest of section M as demand appears (a rewrite of comparisons on an engine that cannot match the profile, a profile per folder).
 2. Declaring the object in the query file (section N), which the owner wants to revisit.
 3. Lowering gaps as real models need them (section A), and the documentation debt (section D).
 4. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
@@ -62,7 +62,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1705, real-engine 
 ## F. Terminal interface and agents (added 2026-10-02)
 
 - **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; the terminal interface runs on Windows (checked by the owner); view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
-- **Sample data gaps**: no `--target` emulation (it runs in DuckDB only, so string-semantics emulation of a target is not applied); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
+- **Sample data gaps**: string comparison follows the model's connection profile (collation and `rtrim`, DESIGN.md 7.4), other target behaviors are not emulated (it runs in DuckDB only); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
 - **Agents**: no MCP server (a thin wrapper over the command layer would add typed tools and schema resources; `apply` and the other writers would stay off by default); the skill has not been tried by a real agent on a real task (the tests keep it true, not useful, so it needs a trial run and revision from what an agent gets wrong); no per-engine variants of the skill (it says Fabric is unverified).
 
 ## G. After the slice and parameter work (2026-10-02)
@@ -115,7 +115,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1705, real-engine 
 ## M. Cross-connection work: what is built and what is not (2026-10-06)
 
 - **Built** (entries 66 to 82): connections and engines, layered project files, mapped and native models, copies (remote and local, fan-in with slices, incremental with a watermark, `--full-refresh`, the origin shape check for mapped, native and built-model origins, `on_mismatch`), central or per-connection tracking and its upgrade from layout 3 (`init --upgrade`), parameters (values and names), native selects and commands (`reads:`, plan-time describe, `track_definition`), macros and types, `report` per copy origin.
-- **String semantics across engines** (2026-10-06): per-connection `string_semantics` (built), DDB-236 (a model that compares strings where its connections differ) and `trimmed: true` with its check (DDB-237), built; see `docs/research/string-semantics-across-engines.md`. Open: the DuckDB-side emulation for `sample` and `test` (a collation for the model's query, an `rtrim()` rewrite), a rewrite of comparisons on the engine that cannot match, a profile per folder, and whether a model on connections with different profiles should be an error.
+- **String semantics across engines** (2026-10-06): per-connection `string_semantics` (built), DDB-236 (a model that compares strings where its connections differ) and `trimmed: true` with its check (DDB-237), built; see `docs/research/string-semantics-across-engines.md`. The DuckDB-side emulation for `sample` and `test` is built too (a collation for the model's query, `rtrim()` where trailing spaces are ignored; not set operations, `count(DISTINCT)` or `LIKE`). Open: a rewrite of comparisons on the engine that cannot match, a profile per folder, and whether a model on connections with different profiles should be an error.
 - **Not built**: `diff` across connections (SQL Server against PostgreSQL: a canonical form per type, range hashes); `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
 - **Not verified on a real engine**: Fabric (never run); large objects and time zones other than UTC in copies; a SQL Server login without VIEW DEFINITION for `track_definition`; a command copied across engines (the transfer is the one verified for native selects).
 

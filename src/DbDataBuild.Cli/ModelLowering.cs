@@ -126,6 +126,31 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         return called.Count + mentioned.Count > 0;
     }
 
+    private readonly Dictionary<string, (string? Sql, string? Error)> duckDbCache = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The query as DuckDB must run it to answer as a connection that ignores trailing spaces in a string comparison does (`sample`, `test`): the lowered query with its string operands trimmed where it
+    /// matters (see <see cref="PlanLowerer.Lower"/>). Never written to the project and never given to an engine.
+    /// </summary>
+    public (string? Sql, string? Error) LowerForDuckDb(ModelSource source, string sql)
+    {
+        var key = source.Definition.Name + "\0" + sql;
+        if (duckDbCache.TryGetValue(key, out var hit)) return hit;
+        var upstream = models.Where(m => m.Name != source.Definition.Name).Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns))).Select(ToTable).ToList();
+        var prelude = (macros ?? MacroLibrary.Empty).PreludeFor([sql]);
+        var (json, error) = QueryDescriber.SerializePlan(upstream, sql, prelude);
+        if (json == null) return duckDbCache[key] = (null, error);
+        try
+        {
+            PlanLowerer.ThrowIfError(json);
+            var described = QueryDescriber.Describe(upstream, sql, prelude);
+            if (!described.Ok) return duckDbCache[key] = (null, described.Error);
+            var lowered = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf, RewriteCatalog.For(config, source.Definition), ignoreTrailingSpaces: true);
+            return duckDbCache[key] = (lowered.Sql, null);
+        }
+        catch (LoweringException ex) { return duckDbCache[key] = (null, ex.Message.Split('\n')[0]); }
+    }
+
     public static string ArtifactPathFor(string model, string? variant = null) => variant == null ? $"lowered/{model}/lowered.sql" : $"lowered/{model}/lowered.{variant}.sql";
 
     /// <param name="parameters">The parameters the query uses as values (their markers are in <paramref name="authorSql"/>); the committed artifact shows them as the references they stand for.</param>

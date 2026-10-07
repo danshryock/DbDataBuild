@@ -26,7 +26,7 @@ So the profile is a **declaration that is checked**, not a behavior the tool imp
 
 1. **Keep the data free of the difference. (Built.)** A data test that no value has trailing spaces (or that the column is `trimmed`), so `=` agrees on every engine. Cheapest; says what it covers and nothing else; fits the rule that the tool never reads values unasked if the test is a user's.
 2. **Rewrite the comparison on the engine that cannot match.** `rtrim()` both sides on PostgreSQL to get `ignored`; append a sentinel to both sides on SQL Server (`x + '|'`) to get `significant`. Applies to `=`, `IN`, join keys, `GROUP BY`, `DISTINCT`, set operations and window partitions. Correct, but defeats index use on the wrapped column, and `LIKE`, `LEN` and ordering need their own rules.
-3. **Build the DuckDB-side emulation.** `sample` and `test` then show what the profile means (an `rtrim()` rewrite where the profile says ignored). It does not fix an engine; it makes the offline answer match the declared profile so a difference is visible before a run.
+3. **Build the DuckDB-side emulation. (Built.)** `sample` and `test` then show what the profile means (an `rtrim()` rewrite where the profile says ignored). It does not fix an engine; it makes the offline answer match the declared profile so a difference is visible before a run.
 4. **A lint that names the models whose result depends on the difference. (Built.)** From the AST the linter already finds every string comparison; with two profiles in one project it can say which models run on connections that disagree.
 
 A reasonable order: 1 and 4 first (small, honest), then 3, with 2 only where a project needs one model to mean the same thing on both engines and accepts the index cost.
@@ -46,6 +46,16 @@ A reasonable order: 1 and 4 first (small, honest), then 3, with 2 only where a p
 
 ## Still open
 
-- Option 3 (the DuckDB-side emulation): for `sample` and `test`, a `default_collation` from the profile's `duckdb` collation for the model's query only (a test compares expected and actual values exactly, so the comparison must not run under it), and an `rtrim()` rewrite for `trailing_space: ignored`, which DuckDB cannot do with any collation. Until then a sample run is case-sensitive and trailing-space-significant whatever the profile says, so a model that relies on the project's default profile (case-insensitive) can give other rows in `sample` than on the engine.
+- Option 3 is built (below). Not covered by it: set operations without ALL, `count(DISTINCT x)` and `LIKE`.
 - Option 2 (rewriting comparisons on the engine that cannot match): not built, and only worth it for a model that must mean the same on both engines and can pay the index cost.
 - The lint reads column uses, not types of expressions: `lower(a) = b` is seen as a use of `a` and `b`.
+
+## The DuckDB-side emulation (built 2026-10-06)
+
+`sample` and `test` run each model the way its connection compares strings:
+
+- **Case and accent**: `SET default_collation = '<the profile's duckdb collation>'` around the model's query only (`RESET` after). Observed in DuckDB 1.5.4: it reaches comparisons, joins, `GROUP BY` and `IN` at bind time; a table created under it keeps plain `VARCHAR` columns (so a test's exact comparison of expected and actual rows is not affected); it does **not** reach `count(DISTINCT x)`.
+- **Trailing spaces** (`trailing_space: ignored`): no DuckDB setting does this, so the query is lowered and `rtrim()` is put on string operands of comparisons, `IN`, `BETWEEN`, join conditions, window partitions, `GROUP BY` keys and `DISTINCT`. A model that cannot be lowered is run as written, with a note.
+- **Whose profile**: the model's first connection. A model on connections that disagree is run as the first one compares (DDB-236 is the lint for that case).
+- **Checked against the engines**: the same three rows (`a`, `A`, `a `) and collation give the same counts of groups, of a self-join and of rows equal to `'a'` in DuckDB under the emulation and on SQL Server (case-insensitive and binary collations) and PostgreSQL (`C`).
+- **Not covered**: set operations without ALL, `count(DISTINCT x)`, `LIKE` (SQL Server keeps trailing spaces there too), ordering (a trailing space does not decide an order), and any comparison inside a native model's text (it is not lowered).

@@ -23,11 +23,24 @@ internal static class SampleCommand
         if (selected == null) return CliApp.ExitUsage;
         if (selected.Count == 0) { error.WriteLine("The project has no valid models."); return CliApp.ExitUsage; }
 
-        var all = ctx.Project.Sources.Select(s =>
+        var plain = ctx.Project.Sources.Select(s =>
         {
             var sql = s.ReadQueryWithValues(projectRoot, ctx.Config, ctx.TargetsOf(s.Definition)[0]);
-            var upstream = ctx.BaseTablesOf(s, sql).ToList();
-            return new SampleModel(s.Definition.Name, s.Definition.Columns, sql, upstream);
+            return (Source: s, Sql: sql, Upstream: ctx.BaseTablesOf(s, sql).ToList());
+        }).ToList();
+        // the models the run needs: the selected ones and everything they read
+        var needed = new HashSet<string>(selected.Select(m => m.Source.Definition.Name), StringComparer.OrdinalIgnoreCase);
+        for (var grew = true; grew;)
+        {
+            grew = false;
+            foreach (var p in plain.Where(p => needed.Contains(p.Source.Definition.Name)))
+                foreach (var u in p.Upstream) if (plain.Any(x => string.Equals(x.Source.Definition.Name, u, StringComparison.OrdinalIgnoreCase)) && needed.Add(u)) grew = true;
+        }
+        // each model runs the way its connection compares strings (DESIGN.md 7.4); what was done is shown with the result
+        var all = plain.Select(p =>
+        {
+            var (sql, collation, notes) = needed.Contains(p.Source.Definition.Name) ? ctx.StringEmulation(p.Source, p.Sql) : (p.Sql, null, []);
+            return new SampleModel(p.Source.Definition.Name, p.Source.Definition.Columns, sql, p.Upstream, collation, notes);
         }).ToList();
 
         SampleResult result;
