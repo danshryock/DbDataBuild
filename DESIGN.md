@@ -359,6 +359,9 @@ lowering (the support matrix, the transpile, the rendered files, the hashes) see
 - **Dependencies**: a model that calls a macro depends on the macro (a `name()` node of kind `macro` in `graph` and `metadata`'s `upstream`, with macro to macro edges) and on the tables of the bound plan, which are
   there once DuckDB has expanded it (so a table that is only an argument is a dependency of the model, and is checked for connections like any other). The model's definition hash includes the text of the macros it
   reaches, so changing a macro changes what every model that reaches it is planned and blocked on. `define`, `sample`, `test` and the planner use the same tables and macros.
+- **Default parameters and named arguments** are DuckDB's own and pass straight through (the tool reads a macro's head and body only for its name and the macros it calls): `CREATE MACRO snapshot_at(tbl, col := NULL, lag_days := 0)`
+  may be called `snapshot_at('src.orders')`, `snapshot_at('src.orders_snap', col := 'snap_date')` or with the arguments named in any order, also inside another macro (`snapshot_at(tbl, col := col)`). The expanded query,
+  the graph, the column lineage, `define`, `sample` and the hash (the default is part of the macro's text) all see the call as it expanded. Verified through `render`, `validate`, `graph`, `define` and `sample`.
 - **Names as parameters** (type `NAME`): a parameter `{ type: NAME, value: src.orders_snap }` (any scope; `value: ""` is `NULL`) is **not a value to bind**: before DuckDB binds the query,
   `${connection.table}` is replaced by the string `'src.orders_snap'` (`NULL` for an empty one), so `snapshot_at(${connection.table}, ${connection.date_col})` is the call for that connection's table and column.
   A name is dotted identifiers only (validated; nothing that could be more than a name), a parameter is a name on every connection of the model or on none (and has a value on each), and a view may use one

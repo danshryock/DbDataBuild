@@ -281,4 +281,64 @@ public class MacroTests
         var total = model["columns"]!.AsArray().Single(c => (string?)c!["name"] == "total")!;
         Assert.Equal("src.orders_snap", (string?)total["lineage"]!["upstream"]![0]!["table"]);
     }
+
+    // ---- default parameters and named arguments ----
+
+    private const string WithDefaults = """
+        CREATE MACRO snapshot_at(tbl, col := NULL, lag_days := 0) AS TABLE
+          SELECT * EXCLUDE (__none), CASE WHEN col IS NULL THEN current_date - lag_days ELSE COLUMNS(lambda c: c = coalesce(col, '__none')) END AS as_of_date
+          FROM (SELECT *, NULL::DATE AS __none FROM query_table(tbl));
+
+        CREATE MACRO totals(tbl, col := NULL) AS TABLE
+          SELECT as_of_date, status, sum(amount) AS total FROM snapshot_at(tbl, col := col) GROUP BY as_of_date, status;
+        """;
+
+    private static string DefaultsProject(string sql)
+    {
+        var dir = Project(WithDefaults);
+        Write(dir, "models/marts/live_totals.sql", "SELECT * FROM totals('src.orders')\n");       // the project's other model reads the new macros too
+        Write(dir, "models/marts/snap_totals.sql", sql + "\n");
+        return dir;
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM totals('src.orders_snap', 'snap_date')", "FROM src.orders_snap\nGROUP BY snap_date, status")]                        // every argument given
+    [InlineData("SELECT * FROM totals('src.orders_snap', col := 'snap_date')", "FROM src.orders_snap\nGROUP BY snap_date, status")]               // a named argument at the call
+    [InlineData("SELECT * FROM totals(col := 'snap_date', tbl := 'src.orders_snap')", "FROM src.orders_snap\nGROUP BY snap_date, status")]       // named, in another order
+    [InlineData("SELECT * FROM totals('src.orders_snap')", "SELECT (CAST(current_date() AS DATE) - CAST(0 AS INTEGER)) AS as_of_date")]            // the defaults stand for what was left out
+    public void A_macro_with_default_parameters_is_called_with_arguments_omitted_or_named(string sql, string expected)
+    {
+        var dir = DefaultsProject(sql);
+        var render = Cli("render", "--project", dir, "--write");
+        Assert.True(render.Exit == 0, render.Out + render.Err);
+        Assert.Contains(expected, Lowered(dir, "marts.snap_totals"));
+        Assert.DoesNotContain("CASE", Lowered(dir, "marts.snap_totals"));
+    }
+
+    [Fact]
+    public void A_default_that_is_overridden_by_name_reaches_the_query_and_a_changed_default_changes_the_models_hash()
+    {
+        var dir = DefaultsProject("SELECT as_of_date, status, sum(amount) AS total FROM snapshot_at(tbl := 'src.orders', lag_days := 2) GROUP BY as_of_date, status");
+        Assert.Equal(0, Cli("render", "--project", dir, "--write").Exit);
+        Assert.Contains("CAST(2 AS INTEGER)", Lowered(dir, "marts.snap_totals"));
+        var ctx = ProjectContext.Load(dir);
+        var graph = ctx.Graph.Reads("marts.snap_totals");
+        Assert.Contains("snapshot_at()", graph);
+        Assert.Contains("src.orders", graph);
+
+        const string call = "SELECT * FROM totals('src.orders')";
+        var before = ctx.DefinitionHashOf(call);
+        File.WriteAllText(Path.Combine(dir, "macros", "snapshots.sql"), WithDefaults.Replace("lag_days := 0", "lag_days := 1"));
+        Assert.NotEqual(before, ProjectContext.Load(dir).DefinitionHashOf(call));                                      // the default is part of the macro's text
+    }
+
+    [Fact]
+    public void Column_lineage_define_and_sample_work_for_a_call_with_a_named_argument()
+    {
+        var dir = DefaultsProject("SELECT * FROM totals('src.orders_snap', col := 'snap_date')");
+        Assert.Equal(0, Cli("define", "--project", dir, "--check").Exit);
+        var lineage = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "--column", "marts.snap_totals.as_of_date").Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
+        Assert.Equal("src.orders_snap.snap_date", $"{(string?)lineage[0]!["table"]}.{(string?)lineage[0]!["column"]}");
+        Assert.Equal(0, Cli("sample", "--project", dir, "--rows", "5", "marts.snap_totals").Exit);
+    }
 }
