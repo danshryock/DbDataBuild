@@ -451,4 +451,51 @@ public partial class CopyConformanceTests
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
     }
+
+    [SkippableTheory, MemberData(nameof(Directions))]
+    public async Task Text_with_edge_values_copies_exactly_and_the_diff_agrees(string origin, string destination)
+    {
+        var from = EngineEnv.Require(origin);
+        var to = EngineEnv.Require(destination);
+        await from.StartAsync(); await to.StartAsync();
+        await using var _f = from; await using var _t = to;
+        var pair = new Pair(from, to, Path.Combine(Path.GetTempPath(), "ddb-copy-text-" + Guid.NewGuid().ToString("N")));
+        try
+        {
+            pair.Write("dbdatabuild.yml", $"defaults: {{connections: [{destination}]}}\ntracking: {{ connection: {destination} }}\n" + Sensitive(destination));
+            pair.Write("models/src/words.yml", $"name: src.words\nkind: {{type: mapped}}\nconnections=: [{origin}]\ngrain: [id]\ncolumns:\n  - {{name: id, type: BIGINT, nullable: false}}\n  - {{name: w, type: \"VARCHAR(4000)\"}}\n  - {{name: u, type: VARCHAR}}\n");
+            pair.Write("models/dst/words.yml", "name: dst.words\nkind: {type: copy, from: src.words}\n");
+            var pg = origin == "postgres";
+            await from.ExecAsync(pg ? "CREATE SCHEMA src" : "EXEC('CREATE SCHEMA src')");
+            await from.ExecAsync(pg ? "CREATE TABLE src.words (id BIGINT NOT NULL, w VARCHAR(4000), u TEXT)" : "CREATE TABLE src.words (id BIGINT NOT NULL, w NVARCHAR(4000), u NVARCHAR(MAX))");
+            // each value is built from code points, so neither the shell nor the test file's encoding can change it
+            string[] values =
+            [
+                "a  ",                          // trailing spaces
+                "  a",                          // leading spaces
+                "",                             // empty
+                "tab\there",                    // a tab
+                "cr\r\nlf\nlone",              // line endings
+                "e\u0301 vs \u00e9",            // combining accent next to the composed one
+                "\ud83d\ude00\ud83c\udde9\ud83c\uddea",   // an emoji and a flag (surrogate pairs)
+                "\u05e9\u05dc\u05d5\u05dd \u0645\u0631\u062d\u0628\u0627",      // right-to-left
+                "\u00df \u0130 \u03c2 \u212b",   // sharp s, dotted I, final sigma, angstrom
+                "\u200b\u00a0\u2028",          // zero-width space, no-break space, line separator
+                "'quoted' \"double\" \\ back",  // quotes and a backslash
+                new string('x', 3999),          // long
+            ];
+            string Literal(string v) => (pg ? "'" : "N'") + v.Replace("'", "''") + "'";
+            var rows = values.Select((v, k) => $"({k + 1}, {Literal(v)}, {Literal(v)})").Append("(100, NULL, NULL)");
+            await from.ExecAsync("INSERT INTO src.words VALUES " + string.Join(", ", rows));
+            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("render", "--write"), "render");
+            var plan = pair.Cli("plan", "--connection", destination); Ok(plan, "plan");
+            var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+            Ok(pair.Cli("apply", planFile), "apply");
+            Assert.Equal((values.Length + 1).ToString(), (await to.RowsAsync("SELECT COUNT(*) FROM dst.words")).Single());
+            var diff = pair.Cli("diff", "src.words", "--connection", origin, "--against-connection", destination, "--against", "dst.words", "--key", "id");
+            Assert.True(diff.Exit == 0, diff.Out + diff.Err);
+        }
+        finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
+    }
 }
