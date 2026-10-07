@@ -1,144 +1,57 @@
-# Review summary: milestones 4 to 6 (state, safety, planning, apply)
+# Review summary
 
-Written for you to review. The decision log with the detail and evidence is `docs/progress/state-and-apply.md` (entries 1 to 9, one per commit). The research you asked for first is in `docs/research/duckdb-plan-lowering/README.md`.
+Rewritten 2026-10-06 as one document (it had grown into a dated log of updates; the log with the detail and evidence is `docs/progress/state-and-apply.md`, entries 1 to 87, and what is unfinished is `docs/progress/OPEN-ITEMS.md`). The design is `DESIGN.md`; sections marked "as built" describe what exists. Earlier versions of this file are in git history.
 
 ## Where things stand
 
-The command surface in DESIGN.md 9.1 is complete: all thirteen commands exist and work against real SQL Server 2022 and PostgreSQL 17.
+dbdatabuild is a .NET 10 CLI that builds analytics tables and views on **SQL Server, PostgreSQL and Fabric** from **DuckDB-dialect SQL**: DuckDB binds each model offline, the tool lowers it to one explicit query, transpiles it per engine, and `plan` then `apply` run exactly the statements the plan recorded. Fabric has never been run. **1705 unit tests and 144 real-engine tests** (142 run, 2 skipped) pass; the real engines are SQL Server 2022 and 2025 and PostgreSQL 17 in containers, plus dialect probes for Oracle, Spark SQL and the BigQuery emulator. CI runs the unit suite on Linux and Windows and the conformance groups on every push; a weekly job and the release workflow run everything.
 
-| Command | Effect class | What it does now |
+| Area | What exists | Where |
 |---|---|---|
-| `init` | tracking tables only | prints the idempotent tracking-table script; `--apply` runs it through the gate |
-| `check` | target read-only | object states (missing, in sync, not tracked, changed outside the tool), what a plan would do |
-| `plan` | target read-only (writes plan files) | refuses a project that does not validate, asks every open question, writes `plans/<target>/<id>.plan.yml` and `.plan.md` |
-| `apply` | target writes | verifies the plan against the live target, takes the application lock, executes exactly the plan's statements, records everything |
-| `run` | target data writes | plan and apply for routine loads only; refuses anything else |
-| `ack` | tracking tables only | records a person's acknowledgement of one specific drift or definition change |
-| `report` | target read-only | applied plans, DDL and load history, recorded objects, what needs attention |
+| Safety core | read and write logins (no fallback), one mutation gate for every write, one read session for every read, statement log, application lock, risk classes, `--allow-risky` / `--allow-destructive`, resume | DESIGN 10, entries 1 to 9 |
+| Plan and apply | pure planner and decision table, plan files with a content hash, `check`, `plan`, `apply`, `run`, `ack`, `report`, backfills, indexes, hooks | DESIGN 11, entries 10 to 27 |
+| Lowering and rules | DuckDB's bound plan lowered to explicit SQL (committed under `rendered/lowered/`), support matrix, target rules, subqueries, series, string rewrites | DESIGN 7, entries 20 to 24 |
+| Connections | named connections over engines, layered project files (`defaults:`, `=`/`-`/`+`), mapped models (`import`), central or per-connection tracking, `init --upgrade` from older layouts | DESIGN 6.5, 12, entries 62 to 74, 82 |
+| Copies | rows between connections (bulk route), fan-in with slices, incremental copies with a watermark, `--full-refresh`, origin shape checks, `report` per origin, local copies | DESIGN 6.5.1 to 6.5.4, entries 71 to 77, 83 |
+| Parameters | values (project, connection, origin, model; typed; bound at apply), names (`NAME`, for macro arguments) | DESIGN 6.5.3, entries 76, 82 |
+| Native models | `select` (inlined as a derived table) and `command` (run, copied; risky), `reads:`, plan-time describe, `track_definition` | DESIGN 6.5.4, entries 77 to 80 |
+| Macros | `macros/*.sql` (DuckDB macros and types), loaded on demand, expanded by DuckDB in the lowering; defaults and named arguments work; dependencies and lineage follow | DESIGN 6.5.5, entries 81, 87 |
+| Names and strings | a model's name is its definition's `name:`, `model_layout` checks file names; `string_semantics` per connection, DDB-236 and `trimmed` | DESIGN 6.5.6, 7.4, entries 84 to 86 |
+| Interfaces | `--format json` on every command with closed schemas, the terminal interface, the MCP server and app, the read-only web page, `agent-kit` | DESIGN 9, entries 27 to 61 |
+| Tests and samples | `sample`, `test` (metadata rules and model tests), `seed`/`load-seeds`, `diff`, `graph`, templates | DESIGN 15, entries 37 to 47 |
 
-Nine commits since the render and loads work (`1d9ebc5` is the research, then `b8703ac` to `4c2c26d`) plus this summary. Source is about 8,900 lines and tests about 7,800. **743 unit tests and 53 conformance tests pass.** The conformance tests run on SQL Server 2022 and PostgreSQL 17 in local throwaway containers (`scripts/test-engines.sh up`, then `eval "$(scripts/test-engines.sh env)"`); without the environment variables they are reported as skipped, never silently passed.
+The command list is `dbdatabuild --help` (every command declares an effect class, printed in its header).
 
-To try it by hand: set `DBDATABUILD_SQLSERVER_READ` and `DBDATABUILD_SQLSERVER_WRITE` (or `_POSTGRES_`) to connection strings, then `init --apply`, `render --write`, `plan`, `apply plans/<target>/<id>.plan.yml --dry-run`, `apply ...`.
+To try it by hand: `scripts/fetch-native.sh`, `dotnet build`, `scripts/test-engines.sh up` and `eval "$(scripts/test-engines.sh env)"` (see `CLAUDE.md`); a project needs `DBDATABUILD_<CONNECTION>_READ` and `_WRITE` connection strings, then `init --apply`, `render --write`, `plan`, `apply <plan> --dry-run`, `apply <plan>`.
 
-## What was built
+## Decisions to look at
 
-- **Hashes and tracking tables** (`DbDataBuild.State`): shape, physical and script hashes over a canonical text; the seven tracking tables as one logical definition with per-engine DDL.
-- **Logins, the mutation gate, the statement log** (`DbDataBuild.Execution`, the only project that references a database driver): credentials from environment variables with no fallback between read and write; every write goes through one gate that checks the statement's effect class, logs before executing, and does not execute if it cannot log. A source-scan test enforces that nothing else touches a driver.
-- **Catalog reader, drift classification, DDL generation**: live shapes on both engines; a type table whose predicted shapes were checked against the real catalogs attribute by attribute for 20 columns covering every mapped type.
-- **The planner and the decision table**: a pure function (no database needed to test it) with the decision table as data in `matrix/decision-table.yml` (32 rows; a test requires each planner row to cite a real test).
-- **Plan files**: YAML with a SHA-256 content hash; `apply` refuses anything that is not byte-for-byte what `plan` wrote.
-- **Apply**: allowances, base-hash and resolver staleness checks, the application lock, per-step logging into `ddl_log`, `run_log`, `schema_version` and `migration_log`, failure handling, and `--resume`.
+**The owner has answered** (in conversation, not recorded one by one in the log): lowering is a committed artifact and a hard error when it cannot be done; the cross-server terms (connection, engine, mapped, native, copy; one word per concept); tracking is off by default with a warning and `tracking: none` is the silent choice; native models come as `select` and `command` with `allow_native_commands`; `track_definition` is an explicit list with its record in the tracking tables and a warning on change; per-connection `string_semantics` over the project's; a model's name is the definition's `name:` (option A), with `model_layout`; change feeds are a backlog item; DuckDB 2.0 CI is held until 2.0 is final.
 
-## Decisions I made that you should look at
+**Made by me and not yet individually confirmed:**
 
-1. **Tracking-table layout differs from the illustrative DDL in DESIGN.md 12.** Log ids are tool-generated GUIDs instead of `IDENTITY`; there is an added `tracking_version` table; every table has a primary key; Fabric uses `varchar` because it has no `nvarchar`. Reason in each case is in log entry 1.
-2. **Logical-to-native type table** (log entry 4): TINYINT maps to `smallint` everywhere (T-SQL `tinyint` is unsigned), `VARCHAR(n)` maps to `nvarchar(n)` on SQL Server (`nvarchar(max)` above 4000), and unsigned integers, HUGEINT, an unsized VARCHAR and anything above `DECIMAL(38)` are refused with a new code (DDB-321) rather than guessed. The design had no table for this.
-3. **Text columns always carry the profile collation** from `string_semantics.collations`, never the database default, so the expected shape is known offline. A missing collation entry for a target is DDB-312.
-4. **A plan with blocks is still written** for the models that are not blocked; blocks and skips are printed and the exit code is 1. The alternative (refuse any plan while any block exists) is a one-line change in `PlanCommand`.
-5. **Acknowledgements are keyed by the exact hash** (`DDB-430|object|shape hash`), so a later, different change blocks again, and a repeated `ack` is a no-op. `--reason` is required.
-6. **Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text** in `ddl_log`, and a view step has no predicted shape hash (column types are derived by the engine). After a view step the check is that the view exists, not its column names.
-7. **`run` cannot ask questions.** A load with an unanswered runtime parameter is not routine, so `run` refuses and points to `plan`.
-8. **Planning loads only the default operation.** There is no `--operation` flag yet.
-9. **Dry run needs the read login but not the write login**, and a dirty working tree only warns on a dry run but refuses a real apply (`--allow-dirty` records it).
-10. **The read guard is deliberately conservative** (single SELECT or WITH, no data-changing keywords, no dollar-quoting). It can refuse a harmless query; the read login's permissions are the real enforcement. The tool's own queries pass it.
+1. The tracking tables differ from the illustrative DDL in DESIGN 12 (tool-generated GUID ids, a `tracking_version` table, a `connection` column in every key since layout 4).
+2. The logical-to-native type table (TINYINT is `smallint`, `VARCHAR(n)` is `nvarchar(n)` on SQL Server, and so on; entry 4).
+3. Text columns always carry the profile's collation, never the database default.
+4. A plan with blocks is still written for the models that are not blocked (exit code 1).
+5. Acknowledgements are keyed by the exact hash of what they accept.
+6. Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text.
+7. `run` cannot ask questions; a load with an unanswered runtime parameter is not routine.
+8. The planner never drops an index that is not declared.
+9. The read guard is conservative (one `SELECT` or `WITH`, no data-changing keyword): it can refuse a harmless query; the read login's permissions are the real enforcement.
+10. `model_layout` defaults to `folder` only because every existing project is laid out that way.
+11. An unused macro is not created in a binding, and `validate` only warns about one DuckDB refuses.
+12. A change to a routine under `track_definition` is a warning (`policy.severity.native_definition_changed` makes it an error).
+13. The string profile is a checked declaration, not an imposed behavior (the review is `docs/research/string-semantics-across-engines.md`).
 
 ## Things that went wrong or surprised me (all fixed, all with tests)
 
-- The hash canonical text collided for a null and the literal text `~` (found by a test before anything was recorded).
-- My first read guard hid a statement behind a backtick on PostgreSQL; found while writing the guard's bypass tests and fixed.
-- PostgreSQL leaves a failed transaction aborted; without a rollback after a failed load the failure could not be recorded. A mutation test (removing the rollback) confirmed the scenario test catches it.
-- Npgsql refuses UTC-kind timestamps for zone-less columns; tracking timestamps are UTC wall time with Kind Unspecified, strictly increasing at millisecond precision.
-- The PostgreSQL test image (alpine) has no `en_US.utf8`, so its tests use the `C` and `POSIX` collations.
+- The hash canonical text collided for a null and the literal text `~`; my first read guard hid a statement behind a backtick on PostgreSQL; a failed PostgreSQL transaction stays aborted until rolled back; Npgsql refuses UTC-kind timestamps for zone-less columns and turns the extreme dates into infinity (`DriverSettings.Apply`).
+- T-SQL refuses `GROUP BY` an expression that names no column (found by the first macro test on SQL Server; the lowerer drops such a key).
+- A DuckDB macro binds the names in it when it is created (so macros are created on demand), and a callee must exist before its caller.
+- The read login's PostgreSQL session is read-only, so a native command that writes is stopped by the engine; on SQL Server the rollback is what leaves nothing behind.
+- Two engines in one project could not satisfy one string profile (SQL Server ignores trailing spaces in a comparison, PostgreSQL keeps them): per-connection `string_semantics` came from that.
 
-## Known gaps and risks (not hidden)
+## Known gaps and risks
 
-- **Not built**: hook steps, the downstream warn-or-block policy for history inconsistencies (the report itself exists), creating unique constraints and indexes from the model (`unique_key` does not create a constraint), the live-catalog collation check in `check`, a JSON Schema for plan files exists (`schemas/plan.schema.json`) but cannot verify the content hash.
-- **Fabric is unverified throughout**: no Fabric engine has been available. Its init script, type table and plan statements are generated and parse, but have never run.
-- **Never tested on Windows or against a managed instance**; integrated security is wired but untested. SQL Server 2022 only (not 2019 or 2025); PostgreSQL 17 only.
-- **The invariant test is a source scan, not a call-graph analysis**; a determined reflection call would not be seen.
-- **`apply` is single-connection and sequential.** There is no parallelism, and a connection that dies mid-load leaves the plan resumable only if the live state matches the recorded intermediate state.
-- **Resolver parameters assume one resolver per load**, and resolver values are compared as text.
-- The `report` and `check` commands print tables for people; they have no machine-readable output yet.
-- DuckDB plan lowering (your first request) is researched and documented but **not built**; the recommendation and open questions are in the research README.
-
-## Suggested next steps
-
-1. Review decisions 1 to 10 above and tell me which to change.
-2. Constraint and index creation from the model (needs a design decision: should `unique_key` create a unique constraint?). Backfill, `--op` and the column-history report were added after this summary was first written (log entries 10 and 11).
-3. A JSON Schema for plan files and a machine-readable output mode for `check` and `report`.
-4. If you want the DuckDB plan-lowering idea pursued, start with enum-seeded PIVOT and macros as the research recommends.
-5. A Windows build of the FFI library and single-file publish (still open from the spike).
-
----
-
-## Update (2026-10-01): indexes, hooks, JSON output, stored metadata, history acknowledgements, plan-lowering research
-
-Your answers drove this round. Details and evidence are in `docs/progress/state-and-apply.md` entries 14 to 19 and `docs/research/duckdb-plan-lowering/README.md` (round 2). Unit tests now number 831 and real-engine tests 67, all passing on SQL Server 2022 and PostgreSQL 17.
-
-- **Indexes (option B):** declared in the model (`indexes:`), never implied by `unique_key`. The planner creates missing ones, rebuilds changed ones (risky), and **never drops** undeclared ones (it lists them under "noticed"). Fabric refuses them (no `CREATE INDEX`).
-- **Hooks:** ordered, named, per-event, per-engine native-SQL scripts, with groups defined in `dbdatabuild.yml` and referenced with `use:`. Events are a registry (`pre_`/`post_` create, alter, load, backfill; drop is reserved) so new kinds are one row plus one planner case. Hooks are plan steps, checked offline (script exists, parses on the target, event fits the model kind), logged in `run_log`, and a safe data hook around a load does not stop `run`.
-- **JSON output:** every command takes `--format json` and writes exactly one document (`schemas/output.schema.json`) with a `data` payload, structured diagnostics, and the human text. New `metadata` command prints everything the tool knows (native types per target, lineage, rendered operations, hashes, indexes, hooks).
-- **Metadata in the target:** `publish-metadata` (and the config option `metadata.store_on_apply`) stores those documents as JSON in the tracking schema (tracking layout 2, upgraded by `init`), with views `metadata_current` and `metadata_columns` for SQL introspection. Only changed documents are written.
-- **History warnings:** `ack history <model>.<column> --reason ...` makes the warning stop needing attention without changing data; the report keeps the facts and shows who accepted it and why.
-- **Plan lowering research, round 2:** a prototype lowered 81 of 93 constructs result-equal, and on real engines matched 8 more cases on SQL Server and 2 more on PostgreSQL than the original text, with no regressions. Not built into the tool. It lists three decisions for you (section 6 of that document): commit the lowered query as an artifact, hard error versus fallback for what cannot be lowered, and acceptance of the binder's normalizations.
-
-New decisions of mine to review: the planner never drops an undeclared index (a `drop`/exclusive setting is a small addition if you want it); a DDL hook that changes an object's shape is recorded as `source = hook` so it is not mistaken for outside drift (the model must then declare what the hook adds); metadata documents carry tool and matrix versions, so a tool upgrade writes new documents; history acknowledgements are tied to the one plan whose decision they are about.
-
----
-
-## Update (2026-10-02): lowering is built
-
-You accepted the three lowering decisions (committed artifact, hard error, the binder's rewrites), so lowering is now a stage of the tool. Details: DESIGN.md section 7.6 and `docs/progress/state-and-apply.md` entry 20. Unit tests now number 873 and real-engine tests 69, all passing on SQL Server 2022 and PostgreSQL 17.
-
-- Every model query is bound by DuckDB and lowered to one explicit query before the matrix lint and the transpile. The lowered query is committed as `rendered/lowered/<model>/lowered.sql` (written by `render --write`, checked by `render --check` and `plan`), with a header recording the source hash, the DuckDB version and each output column's resolved type.
-- `GROUP BY ALL`, ordinals, `USING`, `NATURAL JOIN`, `SELECT *` and implicit casts are expanded before polyglot sees the query, so they are no longer findings. `avg` over integers and DATE-to-TIMESTAMP widening are pinned with explicit casts; null ordering is always written. An end-to-end test shows both engines now compute the 1.5 and 3.5 DuckDB computes.
-- What cannot be lowered (at that point correlated subqueries, `UNNEST`, `USING SAMPLE`, `DISTINCT ON`, `LIMIT ... PERCENT`, list and struct constructors; subqueries and `DISTINCT ON` have since been built) is DDB-324. `lowering: { enabled: false }` in `dbdatabuild.yml` turns the stage off for a project.
-- Two bugs the real-engine tests caught in my first version, both fixed and now covered by the lowerer's differential test: the author's output aliases were lost when no projection sat at the top of the plan (the plan does not carry them), and a repeated output name needed a suffix.
-- Metadata records each column's resolved DuckDB type, the lowered artifact's hash and the rules that fired.
-
-Still open from the research: target-specific rules (`LENGTH` ignoring trailing spaces on SQL Server, `TRY_CAST` and `ROUND(double, n)` on PostgreSQL) and `sum` widening. These need target-specific syntax, so they belong in a step between the lowered query and the transpile; I have not designed that step.
-
-## Update (2026-10-02): subqueries
-
-Correlated and uncorrelated subqueries now lower (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 21): `EXISTS`, `NOT EXISTS`, `IN`, `NOT IN`, scalar subqueries with aggregates, `LATERAL`, correlated `LIMIT`, nesting, and subqueries anywhere in the query. 53 forms were checked against DuckDB and on SQL Server and PostgreSQL (51 and 52 match; the two differences are an engine limit and the spike database's collation), and an end-to-end model runs on both engines. Refused by name: `ANY`/`ALL`, row-value `IN`, a correlated subquery over `UNION`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset. Unit tests 928, real-engine tests 71.
-
-Known cosmetic difference: the author's table aliases (`o`, `p`) are not in DuckDB's plan, so sources in the lowered query are named after their tables (`orders`, `orders_2`). Next in the agreed order: `DISTINCT ON` with a total order, then `generate_series` and `UNNEST` for the engines that have them.
-
-## Update (2026-10-02): integer series
-
-`generate_series` and `range` over integer constants now lower to the engines' own `GENERATE_SERIES` (DESIGN.md section 7.6, `docs/progress/state-and-apply.md` entry 23). SQL Server 2022 needs version 16 or later and does not accept a column list after the function, so the renderer drops it for T-SQL; this is recorded in the matrix as a new row. Date series, `UNNEST`, list and struct constructors, and `USING SAMPLE` stay refused (DDB-324). The agreed order is finished. Unit tests 956, real-engine tests 75.
-
-## Update (2026-10-02): target rules
-
-New step between the lowered query and the transpile (DESIGN.md 7.6.1, `docs/progress/state-and-apply.md` entry 24). `length` on SQL Server, `round` of a double on SQL Server and PostgreSQL, and `TRY_CAST` of a string on all three now compute what DuckDB computes; I checked 11 rows by 8 columns against DuckDB on both engines. `sum` of integers is widened in the lowered query so SQL Server cannot overflow. The rules recognise explicit casts the lowerer writes as marks, because the AST has no types. Left as they were: `TRY_CAST` to a date on PostgreSQL, and strings DuckDB reads as numbers that the engines refuse (`'12.7'` as INTEGER). Unit tests 970, real-engine tests 79. Order from here, as you set it: hardening, then the lower-priority items, then Fabric last.
-
-## Update (2026-10-02): hardening
-
-Details in `docs/progress/state-and-apply.md` entry 25 and the new `docs/operations.md`. Seeded fuzzing of every file a person edits found one real bug (a truncated YAML file threw an uncaught exception; fixed). The error-scrub test the design asked for now exists and passes on both engines: a value quoted by a driver error reaches no output, file or tracking table. A one-file linux-x64 build works (`scripts/publish.sh`); getting there exposed a native-library lookup that fails inside a single-file app, now fixed and guarded by the build. Not done: Windows publish, fuzzing the interactive question flow. Unit tests 978, real-engine tests 81. Fabric remains last, as you set it.
-
-## Update (2026-10-02): indexes and JSON schemas
-
-**Indexes** (entry 26): `validate` and `plan` now advise. A key-based load with no index on its key is a warning (DDB-223) and carries the exact `indexes:` line to paste; a key indexed but not unique, and the watermark, time and range columns, are notes (DDB-224). Nothing is created without being declared, and a key never needs an index or constraint (your option B). You can silence a code per model (`lint_ignore`) or all of it per project (`lint: { indexes: false }`). `define` asks for new models whether to declare the suggested indexes; `--accept-inferred` never says yes to that question.
-
-**JSON schemas** (entry 27): every command's `data` has a closed schema, and the metadata documents have their own (`schemas/metadata.schema.json`), so a pipeline or the SQL views over the stored metadata can rely on the shapes; tests fail on any drift, and the real-engine suite validates every JSON document it produces. This found two gaps, both fixed: `define` had no data at all, and `report` listed an accepted drift as needing attention. Unit tests 996, real-engine tests 83.
-
-## Update (2026-10-02): the terminal interface, sample data and agents
-
-The solution is now on **.NET 10** (Terminal.Gui 2.1+ needs it, and .NET 8 leaves support in November 2026); nothing broke. New commands:
-
-- `sample` runs models offline on generated or supplied rows and shows what they return (details: state-and-apply entry 28, DESIGN.md 15.2).
-- `tui` is the terminal interface on Terminal.Gui (DESIGN.md 9.6). It is a client of the JSON command surface, so it supports every option of every command (forms are generated from the command definitions, and a test keeps it so), asks before anything that changes something, turns the questions a plan stops on into dialogs, lets you read a plan step by step with its scripts before a dry run or apply, and browses models. I checked it by running the real app in a pseudo-terminal and reading the screen, including a walk through plan, open plan, dry-run form against PostgreSQL. Limits: no progress or cancel while a long apply runs, forms do not scroll on short terminals, only Linux tried.
-- `agent-kit` installs a skill and the JSON Schemas for AI agents (DESIGN.md 9.7, `docs/agents.md`, entry 29). My answer to your question: **the CLI with `--format json`**, not an HTTP service; an MCP wrapper is optional and not built. Yes, agent knowledge needs writing, and it is written: a skill for people using the tool, `CLAUDE.md` for people changing it, and tests that keep the skill from naming anything that does not exist. It has not yet been tried by an agent on a real task, which is the next thing to do.
-
-Unit tests 1032; real-engine tests 83 (re-run after the schema changes).
-
-## Update (2026-10-02): correlated subqueries on DuckDB 2.0
-
-Done: the whole suite now passes on the 2.0 alpha, both the unit tests (1,084) and the real-engine tests on SQL Server and PostgreSQL (83), and the lowered text matches 1.5's except for three cosmetic differences (an untyped `NULL` column, `year(d)` for `date_part('year', d)`, and the generated name of an unaliased `trim(s)` column). The key was a DuckDB setting that keeps the old subquery plan shape. **The risk to know about:** DuckDB has already marked that setting deprecated. If it disappears, 16 correlated-subquery forms need an inverse decorrelation (a day or two; written up in `docs/research/duckdb-2.0/README.md`). I also fixed a bug the work exposed in how a join's output columns are counted, which would have produced wrong values for a query with two scalar subqueries on 2.0. Adoption now waits only on DuckDB 2.0.0 and a DuckDB.NET release for it; I'd switch then, not before.
-
-## Update (2026-10-02): TUI progress and the Windows build
-
-**TUI progress** (entry 33): commands now run on their own thread; anything slower than 0.4 seconds shows a progress window with the elapsed time and, for `apply`, each step as it starts and finishes. `apply` and `run` get a **Stop after this step** button: it stops between steps only (a started statement is never abandoned), records the apply as failed (new DDB-445) and `apply --resume` continues. Tested on SQL Server and PostgreSQL.
-
-**Windows build** (entry 34): answering your question, there are no problems building for Windows on Linux: the managed side publishes in seconds and the native SQL library cross-compiles with the MinGW target in about 12 minutes into a self-contained DLL. The problem is testing. Wine is installed, and under it the Windows build produced byte-identical output to Linux, and the **unit suite passes 1,087 of 1,087 with Windows semantics** (`scripts/test-windows-wine.sh`) after I fixed three real Windows issues it found: console output encoding, `\r\n` line endings leaking into plan content (so plan hashes would have differed by platform), and a file-sharing violation in a test. The SQL Server real-engine tests also pass under Wine; PostgreSQL cannot log in under Wine (a Wine gap). Not covered: real Windows, the single-file executable (it cannot start under Wine), and the terminal interface on a Windows console.
-
+The full, current list is `docs/progress/OPEN-ITEMS.md`. The ones that matter most: Fabric has never run; declaring a model's object in its query file (to revisit); the string profile is not emulated in `sample` and `test` (in progress); `diff` across connections, `copy_to` and offline tracking are not built; change feeds are parked; the interfaces have not been checked against real MCP hosts; `apply` is sequential on one connection, with no test of two real `apply` processes under load.

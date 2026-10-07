@@ -271,7 +271,7 @@ foreign_keys:
 
 `kind: {type: copy, from: schema.table}` is a table filled with the rows of another model that lives on **another connection**, which is how data moves between connections (a query always runs on one connection; the tool
 never joins across two, and uses no linked server and no DuckDB in the middle). It has no `.sql` and no `columns`: the columns (and the grain, unless it names its own) are the origin's. `from` is a model, a mapped model or
-another copy of the project; it must be on exactly one connection (fan-in from several is not built), and the copy must be on others. It is always persisted, with the `full_replace` strategy, `indexes`, `hooks` and drift as
+another copy of the project; it is on one connection, or on several that each hold the same table (fan-in, with a `slice`, below), and the copy must be on others. It is always persisted, with the `full_replace` strategy, `indexes`, `hooks` and drift as
 for any table. `connections` places it like any model; `validate` and `render` need no database.
 
 How it runs. The copy is an ordinary load over a **staging table** on its own connection (`<tracking schema>.stg_<schema>__<table>`, shortened with a hash past 60 bytes, so deterministic): its generated query is
@@ -330,7 +330,7 @@ operation parameters (`@name`, section 6.6) are bound at run time and are a diff
   with the value on the plan's connection (a connection parameter can differ per connection) and `apply` binds it with its type through the driver, so **the value is never in a statement's text** and a value change
   is a new plan, not a new rendered file; the values of a run are in `run_log`. `sample`, `test` and DuckDB runs use the real values as literals. An undefined reference, a reference in a view, an
   `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
-- **Not built**: parameters that change a schema or table **name**, and parameters of other types (boolean, decimal, double).
+- **Not built**: a parameter that changes a schema or table **name written in a query** (a name reaches a query only as the string a macro receives: type `NAME`, 6.5.5), and parameters of other types (boolean, decimal, double).
 
 ### 6.5.6 Where a model's name comes from (as built; design note: `docs/research/model-naming.md`)
 
@@ -827,7 +827,7 @@ exactly that.
 Diagnostics name the file the problem is in (a bad inherited `kind` is reported at the folder file's line; each model that inherits it reports it). Provenance is not hidden: `validate` prints
 `Inherited by <model>: <path> = <value> (<file>:<line>), ...` for every model that took anything, and the model's metadata document carries the same as `inherited`.
 
-Not built yet (the plan is `docs/research/cross-server.md`): parameters, `schema` as a setting, tags, and project-wide sections in a folder file.
+Built since: parameters in files (6.5.3), the name of a model from its definition with `model_layout` (6.5.6). Not built yet: tags, and project-wide sections in a folder file (a folder file holds `defaults:` and `parameters:`).
 
 ### 9.5 Machine-readable output and its schemas (as built)
 

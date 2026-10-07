@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer series) was finished. Unit tests 956, real-engine tests 75 (SQL Server 2022, PostgreSQL 17). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1705, real-engine tests 144 (142 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -11,7 +11,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 | 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
 | 7 | Incremental kinds, loads, `run` | Done |
 | 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
-| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). Open: Windows publish, fuzzing of the interactive question flow and of hook scripts, docs generation, pre-1.0 polyglot upgrade policy |
+| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). The Windows executable is built and published by the release workflow, and the unit suite runs on Windows in CI. Open: fuzzing of the interactive question flow and of hook scripts, docs generation, pre-1.0 polyglot upgrade policy |
 | extra | Plan lowering | Built (section 7.6) |
 
 ## A. Lowering: open items (the ones you asked to have written down)
@@ -32,15 +32,15 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - **`define` asking about extra loads** (section 6.5): not built.
 - **Index lint and generation: built** (entry 26). Not built: adding indexes when `define` updates an existing definition (the surgical editor has no block insertion), a `drop`/exclusive setting for undeclared indexes (the planner still never drops one), and lint for the partial or filtered indexes the model syntax cannot express yet.
 - **JSON Schemas for each command's `data` and the metadata documents: built** (entry 27). Not done: marking keys as required per outcome (the schemas only close the key sets and fix types), and a published JSON Schema for the plan YAML's embedded JSON beyond `plan.schema.json`.
-- **History consistency as a *blocking* condition** (section 12.3: "may be configured as a warning or as a block for downstream models, using lineage"): only the warning and the acknowledgement exist. The `report` doc comment still says the per-column report is not built; the code reads history, so the comment is stale.
+- **History consistency as a *blocking* condition** (section 12.3: "may be configured as a warning or as a block for downstream models, using lineage"): only the warning and the acknowledgement exist.
 - **Redaction** of logged parameter values and resolver results (decision 6 says it can be added later).
 
 ## C. Unverified or risky areas
 
 - **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. The draft upstream issue notes exist but you have not decided to submit them.
 - **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, but only on single local containers: no concurrency between two real `apply` processes under load, no network failures mid-step.
-- **Native dependency**: polyglot-sql 0.13.1 is pinned and built from source by `scripts/build-polyglot.sh`; pre-1.0 API churn, a Windows build and a distribution plan are open (section 17).
-- **Windows**: builds from Linux and runs under Wine (entry 34): unit suite 1,087 of 1,087, the SQL Server real-engine tests pass. Not done: running on real Windows, the single-file executable (cannot start under Wine 9), the terminal interface on a Windows console, PostgreSQL (Wine lacks the PBKDF2 Npgsql's SCRAM login needs), code signing and an installer, and a win-arm64 build.
+- **Native dependency**: polyglot-sql is pinned and fetched prebuilt from the `native-<pin>` release (`scripts/fetch-native.sh`; `scripts/build-polyglot.sh` and the `native` workflow build it); pre-1.0 API churn and an upgrade policy are open (section 17).
+- **Windows**: the unit suite runs natively on `windows-latest` on every push (CI), the release workflow builds the win-x64 single-file executable, and the owner has run the tool and the terminal interface on Windows with no problems found. Not done: PostgreSQL and the real-engine suite on Windows (PostgreSQL cannot log in under Wine; the conformance groups run on Linux), code signing and an installer, and a win-arm64 build.
 - **Licenses**: audited 2026-10-02 (all permissive; see `THIRD-PARTY-NOTICES.md`); re-check when dependencies change.
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
 - **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Not covered: fuzzing the interactive answer flow, hook scripts' content, and the resolver query results.
@@ -51,16 +51,17 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 - Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Not written: user-facing getting-started docs, a generated command reference.
 - REVIEW.md accumulates dated updates; it needs a consolidated rewrite before anyone else reads it.
 
-## E. Suggested order (for you to change)
+## E. Suggested order (for you to change; refreshed 2026-10-06)
 
-1. Target-specific rules and `sum` widening (they change query results, so they matter most for correctness), starting with the design question in A1.
-2. Milestone 9 hardening: error-scrub fuzzing, single-file publish on linux and Windows, operations guide.
-3. `ANY`/`ALL`, row-value `IN`, index lint/generation, per-command JSON Schemas, as demand appears.
-4. Fabric verification (moved to the back by your decision, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
+1. The string profile in `sample` and `test` (section M), then the rest of M as demand appears.
+2. Declaring the object in the query file (section N), which the owner wants to revisit.
+3. Lowering gaps as real models need them (section A), and the documentation debt (section D).
+4. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
+5. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release. (Done since the first version of this list: target rules, `sum` widening, milestone 9 hardening, the single-file publish for linux and Windows, `ANY`/`ALL`, index lint, per-command JSON Schemas.)
 
 ## F. Terminal interface and agents (added 2026-10-02)
 
-- **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; Windows terminals not tried; view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
+- **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; the terminal interface runs on Windows (checked by the owner); view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
 - **Sample data gaps**: no `--target` emulation (it runs in DuckDB only, so string-semantics emulation of a target is not applied); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
 - **Agents**: no MCP server (a thin wrapper over the command layer would add typed tools and schema resources; `apply` and the other writers would stay off by default); the skill has not been tried by a real agent on a real task (the tests keep it true, not useful, so it needs a trial run and revision from what an agent gets wrong); no per-engine variants of the skill (it says Fabric is unverified).
 
@@ -81,7 +82,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 
 - **DuckDB 2.0 adoption** (see `docs/research/duckdb-2.0/README.md`): lowering work is done (all unit and real-engine tests pass on the alpha). Open: it depends on the deprecated `delim_join_as_cte` setting (if it is removed, write the inverse decorrelation: 16 forms); wait for a DuckDB.NET release built for 2.0; then regenerate committed lowered artifacts (their headers carry the DuckDB version) and make 2.0 the default. A CI job running `scripts/test-duckdb-preview.sh` weekly would show convergence.
-- **GitHub**: the repository is private; no CI workflow yet (a workflow needs the polyglot library: building it takes a Rust toolchain and a few minutes, so cache `native/`); no branch protection, issue templates or release process; commit author is `dlshryoc` with no address (commits will not link to the GitHub account until the author identity is set for future commits).
+- **GitHub**: the repository is public. `ci.yml` runs on every push to main and every pull request: the unit suite on Linux and Windows, and the conformance groups against real engines (`quick`, `apply`, `templates`, SQL Server 2025, and the Oracle, Spark SQL and BigQuery probes); `conformance-full.yml` runs everything weekly and on demand; `release.yml` runs on a `vX.Y.Z` tag, gates on the full conformance, builds the linux-x64 and win-x64 executables and publishes the release (and the Scoop manifest). Open: branch protection, issue templates, a pull-request template. Commits made with this repository's git configuration carry `dan.shryock@gmail.com` from 2026-10-06; earlier ones carry the old identity (rewriting them would need a force-push, which was not asked for).
 
 
 ## K. Graph and diff (2026-10-03)
@@ -115,7 +116,7 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 - **Built** (entries 66 to 82): connections and engines, layered project files, mapped and native models, copies (remote and local, fan-in with slices, incremental with a watermark, `--full-refresh`, the origin shape check for mapped, native and built-model origins, `on_mismatch`), central or per-connection tracking and its upgrade from layout 3 (`init --upgrade`), parameters (values and names), native selects and commands (`reads:`, plan-time describe, `track_definition`), macros and types, `report` per copy origin.
 - **String semantics across engines** (2026-10-06): per-connection `string_semantics` (built), DDB-236 (a model that compares strings where its connections differ) and `trimmed: true` with its check (DDB-237), built; see `docs/research/string-semantics-across-engines.md`. Open: the DuckDB-side emulation for `sample` and `test` (a collation for the model's query, an `rtrim()` rewrite), a rewrite of comparisons on the engine that cannot match, a profile per folder, and whether a model on connections with different profiles should be an error.
-- **Not built**: `diff` across connections (SQL Server against PostgreSQL: a canonical form per type, range hashes); `copy_to` (records replicated to further connections); offline tracking and catching up; the schema and name of an output object are still the model's path (see section N); a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
+- **Not built**: `diff` across connections (SQL Server against PostgreSQL: a canonical form per type, range hashes); `copy_to` (records replicated to further connections); offline tracking and catching up; a copy that selects columns or filters rows (decided: do it at the origin with a model); deletes at the origin in an incremental copy (a plain copy reconciles; change feeds are section L); the lowering of a macro's enum-typed expressions; Fabric for any of it.
 - **Not verified on a real engine**: Fabric (never run); large objects and time zones other than UTC in copies; a SQL Server login without VIEW DEFINITION for `track_definition`; a command copied across engines (the transfer is the one verified for native selects).
 
 ## N. Schema and name out of the folder path (2026-10-06)
