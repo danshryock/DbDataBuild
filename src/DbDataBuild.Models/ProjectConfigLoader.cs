@@ -73,7 +73,7 @@ public static class ProjectConfigLoader
             var names = new Dictionary<string, ModelLayout> { ["folder"] = ModelLayout.Folder, ["dotted"] = ModelLayout.Dotted, ["object"] = ModelLayout.Object, ["none"] = ModelLayout.None };
             if (node is YamlScalar s && names.TryGetValue(s.Value, out var layout)) return layout;
             Add(DiagnosticCatalog.InvalidValue, node, $"`model_layout` is {(node is YamlScalar sc ? $"`{sc.Value}`" : "not a string")}.",
-                "`folder` (schema/object.yml), `dotted` (schema.object.yml), `object` (object.yml) or `none` (the files may be named anything).");
+                "`folder` (schema_name/object_name.yml), `dotted` (schema_name.object_name.yml), `object` (object.yml) or `none` (the files may be named anything).");
             return ModelLayout.Folder;
         }
 
@@ -198,7 +198,7 @@ public static class ProjectConfigLoader
 
         private static readonly System.Text.RegularExpressions.Regex Identifier = new("^[A-Za-z_][A-Za-z0-9_]*$");
 
-        /// <summary>`tracking: { connection: audit, schema: dbdatabuild }`, or `tracking: none`. The connection must be one the project has; the schema a plain identifier.</summary>
+        /// <summary>`tracking: { connection: audit, schema: dbdatabuild }`, or `tracking: none`. The connection must be one the project has; the schema name a plain identifier.</summary>
         private TrackingConfig? ReadTracking(YamlMapping top, IReadOnlySet<string> connections)
         {
             if (top.Get("tracking") is not { } node) return null;

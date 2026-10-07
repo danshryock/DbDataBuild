@@ -21,7 +21,7 @@ internal static class Prompts
                  "which models read which sources, and every error or warning (look up each code with `explain`). Say what you would look at first. Change nothing."),
 
         new("add-model", "Add a model", "Write a new model and its definition, check it on sample data, render it and plan it",
-            [new("name", "The model's name, as schema.table (marts.fct_orders)"), new("purpose", "What one row is, and what the model should compute")],
+            [new("name", "The model's name, as schema_name.table_name (marts.fct_orders)"), new("purpose", "What one row is, and what the model should compute")],
             a => Preface + $"Add the model `{a["name"]}`: {a["purpose"]}\n\nFollow the loop for a model change in the skill. Look at the models and sources it should read (`metadata`, `graph`) before writing. " +
                  "Write the query in DuckDB's dialect and the definition with its columns and grain, run `validate` until it is clean, check the logic with `sample` and add a model test for the logic that is easy to get wrong, run `define --check`, " +
                  "then `render` with `write` and `test`. Finish with `plan` if a target is configured for reading, and show me the steps. Ask me about anything the plan asks; do not answer questions about data yourself."),

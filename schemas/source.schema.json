@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "source.schema.json",
   "title": "DbDataBuild mapped or native model",
-  "description": "A mapped model: the declaration of a table that exists and that the tool does not build (models/<schema>/<table>.yml with `kind: {type: mapped}` and no .sql). Models refer to it by plain table name, and `dbdatabuild define` builds an empty DuckDB schema from it. `indexes` and `foreign_keys` are what the table has, as exported by `dbdatabuild import`; the tool reads them (metadata, advice) and never creates them. In an editor this applies to a file that says `kind: {type: mapped}` itself (model.schema.json hands such files to this schema); a file that gets its kind from a folder's _dbdatabuild.yml is read as a model definition. A **native** model (`kind: {type: native, access: select, query: ...}`, or the text in a `.native.sql` file beside the definition) is a table the engine computes from its own query (a table function, an engine-native select); it is bound by queries from its declared columns and inlined into the queries that read it, on its one connection.",
+  "description": "A mapped model: the declaration of a table that exists and that the tool does not build (models/<schema name>/<table>.yml with `kind: {type: mapped}` and no .sql). Models refer to it by plain table name, and `dbdatabuild define` builds empty DuckDB tables from it. `indexes` and `foreign_keys` are what the table has, as exported by `dbdatabuild import`; the tool reads them (metadata, advice) and never creates them. In an editor this applies to a file that says `kind: {type: mapped}` itself (model.schema.json hands such files to this schema); a file that gets its kind from a folder's _dbdatabuild.yml is read as a model definition. A **native** model (`kind: {type: native, access: select, query: ...}`, or the text in a `.native.sql` file beside the definition) is a table the engine computes from its own query (a table function, an engine-native select); it is bound by queries from its declared columns and inlined into the queries that read it, on its one connection.",
   "type": "object",
   "additionalProperties": false,
   "patternProperties": {
@@ -17,7 +17,7 @@
   ],
   "properties": {
     "name": {
-      "description": "Schema-qualified table name. Must equal the path under models/ with '/' replaced by '.' (models/staging/orders.yml is staging.orders).",
+      "description": "Table name with its schema name (`staging.orders`). Must equal the path under models/ with '/' replaced by '.' (models/staging/orders.yml is staging.orders).",
       "type": "string",
       "minLength": 1
     },
@@ -196,7 +196,7 @@
             ],
             "properties": {
               "table": {
-                "description": "schema.table",
+                "description": "schema_name.table_name",
                 "type": "string",
                 "minLength": 1
               },
@@ -224,7 +224,7 @@
       }
     },
     "track_definition": {
-      "description": "Native models only: the routines (`schema.name`; on PostgreSQL an overloaded function with its argument types, `public.fn(date)`) whose definitions the tool hashes at each apply and compares at each plan, so a change made in the database is reported even though no file changed.",
+      "description": "Native models only: the routines (`schema_name.object_name`; on PostgreSQL an overloaded function with its argument types, `public.fn(date)`) whose definitions the tool hashes at each apply and compares at each plan, so a change made in the database is reported even though no file changed.",
       "type": "array",
       "uniqueItems": true,
       "items": {

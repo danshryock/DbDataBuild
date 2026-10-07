@@ -45,7 +45,7 @@ internal static class ImportSourcesCommand
         else
             foreach (var p in patterns)
             {
-                if (Split(p) is not { } st) { error.WriteLine($"`{p}` is not `schema.table`. Use `*` and `?` as wildcards, for example `staging.*` or `*.orders`."); return CliApp.ExitUsage; }
+                if (Split(p) is not { } st) { error.WriteLine($"`{p}` is not `schema_name.table_name`. Use `*` and `?` as wildcards, for example `staging.*` or `*.orders`."); return CliApp.ExitUsage; }
                 wanted.Add((Glob(st.Schema), Glob(st.Table), st.Schema.AsSpan().IndexOfAny('*', '?') < 0 ? st.Schema : null));
             }
 
@@ -65,7 +65,7 @@ internal static class ImportSourcesCommand
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var schema in schemas)
                 {
-                    if (string.Equals(schema, ctx.Config.TrackingSchema, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema holds the tool's own tables")); continue; }
+                    if (string.Equals(schema, ctx.Config.TrackingSchema, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema name holds the tool's own tables")); continue; }
                     var shapes = await CatalogReader.ReadSchemaAsync(read, engine, schema);
                     var keys = await SourceCatalogReader.PrimaryKeysAsync(read, engine, schema);
                     var foreignKeys = await SourceCatalogReader.ForeignKeysAsync(read, engine, schema);
@@ -79,14 +79,14 @@ internal static class ImportSourcesCommand
                         if (committed.TryGetValue(qualified, out var existing) && existing.File.Length > 0) live = live with { File = existing.File };
                         if (live.File == null)
                         {
-                            diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under models/."));
+                            diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema name or table name, so it cannot be a path under models/."));
                             skipped.Add(new(qualified, "its name cannot be a file name"));
                             continue;
                         }
                         rows.Add(Compare(root, target, live, committed.GetValueOrDefault(qualified), diags));
                     }
                 }
-                // descriptors the project has for tables the target does not show (in the schemas searched)
+                // descriptors the project has for tables the target does not show (in the schema names searched)
                 foreach (var d in committed.Values.Where(d => wanted.Any(w => { var (s, t) = Split(d.Name)!.Value; return w.Schema.IsMatch(s) && w.Table.IsMatch(t); })))
                 {
                     var (s, _) = Split(d.Name)!.Value;

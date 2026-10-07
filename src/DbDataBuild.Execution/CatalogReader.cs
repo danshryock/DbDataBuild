@@ -4,7 +4,7 @@ using DbDataBuild.State;
 
 namespace DbDataBuild.Execution;
 
-/// <summary>Reads the live shape of the objects in a schema, through the read session (DESIGN.md 12.2: catalog hashing on every target).</summary>
+/// <summary>Reads the live shape of the objects under a schema name, through the read session (DESIGN.md 12.2: catalog hashing on every target).</summary>
 public static class CatalogReader
 {
     // Column order matters to nothing here except ordinals; the hashes sort. Types are lower case without parameters.

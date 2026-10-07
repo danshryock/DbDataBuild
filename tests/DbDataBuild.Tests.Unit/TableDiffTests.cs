@@ -141,8 +141,8 @@ public class TableDiffTests
     {
         Assert.Contains("exactly one of --against", Run("staging.orders").Err);
         Assert.Contains("exactly one of --against", Run("staging.orders", "--against", "dev.orders", "--against-schema", "dev").Err);
-        Assert.Contains("is not `schema.table`", Run("orders", "--against-schema", "dev").Err);
-        Assert.Contains("is not `schema.table`", Run("staging.orders", "--against", "orders").Err);
+        Assert.Contains("is not `schema_name.table_name`", Run("orders", "--against-schema", "dev").Err);
+        Assert.Contains("is not `schema_name.table_name`", Run("staging.orders", "--against", "orders").Err);
         Assert.Contains("same table", Run("staging.orders", "--against", "staging.orders").Err);
         Assert.Contains("--limit must not be negative", Run("staging.orders", "--against-schema", "dev", "--limit", "-1").Err);
     }

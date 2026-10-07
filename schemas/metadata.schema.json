@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:dbdatabuild:schemas:metadata",
   "title": "DbDataBuild metadata documents",
-  "description": "The kinds of metadata document: one per project (`dbdatabuild.project/1`), one per source table the project reads but does not build (`dbdatabuild.source/1`), and one per model (`dbdatabuild.model/1`). The same documents are printed by `validate` and `metadata` with `--format json`, and stored in the target's tracking schema (`publish-metadata`, views `metadata_current` and `metadata_columns`). Null values are omitted, never written as null. A new optional key is not a version change; a removed or retyped key is.",
+  "description": "The kinds of metadata document: one per project (`dbdatabuild.project/1`), one per source table the project reads but does not build (`dbdatabuild.source/1`), and one per model (`dbdatabuild.model/1`). The same documents are printed by `validate` and `metadata` with `--format json`, and stored in the target's tracking tables (`publish-metadata`, views `metadata_current` and `metadata_columns`). Null values are omitted, never written as null. A new optional key is not a version change; a removed or retyped key is.",
   "oneOf": [
     {
       "$ref": "#/$defs/project"

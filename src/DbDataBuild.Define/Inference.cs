@@ -56,7 +56,7 @@ public static class ModelInference
         }
         if (diags.Count > 0) return (null, diags);
 
-        // 3. DuckDB describe against an empty schema built from the declared upstream columns
+        // 3. DuckDB describe against empty tables built from the declared upstream columns
         var duckTables = upstream.Select(u =>
         {
             var (schema, name) = Split(u.Name);

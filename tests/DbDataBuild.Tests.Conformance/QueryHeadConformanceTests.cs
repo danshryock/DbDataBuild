@@ -5,7 +5,7 @@ using Xunit;
 
 namespace DbDataBuild.Tests.Conformance;
 
-/// <summary>Models whose query files start with a head (`CREATE TABLE schema.name WITH (...) AS`, `CREATE VIEW`) built and reloaded on the real engines.</summary>
+/// <summary>Models whose query files start with a head (`CREATE TABLE schema_name.object_name WITH (...) AS`, `CREATE VIEW`) built and reloaded on the real engines.</summary>
 [Trait("Group", "apply")]
 public class QueryHeadConformanceTests
 {

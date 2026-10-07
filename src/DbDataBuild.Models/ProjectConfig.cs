@@ -7,8 +7,8 @@ public enum AccentSensitivity { Sensitive, Insensitive }
 public enum TrailingSpace { Significant, Ignored }
 
 /// <summary>
-/// How a model's files are named (`model_layout`). The name of a model, `schema.object`, is always the `name:` in its definition file; the layout only says whether the files must spell it too, so a reader can
-/// find a model from its name. `Folder`: `models/<schema>/<object>.yml` (the path is the name; any depth: `models/a/b/c.yml` is `a.b.c`). `Dotted`: a file called `<schema>.<object>.yml`, in any folder.
+/// How a model's files are named (`model_layout`). The name of a model, `schema_name.object_name`, is always the `name:` in its definition file; the layout only says whether the files must spell it too, so a reader can
+/// find a model from its name. `Folder`: `models/<schema name>/<object>.yml` (the path is the name; any depth: `models/a/b/c.yml` is `a.b.c`). `Dotted`: a file called `<schema name>.<object>.yml`, in any folder.
 /// `Object`: a file called `<object>.yml` in any folder. `None`: no check (the name is the definition's, the file is anywhere).
 /// </summary>
 public enum ModelLayout { Folder, Dotted, Object, None }
@@ -54,7 +54,7 @@ public sealed record ConnectionConfig(string Name, string Engine, int? Version =
 }
 
 /// <summary>
-/// The project's `tracking:` section: the connection that keeps the records of what the tool built (null: none is configured, which is "nothing is tracked", with a warning) and the schema they live in there.
+/// The project's `tracking:` section: the connection that keeps the records of what the tool built (null: none is configured, which is "nothing is tracked", with a warning) and the schema name they live in there.
 /// <see cref="Disabled"/> is the explicit choice `tracking: none`: not tracked, and no warning.
 /// </summary>
 public sealed record TrackingConfig(string? Connection, string Schema, bool Disabled = false)
@@ -62,10 +62,10 @@ public sealed record TrackingConfig(string? Connection, string Schema, bool Disa
     public static TrackingConfig Default { get; } = new(null, ProductInfo.TrackingSchema);
 }
 
-/// <summary>A connection's own `tracking:`: `none` (an explicit opt-out), or another tracking connection and, optionally, schema.</summary>
+/// <summary>A connection's own `tracking:`: `none` (an explicit opt-out), or another tracking connection and, optionally, schema name.</summary>
 public sealed record ConnectionTracking(bool None, string? Connection, string? Schema);
 
-/// <summary>Where the records about one data connection are kept, resolved: the tracking connection, its engine, and the schema there.</summary>
+/// <summary>Where the records about one data connection are kept, resolved: the tracking connection, its engine, and the schema name there.</summary>
 public sealed record TrackingTarget(string Connection, string Engine, string Schema);
 
 /// <summary>What a connection's tracking resolved to. <see cref="Target"/> is null when nothing is tracked; <see cref="Explicit"/> says that was a choice (`tracking: none`), so no warning is due.</summary>
@@ -140,7 +140,7 @@ public sealed record ProjectConfig(
     /// <summary>The project's own `parameters:` (the root file's; the folder files above a model override them for it). Referenced as `${project.name}`.</summary>
     public IReadOnlyDictionary<string, ParameterValue> Parameters { get; init; } = new Dictionary<string, ParameterValue>();
 
-    /// <summary>The schema of the tracking tables (the project's; a connection may name another connection but keeps this schema unless it says its own).</summary>
+    /// <summary>The schema name of the tracking tables (the project's; a connection may name another connection but keeps this schema name unless it says its own).</summary>
     public string TrackingSchema => Tracking.Schema;
 
     /// <summary>

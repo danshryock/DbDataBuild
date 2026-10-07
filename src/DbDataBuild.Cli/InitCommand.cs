@@ -24,7 +24,7 @@ internal static class InitCommand
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
 
-        // the tables go where records are kept: a connection that keeps the records of any connection (itself, or others: central tracking), in the schema each of them names
+        // the tables go where records are kept: a connection that keeps the records of any connection (itself, or others: central tracking), in the schema name each of them names
         var schemas = config.Connections.Keys.Select(c => config.TrackingOf(c).Target).Where(t => t?.Connection == connection.Name).Select(t => t!.Schema).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         if (schemas.Count == 0)
         {
@@ -52,7 +52,7 @@ internal static class InitCommand
         if (upgrade && ddl.Unverified) { error.WriteLine($"The upgrade of an older tracking layout has not been verified on {engine}."); return CliApp.ExitUsage; }
         var script = schemas.SelectMany(s => (upgrade ? ddl.UpgradeScript(s, target) : []).Concat(ddl.InitScript(s, ProductInfo.Version))).ToList();
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
-        output.WriteLine($"Tracking schema: {string.Join(", ", schemas)}. Statements: {script.Count}. {(upgrade ? $"This is an upgrade: tables of an older layout get the `connection` column (set to `{target}` on what they hold) and the views are replaced; nothing else is altered or dropped." : "The script only creates what is missing; it never alters or drops.")}");
+        output.WriteLine($"Tracking schema name: {string.Join(", ", schemas)}. Statements: {script.Count}. {(upgrade ? $"This is an upgrade: tables of an older layout get the `connection` column (set to `{target}` on what they hold) and the views are replaced; nothing else is altered or dropped." : "The script only creates what is missing; it never alters or drops.")}");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
         output.Payload("connection", target);

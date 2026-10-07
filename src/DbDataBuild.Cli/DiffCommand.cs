@@ -6,7 +6,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild diff` (effect: target read-only; DESIGN.md 9.10). Compares the data of two tables or views of one target, for example a model's table against a copy in a development schema: the schemas, the row
+/// `dbdatabuild diff` (effect: target read-only; DESIGN.md 9.10). Compares the data of two tables or views of one target, for example a model's table against a copy under a development schema name: the columns and types, the row
 /// counts, and a full outer join on a key inside the engine that counts the rows on one side only and the rows whose values differ, column by column. By default no value is read back (counts only), so an operator can
 /// work without seeing real data; `--show-values` asks for the smallest and largest value of each column and up to --limit sample rows of each kind of difference, which then appear in the output you asked for
 /// and nowhere else (not in the statement log, not in a plan).
@@ -17,12 +17,12 @@ internal static class DiffCommand
         TextWriter output, TextWriter error, Func<string, string?> env)
     {
         if (limit < 0) { error.WriteLine("--limit must not be negative."); return CliApp.ExitUsage; }
-        if ((against == null) == (againstSchema == null)) { error.WriteLine("Name the other table with exactly one of --against <schema.table> or --against-schema <schema> (the same table name in another schema)."); return CliApp.ExitUsage; }
-        if (Split(table) is not { } left) { error.WriteLine($"`{table}` is not `schema.table`."); return CliApp.ExitUsage; }
+        if ((against == null) == (againstSchema == null)) { error.WriteLine("Name the other table with exactly one of --against <schema_name.table_name> or --against-schema <schema name> (the same table name under another schema name)."); return CliApp.ExitUsage; }
+        if (Split(table) is not { } left) { error.WriteLine($"`{table}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
         (string Schema, string Name) right;
         if (against != null)
         {
-            if (Split(against) is not { } r) { error.WriteLine($"`{against}` is not `schema.table`."); return CliApp.ExitUsage; }
+            if (Split(against) is not { } r) { error.WriteLine($"`{against}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
             right = r;
         }
         else right = (againstSchema!, left.Name);

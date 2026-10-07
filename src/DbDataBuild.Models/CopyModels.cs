@@ -10,10 +10,10 @@ namespace DbDataBuild.Models;
 /// </summary>
 public static class CopyModels
 {
-    /// <summary>Where the staging table lives: the tracking schema, which exists on every connection the tool writes to, so it never adds a schema to the data's own.</summary>
+    /// <summary>Where the staging table lives: the tracking schema name, which exists on every connection the tool writes to, so it never adds a schema name to the data's own.</summary>
     public static string StagingSchema(ProjectConfig config) => config.TrackingSchema;
 
-    /// <summary>`stg_<schema>__<table>`, shortened with a hash of the name when it would pass the shortest identifier limit of the engines (63 bytes on PostgreSQL). Deterministic, so an interrupted run is run again on the same table.</summary>
+    /// <summary>`stg_<schema name>__<table>`, shortened with a hash of the name when it would pass the shortest identifier limit of the engines (63 bytes on PostgreSQL). Deterministic, so an interrupted run is run again on the same table.</summary>
     public static string StagingTable(string modelName)
     {
         var plain = "stg_" + modelName.Replace(".", "__");

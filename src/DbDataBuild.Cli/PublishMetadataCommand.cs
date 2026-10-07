@@ -5,7 +5,7 @@ namespace DbDataBuild.Cli;
 
 /// <summary>
 /// `dbdatabuild publish-metadata` (effect: tracking tables only): stores the project and model metadata documents (the ones `metadata` prints) as JSON in the target's tracking
-/// schema, so they can be queried with SQL (`metadata_current`, `metadata_columns`). Only documents that changed are written; no user data is touched.
+/// schema name, so they can be queried with SQL (`metadata_current`, `metadata_columns`). Only documents that changed are written; no user data is touched.
 /// </summary>
 internal static class PublishMetadataCommand
 {

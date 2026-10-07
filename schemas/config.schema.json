@@ -86,7 +86,7 @@
               }
             },
             "tracking": {
-              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema name) for this connection's records.",
               "oneOf": [
                 {
                   "const": "none"
@@ -100,7 +100,7 @@
                       "$ref": "#/$defs/connectionName"
                     },
                     "schema": {
-                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "description": "The schema name of the tracking tables on that connection. Default: dbdatabuild.",
                       "type": "string",
                       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                     }
@@ -149,7 +149,7 @@
               }
             },
             "tracking": {
-              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema name) for this connection's records.",
               "oneOf": [
                 {
                   "const": "none"
@@ -163,7 +163,7 @@
                       "$ref": "#/$defs/connectionName"
                     },
                     "schema": {
-                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "description": "The schema name of the tracking tables on that connection. Default: dbdatabuild.",
                       "type": "string",
                       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                     }
@@ -212,7 +212,7 @@
               }
             },
             "tracking": {
-              "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+              "description": "`none` (not tracked, no warning), or another tracking connection (and schema name) for this connection's records.",
               "oneOf": [
                 {
                   "const": "none"
@@ -226,7 +226,7 @@
                       "$ref": "#/$defs/connectionName"
                     },
                     "schema": {
-                      "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                      "description": "The schema name of the tracking tables on that connection. Default: dbdatabuild.",
                       "type": "string",
                       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                     }
@@ -266,7 +266,7 @@
               "$ref": "#/$defs/connectionName"
             },
             "schema": {
-              "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+              "description": "The schema name of the tracking tables on that connection. Default: dbdatabuild.",
               "type": "string",
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
             }
@@ -502,7 +502,7 @@
       }
     },
     "model_layout": {
-      "description": "How the files of a model are named. A model's name (`schema.object`) is always the `name:` in its definition file; this says whether the files must spell it too. `folder`: models/<schema>/<object>.yml (the path is the name; default). `dotted`: <schema>.<object>.yml in any folder. `object`: <object>.yml in any folder. `none`: no check.",
+      "description": "How the files of a model are named. A model's name (`schema_name.object_name`) is always the `name:` in its definition file; this says whether the files must spell it too. `folder`: models/<schema name>/<object>.yml (the path is the name; default). `dotted`: <schema name>.<object>.yml in any folder. `object`: <object>.yml in any folder. `none`: no check.",
       "enum": [
         "folder",
         "dotted",
@@ -646,7 +646,7 @@
           }
         },
         "tracking": {
-          "description": "`none` (not tracked, no warning), or another tracking connection (and schema) for this connection's records.",
+          "description": "`none` (not tracked, no warning), or another tracking connection (and schema name) for this connection's records.",
           "oneOf": [
             {
               "const": "none"
@@ -660,7 +660,7 @@
                   "$ref": "#/$defs/connectionName"
                 },
                 "schema": {
-                  "description": "The schema of the tracking tables on that connection. Default: dbdatabuild.",
+                  "description": "The schema name of the tracking tables on that connection. Default: dbdatabuild.",
                   "type": "string",
                   "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                 }

@@ -9,7 +9,7 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     /// <summary>The query of a model that has none on disk: a copy reads its generated staging table (DuckDB dialect). Null for a model with a `.sql` file.</summary>
     public string? GeneratedQuery { get; init; }
 
-    /// <summary>The head of the query file (`CREATE TABLE schema.name WITH (...) AS`), when it has one (DESIGN.md 6.5.7).</summary>
+    /// <summary>The head of the query file (`CREATE TABLE schema_name.object_name WITH (...) AS`), when it has one (DESIGN.md 6.5.7).</summary>
     public QueryHead? Head { get; init; }
 
     /// <summary>The project parameters this model sees: the root file's, overridden by the folder files above it (nearest wins).</summary>
@@ -92,7 +92,7 @@ public sealed record ProjectValidationResult(
 /// <summary>Offline validation of every model under <c>models/</c>. Reads files only; never writes, never connects.</summary>
 public static class ProjectValidator
 {
-    /// <summary>With a layout other than `folder` or `none`, the definition file's name must spell the model's name: `dotted` its whole name, `object` the part after the schema.</summary>
+    /// <summary>With a layout other than `folder` or `none`, the definition file's name must spell the model's name: `dotted` its whole name, `object` the part after the schema name.</summary>
     private static void CheckLayout(ModelLayout layout, string file, string name, List<Diagnostic> diags)
     {
         if (layout is ModelLayout.Folder or ModelLayout.None) return;
@@ -119,7 +119,7 @@ public static class ProjectValidator
         if (Directory.Exists(Path.Combine(projectRoot, RetiredSourcesDir)))
             diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(RetiredSourcesDir, 0, 0),
                 $"`{RetiredSourcesDir}/` is no longer read: the tables the tool does not build are mapped models now.",
-                Fix: $"Move each `{RetiredSourcesDir}/<schema>/<table>.yml` to `{ModelsDir}/<schema>/<table>.yml` and add `kind: {{type: mapped}}` (or set it once in a folder's `{ProductInfo.FolderConfigFile}`)."));
+                Fix: $"Move each `{RetiredSourcesDir}/<schema name>/<table>.yml` to `{ModelsDir}/<schema name>/<table>.yml` and add `kind: {{type: mapped}}` (or set it once in a folder's `{ProductInfo.FolderConfigFile}`)."));
         var modelsRoot = Path.Combine(projectRoot, ModelsDir);
         if (!Directory.Exists(modelsRoot))
         {
@@ -300,7 +300,7 @@ public static class ProjectValidator
             if (origin == null)
             {
                 diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, At(), $"`{def.Name}` copies `{def.From}`, which is not a model, a mapped model or a copy of this project{(stack.Contains(def.From!, StringComparer.OrdinalIgnoreCase) ? " (it copies itself, through the others)" : "")}.",
-                    Fix: "Name the model to copy as `kind: {type: copy, from: schema.table}`."));
+                    Fix: "Name the model to copy as `kind: {type: copy, from: schema_name.table_name}`."));
                 failed.Add(def.Name);
                 return null;
             }

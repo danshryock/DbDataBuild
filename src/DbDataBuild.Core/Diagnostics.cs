@@ -100,8 +100,8 @@ public static class DiagnosticCatalog
         "Declared columns are the model's output schema. Everything else must refer to it.");
 
     public static readonly DiagnosticDescriptor UpstreamNotFound = E("218", "Upstream table not found",
-        "Every table a model queries is another model or a source descriptor, named schema.table.",
-        "Add a mapped model models/<schema>/<table>.yml for it, or define the model that produces it.",
+        "Every table a model queries is another model or a source descriptor, named schema_name.table_name.",
+        "Add a mapped model models/<schema name>/<table>.yml for it, or define the model that produces it.",
         "A model's declared schema is checked against an empty DuckDB schema built from its upstream tables' declared columns, so each one must be declared somewhere.");
     public static readonly DiagnosticDescriptor QueryNotDescribable = E("219", "DuckDB cannot describe the model query",
         "A query DuckDB can bind against the declared upstream columns.",
@@ -134,7 +134,7 @@ public static class DiagnosticCatalog
         "Declare the column by hand in the source descriptor with the type a model should see (`VARCHAR` for text), and `import` keeps it. Or leave it out if no model reads it.",
         "A source descriptor describes a table to DuckDB so models over it can be bound offline. A column whose native type has no representation as a logical type (geography, intervals, arrays, user types) is left out of the generated descriptor rather than guessed at: a wrong type would flow into every model that selects it. Unlimited text is not one of them: it is a bare VARCHAR. A column you declared yourself in the descriptor is kept as written.");
     public static readonly DiagnosticDescriptor SourceOutOfSync = W("227", "A source descriptor differs from the table it describes",
-        "a committed mapped model `models/<schema>/<table>.yml` with the columns, types and nullability the table has now",
+        "a committed mapped model `models/<schema name>/<table>.yml` with the columns, types and nullability the table has now",
         $"Run `{ProductInfo.Cli} import --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} define --check` to see which models are affected.",
         "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `import --check` makes the difference a finding for CI; it needs the read login.");
     public static readonly DiagnosticDescriptor RewriteNotOptional = E("229", "A rewrite cannot be turned off",
@@ -142,9 +142,9 @@ public static class DiagnosticCatalog
         "Remove the name from `disable`, or take the target out of the model's `targets`. `dbdatabuild matrix --rewrites` lists every rewrite and where each is required.",
         "Some rewrites are what makes a query valid on an engine (SQL Server has no LPAD, PostgreSQL's round takes no double). Turning one off would send the engine a statement it rejects, so the tool refuses before it renders. The rewrites that only keep an engine's answer equal to DuckDB's (a trailing space counted, a week counted) can be turned off.");
     public static readonly DiagnosticDescriptor SourceNotImportable = W("228", "A table cannot be imported as a source",
-        "a table or view whose schema and table names can be a path (`models/<schema>/<table>.yml`), or a descriptor whose table exists",
+        "a table or view whose schema name and table name can be a path (`models/<schema name>/<table>.yml`), or a descriptor whose table exists",
         "Rename the object, or write the descriptor by hand under a name the project can use. If a descriptor names a table that no longer exists, delete the descriptor or restore the table.",
-        "A descriptor's name is its path under `models/` with `/` replaced by `.`, so a dot, slash or backslash in a schema or table name cannot be represented. A committed descriptor whose table is not found in its schema is reported and left alone: the tool never deletes a file you may still need.");
+        "A descriptor's name is its path under `models/` with `/` replaced by `.`, so a dot, slash or backslash in a schema name or table name cannot be represented. A committed descriptor whose table is not found under its schema name is reported and left alone: the tool never deletes a file you may still need.");
     public static readonly DiagnosticDescriptor CopyOriginDiffers = E("230", "A copy's origin differs from its declaration",
         "an origin whose table still has the columns and types the mapped model declares (an added column is fine)",
         "Bring the origin's table back to the declaration, update the mapped model (`dbdatabuild import`), or set `on_mismatch: skip` on the copy to leave that origin out until it is fixed.",
@@ -174,7 +174,7 @@ public static class DiagnosticCatalog
         "Trim the values (at the source, or in the model that builds the column), or remove `trimmed: true` and let the connections' string semantics decide.",
         "`trimmed: true` is the declaration that makes trailing spaces, the difference SQL Server and PostgreSQL disagree on, irrelevant for a column. `check` counts the rows whose value ends in a space (no value is read or shown); one is enough to make the declaration untrue.");
     public static readonly DiagnosticDescriptor QueryHeadInvalid = E("238", "A model's query file has a head that cannot be read",
-        "a head of the form `CREATE TABLE schema.name [WITH (kind = '...', unique_key = (...), time_column = ..., lookback = '...')] AS` (or `CREATE VIEW schema.name AS`) followed by the query, naming the same model as the definition file and not repeating its kind",
+        "a head of the form `CREATE TABLE schema_name.object_name [WITH (kind = '...', unique_key = (...), time_column = ..., lookback = '...')] AS` (or `CREATE VIEW schema_name.object_name AS`) followed by the query, naming the same model as the definition file and not repeating its kind",
         "Correct the head at the reported line and column, or remove it and keep `name:` and `kind:` in the definition file.",
         "A query file may start with a head that says what it builds: a table or a view, its name, and the reload options of its kind. The head is read by the tool itself (it is not SQL that DuckDB or an engine runs); the query after `AS` is passed on as written. The name must be the definition file's `name:` when that says one, and the kind must be said in one place: the head or the definition file, not both.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
@@ -404,7 +404,7 @@ public static class DiagnosticCatalog
         "This is a bug in the tool. Report it with the command line used.",
         "Read-only commands run catalog and tracking-table queries through a guard that refuses anything that could change data. The read login's permissions are the real enforcement; the guard is a second layer. Nothing was executed.");
     public static readonly DiagnosticDescriptor TrackingNotInitialized = E("505", "Tracking tables are missing or have an unknown layout",
-        $"The tracking schema created by `{ProductInfo.Cli} init`, at a layout version this tool knows.",
+        $"The tracking tables created by `{ProductInfo.Cli} init` (in the tracking schema name), at a layout version this tool knows.",
         $"Run `{ProductInfo.Cli} init` (review its script first), or use a newer tool if the layout is newer.",
         "Planning and applying need the tracking tables to compare hashes and to record what was done.");
 

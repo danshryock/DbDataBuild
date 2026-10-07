@@ -13,7 +13,7 @@ public sealed record LoweredColumn(string Name, string DuckDbType);
 /// <param name="Rules">The type-pinning rules that changed the text, by name (for reports and tests).</param>
 public sealed record LoweredQuery(string Sql, IReadOnlyList<LoweredColumn> Columns, IReadOnlyList<string> Rules)
 {
-    /// <summary>The tables the bound plan scans, by the name a query uses (`schema.table`): what the query reads once macros, `*` and the rest are expanded.</summary>
+    /// <summary>The tables the bound plan scans, by the name a query uses (`schema_name.table_name`): what the query reads once macros, `*` and the rest are expanded.</summary>
     public IReadOnlyList<string> Tables { get; init; } = [];
 }
 

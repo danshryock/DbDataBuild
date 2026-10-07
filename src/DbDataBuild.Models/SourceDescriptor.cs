@@ -38,7 +38,7 @@ public sealed record NativeQuery(string Access, string Text, IReadOnlyList<strin
     public const string Command = "command";
     public const string Kind = "native";
 
-    /// <summary>The routines the text depends on whose definitions the tool watches (`track_definition:`): `schema.name`, and on PostgreSQL the argument types of an overloaded function (`public.fn(date)`).</summary>
+    /// <summary>The routines the text depends on whose definitions the tool watches (`track_definition:`): `schema_name.object_name`, and on PostgreSQL the argument types of an overloaded function (`public.fn(date)`).</summary>
     public IReadOnlyList<string> TrackDefinition { get; init; } = [];
 
     /// <summary>A routine name as `track_definition` takes it: dotted identifiers, with PostgreSQL's argument types in parentheses.</summary>
@@ -52,7 +52,7 @@ public sealed record NativeQuery(string Access, string Text, IReadOnlyList<strin
         ParameterReferences.For(config, connection, ProjectParameters, ConnectionParameterOverrides, Parameters);
 }
 
-/// <summary>A foreign key of a source table: its columns, the table it points at (`schema.table`) and that table's columns, in the same order.</summary>
+/// <summary>A foreign key of a source table: its columns, the table it points at (`schema_name.table_name`) and that table's columns, in the same order.</summary>
 public sealed record SourceForeignKey(string Name, IReadOnlyList<string> Columns, string Table, IReadOnlyList<string> ReferencedColumns, int Line = 0);
 
 public static class SourceDescriptorLoader
@@ -138,7 +138,7 @@ public static class SourceDescriptorLoader
             var own = top.Get("parameters") is { } pn ? ParameterReferences.Read(pn, "`parameters`", (d, n, f) => Add(d, n, f)) : null;
             var tracked = StringList(top, "track_definition", required: false, allowEmpty: false, unique: true) ?? [];
             foreach (var t in tracked.Where(t => !NativeQuery.IsRoutineName(t.Value)))
-                Add(DiagnosticCatalog.InvalidValue, t, $"`{t.Value}` is not a routine name: write `schema.name`, and for an overloaded PostgreSQL function its argument types, `public.fn(date)`.");
+                Add(DiagnosticCatalog.InvalidValue, t, $"`{t.Value}` is not a routine name: write `schema_name.object_name`, and for an overloaded PostgreSQL function its argument types, `public.fn(date)`.");
             return new NativeQuery(access, text.Trim(), reads, own ?? new Dictionary<string, ParameterValue>(), kind.Line) { TrackDefinition = tracked.Select(t => t.Value).ToList() };
         }
 
@@ -195,7 +195,7 @@ public static class SourceDescriptorLoader
                 var cols = StringList(m, "columns", required: true, allowEmpty: false, unique: true);
                 string? table = null;
                 List<YamlScalar>? refCols = null;
-                if (m.Get("references") is not { } r) Add(DiagnosticCatalog.MissingKey, m, "Required key `references` is missing.", fix: "Add `references: {table: schema.table, columns: [...]}`.");
+                if (m.Get("references") is not { } r) Add(DiagnosticCatalog.MissingKey, m, "Required key `references` is missing.", fix: "Add `references: {table: schema_name.table_name, columns: [...]}`.");
                 else if (r is not YamlMapping rm) Add(DiagnosticCatalog.InvalidValue, r, "`references` must be a mapping with `table` and `columns`.");
                 else
                 {
@@ -256,7 +256,7 @@ public static class SourceDescriptorWriter
         return sb.ToString();
     }
 
-    /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `models/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema or table name).</summary>
+    /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `models/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema name or table name).</summary>
     public static string? PathFor(string schema, string table, ModelLayout layout = ModelLayout.Folder)
     {
         static bool Bad(string s) => s.Length == 0 || s.AsSpan().IndexOfAny('.', '/', '\\') >= 0 || s.Trim() != s;

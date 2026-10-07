@@ -138,7 +138,7 @@ internal static class TestCommand
         if (source == null)
         {
             var d = new Diagnostic(DiagnosticCatalog.InvalidValue, new(test.File, 1, 1), $"The test `{test.Name}` is for the model `{test.Model}`, which is not a model of this project.",
-                Fix: $"Name an existing model in `model:`, or name the file after the model (`{ModelTestLoader.Directory}/<schema>/<model>.yml`).");
+                Fix: $"Name an existing model in `model:`, or name the file after the model (`{ModelTestLoader.Directory}/<schema name>/<model>.yml`).");
             error.Diag(d);
             outcomes.Add(new Outcome("model", test.Name, test.File, test.Model, null, test.Description, test.Severity, test.Tags, "error", 0, [], [], d.Found));
             return;

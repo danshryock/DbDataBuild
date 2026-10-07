@@ -127,7 +127,7 @@ public class SourceDescriptorTests
         var dir = TestSupport.NewProjectDir();
         Directory.CreateDirectory(Path.Combine(dir, "sources", "staging"));
         var d = Assert.Single(ProjectValidator.Validate(dir).Diagnostics, x => x.Location.File == "sources");
-        Assert.Contains("models/<schema>/<table>.yml", d.Fix);
+        Assert.Contains("models/<schema name>/<table>.yml", d.Fix);
         Assert.Contains("kind: {type: mapped}", d.Fix);
     }
 

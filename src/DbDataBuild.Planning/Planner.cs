@@ -13,7 +13,7 @@ namespace DbDataBuild.Planning;
 public sealed record PlannedHook(ResolvedHook Hook, string Text, string FileHash);
 
 /// <param name="Hooks">The model's hooks for the target being planned, groups expanded, in run order.</param>
-/// <summary>Where a copy's rows come from (<see cref="WatermarkValue"/>: for an incremental copy, the lower bound this origin is read from, worked out at plan time from what the destination holds; null reads everything): the origin connection with its engine, and the table (`schema.table`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
+/// <summary>Where a copy's rows come from (<see cref="WatermarkValue"/>: for an incremental copy, the lower bound this origin is read from, worked out at plan time from what the destination holds; null reads everything): the origin connection with its engine, and the table (`schema_name.table_name`) there. <see cref="SliceValue"/> is the value that tells this origin's rows apart (the copy's slice, resolved for this origin).</summary>
 public sealed record CopyOrigin(string Connection, string Engine, string Table, string? SliceValue = null, string? WatermarkValue = null, NativeUse? Native = null, IReadOnlyDictionary<string, ParameterValue>? NativeValues = null);
 
 public sealed record PlannedModel(ModelDefinition Definition, string BodySql, string QueryFile, string DefinitionHash, IReadOnlyList<string> BaseTables, IReadOnlyList<PlannedHook>? Hooks = null, IReadOnlyList<CopyOrigin>? Origins = null, IReadOnlyDictionary<string, ParameterValue>? ParameterValues = null, IReadOnlyList<NativeUse>? Natives = null)
@@ -579,7 +579,7 @@ public static class Planner
     {
         var def = c.Def;
         var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
-        // the staging table lives in the tracking schema's name, which a connection that is not tracked itself (central tracking) may not have yet
+        // the staging table lives under the tracking schema name, which a connection that is not tracked itself (central tracking) may not have yet
         var create = c.Ddl.CreateSchema(stagingSchema) + "\n" + c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
         var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config.ForConnection(origin.Connection));
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);

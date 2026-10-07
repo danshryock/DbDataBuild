@@ -24,8 +24,8 @@ Cross-server work pulls those three apart.
 | Read path | `ReadSession` over a read login, with `ReadGuard` (SELECT only). Returns rows as objects; it is built for catalog reads and `diff`, not for streaming a table. |
 | Write path | `MutationGate` is the only way to send a statement to a target (`GateInvariantTests` scans the source). It takes **text statements**; the one bulk form is `GateStatement.BulkInsert`, a multi-row `INSERT` with a parameter per value (used by `load-seeds`). The log records hashes and counts, never values. |
 | Targets and logins | by engine kind; no named connections; a source-only connection (read, never written) has no place. |
-| Sources | `sources/<schema>/<table>.yml` has no location: a source is a table of the target. Descriptors are read from the target by `import-sources`. |
-| Names in a model | `schema.table`. A reference with a catalog (`crm.public.customers`) is refused by the lowering (DDB-324, checked), and a four-part SQL Server name does not parse in DuckDB at all. A logical-to-physical name mapping at render time does not exist. |
+| Sources | `sources/<schema name>/<table>.yml` has no location: a source is a table of the target. Descriptors are read from the target by `import-sources`. |
+| Names in a model | `schema_name.table_name`. A reference with a catalog (`crm.public.customers`) is refused by the lowering (DDB-324, checked), and a four-part SQL Server name does not parse in DuckDB at all. A logical-to-physical name mapping at render time does not exist. |
 | Plan and apply | one target per plan; the plan holds the exact statements and the shapes it assumed of the target's objects (drift is checked against that one target). |
 | Offline binding | DuckDB binds every query against declared columns only, so remote tables need only descriptors, not access. |
 
@@ -55,7 +55,7 @@ Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cros
 
 | # | Scenario | Mechanism | Fit today | What it needs |
 |---|---|---|---|---|
-| 1 | Sources in another database or schema of the same server | the engine's own cross-database name | none (the names are refused) | a source location (`database`), a physical name at render time; SQL Server only (PostgreSQL needs 2) |
+| 1 | Sources in another database or schema name of the same server | the engine's own cross-database name | none (the names are refused) | a source location (`database`), a physical name at render time; SQL Server only (PostgreSQL needs 2) |
 | 2 | Sources on another server of the same engine, joined in the destination's script (**pull**) | linked server (SQL Server), `postgres_fdw` (PostgreSQL) | none | as 1, plus a prerequisite the tool checks but does not create (a link is privileged and holds a login) |
 | 3 | Compute on the source server, store the result on another (**push**) | a link, written from the source | none | works on PostgreSQL; **not** on SQL Server inside a transaction: do it as a pull from the destination, or move the rows with 4 |
 | 4 | Any engine to any engine, or servers that cannot see each other | the tool moves rows: read on the source connection, bulk write on the destination | none | named connections, a `transfer` step, a bulk path in the gate (below) |
@@ -79,6 +79,8 @@ Scenarios 1 to 3 and 6 are out by the owner's direction (links, same-server cros
 | **Project** | Everything under the root `dbdatabuild.yml`: its models, tests, rendered files and plans. |
 | **Project file** | `dbdatabuild.yml` at the root, or `_dbdatabuild.yml` in any folder: the same kind of file with the same sections. The root one is only the outermost; the others refine it for what is beneath them. |
 | **Parameter** | A named value. The same word at every level; the scope says whose it is (below). |
+
+Older text in this note, written before the terms above, says "schema" where it means a schema name (`schema:` as a setting is the parked schema-name setting).
 
 There is no separate concept for "a group of connections": what a fan-in needs is a model that exists on several connections, which a model's list of connections already says (below).
 
@@ -238,7 +240,7 @@ extended to the new statement; there is still no other write path.
 | `sources/` directory, source descriptors, `import-sources` | `mapped` models anywhere under `models/`; `import` generates mapped models from a connection's catalog |
 | `--target`, `rendered/<engine>/`, `plans/<engine>/` | `--connection`, `rendered/<connection>/`, `plans/<connection>/` |
 | the matrix per target | the matrix per engine (unchanged), looked up through the connection's engine |
-| name = path under `models/` (`schema.table`) | `schema` from the setting (default: first folder); name unique in the project |
+| name = path under `models/` (`schema_name.table_name`) | `schema` from the setting (default: first folder); name unique in the project |
 | `string_semantics`, `rewrites`, `policy` at the project only | defaults that any folder or model can override |
 | `tracking_schema`; tracking tables in each target; one plan, one target | `tracking.connection` and `tracking.schema`; tracking rows keyed by `connection`; a plan's steps name their connection |
 

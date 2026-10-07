@@ -66,18 +66,18 @@ internal static class DefineCommand
             }
             var sqlBytes = File.ReadAllBytes(sqlPath);
             queryHashes[sqlRel] = DefinitionFile.Hash(sqlBytes);
-            // a head (`CREATE TABLE schema.name WITH (...) AS`) has said the name and the kind: the query is what follows it
+            // a head (`CREATE TABLE schema_name.object_name WITH (...) AS`) has said the name and the kind: the query is what follows it
             var parsedHead = QueryHeadParser.Parse(sqlRel, System.Text.Encoding.UTF8.GetString(sqlBytes));
             if (parsedHead.Problems.Count > 0) { problems.AddRange(parsedHead.Problems); continue; }
             var head = parsedHead.Head;
-            // the name is the definition's; a file with none yet is named by the layout (only a layout that spells the schema in the file's name can say it)
+            // the name is the definition's; a file with none yet is named by the layout (only a layout that spells the schema name in the file's name can say it)
             var pathName = stem[(ProjectValidator.ModelsDir.Length + 1)..].Replace('/', '.');
             var baseName = Path.GetFileName(stem);
             var name = head?.Name ?? config.Layout switch { ModelLayout.Dotted => baseName, ModelLayout.Object => baseName, _ => pathName };
             if (head == null && !File.Exists(ymlPath) && (config.Layout == ModelLayout.Object || (config.Layout == ModelLayout.Dotted && !baseName.Contains('.'))))
             {
                 problems.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(sqlRel, 0, 0), $"`{sqlRel}` has no definition yet, and with `model_layout: {config.Layout.ToString().ToLowerInvariant()}` its file name does not say the schema.",
-                    Fix: $"Write `{ymlRel}` by hand with `name: <schema>.<object>`, or name the files `<schema>.<object>`, or use `model_layout: folder`."));
+                    Fix: $"Write `{ymlRel}` by hand with `name: <schema name>.<object name>`, or name the files `<schema name>.<object name>`, or use `model_layout: folder`."));
                 continue;
             }
             string? existingText = null;

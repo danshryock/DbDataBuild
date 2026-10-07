@@ -6,7 +6,7 @@ namespace DbDataBuild.State;
 /// <summary>One statement of the init script. The id is stable, so the statement log and a reviewer can refer to it.</summary>
 public sealed record InitStatement(string Id, string Description, string Text);
 
-/// <summary>Creates the tracking schema and tables for one engine from the logical definition. Scripts are idempotent: running one twice changes nothing.</summary>
+/// <summary>Creates the tracking tables, and the schema name they live in, for one engine from the logical definition. Scripts are idempotent: running one twice changes nothing.</summary>
 public interface ITrackingDdl
 {
     string Target { get; }

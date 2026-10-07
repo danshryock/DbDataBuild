@@ -253,7 +253,7 @@ public class SourceImportTests
         Assert.Equal(CliApp.ExitUsage, Run("import", "--project", dir, "--check", "--write").Exit);
         var (exit, _, err) = Run("import", "--project", dir, "orders");
         Assert.Equal(CliApp.ExitUsage, exit);
-        Assert.Contains("not `schema.table`", err);
+        Assert.Contains("not `schema_name.table_name`", err);
     }
 
     // ---- source documents in the metadata ----

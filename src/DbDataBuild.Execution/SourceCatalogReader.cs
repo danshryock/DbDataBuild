@@ -3,10 +3,10 @@ using System.Globalization;
 
 namespace DbDataBuild.Execution;
 
-/// <summary>What `import` reads beyond the shapes <see cref="CatalogReader"/> gives: which schemas exist, and each table's primary key (it seeds a new descriptor's grain). Read session only.</summary>
+/// <summary>What `import` reads beyond the shapes <see cref="CatalogReader"/> gives: which schema names exist, and each table's primary key (it seeds a new descriptor's grain). Read session only.</summary>
 public static class SourceCatalogReader
 {
-    // sys and INFORMATION_SCHEMA are the engine's; db_* are the schemas of fixed database roles; guest is empty. pg_* are PostgreSQL's catalogs and temp schemas.
+    // sys and INFORMATION_SCHEMA are the engine's; db_* are the schema names of fixed database roles; guest is empty. pg_* are PostgreSQL's catalogs and temp schema names.
     private const string SqlServerSchemas = "SELECT name FROM sys.schemas WHERE name NOT IN ('sys', 'INFORMATION_SCHEMA', 'guest') AND name NOT LIKE 'db[_]%' ORDER BY name";
     private const string PostgresSchemas = "SELECT schema_name FROM information_schema.schemata WHERE schema_name <> 'information_schema' AND schema_name NOT LIKE 'pg\\_%' ORDER BY schema_name";
 
@@ -63,7 +63,7 @@ ORDER BY t.relname, c.conname, k.ord";
         return rows.Select(r => (string)r[0]!).ToList();
     }
 
-    /// <summary>Primary key columns, in key order, per table name of the schema.</summary>
+    /// <summary>Primary key columns, in key order, per table name of the schema name.</summary>
     public static async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> PrimaryKeysAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
     {
         var rows = await read.QueryAsync(target == "postgres" ? PostgresPrimaryKeys : SqlServerPrimaryKeys, [new GateParameter("schema", DbType.String, schema)], ct);
@@ -71,7 +71,7 @@ ORDER BY t.relname, c.conname, k.ord";
             .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.OrderBy(r => Convert.ToInt32(r[2], CultureInfo.InvariantCulture)).Select(r => (string)r[1]!).ToList(), StringComparer.Ordinal);
     }
 
-    /// <summary>Foreign keys per table name of the schema, columns in key order.</summary>
+    /// <summary>Foreign keys per table name of the schema name, columns in key order.</summary>
     public static async Task<IReadOnlyDictionary<string, IReadOnlyList<State.ForeignKeyShape>>> ForeignKeysAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
     {
         var rows = await read.QueryAsync(target == "postgres" ? PostgresForeignKeys : SqlServerForeignKeys, [new GateParameter("schema", DbType.String, schema)], ct);

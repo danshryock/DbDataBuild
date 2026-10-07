@@ -275,7 +275,7 @@
                 "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
               },
               "staging": {
-                "description": "`schema.table` of the staging table on the plan's connection.",
+                "description": "`schema_name.table_name` of the staging table on the plan's connection.",
                 "type": "string",
                 "minLength": 1
               },

@@ -5,7 +5,7 @@ using DbDataBuild.Core;
 namespace DbDataBuild.Models;
 
 /// <summary>One `CREATE MACRO` (or `CREATE FUNCTION`, DuckDB's other name for it) or `CREATE TYPE` statement of a file under `macros/`.</summary>
-/// <param name="Name">As written, with its schema when it has one (`finance.net`).</param>
+/// <param name="Name">As written, with its schema name when it has one (`finance.net`).</param>
 /// <param name="Calls">The other macros its text calls, by name.</param>
 /// <param name="Uses">The types of the project its text mentions.</param>
 public sealed record MacroDefinition(string Name, bool IsType, string Sql, string File, int Line, IReadOnlyList<string> Calls, IReadOnlyList<string> Uses)

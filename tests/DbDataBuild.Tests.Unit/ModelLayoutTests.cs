@@ -5,7 +5,7 @@ using static DbDataBuild.Tests.Unit.TestSupport;
 
 namespace DbDataBuild.Tests.Unit;
 
-/// <summary>A model's name is its definition's `name:`; `model_layout` says whether the files must spell it (`schema/object.yml`, `schema.object.yml`, `object.yml`), or not (`none`).</summary>
+/// <summary>A model's name is its definition's `name:`; `model_layout` says whether the files must spell it (`schema_name/object_name.yml`, `schema_name.object_name.yml`, `object.yml`), or not (`none`).</summary>
 public class ModelLayoutTests
 {
     private const string Cols = "grain: [n]\ncolumns:\n  - {name: n, type: INTEGER, nullable: false}\n";

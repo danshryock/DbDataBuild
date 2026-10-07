@@ -12,9 +12,9 @@ public sealed record TrackingStatus(TrackingState State, int? Version)
     public Diagnostic? AsDiagnostic(string schema) => State switch
     {
         TrackingState.Ready => null,
-        TrackingState.Missing => new Diagnostic(DiagnosticCatalog.TrackingNotInitialized, new($"schema:{schema}", 0, 0), $"The tracking tables do not exist in schema `{schema}` on the target."),
+        TrackingState.Missing => new Diagnostic(DiagnosticCatalog.TrackingNotInitialized, new($"schema:{schema}", 0, 0), $"The tracking tables do not exist under the schema name `{schema}` on the target."),
         _ => new Diagnostic(DiagnosticCatalog.TrackingNotInitialized, new($"schema:{schema}", 0, 0),
-            $"The tracking tables in schema `{schema}` are at layout version {(Version?.ToString() ?? "unreadable")}; this tool knows version {TrackingSchema.Version}. A layout older than 4 has no `connection` column in its records: `init --upgrade --apply` adds it (every existing record is given the connection that is initialized) and replaces the views; or name another schema with `tracking: {{ schema: ... }}` and run `init` there."),
+            $"The tracking tables under the schema name `{schema}` are at layout version {(Version?.ToString() ?? "unreadable")}; this tool knows version {TrackingSchema.Version}. A layout older than 4 has no `connection` column in its records: `init --upgrade --apply` adds it (every existing record is given the connection that is initialized) and replaces the views; or name another schema with `tracking: {{ schema: ... }}` and run `init` there."),
     };
 }
 

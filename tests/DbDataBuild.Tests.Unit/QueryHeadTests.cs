@@ -5,7 +5,7 @@ using static DbDataBuild.Tests.Unit.TestSupport;
 
 namespace DbDataBuild.Tests.Unit;
 
-/// <summary>The head of a query file: `CREATE TABLE schema.name WITH (...) AS query` says what the file builds and how it reloads.</summary>
+/// <summary>The head of a query file: `CREATE TABLE schema_name.object_name WITH (...) AS query` says what the file builds and how it reloads.</summary>
 public class QueryHeadTests
 {
     private static QueryHead Head(string sql)

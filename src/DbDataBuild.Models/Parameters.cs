@@ -17,7 +17,7 @@ public sealed record ParameterValue(string Value, string Type = ParameterValue.T
     public static readonly IReadOnlyList<string> Types = [Text, "BIGINT", "INTEGER", "SMALLINT", "DATE", "TIMESTAMP", Name];
 
     /// <summary>
-    /// A **name**: a table (`schema.table`), a column or another identifier that a macro takes as a constant string (`query_table(tbl)`, `COLUMNS(lambda c: c = col)`). Not a value to bind: it is written into the query
+    /// A **name**: a table (`schema_name.table_name`), a column or another identifier that a macro takes as a constant string (`query_table(tbl)`, `COLUMNS(lambda c: c = col)`). Not a value to bind: it is written into the query
     /// as the string `'orders_snap'` before DuckDB binds it, so the lowering, the matrix and the rendered files see the query for that name. An empty value is `NULL` (a macro may take "no column" that way).
     /// </summary>
     public const string Name = "NAME";
@@ -63,7 +63,7 @@ public static class ParameterReferences
                     var type = (m.Get("type") as YamlScalar)?.Value.Trim().ToUpperInvariant() ?? ParameterValue.Text;
                     if (m.Get("value") is not YamlScalar v) { add(DiagnosticCatalog.MissingKey, m, $"The parameter `{e.Key.Value}` needs a single `value`."); break; }
                     if (!ParameterValue.Types.Contains(type)) { add(DiagnosticCatalog.InvalidValue, (YamlNode?)m.Get("type") ?? m, $"`{type}` is not a parameter type. One of: {string.Join(", ", ParameterValue.Types)}."); break; }
-                    if (type == ParameterValue.Name && !ParameterValue.IsName(v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a name: identifiers joined by dots (`schema.table`, `snap_date`), or empty for NULL."); break; }
+                    if (type == ParameterValue.Name && !ParameterValue.IsName(v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a name: identifiers joined by dots (`schema_name.table_name`, `snap_date`), or empty for NULL."); break; }
                     if (type != ParameterValue.Text && type != ParameterValue.Name && !ColumnTypes.LiteralFits(type, v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a {type} (integers, `yyyy-MM-dd`, `yyyy-MM-dd HH:mm:ss`)."); break; }
                     result[e.Key.Value] = new ParameterValue(v.Value, type);
                     break;

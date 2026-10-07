@@ -76,7 +76,7 @@ public static class ModelDefinitionLoader
             {
                 from = (kindNode as YamlMapping)?.Get("from") as YamlScalar;
                 if (from == null || !System.Text.RegularExpressions.Regex.IsMatch(from.Value, @"^[^.\s/\\]+\.[^.\s/\\]+$"))
-                    Add(DiagnosticCatalog.InvalidValue, (YamlNode?)from ?? kindNode ?? top, "A copy names the model it copies, `kind: {type: copy, from: schema.table}`.");
+                    Add(DiagnosticCatalog.InvalidValue, (YamlNode?)from ?? kindNode ?? top, "A copy names the model it copies, `kind: {type: copy, from: schema_name.table_name}`.");
                 if (top.Get("columns") is { } own) Add(DiagnosticCatalog.InvalidValue, own, "A copy has no `columns`: it has the columns of the model it copies.", "Remove `columns:`.");
                 (slice, onMismatch) = ReadCopySettings(kindNode as YamlMapping);
                 watermark = ReadCopyWatermark(kindNode as YamlMapping, uniqueKey);

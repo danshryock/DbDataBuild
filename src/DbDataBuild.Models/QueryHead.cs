@@ -12,9 +12,9 @@ public sealed record HeadProperty(string Key, HeadValue Value, int Line, int Col
 
 /// <summary>
 /// The first statement of a model's query file when it says what the file builds (DESIGN.md 6.5.7): `CREATE TABLE marts.fct_orders WITH (kind = 'incremental_by_unique_key', unique_key = (order_id)) AS SELECT ...`
-/// or `CREATE VIEW schema.name AS SELECT ...`. It gives the model's name, whether it is a table or a view, and its reload options; everything else about the model stays in its definition file.
+/// or `CREATE VIEW schema_name.object_name AS SELECT ...`. It gives the model's name, whether it is a table or a view, and its reload options; everything else about the model stays in its definition file.
 /// </summary>
-/// <param name="Name">`schema.object`, as written (quotes removed).</param>
+/// <param name="Name">`schema_name.object_name`, as written (quotes removed).</param>
 /// <param name="Line">Where the statement starts (1-based), for diagnostics about the head.</param>
 public sealed record QueryHead(string Name, bool IsView, IReadOnlyList<HeadProperty> Properties, int Line, int Column, int NameLine, int NameColumn)
 {
@@ -34,7 +34,7 @@ public sealed record QueryHead(string Name, bool IsView, IReadOnlyList<HeadPrope
 
 /// <summary>
 /// Reads the head of a query file by hand (nothing in DuckDB or the SQL parser knows `WITH (kind = ...)` for a model): the grammar is small, the errors name a line and a column, and the query that follows `AS` is left
-/// exactly as written. The grammar: <c>CREATE (TABLE | VIEW) name [WITH ( key = value [, ...] )] AS query</c>, where a name is `schema.object` (words or "quoted names"), a key is a word and a value is a word, a
+/// exactly as written. The grammar: <c>CREATE (TABLE | VIEW) name [WITH ( key = value [, ...] )] AS query</c>, where a name is `schema_name.object_name` (words or "quoted names"), a key is a word and a value is a word, a
 /// 'string', a number or a ( list ) of those. Comments may come first. A file whose first word is not CREATE has no head and is only a query.
 /// </summary>
 public static class QueryHeadParser
@@ -74,7 +74,7 @@ public static class QueryHeadParser
             while (true)
             {
                 var part = Identifier();
-                if (part == null) return Fail("a name is expected here: `schema.object`.");
+                if (part == null) return Fail("a name is expected here: `schema_name.object_name`.");
                 parts.Add(part);
                 if (i < text.Length && text[i] == '.') { i++; continue; }
                 break;
@@ -144,7 +144,7 @@ public static class QueryHeadParser
         }
 
         private void Add(int line, int column, string message, string? fix = null) =>
-            problems.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, new(file, line, column), message, Fix: fix ?? "The head is `CREATE TABLE schema.name [WITH (option = value, ...)] AS` (or `CREATE VIEW schema.name AS`) followed by the query."));
+            problems.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, new(file, line, column), message, Fix: fix ?? "The head is `CREATE TABLE schema_name.object_name [WITH (option = value, ...)] AS` (or `CREATE VIEW schema_name.object_name AS`) followed by the query."));
 
         private (int Line, int Column) Where(int at)
         {

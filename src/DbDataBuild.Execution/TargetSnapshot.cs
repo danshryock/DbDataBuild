@@ -4,7 +4,7 @@ using DbDataBuild.State;
 
 namespace DbDataBuild.Execution;
 
-/// <summary>Everything planning reads from a target: live shapes of the managed schemas and the tool's own records about them.</summary>
+/// <summary>Everything planning reads from a target: live shapes of the objects under the managed schema names and the tool's own records about them.</summary>
 /// <param name="LastViewStatementHashes">Newest successful DDL statement hash per object (`ddl_log`); for a view this is the statement that created or altered it.</param>
 /// <param name="LastLoadDefinitionHashes">Definition hash of the newest successful load per model (`run_log`).</param>
 /// <param name="Acknowledged">`code|object|detail` of every block a person acknowledged (`block_log`).</param>

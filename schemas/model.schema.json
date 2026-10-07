@@ -126,7 +126,7 @@
               "const": "copy"
             },
             "from": {
-              "description": "The model to copy: a model, a mapped model or another copy, `schema.table`, on exactly one connection other than this model's.",
+              "description": "The model to copy: a model, a mapped model or another copy, `schema_name.table_name`, on exactly one connection other than this model's.",
               "type": "string",
               "pattern": "^[^.\\s/\\\\]+\\.[^.\\s/\\\\]+$"
             },
@@ -655,7 +655,7 @@
       },
       "properties": {
         "name": {
-          "description": "Schema-qualified model name (`marts.fct_orders`): the name of the model wherever its file is. With the default `model_layout: folder` it must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml); `dotted` and `object` check the file's name instead (`marts.fct_orders.yml`, `fct_orders.yml`), and `none` does not check.",
+          "description": "Model name, schema name and object name (`marts.fct_orders`): the name of the model wherever its file is. With the default `model_layout: folder` it must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml); `dotted` and `object` check the file's name instead (`marts.fct_orders.yml`, `fct_orders.yml`), and `none` does not check.",
           "$ref": "#/$defs/nonEmptyString"
         },
         "kind": {
@@ -908,7 +908,7 @@
           }
         }
       ],
-      "description": "As a file read alone `name` is required; the project lets a definition leave out `name` and `kind` when its query file starts with a head (`CREATE TABLE schema.name WITH (kind = ...) AS`), which says them; the project checks that one of the two does.",
+      "description": "As a file read alone `name` is required; the project lets a definition leave out `name` and `kind` when its query file starts with a head (`CREATE TABLE schema_name.object_name WITH (kind = ...) AS`), which says them; the project checks that one of the two does.",
       "required": [
         "name"
       ]

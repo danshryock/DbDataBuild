@@ -9,7 +9,7 @@ using DbDataBuild.Targets.Ddl;
 
 namespace DbDataBuild.Apply;
 
-/// <summary>Where the records of an apply are kept: the logins of the tracking connection (which may be the connection being applied to, or another) and the schema of its tracking tables there.</summary>
+/// <summary>Where the records of an apply are kept: the logins of the tracking connection (which may be the connection being applied to, or another) and the schema name of its tracking tables there.</summary>
 public sealed record ApplyTracking(LoginSettings Read, LoginSettings? Write, string Schema);
 
 /// <param name="OpenOrigin">Opens the read session of the connection a `transfer` step reads from (by name). A plan with a transfer step cannot be applied for real without it.</param>

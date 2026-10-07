@@ -224,11 +224,11 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "diff":
-                    var diffTable = new Argument<string>("table") { Description = "The table or view to compare, as schema.table (a model's table, for example)" };
+                    var diffTable = new Argument<string>("table") { Description = "The table or view to compare, as schema_name.table_name (a model's table, for example)" };
                     var diffProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var diffTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
-                    var diffAgainst = new Option<string?>("--against") { Description = "The table or view to compare it with, as schema.table" };
-                    var diffAgainstSchema = new Option<string?>("--against-schema") { Description = "Compare with the table of the same name in this schema (a development copy, for example)" };
+                    var diffAgainst = new Option<string?>("--against") { Description = "The table or view to compare it with, as schema_name.table_name" };
+                    var diffAgainstSchema = new Option<string?>("--against-schema") { Description = "Compare with the table of the same name under this schema name (a development copy, for example)" };
                     var diffKey = new Option<string[]>("--key") { Description = "Columns that identify a row (default: the model's grain or unique key, or a source's grain)", AllowMultipleArgumentsPerToken = true };
                     var diffOnly = new Option<string[]>("--columns") { Description = "Compare only these columns (and the key)", AllowMultipleArgumentsPerToken = true };
                     var diffExcept = new Option<string[]>("--exclude-columns") { Description = "Leave these columns out of the comparison", AllowMultipleArgumentsPerToken = true };
@@ -249,7 +249,7 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => GraphCommand.Run(spec, pr.GetValue(graphProject)!.FullName, pr.GetValue(graphModels) ?? [], pr.GetValue(graphColumns), pr.GetValue(graphColumn), pr.GetValue(graphDiagram), o, e)));
                     break;
                 case "import":
-                    var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema.table, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
+                    var impTables = new Argument<string[]>("tables") { Description = "Tables or views as schema_name.table_name, with * and ? as wildcards (default: refresh the source descriptors the project already has)", Arity = ArgumentArity.ZeroOrMore };
                     var impProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var impTarget = new Option<string?>("--connection") { Description = "Connection to read (default: the project's only default connection)" };
                     var impWrite = new Option<bool>("--write") { Description = "Write the new and changed mapped models under models/ (without it the command only shows the diff)" };

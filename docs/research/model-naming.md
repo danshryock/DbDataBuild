@@ -17,7 +17,7 @@ CREATE TABLE marts.fct_orders AS
 SELECT ... FROM ...;
 ```
 
-(`CREATE VIEW schema.name AS SELECT ...` for a view.) The SQL file says what it builds. The definition file still carries the rest, because `CREATE TABLE` does not say the kind or strategy (full, incremental by key or by time range, copy, native), the columns, the grain, the connections. So the statement would repeat only the name and table-versus-view, and the two must agree (mismatch is an error).
+(`CREATE VIEW schema_name.object_name AS SELECT ...` for a view.) The SQL file says what it builds. The definition file still carries the rest, because `CREATE TABLE` does not say the kind or strategy (full, incremental by key or by time range, copy, native), the columns, the grain, the connections. So the statement would repeat only the name and table-versus-view, and the two must agree (mismatch is an error).
 
 **C. Both allowed.** The statement is read when present and must agree with `name:`.
 
@@ -36,8 +36,8 @@ model_layout: folder      # folder | dotted | object | none
 
 | `model_layout` | The file name must be | Example for `marts.fct_orders` |
 |---|---|---|
-| `folder` (default, as before) | the path is the name: `models/<schema>/<object>.yml`, any depth (`a/b/c` is `a.b.c`) | `models/marts/fct_orders.yml` |
-| `dotted` | `<schema>.<object>.yml` in any folder | `models/finance/marts.fct_orders.yml` |
+| `folder` (default, as before) | the path is the name: `models/<schema name>/<object>.yml`, any depth (`a/b/c` is `a.b.c`) | `models/marts/fct_orders.yml` |
+| `dotted` | `<schema name>.<object>.yml` in any folder | `models/finance/marts.fct_orders.yml` |
 | `object` | `<object>.yml` in any folder; the schema name comes only from `name:` | `models/finance/fct_orders.yml` |
 | `none` | anything; no check | `models/whatever/x.yml` |
 
@@ -45,15 +45,15 @@ The default is `folder` only because it is what every existing project already d
 
 What the layout changes elsewhere:
 
-- `define` names a model that has no definition yet from the file name when the layout can (`folder`, `none`: the path; `dotted`: the file name), and asks for a hand-written definition with `name:` when it cannot (`object`, or `dotted` with no schema in the file name). A model that has a definition uses its `name:`.
-- `import` writes a new mapped model where the layout says (`models/<schema>/<table>.yml`, `models/<schema>.<table>.yml`, `models/<table>.yml`); a table the project already has a mapped model for is written to that model's own file. (`object` can collide when two schemas have a table of one name: the second is not written until one is moved.)
+- `define` names a model that has no definition yet from the file name when the layout can (`folder`, `none`: the path; `dotted`: the file name), and asks for a hand-written definition with `name:` when it cannot (`object`, or `dotted` with no schema name in the file name). A model that has a definition uses its `name:`.
+- `import` writes a new mapped model where the layout says (`models/<schema name>/<table>.yml`, `models/<schema name>.<table>.yml`, `models/<table>.yml`); a table the project already has a mapped model for is written to that model's own file. (`object` can collide when two schema names have a table of one name: the second is not written until one is moved.)
 - Metadata and `graph` show a mapped model's real file (`SourceDescriptor.File`), not one computed from its name.
-- Seeds and model tests are named by their own folders (`seeds/<schema>/<table>.sql`, `tests/<schema>/<model>.yml` or `model:` inside); they are not governed by `model_layout`.
+- Seeds and model tests are named by their own folders (`seeds/<schema name>/<table>.sql`, `tests/<schema name>/<model>.yml` or `model:` inside); they are not governed by `model_layout`.
 
 ## Still open (to settle when option B is revisited)
 
 1. Is B for readability only (the owner's answer: yes), or should the statement also be able to carry more (for example `CREATE OR REPLACE`, `CREATE TABLE ... (columns)` replacing the `columns:` list)? Each addition removes something from the YAML and adds a second place that says it.
-2. What a model built on several connections does about its schema: the same everywhere, or a per-connection default (a `schema` setting for a connection, so a dev/prod split is a setting and not a name).
+2. What a model built on several connections does about its schema name: the same everywhere, or a per-connection default (a schema-name setting for a connection, so a dev/prod split is a setting and not a name).
 3. Copies and mapped models have no query file; they keep the definition's `name:` under every option.
 4. If B is built, how an incremental model's `CREATE TABLE ... AS` is read (the strategy is not in the statement), and whether a view must be written `CREATE VIEW`, so the file can no longer be a bare `SELECT`. A bare `SELECT` should stay valid (compatibility, and short examples).
 
