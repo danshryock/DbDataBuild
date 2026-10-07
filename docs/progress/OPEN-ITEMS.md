@@ -137,12 +137,12 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 - **What exists today** (so the design starts from facts, not from the history): `string_semantics` at the project (case, accent, trailing_space, collations per logical name and engine) and `connections.<name>.string_semantics`; collation checks offline and against the live catalog (DDB-310 to 312); explicit collations in all DDL; the `LEN` rule and matrix rows `str.*` (mostly `approximated` on the engines); DDB-236 (a model comparing strings on connections that disagree; `lint_ignore`); `trimmed: true` on columns and its count in `check` (DDB-237); `sample` and `test` run under the model's first connection's profile (a `default_collation` and `rtrim()` for trailing spaces; not set operations, `count(DISTINCT)` or `LIKE`). Nothing rewrites a comparison on an engine. The review is `docs/research/string-semantics-across-engines.md`.
 - **What a design has to decide** (a list of questions, not proposals): what "string semantics" covers (case, accent, trailing space, collation, ordering, `LIKE`, length, concatenation with NULL, the empty string, Unicode normalization, identifier case); who owns it (project, connection, folder, model, column, expression) and in how many places it may be said; what is promised (a declaration that is checked, a behavior the tool imposes by rewriting, or a result that is tested against DuckDB), and what a model on connections that disagree gets; where emulation lives (DuckDB runs, the engines, both) and what it costs (index use); how data (`trimmed`) and query (rewrites) share the work; how it relates to the lowerer, the matrix and `rewrites:`; and how one place in the configuration says all of it.
 
-## Q. Names that still say "schema" for a schema name (2026-10-06)
+## Q. Names that still say "schema" for a schema name (decided 2026-10-06: leave)
 
-The terminology sweep (`DESIGN.md` 6.5.6) left these, because they are names a user or a pipeline sees and renaming them breaks files and scripts; the owner decides (this release line is breaking anyway):
+The owner decided to keep these. A short name is fine where it is plainly a key or a variable; what must say "schema name" is prose: error messages, documentation, conversation.
 
-- Config: `tracking: { connection, schema }` and `connections.<name>.tracking.schema` would be `schema_name`.
-- JSON documents: `tracking_schema` (the `init` output and the project metadata document) would be `tracking_schema_name`.
-- CLI: `diff --against-schema <schema name>` would be `--against-schema-name`.
-- Code: local variables and parameters called `schema` or `schemas` that hold schema names (a compile-driven rename, no behavior change).
-- Not renamed, and correct under the terms: the tracking table `schema_version` and `TrackingSchema` (the defined shape of the tracking tables), `diff`'s `schema` payload (column shapes), JSON Schema.
+- Config: `tracking: { connection, schema }` and `connections.<name>.tracking.schema`.
+- JSON documents: `tracking_schema` (the `init` output and the project metadata document).
+- CLI: `diff --against-schema`.
+- Code: local variables and parameters called `schema` or `schemas`.
+- Correct under the terms: `schema_version` and `TrackingSchema` (the defined shape of the tracking tables), `diff`'s `schema` payload (column shapes), JSON Schema.
