@@ -15,7 +15,7 @@ JOIN sys.schemas s ON s.schema_id = o.schema_id
 JOIN sys.columns c ON c.object_id = o.object_id
 JOIN sys.types t ON t.user_type_id = c.user_type_id
 LEFT JOIN sys.computed_columns cc ON cc.object_id = c.object_id AND cc.column_id = c.column_id
-WHERE o.type IN ('U', 'V') AND s.name = @schema
+WHERE o.type IN ('U', 'V') AND s.name = @schema AND (@object = '' OR o.name = @object)
 ORDER BY o.name, c.column_id";
 
     // One row per index: its table, name, whether it backs a PRIMARY KEY or UNIQUE constraint, uniqueness, key columns in order (with `desc` when descending) and included columns.
@@ -31,7 +31,7 @@ SELECT o.name, i.name, CASE WHEN i.is_primary_key = 1 OR i.is_unique_constraint 
 FROM sys.indexes i
 JOIN sys.objects o ON o.object_id = i.object_id
 JOIN sys.schemas s ON s.schema_id = o.schema_id
-WHERE o.type = 'U' AND i.type > 0 AND s.name = @schema
+WHERE o.type = 'U' AND i.type > 0 AND s.name = @schema AND (@object = '' OR o.name = @object)
 ORDER BY o.name, i.name";
 
     private const string PostgresColumns = @"
@@ -39,7 +39,7 @@ SELECT t.table_name, t.table_type, c.ordinal_position, c.column_name, c.data_typ
        c.datetime_precision, c.is_nullable, c.collation_name, c.is_generated, c.generation_expression
 FROM information_schema.tables t
 JOIN information_schema.columns c ON c.table_schema = t.table_schema AND c.table_name = t.table_name
-WHERE t.table_schema = @schema AND t.table_type IN ('BASE TABLE', 'VIEW')
+WHERE t.table_schema = @schema AND t.table_type IN ('BASE TABLE', 'VIEW') AND (@object = '' OR t.table_name = @object)
 ORDER BY t.table_name, c.ordinal_position";
 
     private const string PostgresIndexes = @"
@@ -52,12 +52,13 @@ FROM pg_index i
 JOIN pg_class ic ON ic.oid = i.indexrelid
 JOIN pg_class t ON t.oid = i.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
-WHERE n.nspname = @schema AND t.relkind = 'r'
+WHERE n.nspname = @schema AND t.relkind = 'r' AND (@object = '' OR t.relname = @object)
 ORDER BY t.relname, ic.relname";
 
-    public static async Task<IReadOnlyDictionary<string, ObjectShape>> ReadObjectsAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
+    /// <param name="objectName">Only this object of the schema name (a step that checks what it just did reads one object, not the hundreds a schema name may hold); null reads them all.</param>
+    public static async Task<IReadOnlyDictionary<string, ObjectShape>> ReadObjectsAsync(ReadSession read, string target, string schema, CancellationToken ct = default, string? objectName = null)
     {
-        var p = new[] { new GateParameter("schema", DbType.String, schema) };
+        var p = new[] { new GateParameter("schema", DbType.String, schema), new GateParameter("object", DbType.String, objectName ?? "") };
         var postgres = target == "postgres";
         var columnRows = await read.QueryAsync(postgres ? PostgresColumns : SqlServerColumns, p, ct);
         var indexRows = await read.QueryAsync(postgres ? PostgresIndexes : SqlServerIndexes, p, ct);

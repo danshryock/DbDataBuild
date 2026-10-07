@@ -220,8 +220,8 @@ public static class ApplyEngine
 
     private static async Task<ObjectShape?> LiveAsync(ReadSession reader, string engine, string obj, CancellationToken ct)
     {
-        var (schema, _) = DdlGenerator.Split(obj);
-        return (await CatalogReader.ReadObjectsAsync(reader, engine, schema, ct)).GetValueOrDefault(obj);
+        var (schema, name) = DdlGenerator.Split(obj);
+        return (await CatalogReader.ReadObjectsAsync(reader, engine, schema, ct, objectName: name)).GetValueOrDefault(obj);
     }
 
     /// <summary>Executes one step. Returns a diagnostic when the step ran but its result is not what the plan promised.</summary>
