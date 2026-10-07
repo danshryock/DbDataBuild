@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1763, real-engine tests 153 (151 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1782, real-engine tests 157 (155 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -38,7 +38,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1763, real-engine 
 ## C. Unverified or risky areas
 
 - **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. The draft upstream issue notes exist but you have not decided to submit them.
-- **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, but only on single local containers: no concurrency between two real `apply` processes under load, no network failures mid-step.
+- **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, on single local containers: a second `apply` started while a first one runs is refused and both leave the target consistent, and an `apply` whose connection is killed mid-step fails with DDB-440 and resumes (entry 102). Not tested: many concurrent applies under load, a network partition that does not close the session at once (a half-open TCP connection), a server restart mid-step.
 - **Native dependency**: polyglot-sql is pinned and fetched prebuilt from the `native-<pin>` release (`scripts/fetch-native.sh`; `scripts/build-polyglot.sh` and the `native` workflow build it); pre-1.0 API churn and an upgrade policy are open (section 17).
 - **Windows**: the unit suite runs natively on `windows-latest` on every push (CI), the release workflow builds the win-x64 single-file executable, and the owner has run the tool and the terminal interface on Windows with no problems found. Not done: PostgreSQL and the real-engine suite on Windows (PostgreSQL cannot log in under Wine; the conformance groups run on Linux), code signing and an installer, and a win-arm64 build.
 - **Licenses**: audited 2026-10-02 (all permissive; see `THIRD-PARTY-NOTICES.md`); re-check when dependencies change.

@@ -284,6 +284,73 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_second_apply_started_while_the_first_is_running_is_refused_and_both_leave_the_target_consistent(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            // the first plan builds a table and then waits two seconds in a hook, which keeps its application lock; the second is an unrelated view
+            run.Write("hooks/pause.sql", pg ? "SELECT pg_sleep(2.5);\n" : "WAITFOR DELAY '00:00:02.500';\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: pause, event: post_create, script: hooks/pause.sql}\n");
+            run.Write("models/marts/other.yml", "name: marts.other\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
+            run.Write("models/marts/other.sql", "SELECT order_id FROM staging.orders\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var planA = run.Cli("plan", "marts.fct_orders"); Ok(planA, "plan A");
+            var planB = run.Cli("plan", "marts.other"); Ok(planB, "plan B");
+
+            var first = Task.Run(() => run.Cli("apply", run.PlanFile(planA.Out)));
+            await Task.Delay(1200);                                                              // the first is inside its hook
+            var second = run.Cli("apply", run.PlanFile(planB.Out));
+            Refused(second, "DDB-439", "an apply while another apply is running");
+            Ok(await first, "the first apply");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'fct_orders'"));
+            Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'other'"));      // the refused one changed nothing
+
+            Ok(run.Cli("apply", run.PlanFile(planB.Out)), "the refused plan, applied once the lock is free");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'other'"));
+            Assert.Equal(0, run.Cli("report").Exit);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            run.Write("hooks/pause.sql", pg ? "SELECT pg_sleep(4);\n" : "WAITFOR DELAY '00:00:04';\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: pause, event: post_create, script: hooks/pause.sql}\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            var planFile = run.PlanFile(plan.Out);
+
+            var apply = Task.Run(() => run.Cli("apply", planFile));
+            await Task.Delay(1500);                                                              // inside the hook
+            if (pg) await engine.ExecAsync("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(4)%' AND pid <> pg_backend_pid()");
+            else await engine.ExecAsync("DECLARE @s INT = (SELECT TOP 1 session_id FROM sys.dm_exec_requests WHERE command = 'WAITFOR'); IF @s IS NOT NULL EXEC('KILL ' + @s)");
+            var killed = await apply;
+            Assert.NotEqual(0, killed.Exit);
+            Assert.DoesNotContain("DDB-900", killed.Err + killed.Out);                           // a failure of the connection is reported, not a crash
+
+            // the lock went with the session: the plan can be resumed at once, and finishes
+            var resumed = run.Cli("apply", planFile, "--resume");
+            Ok(resumed, "resume after the connection was killed");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'fct_orders'"));
+            var rep = run.Cli("report");
+            Ok(rep, "report after the resume");                                                  // the step that was cut off ran again and finished: nothing is left to attend to
+            Assert.Contains("nothing", rep.Out.Split("Needs attention")[1]);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task Run_only_runs_routine_loads_and_report_shows_what_happened(string name)
     {
         var run = await SetUp(name);
