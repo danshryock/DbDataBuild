@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
+    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites", "model_layout"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands", "string_semantics"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -53,7 +53,7 @@ public static class ProjectConfigLoader
             var tracking = ReadTracking(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.Tracking;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>() };
+            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>(), Layout = ReadLayout(top) };
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -65,6 +65,16 @@ public static class ProjectConfigLoader
             if (v is YamlScalar s && s.Value is "true" or "false") return s.Value == "true";
             Add(DiagnosticCatalog.InvalidValue, v, $"`lint.{key}` must be true or false (lowercase).");
             return true;
+        }
+
+        private ModelLayout ReadLayout(YamlMapping top)
+        {
+            if (top.Get("model_layout") is not { } node) return ModelLayout.Folder;
+            var names = new Dictionary<string, ModelLayout> { ["folder"] = ModelLayout.Folder, ["dotted"] = ModelLayout.Dotted, ["object"] = ModelLayout.Object, ["none"] = ModelLayout.None };
+            if (node is YamlScalar s && names.TryGetValue(s.Value, out var layout)) return layout;
+            Add(DiagnosticCatalog.InvalidValue, node, $"`model_layout` is {(node is YamlScalar sc ? $"`{sc.Value}`" : "not a string")}.",
+                "`folder` (schema/object.yml), `dotted` (schema.object.yml), `object` (object.yml) or `none` (the files may be named anything).");
+            return ModelLayout.Folder;
         }
 
         private bool ReadLowering(YamlMapping top)

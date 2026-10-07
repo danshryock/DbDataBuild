@@ -28,7 +28,7 @@ public sealed record SourceChange(SourceChangeKind Kind, string? Column, string 
 /// </summary>
 public static class SourceImport
 {
-    public static ImportedObject Describe(string target, ObjectShape shape, IReadOnlyList<string>? primaryKey, IReadOnlyList<ForeignKeyShape>? foreignKeys = null)
+    public static ImportedObject Describe(string target, ObjectShape shape, IReadOnlyList<string>? primaryKey, IReadOnlyList<ForeignKeyShape>? foreignKeys = null, ModelLayout layout = ModelLayout.Folder)
     {
         var columns = shape.Columns.Select(c =>
         {
@@ -54,7 +54,7 @@ public static class SourceImport
             if (f.Columns.Any(c => !typed.Contains(c))) { notes.Add($"foreign key {f.Name} names a column that has no logical type and was not exported"); continue; }
             fks.Add(new SourceForeignKey(f.Name, f.Columns, $"{f.ReferencedSchema}.{f.ReferencedTable}", f.ReferencedColumns));
         }
-        return new ImportedObject(shape.Schema, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.Schema, shape.Name), columns, primaryKey ?? [], indexes, fks, notes);
+        return new ImportedObject(shape.Schema, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.Schema, shape.Name, layout), columns, primaryKey ?? [], indexes, fks, notes);
     }
 
     /// <summary>The descriptor for a live object, merged with the committed one (null for a new descriptor). Columns with no logical type and no committed declaration are left out.</summary>

@@ -230,7 +230,7 @@ internal sealed class ProjectContext
             var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (files.Contains(ProductInfo.ConfigFile)) changed.UnionWith(all.Select(s => s.Definition.Name));                    // the project settings reach every model
             foreach (var s in all.Where(s => files.Contains(s.QueryFile) || files.Contains(s.DefinitionFile))) changed.Add(s.Definition.Name);
-            foreach (var d in Project.FileDescriptors.Where(d => files.Contains(ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
+            foreach (var d in Project.FileDescriptors.Where(d => files.Contains(d.File.Length > 0 ? d.File : ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
             return changed.OrderBy(n => n, StringComparer.Ordinal).ToList();                                                          // nothing changed is a valid, empty answer
         }
 

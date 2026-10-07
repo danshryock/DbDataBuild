@@ -74,7 +74,9 @@ internal static class ImportSourcesCommand
                         if (!wanted.Any(w => w.Schema.IsMatch(shape.Schema) && w.Table.IsMatch(shape.Name))) continue;
                         seen.Add(qualified);
                         if (models.Contains(qualified)) { skipped.Add(new(qualified, "it is a model, not a source")); continue; }
-                        var live = SourceImport.Describe(engine, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name));
+                        var live = SourceImport.Describe(engine, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name), ctx.Config.Layout);
+                        // a table the project already has a mapped model for is written where that model's file is, whatever the layout says
+                        if (committed.TryGetValue(qualified, out var existing) && existing.File.Length > 0) live = live with { File = existing.File };
                         if (live.File == null)
                         {
                             diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(qualified, 0, 0), $"`{qualified}` has a dot, slash or backslash in its schema or table name, so it cannot be a path under models/."));
@@ -89,7 +91,7 @@ internal static class ImportSourcesCommand
                 {
                     var (s, _) = Split(d.Name)!.Value;
                     if (seen.Contains(d.Name) || models.Contains(d.Name)) continue;
-                    var file = SourceDescriptorWriter.PathFor(s, d.Name[(s.Length + 1)..]);
+                    var file = d.File.Length > 0 ? d.File : SourceDescriptorWriter.PathFor(s, d.Name[(s.Length + 1)..], ctx.Config.Layout);
                     diags.Add(new Diagnostic(DiagnosticCatalog.SourceNotImportable, new(file ?? d.Name, 0, 0), $"`{d.Name}` has a mapped model, but {target} shows no table or view of that name.", Fix: "Delete the descriptor or restore the table. The tool never deletes it for you."));
                     rows.Add(new Row(d.Name, "unknown", file, "stale", [], null, d, null, null, null));
                 }

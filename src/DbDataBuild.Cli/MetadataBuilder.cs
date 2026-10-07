@@ -108,7 +108,7 @@ internal static class MetadataBuilder
 
     /// <summary>The metadata document of a source descriptor: what the project declares about a table it reads but does not build, and which models read it.</summary>
     /// <summary>The file a source is declared in: the native model's own, else the conventional path of a mapped one.</summary>
-    public static string SourceFile(SourceDescriptor d) => d.Native is { File.Length: > 0 } n ? n.File.Replace('\\', '/') : SourceFile(d.Name);
+    public static string SourceFile(SourceDescriptor d) => d.File.Length > 0 ? d.File : d.Native is { File.Length: > 0 } n ? n.File.Replace('\\', '/') : SourceFile(d.Name);
 
     /// <summary>A native model's text is part of what it is, so a change to it changes the hash.</summary>
     private static string DefinitionHash(SourceDescriptor d) => Hashing.ScriptHash(SourceDescriptorWriter.Yaml(d) + (d.Native == null ? "" : "\n" + d.Native.Access + "\n" + d.Native.Text));

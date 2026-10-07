@@ -500,6 +500,15 @@
           }
         }
       }
+    },
+    "model_layout": {
+      "description": "How the files of a model are named. A model's name (`schema.object`) is always the `name:` in its definition file; this says whether the files must spell it too. `folder`: models/<schema>/<object>.yml (the path is the name; default). `dotted`: <schema>.<object>.yml in any folder. `object`: <object>.yml in any folder. `none`: no check.",
+      "enum": [
+        "folder",
+        "dotted",
+        "object",
+        "none"
+      ]
     }
   },
   "$defs": {

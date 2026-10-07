@@ -120,4 +120,5 @@ Written 2026-10-02, after the lowering order (subqueries, `DISTINCT ON`, integer
 
 ## N. Schema and name out of the folder path (2026-10-06)
 
-- **Wanted**: no folder structure imposed. Today a model's name is its path (`models/marts/fct_orders.sql` is `marts.fct_orders`), and the name in the definition file must equal it (DDB-107). Under consideration: declaring the object in the query file (`CREATE TABLE schema.name AS SELECT ...` / `CREATE VIEW schema.name AS SELECT ...`) or only in the definition's `name:`; see the progress log for the options. Not built.
+- **Built**: the name is the definition's `name:`; `model_layout: folder | dotted | object | none` (default `folder`, as before) says whether the file names must spell it (`DESIGN.md` 6.5.6, `docs/research/model-naming.md`).
+- **To revisit soon (the owner's wish)**: declaring the object in the query file, `CREATE TABLE schema.name AS SELECT ...` / `CREATE VIEW ...`, so a reader of the `.sql` file sees what it builds without knowing this tool; not for DuckDB compatibility. Open points are in the note: what the statement may carry, a per-connection schema default, how an incremental model reads, whether a bare `SELECT` stays valid.

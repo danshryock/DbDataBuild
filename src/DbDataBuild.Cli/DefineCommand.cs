@@ -44,7 +44,7 @@ internal static class DefineCommand
         if (matrixDiags.Count > 0) throw new InvalidOperationException("The embedded support matrix is invalid: " + string.Join("; ", matrixDiags.Select(d => d.Found)));
 
         // ---- choose the models ----
-        var mapped = project.FileDescriptors.Select(d => $"{ProjectValidator.ModelsDir}/{d.Name.Replace('.', '/')}").ToHashSet(StringComparer.Ordinal);
+        var mapped = project.FileDescriptors.Select(d => d.File.Length > 0 ? d.File[..^".yml".Length] : $"{ProjectValidator.ModelsDir}/{d.Name.Replace('.', '/')}").ToHashSet(StringComparer.Ordinal);
         var selection = Select(projectRoot, paths, mapped, error, out var selectionProblem);
         if (selectionProblem) return CliApp.ExitUsage;
 
@@ -66,7 +66,16 @@ internal static class DefineCommand
             }
             var sqlBytes = File.ReadAllBytes(sqlPath);
             queryHashes[sqlRel] = DefinitionFile.Hash(sqlBytes);
-            var name = stem[(ProjectValidator.ModelsDir.Length + 1)..].Replace('/', '.');
+            // the name is the definition's; a file with none yet is named by the layout (only a layout that spells the schema in the file's name can say it)
+            var pathName = stem[(ProjectValidator.ModelsDir.Length + 1)..].Replace('/', '.');
+            var baseName = Path.GetFileName(stem);
+            var name = config.Layout switch { ModelLayout.Dotted => baseName, ModelLayout.Object => baseName, _ => pathName };
+            if (!File.Exists(ymlPath) && (config.Layout == ModelLayout.Object || (config.Layout == ModelLayout.Dotted && !baseName.Contains('.'))))
+            {
+                problems.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(sqlRel, 0, 0), $"`{sqlRel}` has no definition yet, and with `model_layout: {config.Layout.ToString().ToLowerInvariant()}` its file name does not say the schema.",
+                    Fix: $"Write `{ymlRel}` by hand with `name: <schema>.<object>`, or name the files `<schema>.<object>`, or use `model_layout: folder`."));
+                continue;
+            }
             string? existingText = null;
             ModelDefinition? existing = null;
             var existingProblems = new List<Diagnostic>();
@@ -75,7 +84,8 @@ internal static class DefineCommand
                 var bytes = File.ReadAllBytes(ymlPath);
                 hashes[ymlRel] = DefinitionFile.Hash(bytes);
                 existingText = System.Text.Encoding.UTF8.GetString(bytes);
-                existing = ModelDefinitionLoader.Load(existingText, ymlRel, name, existingProblems, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
+                existing = ModelDefinitionLoader.Load(existingText, ymlRel, config.Layout == ModelLayout.Folder ? name : null, existingProblems, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
+                if (existing != null) name = existing.Name;
             }
             else hashes[ymlRel] = null;
             var queryText = System.Text.Encoding.UTF8.GetString(sqlBytes);

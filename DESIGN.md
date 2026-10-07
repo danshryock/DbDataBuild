@@ -311,7 +311,7 @@ warning. An origin whose login is not in the environment is reported as not chec
 the origin read gains `WHERE <column> >= @watermark`, the bound being the newest value of that column the destination holds (for the origin's own rows when there is a slice) less the lookback (days, weeks, months
 for a DATE; any unit for a TIMESTAMP), computed at plan time and recorded in the plan's transfer step (`watermark: {column, type, value}`; the value is bound by the driver, never in the text). With nothing in the
 destination yet the bound is absent and everything is read. The rows read replace the rows with the same `unique_key` (`delete_insert_by_key`; with a slice the key gains the slice column); **rows deleted at the origin are
-not deleted in the destination** (an incremental copy cannot see them: plan a full copy, a copy with no `watermark`, to reconcile). `plan --full-refresh <model>` reads such a copy from the start once (the merge by `unique_key` makes that safe; it still does not see rows deleted at the origin). `report` lists each origin's last good run and its latest attempt.
+not deleted in the destination** (an incremental copy cannot see them: plan a full copy, a copy with no `watermark`, to reconcile). `plan --full-refresh <model>` reads such a copy from the start once (the merge by `unique_key` makes that safe; it still does not see rows deleted at the origin); for a model every load of which rebuilds it in full it is accepted with a note (nothing to refresh), and an incremental model is pointed at `--backfill`. `report` lists each origin's last good run and its latest attempt.
 
 Not built: `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, rows deleted at the origin in an incremental copy.
 
@@ -331,6 +331,14 @@ operation parameters (`@name`, section 6.6) are bound at run time and are a diff
   is a new plan, not a new rendered file; the values of a run are in `run_log`. `sample`, `test` and DuckDB runs use the real values as literals. An undefined reference, a reference in a view, an
   `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
 - **Not built**: parameters that change a schema or table **name**, and parameters of other types (boolean, decimal, double).
+
+### 6.5.6 Where a model's name comes from (as built; design note: `docs/research/model-naming.md`)
+
+A model's name is the `name:` of its definition file, whatever its path (`schema.object`: the schema is the part before the last dot). `model_layout` in `dbdatabuild.yml` says whether the files must spell the name:
+`folder` (the default, as before: `models/<schema>/<object>.yml`, any depth, the path is the name; mismatch is DDB-107), `dotted` (`<schema>.<object>.yml` in any folder), `object` (`<object>.yml` in any folder) or
+`none` (no check). The query is always the file beside the definition (same stem, `.sql`; `.native.sql` for a native model). Two files that claim one name are an error. `define` and `import` follow the layout for a
+file that does not exist yet and the definition's own file for one that does; the graph and the metadata show each mapped model's real file. Not built: declaring the object in the query file (`CREATE TABLE schema.name AS
+SELECT ...`), which the owner wants to revisit for the clarity of reading the file (the note has the options and what is open); a per-connection schema.
 
 ### 6.5.5 Macros and types (as built; design: this section)
 

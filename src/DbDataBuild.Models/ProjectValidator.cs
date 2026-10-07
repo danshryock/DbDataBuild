@@ -89,6 +89,16 @@ public sealed record ProjectValidationResult(
 /// <summary>Offline validation of every model under <c>models/</c>. Reads files only; never writes, never connects.</summary>
 public static class ProjectValidator
 {
+    /// <summary>With a layout other than `folder` or `none`, the definition file's name must spell the model's name: `dotted` its whole name, `object` the part after the schema.</summary>
+    private static void CheckLayout(ModelLayout layout, string file, string name, List<Diagnostic> diags)
+    {
+        if (layout is ModelLayout.Folder or ModelLayout.None) return;
+        var expected = layout == ModelLayout.Dotted ? name : name[(name.LastIndexOf('.') + 1)..];
+        if (Path.GetFileNameWithoutExtension(file) != expected)
+            diags.Add(new Diagnostic(DiagnosticCatalog.NameMismatch, new(file, 0, 0), $"name is `{name}`, but `model_layout: {layout.ToString().ToLowerInvariant()}` expects the file to be called `{expected}.yml`.",
+                Fix: $"Rename the file to `{expected}.yml` (and its query beside it), change `name:`, or set `model_layout` in {ProductInfo.ConfigFile} to another layout, or `none`."));
+    }
+
     public const string ModelsDir = "models";
 
     /// <summary>The folder `sources/` held the descriptors of tables the tool does not build, before they became **mapped** models in `models/`.</summary>
@@ -126,6 +136,7 @@ public static class ProjectValidator
         var mappedStems = new HashSet<string>(StringComparer.Ordinal);      // files with no query: mapped models, native models and copies
         var nativeStems = new HashSet<string>(StringComparer.Ordinal);
         var copies = new List<(ModelDefinition Definition, string File)>();
+        var declared = new List<(string Name, string File)>();               // every model, mapped model and copy by the name its definition gives it
         // the parameters each file sees from the project files above it: the root's, overridden by each folder's, and the connection parameters the folders override
         var parameterFiles = new Dictionary<string, (IReadOnlyDictionary<string, ParameterValue> Project, IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterValue>> Connections)>(StringComparer.Ordinal);
         ModelSource WithParameters(ModelSource s) => parameterFiles.TryGetValue(s.DefinitionFile, out var p) ? s with { ProjectParameters = p.Project, ConnectionParameterOverrides = p.Connections } : s;
@@ -133,7 +144,8 @@ public static class ProjectValidator
         foreach (var file in files.Where(f => f.EndsWith(".yml", StringComparison.Ordinal)))
         {
             var stem = file[..^".yml".Length];
-            var expected = stem[(ModelsDir.Length + 1)..].Replace('/', '.');
+            // only the `folder` layout can say what the name is before the file is read; the others check the file name against the name once it is
+            var expected = effectiveConfig.Layout == ModelLayout.Folder ? stem[(ModelsDir.Length + 1)..].Replace('/', '.') : null;
             var text = File.ReadAllText(Path.Combine(projectRoot, file));
             var projectParameters = new Dictionary<string, ParameterValue>(effectiveConfig.Parameters, StringComparer.Ordinal);
             var connectionOverrides = new Dictionary<string, Dictionary<string, ParameterValue>>(StringComparer.Ordinal);
@@ -166,7 +178,11 @@ public static class ProjectValidator
                     if (kindName == NativeQuery.Kind) nativeStems.Add(stem);
                     var nativeFile = set.Contains(stem + ".native.sql") ? File.ReadAllText(Path.Combine(projectRoot, stem + ".native.sql")) : null;
                     if (SourceDescriptorLoader.LoadMerged(merged, file, expected, diags, connections, nativeFile) is { } mapped)
-                        descriptors.Add(kindName == NativeQuery.Kind ? CheckNative(mapped, file, projectParameters, connectionOverrides, effectiveConfig, diags) : mapped);
+                    {
+                        CheckLayout(effectiveConfig.Layout, file, mapped.Name, diags);
+                        declared.Add((mapped.Name, file));
+                        descriptors.Add((kindName == NativeQuery.Kind ? CheckNative(mapped, file, projectParameters, connectionOverrides, effectiveConfig, diags) : mapped) with { File = file });
+                    }
                     continue;
                 }
                 var isCopy = ((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == ModelKinds.Copy;
@@ -175,6 +191,8 @@ public static class ProjectValidator
                     diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
                 if (ModelDefinitionLoader.LoadMerged(merged, file, expected, diags, connections) is { } def)
                 {
+                    CheckLayout(effectiveConfig.Layout, file, def.Name, diags);
+                    declared.Add((def.Name, file));
                     if (isCopy) copies.Add((def, file));
                     else models.Add(WithParameters(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file) }));
                 }
@@ -186,6 +204,11 @@ public static class ProjectValidator
                 diags.Add(new Diagnostic(DiagnosticCatalog.OrphanFile, new(file, 0, 0), $"`{file}` has no query file `{stem}.sql`.", Fix: $"Add `{stem}.sql`, or remove `{file}`."));
             ModelDefinitionLoader.Load(text, file, expected, diags, connections);
         }
+
+        // a name is the definition's, not the path's, so two files can claim one
+        foreach (var group in declared.GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+            foreach (var later in group.Skip(1))
+                diags.Add(new Diagnostic(DiagnosticCatalog.NameMismatch, new(later.File, 0, 0), $"`{later.Name}` is the name of `{group.First().File}` too: a name belongs to one model.", Fix: "Give one of them another `name:`."));
 
         foreach (var file in files.Where(f => f.EndsWith(".sql", StringComparison.Ordinal)))
         {

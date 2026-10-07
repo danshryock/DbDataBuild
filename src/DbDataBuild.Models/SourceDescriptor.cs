@@ -15,6 +15,9 @@ public sealed record SourceDescriptor(string Name, IReadOnlyList<ColumnDefinitio
     /// <summary>True for a **native** model: its rows are computed by a query the engine runs (a table function, an engine-native select), not read from a table. Bound by queries like any table, from its declared columns.</summary>
     public bool IsNative => Native != null;
 
+    /// <summary>The definition file this descriptor was read from (project-relative; empty for one the tool generates). A model's name is not its path, so the file is kept.</summary>
+    public string File { get; init; } = "";
+
     /// <summary>True for a table the tool declares itself, not a file of the project: the staging table a copy is read from (`CopyModels`). It is bound by queries like any mapped model and is left out of what is listed, imported and checked.</summary>
     public bool IsGenerated => Generated;
 
@@ -253,9 +256,15 @@ public static class SourceDescriptorWriter
     }
 
     /// <summary>The project-relative path of the descriptor for a table (`staging.orders` is `models/staging/orders.yml`), or null when the name cannot be a path (a dot, slash or backslash inside the schema or table name).</summary>
-    public static string? PathFor(string schema, string table)
+    public static string? PathFor(string schema, string table, ModelLayout layout = ModelLayout.Folder)
     {
         static bool Bad(string s) => s.Length == 0 || s.AsSpan().IndexOfAny('.', '/', '\\') >= 0 || s.Trim() != s;
-        return Bad(schema) || Bad(table) ? null : $"{ProjectValidator.ModelsDir}/{schema}/{table}.yml";
+        if (Bad(schema) || Bad(table)) return null;
+        return layout switch
+        {
+            ModelLayout.Dotted => $"{ProjectValidator.ModelsDir}/{schema}.{table}.yml",
+            ModelLayout.Object => $"{ProjectValidator.ModelsDir}/{table}.yml",
+            _ => $"{ProjectValidator.ModelsDir}/{schema}/{table}.yml",
+        };
     }
 }

@@ -40,7 +40,7 @@ internal static class GraphCommand
         var nodes = nodeNames.Select(n => new
         {
             name = n, kind = KindOf(n), level = levels.GetValueOrDefault(n),
-            file = byName.TryGetValue(n, out var m) ? m.QueryFile : natives.TryGetValue(n, out var nd) ? MetadataBuilder.SourceFile(nd) : macroNodes.TryGetValue(n, out var md) ? md.File : sources.ContainsKey(n) ? MetadataBuilder.SourceFile(n) : null,
+            file = byName.TryGetValue(n, out var m) ? m.QueryFile : natives.TryGetValue(n, out var nd) ? MetadataBuilder.SourceFile(nd) : macroNodes.TryGetValue(n, out var md) ? md.File : sources.TryGetValue(n, out var sd) ? MetadataBuilder.SourceFile(sd) : null,
             model_kind = byName.TryGetValue(n, out var mk) ? mk.Definition.KindType : null,
             connections = byName.TryGetValue(n, out var mt) ? ctx.TargetsOf(mt.Definition) : (IReadOnlyList<string>)[],
         }).ToList();

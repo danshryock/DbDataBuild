@@ -6,6 +6,13 @@ public enum CaseSensitivity { Sensitive, Insensitive }
 public enum AccentSensitivity { Sensitive, Insensitive }
 public enum TrailingSpace { Significant, Ignored }
 
+/// <summary>
+/// How a model's files are named (`model_layout`). The name of a model, `schema.object`, is always the `name:` in its definition file; the layout only says whether the files must spell it too, so a reader can
+/// find a model from its name. `Folder`: `models/<schema>/<object>.yml` (the path is the name; any depth: `models/a/b/c.yml` is `a.b.c`). `Dotted`: a file called `<schema>.<object>.yml`, in any folder.
+/// `Object`: a file called `<object>.yml` in any folder. `None`: no check (the name is the definition's, the file is anywhere).
+/// </summary>
+public enum ModelLayout { Folder, Dotted, Object, None }
+
 /// <summary>String comparison profile (DESIGN.md 7.4). Logical collation name -> engine -> engine collation name.</summary>
 public sealed record StringSemantics(
     CaseSensitivity Case,
@@ -98,6 +105,9 @@ public sealed record ProjectConfig(
 
     /// <summary>This configuration as one connection sees it: the same, with that connection's string semantics (what DDL and the collation checks read).</summary>
     public ProjectConfig ForConnection(string connection) => Connections.TryGetValue(connection, out var c) && c.Semantics != null ? this with { StringSemantics = SemanticsOf(connection) } : this;
+
+    /// <summary>How the files of a model must be named (`model_layout`; the default checks that the path is the name, as before).</summary>
+    public ModelLayout Layout { get; init; } = ModelLayout.Folder;
 
     /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();

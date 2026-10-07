@@ -698,3 +698,10 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Review**: the profile is a checked declaration, not an imposed behavior (no DuckDB-side emulation, no rewrite of comparisons on an engine that cannot match); the options for making connections agree are in `DESIGN.md` 7.4 and `OPEN-ITEMS.md` M.
 - **Verified**: unit tests (merge, override of collations, the checks per connection, no DDB-310 when the connection says its own, the header, refusals of a bad value); real engines (the full-refresh note on a full model, both engines).
 - **Not built**: the emulation or rewrites above; a profile per folder.
+
+## 85. Model names out of the path: `model_layout`
+
+- **Built** (`DESIGN.md` 6.5.6; note `docs/research/model-naming.md`, which also records the options and the owner's reasons): a model's name is its definition's `name:`; `model_layout` (`folder` default, `dotted`, `object`, `none`) checks the file names against it; duplicate names are an error; `define` and `import` follow the layout for new files and the definition's own file for existing ones; mapped models carry their file (`SourceDescriptor.File`) into the graph and the metadata. Two notes were written down with this: `docs/research/string-semantics-across-engines.md` (the review of what the string profile guarantees and the ways to make connections agree) and the `--full-refresh` behavior in `DESIGN.md`.
+- **Verified**: unit tests (each layout, its refusal text, duplicates, an unknown value, `define` and `import` paths, the real file in the metadata). Not run on a real engine: nothing here touches one.
+- **Assumption to confirm**: the default is `folder` because every existing project is laid out that way; a project that does not want folders sets another layout.
+- **Not built**: the statement in the query file; a per-connection schema default.
