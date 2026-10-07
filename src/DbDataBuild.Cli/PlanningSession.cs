@@ -115,8 +115,14 @@ internal sealed class PlanningSession
         if (selected == null) return (null, CliApp.ExitUsage);
         foreach (var named in (operations ?? new Dictionary<string, string>()).Keys.Concat(backfills ?? new HashSet<string>()).Concat(fullRefresh ?? new HashSet<string>()))
             if (!ctx.Project.Sources.Any(m => m.Definition.Name == named)) { error.WriteLine($"`{named}` is not a model of this project."); return (null, CliApp.ExitUsage); }
-        foreach (var named in fullRefresh ?? new HashSet<string>())
-            if (ctx.Project.Sources.First(m => m.Definition.Name == named).Definition is not { IsCopy: true, Watermark: not null }) { error.WriteLine($"`{named}` is not an incremental copy (a copy with a `watermark`), so `--full-refresh` does nothing for it."); return (null, CliApp.ExitUsage); }
+        foreach (var named in (fullRefresh ?? new HashSet<string>()).Order(StringComparer.Ordinal))
+        {
+            var def = ctx.Project.Sources.First(m => m.Definition.Name == named).Definition;
+            if (def is { IsCopy: true, Watermark: not null }) continue;                                   // read from the start instead of from the newest value held
+            if (def.KindType is ModelKinds.IncrementalByUniqueKey or ModelKinds.IncrementalByTimeRange)
+            { error.WriteLine($"`{named}` is an incremental model: it is rebuilt from the start with a backfill (`--backfill {named}=<operation>`, an operation of its definition), not with `--full-refresh`."); return (null, CliApp.ExitUsage); }
+            output.WriteLine($"note: {named} is rebuilt in full by every load, so `--full-refresh` changes nothing for it.");
+        }
         // each model's query as this connection reads it (a name given by a parameter may be another on another connection)
         var mine = selected.Where(m => ctx.TargetsOf(m.Source.Definition).Contains(target)).Select(m => m with { Sql = m.Source.ReadQuery(root, ctx.Config, target) }).ToList();
         foreach (var skipped in selected.Except(mine)) output.WriteLine($"note: {skipped.Source.Definition.Name} does not declare target `{target}` and is not planned.");

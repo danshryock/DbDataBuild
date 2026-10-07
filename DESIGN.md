@@ -578,6 +578,19 @@ In DuckDB terms the default profile is `NOCASE` alone: it ignores case but stays
 
 A target whose configured collation cannot satisfy the project's declared profile is reported at `validate` time, before any connection is needed, and again in `check` against the live catalog.
 
+**Per connection (as built).** The profile above is the project's. A connection may say its own, over it: `connections.<name>.string_semantics` takes the same keys (`case`, `accent`, `trailing_space`, `collations`),
+and each field it leaves out is the project's (a collation entry replaces the project's for that logical name and engine). SQL Server ignores trailing spaces in `=` whatever the collation and PostgreSQL keeps them, so
+a project that builds on both cannot satisfy one `trailing_space`; it sets the project's value and overrides it on the connections of the other engine. The collation checks (`validate`, `check`) hold each connection to
+its own profile, DDL states each connection's collations, and every command header shows the overrides (`trailing_space=ignored (on postgres: ... trailing_space=significant)`).
+
+**What the profile does and does not guarantee (review, 2026-10-06).** Built: the declared profile, the collation checks (offline and against the live catalog), explicit collations in all generated DDL, the `LEN` rule on
+SQL Server, and the matrix rows (`str.eq`, `str.like.*`, `str.len`, ... are `approximated` on the engines). **Not built**, though the list below says "How the profile is applied": the DuckDB-side emulation of the target's
+semantics (`default_collation`, the `rtrim()` rewrite) for `sample` and `test`, and any rewrite of a comparison on an engine that cannot satisfy the profile natively. So the profile is a **declaration that is checked, not
+a behavior the tool imposes**: a comparison runs with the engine's own rules, and a model that runs on two connections with different profiles can return different rows for string comparisons. Ways to make connections
+agree, none built: (1) keep the data free of the difference (a data test that no value has trailing spaces; then `=` agrees), (2) rewrite comparisons on the engine that cannot match the profile (`rtrim()` both sides on
+PostgreSQL for `ignored`; a sentinel appended to both sides on SQL Server for `significant`; both lose index use), (3) the DuckDB-side emulation, so a sample run shows what the profile means. Which of these, and whether
+the lint should say where a model's result depends on the difference, is open (`OPEN-ITEMS.md` M).
+
 **How the profile is applied:**
 
 1. **Declared column collations.** `columns` entries in the model definition may specify `collation: <logical name>`; the default comes from the profile. Generated DDL always states collations explicitly, so objects never depend on a database default. The collation is part of `shape_hash`.

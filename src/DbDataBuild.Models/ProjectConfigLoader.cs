@@ -8,7 +8,7 @@ public static class ProjectConfigLoader
 {
     private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands"];
+    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands", "string_semantics"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -181,7 +181,7 @@ public static class ProjectConfigLoader
                     if (ac is YamlScalar { Value: "true" or "false" } acs) allowCommands = acs.Value == "true";
                     else Add(DiagnosticCatalog.InvalidValue, ac, "`allow_native_commands` is `true` or `false` (lowercase).");
                 }
-                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking, allowCommands);
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking, allowCommands, ReadSemanticsOverride(settings, name));
             }
             return result;
         }
@@ -241,6 +241,27 @@ public static class ProjectConfigLoader
                 if (read != null) collations = read;
             }
             return new StringSemantics(@case, accent, trailing, collations);
+        }
+
+        /// <summary>A connection's own `string_semantics`: only what it says. The line numbers kept for the project's setting are left as they were.</summary>
+        private StringSemanticsOverride? ReadSemanticsOverride(YamlMapping settings, string connection)
+        {
+            if (settings.Get("string_semantics") is not { } node) return null;
+            if (node is not YamlMapping m) { Add(DiagnosticCatalog.InvalidValue, node, $"`connections.{connection}.string_semantics` must be a mapping."); return null; }
+            CheckKeys(m, SemanticsKeys, $"`connections.{connection}.string_semantics`");
+            T? Option<T>(string key) where T : struct, System.Enum
+            {
+                if (m.Get(key) is not { } n) return null;
+                var names = System.Enum.GetNames<T>().Select(x => x.ToLowerInvariant()).ToList();
+                if (n is YamlScalar s && names.Contains(s.Value) && System.Enum.TryParse<T>(s.Value, ignoreCase: true, out var v)) return v;
+                Add(DiagnosticCatalog.InvalidValue, n, $"`{key}` is {(n is YamlScalar sc ? $"`{sc.Value}`" : "not a string")}.", $"One of: {string.Join(", ", names)}.");
+                return null;
+            }
+            var saved = lines.Where(kv => kv.Key.StartsWith("string_semantics", StringComparison.Ordinal)).ToList();      // ReadCollations records where the project's collations were written
+            var collations = m.Get("collations") is { } cn ? ReadCollations(cn) : null;
+            foreach (var key in lines.Keys.Where(k => k.StartsWith("string_semantics", StringComparison.Ordinal)).ToList()) lines.Remove(key);
+            foreach (var (k, v) in saved) lines[k] = v;
+            return new StringSemanticsOverride(Option<CaseSensitivity>("case"), Option<AccentSensitivity>("accent"), Option<TrailingSpace>("trailing_space"), collations?.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal));
         }
 
         private T Enum<T>(YamlMapping m, string key, T fallback) where T : struct, System.Enum

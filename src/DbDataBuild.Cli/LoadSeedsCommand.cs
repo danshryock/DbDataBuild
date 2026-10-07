@@ -50,7 +50,7 @@ internal static class LoadSeedsCommand
         var seeds = SeedLoader.Load(root);
         if (seeds.Seeds.Count == 0) { error.WriteLine($"The project has no seeds: put a DuckDB query per source in {SeedLoader.Directory}/<schema>/<table>.sql."); return CliApp.ExitUsage; }
 
-        var ddl = TargetRegistry.Get(engine).CreateDdl(config);
+        var ddl = TargetRegistry.Get(engine).CreateDdl(config.ForConnection(target));
         SeededData data;
         try { data = SeededData.Run(ctx.Project.Descriptors, seeds, seed, scale); }
         catch (SampleException ex) { error.WriteLine(ex.Message); return CliApp.ExitFindings; }

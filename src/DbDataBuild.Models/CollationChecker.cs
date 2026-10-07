@@ -81,13 +81,16 @@ public static class CollationChecker
         var cfgFile = ProductInfo.ConfigFile;
         int Line(string key) => config.Lines.TryGetValue(key, out var l) ? l : 0;
 
-        // Engines in play: every model's targets (or the project defaults) plus DuckDB, which runs the offline emulation.
-        // The project's default connections count only when a model relies on them, or when there are no models yet.
-        var engines = sources.SelectMany(s => s.Definition.Targets ?? config.DefaultConnections).Concat(sources.Count == 0 ? config.DefaultConnections : [])
-            .Select(c => config.EngineOf(c) ?? c).Distinct().OrderBy(e => e, StringComparer.Ordinal).Append(CollationTraitsParser.DuckDb).ToList();
+        // Connections in play: every model's connections (or the project defaults) plus DuckDB, which runs the offline emulation. The project's default connections count only when a model relies on them,
+        // or when there are no models yet. Each connection is held to its own profile (the project's, with what the connection says over it); DuckDB to the project's.
+        var used = sources.SelectMany(s => s.Definition.Targets ?? config.DefaultConnections).Concat(sources.Count == 0 ? config.DefaultConnections : [])
+            .Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToList();
+        var checks = used.Select(c => (Connection: (string?)c, Engine: config.EngineOf(c) ?? c, Semantics: config.SemanticsOf(c))).ToList();
+        checks.Add((null, CollationTraitsParser.DuckDb, config.StringSemantics));
         var collations = config.StringSemantics.Collations;
+        var engines = checks.Select(c => c.Engine).Distinct().OrderBy(e => e, StringComparer.Ordinal).ToList();
 
-        if (!collations.TryGetValue(DefaultLogicalName, out var defaults))
+        if (!collations.ContainsKey(DefaultLogicalName) && checks.Any(c => !c.Semantics.Collations.ContainsKey(DefaultLogicalName)))
         {
             diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, new(cfgFile, Line("string_semantics.collations"), 1),
                 $"`string_semantics.collations` has no `{DefaultLogicalName}` entry, which is the project default collation.",
@@ -95,38 +98,42 @@ public static class CollationChecker
             return diags;
         }
 
-        foreach (var engine in engines)
+        foreach (var (connection, engine, semantics) in checks)
         {
-            if (!defaults.TryGetValue(engine, out var name))
+            var own = connection != null && config.Connections.TryGetValue(connection, out var cc) && cc.Semantics != null;
+            var where = own ? $" (the connection `{connection}`)" : "";
+            var at = own ? config.Connections[connection!].Line : Line($"string_semantics.collations.{DefaultLogicalName}.{engine}");
+            if (!semantics.Collations.TryGetValue(DefaultLogicalName, out var defaults) || !defaults.TryGetValue(engine, out var name))
             {
-                diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, new(cfgFile, Line($"string_semantics.collations.{DefaultLogicalName}"), 1),
-                    $"No default collation is configured for `{engine}`, which this project uses.",
-                    Fix: $"Add `{engine}: <collation>` under `string_semantics.collations.{DefaultLogicalName}`."));
+                diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, new(cfgFile, at == 0 ? Line("string_semantics.collations") : at, 1),
+                    $"No default collation is configured for `{engine}`{where}, which this project uses.",
+                    Fix: $"Add `{engine}: <collation>` under `string_semantics.collations.{DefaultLogicalName}`{(own ? $" (or under `connections.{connection}.string_semantics`)" : "")}."));
                 continue;
             }
-            diags.AddRange(CheckProfile(config, engine, name, new SourceLocation(cfgFile, Line($"string_semantics.collations.{DefaultLogicalName}.{engine}"), 1)));
+            diags.AddRange(CheckProfile(config with { StringSemantics = semantics }, engine, name, new SourceLocation(cfgFile, at, 1)).Select(d => own ? d with { Found = $"{d.Found} (the connection `{connection}`)" } : d));
         }
 
         foreach (var source in sources)
         {
-            var modelEngines = (source.Definition.Targets ?? config.DefaultConnections).Select(c => config.EngineOf(c) ?? c).Append(CollationTraitsParser.DuckDb).Distinct().ToList();
+            var modelConnections = (source.Definition.Targets ?? config.DefaultConnections).Select(c => (Connection: (string?)c, Engine: config.EngineOf(c) ?? c, Semantics: config.SemanticsOf(c))).Append((null, CollationTraitsParser.DuckDb, config.StringSemantics)).ToList();
             foreach (var column in source.Definition.Columns.Where(c => c.Collation != null))
             {
                 var loc = new SourceLocation(source.DefinitionFile, column.CollationLine, 1);
-                if (!collations.TryGetValue(column.Collation!, out var perEngine))
+                if (!collations.ContainsKey(column.Collation!) && !modelConnections.All(c => c.Semantics.Collations.ContainsKey(column.Collation!)))
                 {
                     diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, loc,
                         $"Column `{column.Name}` uses collation `{column.Collation}`, which is not defined under `string_semantics.collations`.",
                         Fix: $"Define `{column.Collation}` under `string_semantics.collations` in {cfgFile}, or use `{DefaultLogicalName}`."));
                     continue;
                 }
-                foreach (var engine in modelEngines.Where(e => !perEngine.ContainsKey(e)))
-                    diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, loc,
-                        $"Column `{column.Name}` uses collation `{column.Collation}`, which has no entry for `{engine}`.",
-                        Fix: $"Add `{engine}: <collation>` under `string_semantics.collations.{column.Collation}`."));
+                foreach (var (connection, engine, semantics) in modelConnections)
+                    if (!semantics.Collations.TryGetValue(column.Collation!, out var perEngine) || !perEngine.ContainsKey(engine))
+                        diags.Add(new Diagnostic(DiagnosticCatalog.CollationNotConfigured, loc,
+                            $"Column `{column.Name}` uses collation `{column.Collation}`, which has no entry for `{engine}`{(connection != null && semantics != config.StringSemantics ? $" (the connection `{connection}`)" : "")}.",
+                            Fix: $"Add `{engine}: <collation>` under `string_semantics.collations.{column.Collation}`."));
             }
         }
-        return diags;
+        return diags.DistinctBy(d => (d.Code, d.Location, d.Found)).ToList();
     }
 
     /// <summary>

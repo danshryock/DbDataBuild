@@ -327,7 +327,7 @@ public partial class CopyConformanceTests
             Assert.DoesNotContain("@watermark", File.ReadAllText(refreshFile));
             Ok(pair.Cli("apply", refreshFile), "full-refresh apply");
             Assert.Equal(["1|one, edited", "2|two", "3|three, edited", "4|four"], await Dest());
-            Assert.NotEqual(0, pair.Cli("plan", "--connection", destination, "--full-refresh", "src.events").Exit);       // not a model of the project that copies
+            Assert.NotEqual(0, pair.Cli("plan", "--connection", destination, "--full-refresh", "no.such_model").Exit);    // not a model of the project
 
             // `report` says which origin copied well last
             var report = pair.Cli("report", "--connection", destination);

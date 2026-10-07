@@ -17,6 +17,9 @@ public sealed record StringSemantics(
         $"case={Case.ToString().ToLowerInvariant()}, accent={Accent.ToString().ToLowerInvariant()}, trailing_space={TrailingSpace.ToString().ToLowerInvariant()}";
 }
 
+/// <summary>What a connection says about string comparison instead of the project (`connections.<name>.string_semantics`): each field it leaves out is the project's, and a collation entry replaces the project's for that logical name and engine.</summary>
+public sealed record StringSemanticsOverride(CaseSensitivity? Case, AccentSensitivity? Accent, TrailingSpace? TrailingSpace, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Collations);
+
 /// <summary>Policy keys: the linter findings whose severity a project may change.</summary>
 public static class PolicyKeys
 {
@@ -33,7 +36,7 @@ public static class PolicyKeys
 /// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
 /// </summary>
 /// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
-public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null, ConnectionTracking? Tracking = null, bool AllowNativeCommands = false)
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null, ConnectionTracking? Tracking = null, bool AllowNativeCommands = false, StringSemanticsOverride? Semantics = null)
 {
     /// <summary>The values this connection carries (`parameters:`): what differs between connections of one application, such as a store id. Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from it.</summary>
     public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();
@@ -76,6 +79,26 @@ public sealed record ProjectConfig(
     bool LintSlices = true,
     RewriteSettings? Rewrites = null)
 {
+    /// <summary>
+    /// How strings compare on one connection: the project's `string_semantics`, with what the connection's own `string_semantics` says laid over it (a field it leaves out is the project's; a collation entry
+    /// replaces the project's for that logical name and engine). SQL Server ignores trailing spaces in a comparison and PostgreSQL keeps them, so a project that uses both says so per connection.
+    /// </summary>
+    public StringSemantics SemanticsOf(string connection)
+    {
+        if (!Connections.TryGetValue(connection, out var c) || c.Semantics is not { } o) return StringSemantics;
+        var collations = StringSemantics.Collations.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(kv.Value), StringComparer.Ordinal);
+        foreach (var (logical, engines) in o.Collations ?? new Dictionary<string, IReadOnlyDictionary<string, string>>())
+        {
+            var merged = collations.TryGetValue(logical, out var existing) ? new Dictionary<string, string>(existing) : new Dictionary<string, string>();
+            foreach (var (engine, name) in engines) merged[engine] = name;
+            collations[logical] = merged;
+        }
+        return new StringSemantics(o.Case ?? StringSemantics.Case, o.Accent ?? StringSemantics.Accent, o.TrailingSpace ?? StringSemantics.TrailingSpace, collations);
+    }
+
+    /// <summary>This configuration as one connection sees it: the same, with that connection's string semantics (what DDL and the collation checks read).</summary>
+    public ProjectConfig ForConnection(string connection) => Connections.TryGetValue(connection, out var c) && c.Semantics != null ? this with { StringSemantics = SemanticsOf(connection) } : this;
+
     /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();
 
@@ -139,7 +162,8 @@ public sealed record ProjectConfig(
         });
 
     public string Describe() =>
-        $"default connections: {string.Join(", ", DefaultConnections)}; string semantics: {StringSemantics.Describe()}; " +
+        $"default connections: {string.Join(", ", DefaultConnections)}; string semantics: {StringSemantics.Describe()}" +
+        string.Concat(Connections.Where(c => c.Value.Semantics != null).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $" (on {c.Key}: {SemanticsOf(c.Key).Describe()})")) + "; " +
         $"target versions: {(TargetVersions.Count == 0 ? "not set" : string.Join(", ", TargetVersions.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} {v.Value}")))}" +
         (Connections.Any(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key)
             ? $"; connections: {string.Join(", ", Connections.Where(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} ({c.Value.Engine})"))}" : "");

@@ -157,7 +157,7 @@ internal static class MetadataBuilder
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var ddls = targets.ToDictionary(t => t, t => TargetRegistry.Get(ctx.Config.EngineOf(t) ?? t).CreateDdl(ctx.Config));      // the DDL is the engine's; the keys are the model's connections
+        var ddls = targets.ToDictionary(t => t, t => TargetRegistry.Get(ctx.Config.EngineOf(t) ?? t).CreateDdl(ctx.Config.ForConnection(t)));      // the DDL is the engine's; the keys are the model's connections
         object Native(ColumnDefinition c) => targets.ToDictionary(t => t, t =>
         {
             try { var n = ddls[t].Map(def.Name, c); return (object)new { type = n.Declaration, collation = n.Collation }; }

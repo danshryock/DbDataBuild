@@ -103,7 +103,7 @@ public static class Planner
         var schemasCreated = new HashSet<string>(StringComparer.Ordinal);
 
         var target = TargetRegistry.Get(input.Engine);
-        var ddl = target.CreateDdl(input.Config);
+        var ddl = target.CreateDdl(input.Config.ForConnection(input.Target));
         var order = ModelOrder.Sort(input.Models, out var cycle);
         if (cycle != null)
             blocks.Add(new Diagnostic(DiagnosticCatalog.ModelCycle, new(cycle[0], 0, 0), $"The models depend on each other in a cycle: {string.Join(" -> ", cycle)}."));
@@ -581,7 +581,7 @@ public static class Planner
         var (stagingSchema, stagingTable) = (CopyModels.StagingSchema(c.Input.Config), CopyModels.StagingTable(def.Name));
         // the staging table lives in the tracking schema's name, which a connection that is not tracked itself (central tracking) may not have yet
         var create = c.Ddl.CreateSchema(stagingSchema) + "\n" + c.Ddl.DropTableIfExists(stagingSchema, stagingTable) + "\n" + c.Ddl.CreateTable(stagingSchema, stagingTable, c.Ddl.MapAll(def));
-        var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config);
+        var originDdl = TargetRegistry.Get(origin.Engine).CreateDdl(c.Input.Config.ForConnection(origin.Connection));
         var (originSchema, originName) = DdlGenerator.Split(origin.Table);
         // a column the copy adds (its slice, when the origin has none) is not read: the value is written into every row
         // a native origin is read as its own text (a derived table, with its parameters bound): the engine computes the rows

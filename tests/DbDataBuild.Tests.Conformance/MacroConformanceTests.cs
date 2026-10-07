@@ -72,6 +72,9 @@ public class MacroConformanceTests
             var plan = Cli("plan", "--connection", name);
             Ok(plan, "plan");
             Ok(Cli("apply", PlanOf(plan.Out)), "apply");
+            var refresh = Cli("plan", "--connection", name, "--full-refresh", "marts.snap_totals");           // a model every load of which rebuilds it in full: nothing to refresh, and no reason to refuse
+            Ok(refresh, "plan --full-refresh of a full model");
+            Assert.Contains("rebuilt in full by every load", refresh.Out);
 
             // the snapshot: the rows DuckDB gives for the same query (the sums per snapshot date and status)
             Assert.Equal(["2026-01-01|open|15.00", "2026-02-01|open|6.00", "2026-02-01|shipped|12.00"],

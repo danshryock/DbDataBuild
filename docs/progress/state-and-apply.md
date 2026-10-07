@@ -691,3 +691,10 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: unit tests (lineage); real engines both ways (`--full-refresh` reads a row the watermark would skip; `report` names the origin; a copy of a built model is checked: not built yet, built, then changed outside the tool; the upgrade of a layout 3 simulated from the current one on SQL Server and PostgreSQL, rows kept and the new key in force, repeatable).
 - **Found**: DDB-310 cannot be satisfied by a project that builds on SQL Server and PostgreSQL together (`OPEN-ITEMS.md` M): needs a decision.
 - **Not built**: see `OPEN-ITEMS.md` M.
+
+## 84. String semantics per connection, and `--full-refresh` on any model
+
+- **Built** (`DESIGN.md` 7.4): `connections.<name>.string_semantics` (the same keys as the project's; a field left out is the project's; a collation entry replaces the project's for that logical name and engine). The collation checks, the DDL (planner, origin DDL, metadata, seeds) and `check` use `ProjectConfig.ForConnection`; the header shows the overrides. A project that builds on SQL Server and PostgreSQL together sets the project's `trailing_space` and overrides it on the other engine's connections. `plan --full-refresh <model>` is accepted for any model of the project: an incremental copy is read from the start, a model every load of which rebuilds it in full gets a note (nothing to refresh), and an incremental model is pointed at `--backfill`.
+- **Review**: the profile is a checked declaration, not an imposed behavior (no DuckDB-side emulation, no rewrite of comparisons on an engine that cannot match); the options for making connections agree are in `DESIGN.md` 7.4 and `OPEN-ITEMS.md` M.
+- **Verified**: unit tests (merge, override of collations, the checks per connection, no DDB-310 when the connection says its own, the header, refusals of a bad value); real engines (the full-refresh note on a full model, both engines).
+- **Not built**: the emulation or rewrites above; a profile per folder.
