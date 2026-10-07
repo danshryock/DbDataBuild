@@ -126,6 +126,7 @@ internal static class DiffCommand
         {
             compared = o.RowsCompared, only_left = o.OnlyLeft, only_right = o.OnlyRight, matched = o.Matched, differing = o.Differing,
             differing_by_column = others.Where(c => o.DifferingByColumn.GetValueOrDefault(c.Name) > 0).ToDictionary(c => c.Name, c => o.DifferingByColumn[c.Name]),
+            partial = o.Partial == null ? null : new { buckets_differing = o.Partial.BucketsDiffering, buckets = o.Partial.Buckets, rows_in_differing_buckets = o.Partial.RowsInDifferingBuckets, columns_differing = o.Partial.ColumnsDiffering },
         });
         output.Payload("column_stats", o.Stats.Select(s => new { column = s.Column, left_non_null = s.LeftNonNull, right_non_null = s.RightNonNull, left_min = s.LeftMin, left_max = s.LeftMax, right_min = s.RightMin, right_max = s.RightMax }).ToList());
         output.Payload("samples", showValues ? new
@@ -151,6 +152,16 @@ internal static class DiffCommand
         if (!o.RowsCompared)
         {
             output.WriteLine($"Rows were not compared: the key {string.Join(", ", p.Key)} is not unique ({o.LeftDuplicateKeys} duplicated key(s) on the left, {o.RightDuplicateKeys} on the right). Choose columns that identify one row with --key.");
+            return;
+        }
+        if (o.Partial is { } part)
+        {
+            output.WriteLine("Rows");
+            output.WriteLine($"  The tables differ in {part.BucketsDiffering} of {part.Buckets} buckets of the key, which hold {part.RowsInDifferingBuckets:N0} rows. Listing them row by row would need more than {CrossDiffer.MaxDrillRows:N0} rows' digests in memory, so the comparison stops here.");
+            output.WriteLine($"  Columns whose values differ: {(part.ColumnsDiffering.Count == 0 ? "none (the rows differ only by their keys)" : string.Join(", ", part.ColumnsDiffering))}.");
+            output.WriteLine("  Compare fewer columns (--columns a,b) or leave the differing ones out (--exclude-columns) to see the rows that differ in the others.");
+            output.WriteLine();
+            output.WriteLine("The tables differ.");
             return;
         }
         output.WriteLine("Rows");

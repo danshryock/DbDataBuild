@@ -110,4 +110,49 @@ public class CrossDiffConformanceTests
         }
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
+
+    [SkippableFact]
+    public async Task When_too_many_rows_differ_to_list_the_result_stops_at_the_buckets_and_names_the_columns()
+    {
+        var left = EngineEnv.Require("sqlserver");
+        var right = EngineEnv.Require("postgres");
+        await left.StartAsync();
+        await right.StartAsync();
+        await using var _l = left; await using var _r = right;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-xdiff-partial-" + Guid.NewGuid().ToString("N"));
+        var saved = CrossDiffer.MaxDrillRows;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "models/xd"));
+            File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\ntracking: { connection: sqlserver }\n");
+            File.WriteAllText(Path.Combine(dir, "models/xd/t.yml"), "name: xd.t\nkind: {type: mapped}\nconnections=: [sqlserver, postgres]\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n");
+            await left.ExecAsync("EXEC('CREATE SCHEMA xd')");
+            await left.ExecAsync("CREATE TABLE xd.t (id BIGINT NOT NULL, a INT, code NVARCHAR(20))");
+            await left.ExecAsync("INSERT INTO xd.t SELECT TOP (5000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 1, N'same' FROM sys.all_objects a CROSS JOIN sys.all_objects b");
+            await right.ExecAsync("CREATE SCHEMA xd");
+            await right.ExecAsync("CREATE TABLE xd.t (id BIGINT NOT NULL, a INT, code VARCHAR(20))");
+            await right.ExecAsync("INSERT INTO xd.t SELECT g, 2, 'same' FROM generate_series(1, 5000) g");         // every row differs in `a`
+            Func<string, string?> env = v => v == LoginSettings.VariableName("sqlserver", Login.Read) ? left.ConnectionString : v == LoginSettings.VariableName("postgres", Login.Read) ? right.ConnectionString : null;
+            (int Exit, string Out) Run(params string[] extra)
+            {
+                var o = new StringWriter(); var e = new StringWriter();
+                var exit = CliApp.Run(["diff", "xd.t", "--project", dir, "--connection", "sqlserver", "--against-connection", "postgres", "--format", "json", .. extra], o, e, environment: env);
+                return (exit, o.ToString());
+            }
+            CrossDiffer.MaxDrillRows = 1000;
+            var partial = Run();
+            Assert.Equal(1, partial.Exit);
+            var rows = JsonNode.Parse(partial.Out)!["data"]!["rows"]!;
+            Assert.Equal(["a"], rows["partial"]!["columns_differing"]!.AsArray().Select(x => (string)x!));
+            Assert.Equal(5000, (long)rows["partial"]!["rows_in_differing_buckets"]!);
+            Assert.True((int)rows["partial"]!["buckets_differing"]! > 0);
+            Assert.False((bool)JsonNode.Parse(partial.Out)!["data"]!["identical"]!);
+
+            // leaving the differing column out compares the rest, row by row
+            var narrowed = Run("--exclude-columns", "a");
+            Assert.Equal(0, narrowed.Exit);
+            Assert.Null(JsonNode.Parse(narrowed.Out)!["data"]!["rows"]!["partial"]);
+        }
+        finally { CrossDiffer.MaxDrillRows = saved; if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
 }

@@ -13,6 +13,9 @@ public static class CrossDiffer
 {
     private const int BucketDrillLimit = 160;       // when more buckets than this differ, the rows of every bucket are fetched in one pass
 
+    /// <summary>The most rows (of the larger side) whose digests are fetched to be compared one by one: about 200 MB. More than this and the result stops at the buckets (<see cref="PartialDiff"/>).</summary>
+    public static long MaxDrillRows { get; internal set; } = 1_000_000;
+
     /// <summary>The kind of a column for the canonical form, with the decimal scale the two sides agree on (<c>Scale</c>), or why the column cannot be compared.</summary>
     internal sealed record Kinded(string Kind, int Scale, int IntegerDigits, bool Padded, string? Reason);
 
@@ -228,6 +231,15 @@ public static class CrossDiffer
         }
         var (lb, rb) = await Both(Buckets(left, true), Buckets(right, false));
         var differing = lb.Keys.Union(rb.Keys).Where(b => !(lb.TryGetValue(b, out var x) && rb.TryGetValue(b, out var y) && x.SequenceEqual(y))).Order(StringComparer.Ordinal).ToList();
+
+        // so many differences that fetching every row would take more memory than a comparison should: the buckets say which columns differ, and a narrower comparison (--columns) can go further
+        var rowsToFetch = differing.Sum(b => Math.Max(lb.TryGetValue(b, out var x) ? x[0] : 0, rb.TryGetValue(b, out var y) ? y[0] : 0));
+        if (rowsToFetch > MaxDrillRows)
+        {
+            var columns = Enumerable.Range(0, n).Where(i => differing.Any(b => (lb.TryGetValue(b, out var x) ? x[i + 1] : 0) != (rb.TryGetValue(b, out var y) ? y[i + 1] : 0))).Select(i => p.Compared[i].Name).ToList();
+            var allBuckets = lb.Keys.Union(rb.Keys).Count();
+            return new DiffOutcome(leftRows, rightRows, 0, 0, 0, 0, 0, 0, new Dictionary<string, long>(), [], true, [], [], []) { Partial = new PartialDiff(differing.Count, allBuckets, rowsToFetch, columns) };
+        }
 
         // level two: the digests of each row of the buckets that differ
         var which = differing.Count == 0 ? null : differing.Count > BucketDrillLimit ? null : differing;

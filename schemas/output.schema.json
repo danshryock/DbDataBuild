@@ -2994,6 +2994,37 @@
               "additionalProperties": {
                 "type": "integer"
               }
+            },
+            "partial": {
+              "description": "Across connections only: so many rows differ that the comparison stopped at the buckets of the key. The counts above are then not known; this says how many buckets differ, how many rows they hold and which columns differ.",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "buckets_differing": {
+                  "type": "integer"
+                },
+                "buckets": {
+                  "type": "integer"
+                },
+                "rows_in_differing_buckets": {
+                  "type": "integer"
+                },
+                "columns_differing": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "buckets_differing",
+                "buckets",
+                "rows_in_differing_buckets",
+                "columns_differing"
+              ]
             }
           },
           "required": [

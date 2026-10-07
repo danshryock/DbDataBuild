@@ -23,13 +23,21 @@ public sealed record ColumnStats(string Column, long LeftNonNull, long RightNonN
 public sealed record DiffSample(IReadOnlyDictionary<string, string?> Key, IReadOnlyDictionary<string, string?> Values);
 public sealed record DifferingSample(IReadOnlyDictionary<string, string?> Key, IReadOnlyDictionary<string, (string? Left, string? Right)> Columns);
 
+/// <summary>
+/// A comparison across connections that stopped at the buckets: so many rows differ that listing them would take more memory than the command allows (<see cref="CrossDiffer"/>). The row counts of
+/// <see cref="DiffOutcome"/> are then not known; what is known is how many buckets of the key differ and in which columns.
+/// </summary>
+public sealed record PartialDiff(int BucketsDiffering, int Buckets, long RowsInDifferingBuckets, IReadOnlyList<string> ColumnsDiffering);
+
 public sealed record DiffOutcome(
     long LeftRows, long RightRows, long LeftDuplicateKeys, long RightDuplicateKeys,
     long OnlyLeft, long OnlyRight, long Matched, long Differing, IReadOnlyDictionary<string, long> DifferingByColumn,
     IReadOnlyList<ColumnStats> Stats, bool RowsCompared,
     IReadOnlyList<DiffSample> OnlyLeftSamples, IReadOnlyList<DiffSample> OnlyRightSamples, IReadOnlyList<DifferingSample> DifferingSamples)
 {
-    public bool Identical => RowsCompared && OnlyLeft == 0 && OnlyRight == 0 && Differing == 0 && LeftRows == RightRows;
+    public PartialDiff? Partial { get; init; }
+
+    public bool Identical => RowsCompared && Partial == null && OnlyLeft == 0 && OnlyRight == 0 && Differing == 0 && LeftRows == RightRows;
 }
 
 /// <summary>
