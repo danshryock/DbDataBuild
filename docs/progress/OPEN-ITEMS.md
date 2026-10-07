@@ -45,6 +45,10 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1783, real-engine 
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
 - **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Seeded mutation also covers hook scripts, macro files, native query text and its definition, metadata and model test files and a query file's head (entry 94). Not covered: fuzzing the interactive answer flow and the resolver query results.
 
+## D0. Housekeeping the tool does not do
+
+- **Plan files and statement logs from a scheduled `run` pile up** (about 2.3 MB for a run of 100 loads, entry 118). The tool deletes nothing; `docs/operations.md` section 4 says how to prune them. Open for the owner: a retention setting (`run` keeping the newest N plans, and a log age), or writing the plans of `run` somewhere that is not the project tree.
+
 ## D. Documentation debt
 
 - DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.

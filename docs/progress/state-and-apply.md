@@ -891,3 +891,8 @@ Operator decision: correlated subqueries are a hard requirement.
 
 - **Changed** (`HistoryReader`): after the plans that hold a history answer are read (entry 115), the `schema_version` and `operation_interval` reads are limited to the models those answers name (up to 1,000, as parameters), and nothing more is read when there are none. A connection's `operation_interval` has a row per range of every load, and `plan` reads the history on every run (entry 100), so the read grew with the connection's age for models that never had a column added. What the history report and DDB-240 say does not change.
 - **Verified**: the history, `run` and JSON-command tests on both engines pass; the full non-release conformance run (167 run, 5 skipped) passed before this change and these tests after it.
+
+## 118. What a scheduled `run` leaves on disk
+
+- **Measured** (the 300-model PostgreSQL project, a run of 100 loads): a plan file 170 KB, its report 74 KB, a statement log about 2 MB. A job every 15 minutes leaves hundreds of megabytes a month; nothing prunes them (the plan is also kept in `migration_log`).
+- **Done**: `docs/operations.md` section 4 says so and gives a `find ... -delete` line; `OPEN-ITEMS.md` section D0 lists a retention setting as a decision for the owner. No behaviour changed.

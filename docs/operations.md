@@ -53,6 +53,8 @@ dbdatabuild run --project D:\etl\project --connection sqlserver --format json > 
 
 Make the working directory or `--project` a checkout of the repository: the tool reads the committed `rendered/` files and records the git commit with each plan.
 
+**Housekeeping.** Every `run` writes a plan (`plans/<connection>/<id>.plan.yml` and `.plan.md`) and every `apply` a statement log (`.dbdatabuild/statement-log/`). Measured for a run of 100 loads: about 170 KB of plan, 70 KB of report and 2 MB of log. A job that runs every 15 minutes therefore leaves a few hundred megabytes a month; the plan of each apply is also kept in the tracking tables (`migration_log`), so the files are copies. The tool deletes none of them: prune them from the scheduler (for example `find plans .dbdatabuild/statement-log -mtime +30 -type f -delete`), and keep both out of version control.
+
 Only one `apply` or `run` can work on a target at a time: the tool takes an application lock (`sp_getapplock` on SQL Server, an advisory lock on PostgreSQL). A second run exits with a finding that says the lock is held; it does not wait. If a job overlaps its own previous run, that is the reason.
 
 ## 5. When something fails
