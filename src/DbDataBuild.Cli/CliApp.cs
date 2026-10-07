@@ -14,7 +14,7 @@ public static class CliApp
     /// <param name="interactive">Whether a person is there to answer questions (a terminal). Commands that ask refuse to run without one unless they are given everything.</param>
     /// <param name="environment">Where logins are read from (connection strings in environment variables). Defaults to the process environment.</param>
     public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
-        Guarded(args, error, () => { DbDataBuild.Execution.DriverSettings.Apply(); return Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error }); }, output);
+        Guarded(args, error, () => { DbDataBuild.Execution.DriverSettings.Apply(); return Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error, EnableDefaultExceptionHandler = false }); }, output);
 
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body, TextWriter? output = null)

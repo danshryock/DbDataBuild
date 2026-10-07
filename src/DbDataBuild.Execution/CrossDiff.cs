@@ -211,10 +211,9 @@ public static class CrossDiffer
         var rightEngine = right.Engine;
         async Task<long> Scalar(ReadSession s, string sql) => L((await s.QueryAsync(sql, null, ct)).Single()[0]);
 
-        var leftRows = await Scalar(left, $"SELECT COUNT(*) FROM {Table(p.Target, p.Left)}");
-        var rightRows = await Scalar(right, $"SELECT COUNT(*) FROM {Table(rightEngine, p.Right)}");
-        var dupLeft = await Scalar(left, DuplicateSql(p, rightEngine, true));
-        var dupRight = await Scalar(right, DuplicateSql(p, rightEngine, false));
+        // the two sides are different servers: each step asks both at once
+        var (leftRows, rightRows) = await Both(Scalar(left, $"SELECT COUNT(*) FROM {Table(p.Target, p.Left)}"), Scalar(right, $"SELECT COUNT(*) FROM {Table(rightEngine, p.Right)}"));
+        var (dupLeft, dupRight) = await Both(Scalar(left, DuplicateSql(p, rightEngine, true)), Scalar(right, DuplicateSql(p, rightEngine, false)));
         if (dupLeft > 0 || dupRight > 0)
             return new DiffOutcome(leftRows, rightRows, dupLeft, dupRight, 0, 0, 0, 0, new Dictionary<string, long>(), [], false, [], [], []);
 
@@ -227,8 +226,7 @@ public static class CrossDiffer
                 map[Convert.ToString(row[0], CultureInfo.InvariantCulture)!] = row.Skip(1).Select(L).ToArray();
             return map;
         }
-        var lb = await Buckets(left, true);
-        var rb = await Buckets(right, false);
+        var (lb, rb) = await Both(Buckets(left, true), Buckets(right, false));
         var differing = lb.Keys.Union(rb.Keys).Where(b => !(lb.TryGetValue(b, out var x) && rb.TryGetValue(b, out var y) && x.SequenceEqual(y))).Order(StringComparer.Ordinal).ToList();
 
         // level two: the digests of each row of the buckets that differ
@@ -241,8 +239,7 @@ public static class CrossDiffer
                 map[Convert.ToString(row[0], CultureInfo.InvariantCulture)!] = row.Skip(1).Select(v => Convert.ToString(v, CultureInfo.InvariantCulture)).ToArray();
             return map;
         }
-        var lr = await Rows(left, true);
-        var rr = await Rows(right, false);
+        var (lr, rr) = await Both(Rows(left, true), Rows(right, false));
 
         var onlyLeftKeys = lr.Keys.Where(k => !rr.ContainsKey(k)).Order(StringComparer.Ordinal).ToList();
         var onlyRightKeys = rr.Keys.Where(k => !lr.ContainsKey(k)).Order(StringComparer.Ordinal).ToList();
@@ -277,8 +274,7 @@ public static class CrossDiffer
                     map[Convert.ToString(row[0], CultureInfo.InvariantCulture)!] = row.Skip(1).Select(v => Cell(v)).ToArray();
                 return map;
             }
-            var lv = await Values(left, true, leftWant);
-            var rv = await Values(right, false, rightWant);
+            var (lv, rv) = await Both(Values(left, true, leftWant), Values(right, false, rightWant));
             DiffSample Sample(string?[] row)
             {
                 var all = p.Compared.Select((c, i) => (c.Name, Value: row[i])).ToList();
@@ -289,7 +285,7 @@ public static class CrossDiffer
             foreach (var k in differingKeys.Take(limit))
             {
                 if (!lv.TryGetValue(k, out var a) || !rv.TryGetValue(k, out var b)) continue;
-                var key = p.Key.ToDictionary(x => x, x => a[IndexOf(p, x)]);
+                var key = p.Key.ToDictionary(x => x, string? (x) => a[IndexOf(p, x)]);
                 var cols = new Dictionary<string, (string?, string?)>();
                 for (var i = 0; i < n; i++) if (a[i] != b[i] && !p.Key.Contains(p.Compared[i].Name, StringComparer.OrdinalIgnoreCase)) cols[p.Compared[i].Name] = (a[i], b[i]);
                 diffSamples.Add(new DifferingSample(key, cols));
@@ -297,6 +293,8 @@ public static class CrossDiffer
         }
         return new DiffOutcome(leftRows, rightRows, 0, 0, onlyLeftKeys.Count, onlyRightKeys.Count, matched, differingKeys.Count, byColumn, [], true, leftSamples, rightSamples, diffSamples);
     }
+
+    private static async Task<(T, U)> Both<T, U>(Task<T> a, Task<U> b) { await Task.WhenAll(a, b); return (a.Result, b.Result); }
 
     private static int IndexOf(DiffPlan p, string name) => p.Compared.Select((c, i) => (c, i)).First(x => string.Equals(x.c.Name, name, StringComparison.OrdinalIgnoreCase)).i;
 

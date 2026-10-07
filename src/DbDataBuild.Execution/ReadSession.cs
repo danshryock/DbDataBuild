@@ -23,11 +23,15 @@ public sealed class ReadSession : IAsyncDisposable
 
     internal static ReadSession ForTesting(DbConnection connection, string engine = "sqlserver") => new(connection, engine);
 
+    /// <summary>Seconds a query of <see cref="QueryAsync"/> may run before the driver gives up (the driver's own default, 30, when null; 0 is no limit). A comparison of two large tables is one query that scans each.</summary>
+    public int? CommandTimeoutSeconds { get; set; }
+
     public async Task<IReadOnlyList<IReadOnlyList<object?>>> QueryAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
     {
         if (ReadGuard.Check(sql) is { } refused) throw new GateRefusedException(refused);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
+        if (CommandTimeoutSeconds is { } seconds) cmd.CommandTimeout = seconds;
         foreach (var p in parameters ?? [])
         {
             var dp = cmd.CreateParameter();

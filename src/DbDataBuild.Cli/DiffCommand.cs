@@ -69,6 +69,7 @@ internal static class DiffCommand
             {
                 await using var read = await ReadSession.OpenAsync(login!);
                 await using var otherRead = across ? await ReadSession.OpenAsync(otherLogin!) : read;
+                read.CommandTimeoutSeconds = 0; otherRead.CommandTimeoutSeconds = 0;       // a comparison scans whole tables: no limit (the person can interrupt it)
                 async Task<DiffTable?> Find(ReadSession session, string sessionEngine, (string SchemaName, string Name) t)
                 {
                     var shapes = await CatalogReader.ReadObjectsAsync(session, sessionEngine, t.SchemaName);
