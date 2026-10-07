@@ -11,7 +11,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 | 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
 | 7 | Incremental kinds, loads, `run` | Done |
 | 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
-| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). The Windows executable is built and published by the release workflow, and the unit suite runs on Windows in CI. Open: fuzzing of the interactive question flow and of hook scripts, docs generation, pre-1.0 polyglot upgrade policy |
+| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). The Windows executable is built and published by the release workflow, and the unit suite runs on Windows in CI. Open: fuzzing of the interactive question flow, docs generation, pre-1.0 polyglot upgrade policy |
 | extra | Plan lowering | Built (section 7.6) |
 
 ## A. Lowering: open items (the ones you asked to have written down)
@@ -43,7 +43,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 - **Windows**: the unit suite runs natively on `windows-latest` on every push (CI), the release workflow builds the win-x64 single-file executable, and the owner has run the tool and the terminal interface on Windows with no problems found. Not done: PostgreSQL and the real-engine suite on Windows (PostgreSQL cannot log in under Wine; the conformance groups run on Linux), code signing and an installer, and a win-arm64 build.
 - **Licenses**: audited 2026-10-02 (all permissive; see `THIRD-PARTY-NOTICES.md`); re-check when dependencies change.
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
-- **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Not covered: fuzzing the interactive answer flow, hook scripts' content, and the resolver query results.
+- **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Seeded mutation also covers hook scripts, macro files, native query text and its definition, metadata and model test files and a query file's head (entry 94). Not covered: fuzzing the interactive answer flow and the resolver query results.
 
 ## D. Documentation debt
 

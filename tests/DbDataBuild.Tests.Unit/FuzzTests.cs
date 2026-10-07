@@ -119,6 +119,50 @@ public class FuzzTests
         }
     }
 
+    private static readonly (string Name, string Path, string Text)[] Auxiliary =
+    [
+        ("hook", "hooks/grant.sql", "-- grants\nGRANT SELECT ON marts.fct_events TO reader;\nGO\nEXEC sp_addrolemember 'r', 'u';\n"),
+        ("macros", "macros/m.sql", "CREATE MACRO twice(x) AS x * 2;\nCREATE MACRO pick(t, c) AS TABLE SELECT c FROM query_table(t);\nCREATE TYPE mood AS ENUM ('a', 'b');\n"),
+        ("native", "models/staging/ext.native.sql", "SELECT 1 AS n, 'x' AS s\n"),
+        ("native_yaml", "models/staging/ext.yml", "name: staging.ext\nkind: {type: native, access: select}\nreads: [staging.events]\ntrack_definition: [dbo.fn_x, public.f(date)]\nparameters:\n  p: {type: NAME, value: events}\ncolumns:\n  - {name: n, type: INTEGER}\n  - {name: s, type: VARCHAR}\n"),
+        ("metadata_test", "tests/metadata/rule.sql", "-- tags: naming\n-- severity: warn\nSELECT name FROM metadata_models WHERE name LIKE 'x%'\n"),
+        ("model_test", "tests/models/marts/fct_events.yml", "tests:\n  - name: one row\n    given:\n      staging.events:\n        - {event_id: 1, event_ts: '2024-01-01 00:00:00', seq: 1}\n    expect:\n      - {event_id: 1}\n"),
+        ("head", "models/marts/head.sql", "CREATE TABLE marts.head WITH (kind = full_replace, unique_key = (event_id), time_column = event_ts, lookback = 3) AS\nSELECT event_id FROM staging.events\n"),
+    ];
+
+    [Theory]
+    [InlineData("hook")]
+    [InlineData("macros")]
+    [InlineData("native")]
+    [InlineData("native_yaml")]
+    [InlineData("metadata_test")]
+    [InlineData("model_test")]
+    [InlineData("head")]
+    public void A_damaged_hook_macro_native_text_test_or_query_head_is_answered_with_diagnostics_not_an_exception(string which)
+    {
+        var (_, path, text) = Auxiliary.Single(a => a.Name == which);
+        var n = 0;
+        foreach (var mutated in Mutations(text, Seed + 7 * which.Length, 25))
+        {
+            var dir = Project();
+            try
+            {
+                var full = Path.Combine(dir, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, mutated);
+                foreach (var args in new[] { new[] { "validate" }, new[] { "test" }, new[] { "loads" }, new[] { "metadata" }, new[] { "define", "--check" } })
+                {
+                    var o = new StringWriter(); var e = new StringWriter();
+                    var exit = CliApp.Run([.. args, "--project", dir, "--format", "json"], o, e);
+                    Assert.True(exit != CliApp.ExitInternal && !o.ToString().Contains("DDB-900") && !e.ToString().Contains("DDB-900"), $"`{string.Join(' ', args)}` failed internally on {which} mutation {n}: {mutated.Replace("\n", "\\n")}\n{o}\n{e}");
+                    System.Text.Json.JsonDocument.Parse(o.ToString());
+                }
+                n++;
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+    }
+
     [Fact]
     public void A_damaged_answers_file_does_not_crash_define_or_plan()
     {
