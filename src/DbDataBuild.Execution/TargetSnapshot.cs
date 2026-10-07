@@ -43,14 +43,16 @@ public static class TargetSnapshotReader
 
         var recorded = await TrackingStore.LatestShapeHashesAsync(trackingRead, scope, ct);
 
+        // the newest ok row of each object (and of each model): one pass with a window function. The log tables only grow, and a correlated MAX for each row (what this was) read the whole table once per row,
+        // which stopped `plan` with a timeout after a couple of hundred thousand rows (entry 116)
         var ddl = await trackingRead.QueryAsync(
-            $"SELECT d.{C("object_name")}, d.{C("statement_hash")} FROM {t("ddl_log")} d WHERE d.{C("connection")} = @connection AND d.{C("status")} = 'ok' " +
-            $"AND d.{C("executed_utc")} = (SELECT MAX(x.{C("executed_utc")}) FROM {t("ddl_log")} x WHERE x.{C("connection")} = d.{C("connection")} AND x.{C("object_name")} = d.{C("object_name")} AND x.{C("status")} = 'ok')", byConnection, ct);
+            $"SELECT x.{C("object_name")}, x.{C("statement_hash")} FROM (SELECT d.{C("object_name")}, d.{C("statement_hash")}, ROW_NUMBER() OVER (PARTITION BY d.{C("object_name")} ORDER BY d.{C("executed_utc")} DESC) AS newest " +
+            $"FROM {t("ddl_log")} d WHERE d.{C("connection")} = @connection AND d.{C("status")} = 'ok') x WHERE x.newest = 1", byConnection, ct);
         var views = ddl.ToDictionary(r => (string)r[0]!, r => ((string)r[1]!).Trim(), StringComparer.Ordinal);
 
         var runs = await trackingRead.QueryAsync(
-            $"SELECT r.{C("model")}, r.{C("definition_hash")} FROM {t("run_log")} r WHERE r.{C("connection")} = @connection AND r.{C("status")} = 'ok' AND r.{C("definition_hash")} IS NOT NULL " +
-            $"AND r.{C("started_utc")} = (SELECT MAX(x.{C("started_utc")}) FROM {t("run_log")} x WHERE x.{C("connection")} = r.{C("connection")} AND x.{C("model")} = r.{C("model")} AND x.{C("status")} = 'ok' AND x.{C("definition_hash")} IS NOT NULL)", byConnection, ct);
+            $"SELECT x.{C("model")}, x.{C("definition_hash")} FROM (SELECT r.{C("model")}, r.{C("definition_hash")}, ROW_NUMBER() OVER (PARTITION BY r.{C("model")} ORDER BY r.{C("started_utc")} DESC) AS newest " +
+            $"FROM {t("run_log")} r WHERE r.{C("connection")} = @connection AND r.{C("status")} = 'ok' AND r.{C("definition_hash")} IS NOT NULL) x WHERE x.newest = 1", byConnection, ct);
         var loads = runs.ToDictionary(r => (string)r[0]!, r => ((string)r[1]!).Trim(), StringComparer.Ordinal);
 
         var acks = await trackingRead.QueryAsync($"SELECT b.{C("code")}, b.{C("model")}, b.{C("detail")} FROM {t("block_log")} b WHERE b.{C("connection")} = @connection AND b.{C("ack_utc")} IS NOT NULL", byConnection, ct);
