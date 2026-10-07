@@ -593,12 +593,30 @@ public partial class ApplyConformanceTests
             Refused(warn, "backfill was requested and none", "report with an unfulfilled backfill request");
             Assert.Contains("ack history marts.fct_orders.discount_code", warn.Out);
 
+            // a model built from the column is told about it (DDB-240), and when the project says so it is refused until the history is acknowledged
+            run.Write("models/marts/disc.yml", "name: marts.disc\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: discount_code, type: \"VARCHAR(20)\"}\n");
+            run.Write("models/marts/disc.sql", "SELECT order_id, discount_code FROM marts.fct_orders\n");
+            Ok(run.Cli("render", "--write"), "render disc");
+            var told = run.Cli("plan");
+            Ok(told, "plan with a warning");
+            Assert.Contains("DDB-240", told.Err);
+            Assert.Contains("marts.disc is built from a column whose history is inconsistent (`discount_code` comes from marts.fct_orders.discount_code)", told.Err);
+            var config = File.ReadAllText(Path.Combine(run.Dir, "dbdatabuild.yml"));
+            run.Write("dbdatabuild.yml", config + "policy:\n  severity:\n    history_inconsistency: error\n");
+            var blocked = run.Cli("plan");
+            Refused(blocked, "DDB-240", "a plan of a model built from an inconsistent column, with the policy at error");
+            Assert.Contains("Nothing was planned", blocked.Out);
+
             // the operator accepts it: a reason is required, nothing in the data changes, and the report keeps the facts
             Refused(run.Cli("ack", "history", "marts.fct_orders.discount_code"), "--reason", "an acknowledgement without a reason");
             Refused(run.Cli("ack", "history", "marts.fct_orders.nothing_here", "--reason", "x"), "nothing to acknowledge", "acknowledging something that is not there");
             var ack = run.Cli("ack", "history", "marts.fct_orders.discount_code", "--reason", "The source never had this column; NULL is correct.");
             Ok(ack, "ack history");
             Assert.Equal(rowsBefore, await run.Engine.RowsAsync("SELECT order_id FROM marts.fct_orders"));
+
+            var unblocked = run.Cli("plan");
+            Ok(unblocked, "plan after the acknowledgement");
+            Assert.DoesNotContain("DDB-240", unblocked.Err);
 
             var calm = run.Cli("report");
             Ok(calm, "report after the acknowledgement");

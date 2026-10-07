@@ -229,6 +229,7 @@ internal sealed class PlanningSession
         }
 
         TargetSnapshot snapshot;
+        IReadOnlyList<ColumnHistoryEntry> history = [];
         var resolved = new Dictionary<string, ResolverOutcome>();
         var rangeBounds = new Dictionary<string, ColumnBounds>();
         try
@@ -246,6 +247,7 @@ internal sealed class PlanningSession
                     if (status.AsDiagnostic(trackingScope.SchemaName) is { } notReady) throw new GateRefusedException(notReady);
                 }
                 var snap = await TargetSnapshotReader.ReadAsync(read, trackRead, trackingScope, engine, planned.Select(p => SchemaNameOf(p.Definition.Name)));
+                if (trackingScope != null) history = (await HistoryReader.ReadAsync(trackRead!, trackingScope)).Entries;
                 var results = new Dictionary<string, ResolverOutcome>();
                 foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
                 {
@@ -281,6 +283,14 @@ internal sealed class PlanningSession
         catch (GateRefusedException ex)
         {
             error.Diag(ex.Diagnostic);
+            return (null, CliApp.ExitFindings);
+        }
+
+        var historyFindings = HistoryConcerns.Check(ctx, planned.Select(p => p.Definition.Name).ToList(), history);
+        foreach (var d in historyFindings) error.Diag(d);
+        if (historyFindings.Any(d => d.Severity == Severity.Error))
+        {
+            output.WriteLine("Nothing was planned: a model reads a column whose history is inconsistent (`policy.severity.history_inconsistency: error`). Backfill it or acknowledge it.");
             return (null, CliApp.ExitFindings);
         }
 

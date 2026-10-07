@@ -345,6 +345,10 @@
             "native_definition_changed": {
               "description": "Severity of a change to a routine a native model lists under `track_definition` since the last apply. A warning by default.",
               "$ref": "#/$defs/severity"
+            },
+            "history_inconsistency": {
+              "description": "Severity of a model being planned that reads (directly or through other models) a column whose recorded history contradicts what a person decided and nobody has acknowledged (DDB-240; the column itself is DDB-443). A warning by default; `error` refuses the plan until it is acknowledged (`ack history`).",
+              "$ref": "#/$defs/severity"
             }
           }
         }

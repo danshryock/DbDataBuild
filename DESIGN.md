@@ -840,6 +840,7 @@ policy:
     unverified: warning           # DDB-304
     not_covered: warning          # DDB-305
     native_definition_changed: warning   # DDB-234
+    history_inconsistency: warning       # DDB-240
 ```
 
 - **What a SQL Server version means.** `targets.sqlserver.version` is the **T-SQL level the tool generates for**, which is the engine's major version unless the database runs at an older compatibility level: **16** is SQL Server 2022, and also a 2025 server whose database is at compatibility level 160; **17** is SQL Server 2025 with the database at its own level, 170. There is one setting, not a second one for the compatibility level, because a lower number is always safe: a 2025 server at level 160 runs everything that 2022 runs (checked: the probe suite and the loads agree on 2022 and on 2025 at 160), and what the newer engine adds is used only from the version that has it. Checked on a 2025 server at both levels: `REGEXP_LIKE` and `REGEXP_SUBSTR` exist at 170 only; `REGEXP_REPLACE` exists at 160 too, and a project at 16 does not use it. From 17 the target rules write the regular expression functions (`regexp-full-match`, `regexp-extract`, `regexp-replace-first`); at 16 (or with no version) a query that needs them is reported by the matrix (DDB-301 below the minimum, DDB-308 when no version is set). Fabric gets none of this: it has never been run.
@@ -1072,7 +1073,7 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 - Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text (in `ddl_log`); their column types are derived by the engine, so a view step has no predicted shape hash.
 - `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
 - `plan --op model=operation` and `plan --backfill model=operation` choose operations; a backfill is a risky step recorded in `operation_interval`.
-- `report` includes the per-column history report (12.3) built from the answers in applied plans; its configurable warning-or-block policy for downstream models is not built.
+- `report` includes the per-column history report (12.3) built from the answers in applied plans; its warning-or-block policy for downstream models is built (12.3, entry 100).
 - Indexes are declared in the model (`indexes:`), never implied by `unique_key`; the planner creates missing ones, rebuilds changed ones (risky), and never drops undeclared ones. Hooks (`hooks:` in a model, `hook_groups:` in `dbdatabuild.yml`) are ordered, named, native-SQL scripts attached to events (`pre_`/`post_` create, alter, load, backfill; drop is reserved) per engine, and run as `hook` steps in plans.
 - **Index lint and generation** (`IndexAdvisor`): the planner still creates only declared indexes, but `validate` and `plan` now advise. A key-based load (`merge_by_key`, `delete_insert_by_key`, or the implicit one of `incremental_by_unique_key`) whose key no declared index leads with (as a set of columns, on every target that runs the load) is **DDB-223, a warning**: each load scans the table. A key that is indexed but not declared `unique: true`, and the watermark, time and range columns of `watermark_append` and `delete_insert_by_range`, are **DDB-224, a note**. The message carries the exact line to paste under `indexes:` (`ux_<table>_<columns>` for a unique key, `ix_` otherwise, at most 60 characters). Advice never blocks. An operator silences a code for one model with `lint_ignore: [DDB-223]`, or all index advice with `lint: { indexes: false }` in `dbdatabuild.yml`. `define` asks, for a new model, whether to declare the suggested indexes (a normal-certainty proposal, so `--accept-inferred` never takes it); the existing-definition update path does not add indexes.
 
@@ -1175,7 +1176,7 @@ CREATE TABLE dbdatabuild.migration_log (
 
 ### 12.3 History consistency report
 
-Joining `schema_version` to `operation_interval` and recorded history dispositions yields per-column reports such as: "added in schema version 7; intervals before it loaded with NULL; not backfilled; acknowledged by X: <note>". An unacknowledged inconsistency may be configured as a warning or as a block for downstream models, using lineage.
+Joining `schema_version` to `operation_interval` and recorded history dispositions yields per-column reports such as: "added in schema version 7; intervals before it loaded with NULL; not backfilled; acknowledged by X: <note>". An unacknowledged inconsistency may be configured as a warning or as a block for downstream models, using lineage. **As built (entry 100):** `plan` follows column lineage from each unacknowledged inconsistency (DDB-443) through any number of models to the models it is about to load; such a model gets DDB-240, at the severity of `policy.severity.history_inconsistency` (a warning by default; `error` refuses the plan until the history is backfilled or acknowledged with `ack history`; `note` quiets it). The model that owns the column is not reported against itself.
 
 ## 13. Validation layers
 

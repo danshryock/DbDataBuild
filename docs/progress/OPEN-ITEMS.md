@@ -32,7 +32,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1763, real-engine 
 - **`define` asking about extra loads** (section 6.5): not built.
 - **Index lint and generation: built** (entry 26). Not built: adding indexes when `define` updates an existing definition (the surgical editor has no block insertion), a `drop`/exclusive setting for undeclared indexes (the planner still never drops one), and lint for the partial or filtered indexes the model syntax cannot express yet.
 - **JSON Schemas for each command's `data` and the metadata documents: built** (entry 27). Not done: marking keys as required per outcome (the schemas only close the key sets and fix types), and a published JSON Schema for the plan YAML's embedded JSON beyond `plan.schema.json`.
-- **History consistency as a *blocking* condition** (section 12.3: "may be configured as a warning or as a block for downstream models, using lineage"): only the warning and the acknowledgement exist.
+- **History consistency as a blocking condition: built** (DDB-240, `policy.severity.history_inconsistency`, entry 100): the warning and, with the policy at `error`, a block for the models downstream of an unacknowledged inconsistency, by column lineage.
 - **Redaction** of logged parameter values and resolver results (decision 6 says it can be added later).
 
 ## C. Unverified or risky areas
