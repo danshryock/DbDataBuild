@@ -1,6 +1,6 @@
 # Review summary
 
-Rewritten 2026-10-06 as one document (it had grown into a dated log of updates; the log with the detail and evidence is `docs/progress/state-and-apply.md`, entries 1 to 87, and what is unfinished is `docs/progress/OPEN-ITEMS.md`). The design is `DESIGN.md`; sections marked "as built" describe what exists. Earlier versions of this file are in git history.
+Rewritten 2026-10-06 as one document (it had grown into a dated log of updates; the log with the detail and evidence is `docs/progress/state-and-apply.md`, entries 1 to 111, and what is unfinished is `docs/progress/OPEN-ITEMS.md`). The design is `DESIGN.md`; sections marked "as built" describe what exists. Earlier versions of this file are in git history.
 
 ## Where things stand
 
@@ -18,7 +18,8 @@ dbdatabuild is a .NET 10 CLI that builds analytics tables and views on **SQL Ser
 | Macros | `macros/*.sql` (DuckDB macros and types), loaded on demand, expanded by DuckDB in the lowering; defaults and named arguments work; dependencies and lineage follow | DESIGN 6.5.5, entries 81, 87 |
 | Names and strings | a model's name is its definition's `name:`, `model_layout` checks file names; `string_semantics` per connection, DDB-236 and `trimmed` | DESIGN 6.5.6, 7.4, entries 84 to 86 |
 | Interfaces | `--format json` on every command with closed schemas, the terminal interface, the MCP server and app, the read-only web page, `agent-kit` | DESIGN 9, entries 27 to 61 |
-| Tests and samples | `sample`, `test` (metadata rules and model tests), `seed`/`load-seeds`, `diff`, `graph`, templates | DESIGN 15, entries 37 to 47 |
+| Tests and samples | `sample`, `test` (metadata rules and model tests, a gate by tag before `plan`), `seed`/`load-seeds`, `diff` (one connection, or across connections and engines by digests), `graph`, `tag:` selectors, templates | DESIGN 15, entries 37 to 47, 92, 99, 101 |
+| Documentation | `docs/getting-started.md`, `docs/commands.md` (generated from the command tree; a test keeps it current), `docs/operations.md` | entry 93 |
 
 The command list is `dbdatabuild --help` (every command declares an effect class, printed in its header).
 
@@ -44,6 +45,13 @@ To try it by hand: `scripts/fetch-native.sh`, `dotnet build`, `scripts/test-engi
 12. A change to a routine under `track_definition` is a warning (`policy.severity.native_definition_changed` makes it an error).
 13. The string profile is a checked declaration, not an imposed behavior. **The owner has parked the whole of string comparison until it is designed as one thing** (`OPEN-ITEMS.md` section P); the pieces built so far came from patches, and nothing is added meanwhile.
 
+## Added since 2026-10-06 (entries 91 to 111)
+
+- **Terminology** (91): *schema name* for the namespace and *schema* for a shape, in documents, diagnostics, descriptions and the C# members; the config key `tracking.schema`, the JSON key `tracking_schema`, `--against-schema` and local variables keep the short name (your decision).
+- **Built**: `diff --against-connection` across connections and engines by digests (92); a getting-started guide and a generated command reference (93); fuzzing of hook scripts, macros, native text, tests and the query head (94, no defect found); `ANY`/`ALL`/row-value `IN` as values and aggregates over subqueries on SQL Server (95, 96); `changed:` follows folder files, hooks, macros, native text and rendered files (97); DDB-239 (a slice column no source index leads); a test gate (`tests: { gate: { tags } }`, 99); DDB-240 and `policy.severity.history_inconsistency` (100); model `tags:` and `tag:` (101); DDB-241 (a name too long for an engine, 110).
+- **Found by probing and fixed** (the part to read): every statement of `apply` had the drivers' 30-second timeout (106); `apply` read the whole schema name after each step, 199 s for 401 steps and 9 s now (108); validation grew with the square of the models, 59 s for 300 and 8.8 s now (107, 109); an unhandled driver exception printed the driver's own text and a stack trace (105); `report` listed a resumed step as unfinished for ever (102); DDB-505 sent a person to `init` when the real cause was a denied catalog permission (103); a 70-character column name on PostgreSQL passed `validate` and failed after it ran (110).
+- **Verified on real engines**: concurrent applies and a killed connection (102), a read login without VIEW DEFINITION and copies under other time zones (103), a native command copied across engines (104), cross-connection `diff` at 5 million rows (105), an incremental load of 2 million rows (111), names with keywords and quotes (110).
+
 ## Things that went wrong or surprised me (all fixed, all with tests)
 
 - The hash canonical text collided for a null and the literal text `~`; my first read guard hid a statement behind a backtick on PostgreSQL; a failed PostgreSQL transaction stays aborted until rolled back; Npgsql refuses UTC-kind timestamps for zone-less columns and turns the extreme dates into infinity (`DriverSettings.Apply`).
@@ -54,4 +62,4 @@ To try it by hand: `scripts/fetch-native.sh`, `dotnet build`, `scripts/test-engi
 
 ## Known gaps and risks
 
-The full, current list is `docs/progress/OPEN-ITEMS.md`. The ones that matter most: Fabric has never run; declaring a model's object in its query file (to revisit); `diff` across connections, `copy_to` and offline tracking are not built; change feeds are parked; the interfaces have not been checked against real MCP hosts; `apply` is sequential on one connection, with no test of two real `apply` processes under load.
+The full, current list is `docs/progress/OPEN-ITEMS.md`. The ones that matter most: Fabric has never run; declaring a model's object in its query file (to revisit); `copy_to` and offline tracking are not built; change feeds are parked; the interfaces have not been checked against real MCP hosts; `apply` is sequential on one connection (a second one is refused by the lock, entry 102).
