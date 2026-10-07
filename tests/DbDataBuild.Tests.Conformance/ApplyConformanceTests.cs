@@ -336,6 +336,67 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Reserved_words_spaces_accents_and_quotes_in_names_are_quoted_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var q = run.Q;
+            var quoted = name == "postgres" ? "\"a\"\"b\"" : "[a\"b]";               // the helper does not double a quote inside a name
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            // a table whose columns are named like the SQL around them: keywords, a space, an accent and a double quote
+            await engine.ExecAsync($"CREATE TABLE staging.items ({q("id")} BIGINT NOT NULL, {q("order")} INT, {q("group")} {engine.ColumnType("VARCHAR(10)")}, {q("my col")} INT, {q("Café")} INT, {quoted} INT)");
+            await engine.ExecAsync($"INSERT INTO staging.items VALUES (1, 10, 'x', 100, 1000, 7), (2, 20, 'y', 200, 2000, 8)");
+            run.Write("models/staging/items.yml", "name: staging.items\nkind:\n  type: mapped\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: order, type: INTEGER}\n  - {name: group, type: \"VARCHAR(10)\"}\n  - {name: my col, type: INTEGER}\n  - {name: Café, type: INTEGER}\n  - {name: 'a\"b', type: INTEGER}\n");
+            // a model named with a keyword, built from them, with a keyword as its unique key and in an index
+            run.Write("models/rpt/order.yml", "name: rpt.order\nkind: {type: incremental_by_unique_key, unique_key: [id]}\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: select, type: INTEGER}\n  - {name: group, type: \"VARCHAR(10)\"}\n  - {name: from, type: INTEGER}\n  - {name: Café, type: INTEGER}\n  - {name: 'a\"b', type: INTEGER}\nindexes:\n  - {name: ix_group, columns: [group, select]}\n");
+            run.Write("models/rpt/order.sql", "SELECT id, \"order\" AS \"select\", \"group\", \"my col\" AS \"from\", \"Café\", \"a\"\"b\" FROM staging.items\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            Assert.Equal(["1|10|x|100|1000|7", "2|20|y|200|2000|8"], await engine.RowsAsync($"SELECT CAST(id AS VARCHAR(5)) + '|' + CAST({q("select")} AS VARCHAR(5)) + '|' + {q("group")} + '|' + CAST({q("from")} AS VARCHAR(5)) + '|' + CAST({q("Café")} AS VARCHAR(5)) + '|' + CAST({quoted} AS VARCHAR(5)) FROM rpt.{q("order")} ORDER BY id".Replace(" + ", name == "postgres" ? " || " : " + ")));
+            // the second load is an incremental one over the same names: nothing changes, and the plan finds nothing to alter
+            await engine.ExecAsync($"INSERT INTO staging.items VALUES (3, 30, 'z', 300, 3000, 9)");
+            var again = run.Cli("plan"); Ok(again, "second plan");
+            Ok(run.Cli("apply", run.PlanFile(again.Out)), "second apply");
+            Assert.Equal(3, await CountAsync(run, "rpt." + q("order")));
+            Assert.Equal(0, run.Cli("report").Exit);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_name_longer_than_the_engine_keeps_is_refused_before_anything_is_planned(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // 70 characters: SQL Server keeps them (up to 128), PostgreSQL silently cuts at 63 and the table it built would never match the declaration
+            var longName = new string('c', 70);
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("models/marts/long.yml", $"name: marts.long\nkind: {{type: full}}\ncolumns:\n  - {{name: order_id, type: BIGINT, nullable: false}}\n  - {{name: {longName}, type: INTEGER}}\n");
+            run.Write("models/marts/long.sql", $"SELECT order_id, 1 AS {longName} FROM staging.orders\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            if (name == "postgres")
+            {
+                var refused = run.Cli("validate");
+                Refused(refused, "DDB-241", "a 70-character column name on PostgreSQL");
+                Assert.Contains("PostgreSQL keeps 63", refused.Err);
+                Refused(run.Cli("plan"), "DDB-241", "planning with it");
+                return;
+            }
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            Assert.Equal(new[] { "order_id", longName }.Order(StringComparer.Ordinal), (await engine.RowsAsync("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('marts.long')")).Order(StringComparer.Ordinal));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

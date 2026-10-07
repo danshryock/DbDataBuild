@@ -57,6 +57,7 @@ internal static class ProjectChecks
                 if (lowering != null && !source.Definition.LintIgnore.Contains(DiagnosticCatalog.StringsCompareDifferently.Code)) diagnostics.AddRange(StringProfileAdvice(source, variantTargets, config, lowering, body));
                 diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, variantTargets, bodyFile, source.QueryParameterList(root, config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             }
+            diagnostics.AddRange(NameLengths(source, config, targets));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
         if (config.LintIndexes)
@@ -64,6 +65,27 @@ internal static class ProjectChecks
                 diagnostics.AddRange(IndexAdvice(source, (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList()));
         diagnostics.AddRange(CollationChecker.Check(config, sources));
         return diagnostics;
+    }
+
+    /// <summary>The longest name an engine keeps: 63 bytes on PostgreSQL (it cuts a longer one without a word), 128 characters on SQL Server and Fabric.</summary>
+    internal static bool TooLong(string engine, string name) => engine == "postgres" ? System.Text.Encoding.UTF8.GetByteCount(name) > 63 : name.Length > 128;
+
+    /// <summary>The names a model gives (its schema name, object name, columns and indexes) that an engine it is built on would cut or refuse (DDB-241).</summary>
+    internal static IEnumerable<Diagnostic> NameLengths(ModelSource source, ProjectConfig config, IReadOnlyList<string> targets)
+    {
+        var def = source.Definition;
+        var names = new List<(string Kind, string Name)>();
+        var dot = def.Name.LastIndexOf('.');
+        if (dot > 0) { names.Add(("schema name", def.Name[..dot])); names.Add(("object name", def.Name[(dot + 1)..])); } else names.Add(("object name", def.Name));
+        names.AddRange(def.Columns.Select(c => ("column", c.Name)));
+        names.AddRange(def.Indexes.Select(i => ("index", i.Name)));
+        foreach (var target in targets)
+        {
+            var engine = config.EngineOf(target) ?? target;
+            foreach (var (kind, name) in names.Where(n => TooLong(engine, n.Name)))
+                yield return new Diagnostic(DiagnosticCatalog.NameTooLongForEngine, new(source.DefinitionFile, 0, 0),
+                    $"{def.Name}: the {kind} `{(name.Length > 40 ? name[..40] + "..." : name)}` is {(engine == "postgres" ? $"{System.Text.Encoding.UTF8.GetByteCount(name)} bytes, and PostgreSQL keeps 63" : $"{name.Length} characters, and {(engine == "fabric" ? "Fabric" : "SQL Server")} accepts 128")} (connection `{target}`).");
+        }
     }
 
     /// <summary>
