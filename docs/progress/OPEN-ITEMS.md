@@ -24,7 +24,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1783, real-engine 
 6. **Date/timestamp series, `UNNEST`, list/struct constructors, `USING SAMPLE`, `LIMIT ... PERCENT`.** Refused by decision. A date series could be an integer series plus `DATEADD`/interval arithmetic; I left it out because every interval unit needs its own differential check.
 7. **Aggregate over a subquery: built** (entry 96). SQL Server rejects `sum((SELECT ...))` and a `GROUP BY` on a subquery; the lowerer computes the subquery in a derived table first and the aggregate reads its column.
 8. **Plan JSON is DuckDB-internal.** A DuckDB upgrade can change plans, which shows as a stale lowered artifact in `render --check`. The header records the DuckDB version; there is no tooling to explain *why* an artifact changed.
-9. **Evidence gaps**: the `fn.generate_series` matrix row cites a spike case that has not been run (the conformance test is the real evidence). Re-run the spike when convenient.
+9. **Evidence gaps**: none known. The `fn.generate_series` spike case was run on 2026-10-07 (SQL Server 2022: polyglot's raw text is refused because of the column list, which the renderer drops; PostgreSQL: MATCH); the matrix note says so.
 
 ## B. Features designed or reserved but not built
 
