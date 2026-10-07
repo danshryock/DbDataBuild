@@ -54,11 +54,10 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
 
 1. `diff` across connections, and the rest of section M that is not string semantics (`copy_to`, offline tracking, a per-connection schema).
-2. More options in the head, heads for native models and copies (section N), once the owner has said which belong there.
-3. Lowering gaps as real models need them (section A), and the documentation debt (section D).
-4. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
-5. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
-6. **Parked until designed as a whole**: string comparison (section P), change feeds (section L).
+2. Lowering gaps as real models need them (section A), and the documentation debt (section D).
+3. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
+4. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
+5. **Parked**: string comparison until it is designed as a whole (section P), change feeds (section L), and more options in a query file's head (section N).
 
 ## F. Terminal interface and agents (added 2026-10-02)
 
@@ -121,7 +120,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 ## N. Schema and name out of the folder path (2026-10-06)
 
 - **Built**: the name is the definition's `name:` (`model_layout: folder | dotted | object | none`, `DESIGN.md` 6.5.6), and a query file may start with a head, `CREATE TABLE schema.name WITH (kind = ..., unique_key = (...)) AS` or `CREATE VIEW schema.name AS`, which says the name, table or view and the reload options (`DESIGN.md` 6.5.7; the options and what is open are in `docs/research/model-naming.md`).
-- **Open**: more options in the head (`grain`, `connections`, `loads:`), a head for native models and copies, a per-connection schema, `define` writing a head into a `.sql` that has none.
+- **Parked (owner, 2026-10-06)**: more options in the head (`grain`, `connections`, `loads:`), heads for native models and copies, `define` writing a head into a `.sql` that has none. The head keeps its four reload options (`kind`, `unique_key`, `time_column`, `lookback`) until the owner picks this up. **Open, not parked**: a per-connection schema (a dev/prod split as a setting, not a name).
 
 ## O. Limits recorded in the progress log, collected here (2026-10-06)
 

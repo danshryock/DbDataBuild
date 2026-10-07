@@ -68,7 +68,7 @@ AS
 SELECT ...
 ```
 
-What stays open:
+What stays open (items 1, 2 and 4 are **parked** by the owner, 2026-10-06, until they pick them up; the head keeps its four options meanwhile):
 
 1. More options in the head (`grain`, `connections`, the operations of `loads:`): each removes a line from the YAML and adds a second place that says it. Only the four reload options are in the head.
 2. A head for a native model (`.native.sql`, the engine's own text) and for copies (no query).
