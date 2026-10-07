@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Shared field-reading helpers for definition and configuration loaders. Problems become diagnostics at the node's position.</summary>
 internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
 {
-    private static readonly string[] ColumnKeys = ["name", "type", "nullable", "collation"];
+    private static readonly string[] ColumnKeys = ["name", "type", "nullable", "collation", "trimmed"];
 
     /// <summary>For a mapping merged from several files: the file each node was read from, so a diagnostic names the file the problem is in.</summary>
     public IReadOnlyDictionary<YamlNode, string>? NodeFiles { get; init; }
@@ -109,9 +109,15 @@ internal abstract class YamlFieldReader(string file, List<Diagnostic> diags)
                     if (nb.Value is "true" or "false") nullable = nb.Value == "true";
                     else Add(DiagnosticCatalog.InvalidValue, nb, $"nullable is `{nb.Value}`.", "true or false (lowercase).");
                 }
+                var trimmed = false;
+                if (Scalar(col, "trimmed", required: false, at: col) is { } tb)
+                {
+                    if (tb.Value is "true" or "false") trimmed = tb.Value == "true";
+                    else Add(DiagnosticCatalog.InvalidValue, tb, $"trimmed is `{tb.Value}`.", "true or false (lowercase).");
+                }
                 if (n != null && !names.Add(n.Value))
                     Add(DiagnosticCatalog.DuplicateKey, n, $"Column `{n.Value}` is declared more than once.");
-                if (n != null && t != null) result.Add(new ColumnDefinition(n.Value, t.Value, nullable, (col.Get("collation") as YamlScalar)?.Value, n.Line, (col.Get("collation") as YamlScalar)?.Line ?? 0));
+                if (n != null && t != null) result.Add(new ColumnDefinition(n.Value, t.Value, nullable, (col.Get("collation") as YamlScalar)?.Value, n.Line, (col.Get("collation") as YamlScalar)?.Line ?? 0, trimmed));
             }
             return result;
         }

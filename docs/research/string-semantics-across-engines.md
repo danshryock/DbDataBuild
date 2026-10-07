@@ -22,12 +22,12 @@ The design text (7.4, "How the profile is applied") describes five mechanisms. W
 
 So the profile is a **declaration that is checked**, not a behavior the tool imposes. A comparison runs with the engine's own rules. If a model runs on two connections whose profiles differ, `=`, `IN`, join keys, `GROUP BY`, `DISTINCT` and `UNION` over strings can return different rows, with no error on either side. The tool's headline promise (the answer is DuckDB's answer on every engine) therefore does not hold for strings across engines that disagree; it holds where the profile is the same and the engine can satisfy it.
 
-## Ways to make connections agree (none built)
+## Ways to make connections agree (1 and 4 built 2026-10-06)
 
-1. **Keep the data free of the difference.** A data test that no value has trailing spaces (or that the column is `trimmed`), so `=` agrees on every engine. Cheapest; says what it covers and nothing else; fits the rule that the tool never reads values unasked if the test is a user's.
+1. **Keep the data free of the difference. (Built.)** A data test that no value has trailing spaces (or that the column is `trimmed`), so `=` agrees on every engine. Cheapest; says what it covers and nothing else; fits the rule that the tool never reads values unasked if the test is a user's.
 2. **Rewrite the comparison on the engine that cannot match.** `rtrim()` both sides on PostgreSQL to get `ignored`; append a sentinel to both sides on SQL Server (`x + '|'`) to get `significant`. Applies to `=`, `IN`, join keys, `GROUP BY`, `DISTINCT`, set operations and window partitions. Correct, but defeats index use on the wrapped column, and `LIKE`, `LEN` and ordering need their own rules.
 3. **Build the DuckDB-side emulation.** `sample` and `test` then show what the profile means (an `rtrim()` rewrite where the profile says ignored). It does not fix an engine; it makes the offline answer match the declared profile so a difference is visible before a run.
-4. **A lint that names the models whose result depends on the difference.** From the AST the linter already finds every string comparison; with two profiles in one project it can say which models run on connections that disagree.
+4. **A lint that names the models whose result depends on the difference. (Built.)** From the AST the linter already finds every string comparison; with two profiles in one project it can say which models run on connections that disagree.
 
 A reasonable order: 1 and 4 first (small, honest), then 3, with 2 only where a project needs one model to mean the same thing on both engines and accepts the index cost.
 
@@ -36,3 +36,16 @@ A reasonable order: 1 and 4 first (small, honest), then 3, with 2 only where a p
 - Whether a profile per **folder** is wanted as well as per connection (a folder is where a model's meaning is usually decided).
 - Whether a model that runs on connections with different profiles should be an error, a warning, or allowed silently (today: allowed silently).
 - Case and accent have the same shape of problem (a case-sensitive collation on one engine, insensitive on another); the per-connection setting covers them the same way.
+
+## Built on 2026-10-06
+
+- `trimmed: true` on a column of a model or a mapped model: the declaration that no value ends in a space. `check` counts the rows that break it per connection (DDB-237; `DATALENGTH` and `length`, a count only).
+- DDB-236, advice per model: a model on connections that compare strings differently, using string columns (by declared type, from the lowered query's column uses) in a filter, join, group, having, partition,
+  distinct or set operation (case, accent, trailing space) or an order (case, accent). When only trailing spaces differ, columns declared `trimmed` do not count. `lint_ignore: [DDB-236]` silences it.
+- Checked on SQL Server and PostgreSQL: the counts (`StringProfileConformanceTests`); the lint is offline (`StringProfileLintTests`).
+
+## Still open
+
+- Option 3 (the DuckDB-side emulation): for `sample` and `test`, a `default_collation` from the profile's `duckdb` collation for the model's query only (a test compares expected and actual values exactly, so the comparison must not run under it), and an `rtrim()` rewrite for `trailing_space: ignored`, which DuckDB cannot do with any collation. Until then a sample run is case-sensitive and trailing-space-significant whatever the profile says, so a model that relies on the project's default profile (case-insensitive) can give other rows in `sample` than on the engine.
+- Option 2 (rewriting comparisons on the engine that cannot match): not built, and only worth it for a model that must mean the same on both engines and can pay the index cost.
+- The lint reads column uses, not types of expressions: `lower(a) = b` is seen as a use of `a` and `b`.

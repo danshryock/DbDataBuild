@@ -103,6 +103,25 @@ public sealed record ProjectConfig(
         return new StringSemantics(o.Case ?? StringSemantics.Case, o.Accent ?? StringSemantics.Accent, o.TrailingSpace ?? StringSemantics.TrailingSpace, collations);
     }
 
+    /// <summary>
+    /// The ways the given connections compare strings differently: for each of `case`, `accent` and `trailing_space` on which they do not all agree, each connection's value. Empty when they agree (one connection
+    /// always does).
+    /// </summary>
+    public IReadOnlyList<(string Dimension, IReadOnlyList<(string Connection, string Value)> Values)> StringProfileDifferences(IReadOnlyList<string> connections)
+    {
+        var profiles = connections.Distinct(StringComparer.Ordinal).Select(c => (Connection: c, Semantics: SemanticsOf(c))).ToList();
+        var result = new List<(string, IReadOnlyList<(string, string)>)>();
+        void Add(string dimension, Func<StringSemantics, string> value)
+        {
+            var values = profiles.Select(p => (p.Connection, value(p.Semantics))).ToList();
+            if (values.Select(v => v.Item2).Distinct().Count() > 1) result.Add((dimension, values));
+        }
+        Add("case", s => s.Case.ToString().ToLowerInvariant());
+        Add("accent", s => s.Accent.ToString().ToLowerInvariant());
+        Add("trailing_space", s => s.TrailingSpace.ToString().ToLowerInvariant());
+        return result;
+    }
+
     /// <summary>This configuration as one connection sees it: the same, with that connection's string semantics (what DDL and the collation checks read).</summary>
     public ProjectConfig ForConnection(string connection) => Connections.TryGetValue(connection, out var c) && c.Semantics != null ? this with { StringSemantics = SemanticsOf(connection) } : this;
 

@@ -53,6 +53,7 @@ internal static class ProjectChecks
                 foreach (var t in variantTargets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
                 // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
                 if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, variantTargets, body));
+                if (lowering != null && !source.Definition.LintIgnore.Contains(DiagnosticCatalog.StringsCompareDifferently.Code)) diagnostics.AddRange(StringProfileAdvice(source, variantTargets, config, lowering, body));
                 diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, variantTargets, bodyFile, source.QueryParameterList(root, config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             }
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
@@ -100,6 +101,31 @@ internal static class ProjectChecks
             }
         }
         return found;
+    }
+
+    private static readonly string[] EqualityContexts = ["filter", "join", "group", "having", "window_partition", "distinct", "set_operation"];
+
+    /// <summary>
+    /// DDB-236 (advice): a model built on connections that compare strings differently, whose query uses string columns where that matters. Trailing spaces alone are not an issue for the columns the model declares
+    /// `trimmed: true` (and ordering does not depend on them). Silenced with `lint_ignore: [DDB-236]`.
+    /// </summary>
+    internal static IEnumerable<Diagnostic> StringProfileAdvice(ModelSource source, IReadOnlyList<string> targets, ProjectConfig config, ModelLowering lowering, string body)
+    {
+        var differences = config.StringProfileDifferences(targets);
+        if (differences.Count == 0) return [];
+        var dimensions = differences.Select(d => d.Dimension).ToHashSet(StringComparer.Ordinal);
+        var onlyTrailing = dimensions.Count == 1 && dimensions.Contains("trailing_space");
+        var uses = lowering.StringUses(source.Definition.Name, body)
+            .Where(u => !onlyTrailing || (EqualityContexts.Contains(u.Context) && !u.Trimmed)).ToList();
+        if (uses.Count == 0) return [];
+        static string Where(string context) => context switch
+        {
+            "filter" => "a filter", "join" => "a join", "group" => "a GROUP BY", "having" => "a HAVING", "window_partition" => "a window partition", "window_order" => "a window order",
+            "order" => "an ORDER BY", "distinct" => "a DISTINCT", _ => "a set operation",
+        };
+        var shown = string.Join(", ", uses.Take(3).Select(u => $"`{u.Column}` in {Where(u.Context)}")) + (uses.Count > 3 ? $" and {uses.Count - 3} more" : "");
+        var how = string.Join("; ", differences.Select(d => $"{d.Dimension}: {string.Join(", ", d.Values.Select(v => $"{v.Connection} {v.Value}"))}"));
+        return [new Diagnostic(DiagnosticCatalog.StringsCompareDifferently, new(source.QueryFile, 0, 0), $"{source.Definition.Name} uses string columns where it matters how strings compare ({shown}), and it is built on connections that compare them differently ({how}): it can return different rows on each.")];
     }
 
     /// <summary>Index lint (DDB-223, DDB-224): advice only, with the exact index to declare. A model silences single codes with `lint_ignore`.</summary>

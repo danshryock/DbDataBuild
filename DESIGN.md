@@ -599,6 +599,17 @@ agree, none built: (1) keep the data free of the difference (a data test that no
 PostgreSQL for `ignored`; a sentinel appended to both sides on SQL Server for `significant`; both lose index use), (3) the DuckDB-side emulation, so a sample run shows what the profile means. Which of these, and whether
 the lint should say where a model's result depends on the difference, is open (`OPEN-ITEMS.md` M).
 
+**Where connections disagree (as built, 2026-10-06).** Two things make a disagreement visible and, for one of its causes, harmless:
+
+- **DDB-236 (advice, per model).** A model built on connections whose effective profiles differ on `case`, `accent` or `trailing_space`, and whose lowered query uses a **string column** (by its declared type) in a
+  filter, join, `GROUP BY`, `HAVING`, window partition, `DISTINCT` or set operation (these depend on all three) or an `ORDER BY` / window order (case and accent only), is reported with the columns and the clauses, and how
+  the connections differ. A column named inside a larger expression counts as used there: this says where to look, not what the engine will do. A model silences it with `lint_ignore: [DDB-236]`.
+- **`trimmed: true` on a column** (a model's or a mapped model's) declares that no value ends in a space. When trailing spaces are the only difference between the connections, a model whose compared columns are all
+  `trimmed` is not reported, since `=` then agrees everywhere. `check` counts the rows that break the declaration on the connection (DDB-237, an error; `DATALENGTH` on SQL Server, `length` on PostgreSQL; a count, never a
+  value; a table that does not exist yet is not counted).
+
+Not built: the DuckDB-side emulation of a profile for `sample` and `test` (a `default_collation`, an `rtrim()` rewrite for trailing spaces), and any rewrite of a comparison on an engine that cannot match the profile.
+
 **How the profile is applied:**
 
 1. **Declared column collations.** `columns` entries in the model definition may specify `collation: <logical name>`; the default comes from the profile. Generated DDL always states collations explicitly, so objects never depend on a database default. The collation is part of `shape_hash`.

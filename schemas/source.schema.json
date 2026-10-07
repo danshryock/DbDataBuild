@@ -105,6 +105,10 @@
           "collation": {
             "type": "string",
             "minLength": 1
+          },
+          "trimmed": {
+            "description": "Declared: no value of this column ends in a space, so it compares the same on every engine. `check` counts the rows that break it.",
+            "type": "boolean"
           }
         }
       }

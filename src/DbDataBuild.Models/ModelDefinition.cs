@@ -20,7 +20,8 @@ public static class TargetNames
     public static readonly IReadOnlyList<string> All = [SqlServer, Fabric, Postgres];
 }
 
-public sealed record ColumnDefinition(string Name, string Type, bool Nullable = true, string? Collation = null, int Line = 0, int CollationLine = 0);
+/// <param name="Trimmed">Declared: no value of this column ends in a space. Trailing spaces are the one difference between engines that data can make go away (SQL Server ignores them in a comparison, PostgreSQL keeps them), so a column that has none compares the same everywhere; `check` counts the rows that break the declaration.</param>
+public sealed record ColumnDefinition(string Name, string Type, bool Nullable = true, string? Collation = null, int Line = 0, int CollationLine = 0, bool Trimmed = false);
 
 public sealed record RenameDefinition(string From, string To);
 
@@ -71,7 +72,7 @@ public sealed record ModelDefinition(
     /// <summary>True for a model that copies another one (<see cref="ModelKinds.Copy"/>): `From` is the model it copies.</summary>
     public bool IsCopy => KindType == ModelKinds.Copy;
 
-    /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224) the operator has silenced for this model (`lint_ignore:`).</summary>
+    /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224, DDB-225, DDB-236) the operator has silenced for this model (`lint_ignore:`).</summary>
     public IReadOnlyList<string> LintIgnore => DeclaredLintIgnore ?? [];
 
     public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];

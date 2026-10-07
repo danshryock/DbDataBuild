@@ -86,6 +86,39 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         return new DuckTable(i < 0 ? "main" : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new DuckColumn(c.Name, c.Type, c.Nullable)).ToList());
     }
 
+    private static readonly System.Text.RegularExpressions.Regex TextType = new(@"^\s*(N?VARCHAR|N?CHAR|CHARACTER|TEXT|STRING|BPCHAR)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>A string column the query uses in a way that depends on how strings compare: where (clause or distinct and set operations), the column, and whether it is declared `trimmed`.</summary>
+    public sealed record StringUse(string Context, string Column, bool Trimmed);
+
+    /// <summary>
+    /// The uses a (lowered) query makes of string columns in a clause that depends on how strings compare: equality and grouping (`filter`, `join`, `group`, `having`, `window_partition`, `distinct`, `set_operation`;
+    /// all of them depend on case, accent and trailing spaces) and ordering (`order`, `window_order`; case and accent only). A column is a string column by its declared type. A column named inside a larger
+    /// expression is counted as used there: this says where to look, not what the engine will do.
+    /// </summary>
+    public IReadOnlyList<StringUse> StringUses(string modelName, string loweredSql)
+    {
+        var declared = models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns))).ToList();
+        var specs = declared.Select(u =>
+        {
+            var i = u.Name.LastIndexOf('.');
+            return new SchemaTableSpec(i < 0 ? null : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new SchemaColumnSpec(c.Name, c.Type, c.Nullable)).ToList());
+        }).ToList();
+        var facts = QueryAnalyzer.Analyze(loweredSql, specs).Facts;
+        if (facts == null) return [];
+        ColumnDefinition? Column(ColumnRef r) => r.Table == null ? null
+            : declared.FirstOrDefault(d => string.Equals(d.Name, r.Table, StringComparison.OrdinalIgnoreCase)).Columns?.FirstOrDefault(c => string.Equals(c.Name, r.Column, StringComparison.OrdinalIgnoreCase));
+        var uses = new List<StringUse>();
+        void Add(string context, ColumnRef r)
+        {
+            if (Column(r) is { } c && TextType.IsMatch(c.Type)) uses.Add(new StringUse(context, $"{r.Table}.{r.Column}", c.Trimmed));
+        }
+        foreach (var use in facts.ColumnUses) foreach (var r in use.References) Add(use.Context, r);
+        if (facts.IsDistinct || facts.IsSetOperation)
+            foreach (var p in facts.Projections) foreach (var r in p.Upstream) Add(facts.IsSetOperation ? "set_operation" : "distinct", r);
+        return uses.DistinctBy(u => (u.Context, u.Column)).ToList();
+    }
+
     /// <summary>True when a query calls a macro (or mentions a type) of the project.</summary>
     public bool ReachesMacros(string sql)
     {

@@ -233,6 +233,7 @@ public static class SourceDescriptorWriter
             sb.Append("    type: ").Append(YamlText.Scalar(c.Type)).Append('\n');
             if (!c.Nullable) sb.Append("    nullable: false\n");
             if (c.Collation != null) sb.Append("    collation: ").Append(YamlText.Scalar(c.Collation)).Append('\n');
+            if (c.Trimmed) sb.Append("    trimmed: true\n");
         }
         if (d.Indexes.Count > 0)
         {

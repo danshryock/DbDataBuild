@@ -165,6 +165,14 @@ public static class DiagnosticCatalog
         "tracking configured for the connection, and a read login that can see the routine's definition (VIEW DEFINITION on SQL Server)",
         "Configure `tracking:` for the connection, grant the read login permission to see the routine, or correct the name in `track_definition` (on PostgreSQL an overloaded function needs its argument types).",
         "`track_definition` compares a routine's live definition with the one recorded at the last apply. Without tracking there is nowhere to keep the record; without permission, or with a name that matches no routine (or several), the engine returns no definition. The routine is then not checked, and nothing is recorded for it.");
+    public static readonly DiagnosticDescriptor StringsCompareDifferently = W("236", "A model compares strings on connections that compare them differently",
+        "a model whose connections agree on how strings compare (the project's `string_semantics`, or a connection's own), or whose string comparisons are on columns declared `trimmed: true` when only trailing spaces differ",
+        "Make the connections' `string_semantics` agree for what this model compares, declare the columns it compares `trimmed: true` when they never end in a space (`check` counts the rows that break it), or silence this with `lint_ignore: [DDB-236]` on the model.",
+        "SQL Server ignores trailing spaces in a comparison and PostgreSQL keeps them, and a collation can ignore case or accents on one connection and not on another. A model that compares, joins, groups, partitions or deduplicates strings, and is built on connections that disagree, can return different rows on each with no error. Only what the model does to string columns is looked at (the lowered query's column uses and their declared types); a comparison inside an expression is seen as a use of the columns it names.");
+    public static readonly DiagnosticDescriptor TrimmedColumnHasTrailingSpaces = E("237", "A column declared trimmed has values that end in a space",
+        "every value of a column declared `trimmed: true` ends in a non-space",
+        "Trim the values (at the source, or in the model that builds the column), or remove `trimmed: true` and let the connections' string semantics decide.",
+        "`trimmed: true` is the declaration that makes trailing spaces, the difference SQL Server and PostgreSQL disagree on, irrelevant for a column. `check` counts the rows whose value ends in a space (no value is read or shown); one is enough to make the declaration untrue.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
         "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
         "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
@@ -404,7 +412,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, NativeDefinitionChanged, NativeDefinitionNotChecked, TrackingNotConfigured,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, StringsCompareDifferently, TrimmedColumnHasTrailingSpaces, NativeDefinitionChanged, NativeDefinitionNotChecked, TrackingNotConfigured,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

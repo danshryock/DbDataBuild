@@ -1,6 +1,7 @@
 using System.Text;
 using DbDataBuild.Core;
 using DbDataBuild.Core.Questions;
+using DbDataBuild.Execution;
 using DbDataBuild.Models;
 using DbDataBuild.Planning;
 using DbDataBuild.State;
@@ -168,6 +169,12 @@ internal static class PlanCommand
                     shape.Columns.Where(c => c.Type is "nvarchar" or "varchar" or "character varying" or "char" or "text").Select(c => (c.Name, c.Collation))));
         foreach (var d in liveCollation) error.Diag(d);
 
+        // the columns declared `trimmed`, counted on the connection (no value is read)
+        var trimmedFindings = new List<Diagnostic>();
+        var (checkLogin, _) = LoginSettings.FromEnvironment(session.Target, session.Context.Config.EngineOf(session.Target) ?? session.Target, DbDataBuild.Execution.Login.Read, env);
+        if (checkLogin != null) trimmedFindings.AddRange(TrimmedCheck.Run(session.Context, session.Target, checkLogin));
+        foreach (var d in trimmedFindings) error.Diag(d);
+
         var stepsNow = result.Steps;
         output.Payload("connection", session.Target);
         output.Payload("objects", result.Bases.OrderBy(b => b.Object, StringComparer.Ordinal).Select(b => new { name = b.Object, state = b.State, live_shape_hash = b.LiveShapeHash, recorded_shape_hash = b.RecordedShapeHash }).ToList());
@@ -185,7 +192,7 @@ internal static class PlanCommand
         output.WriteLine();
         var steps = result.Steps;
         output.WriteLine($"A plan now would have {steps.Count} step(s) ({steps.Count(s => s.Risk == RiskClass.Risky)} risky, {steps.Count(s => s.Risk == RiskClass.Destructive)} destructive) and ask {result.Questions.Count} question(s) first; {result.Blocks.Count} blocked, {result.Skipped.Count} skipped.");
-        return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) ? CliApp.ExitFindings : CliApp.ExitOk;
+        return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) || trimmedFindings.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
     internal static object QuestionJson(Question q) => new

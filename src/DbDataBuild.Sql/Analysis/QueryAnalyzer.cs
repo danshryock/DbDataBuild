@@ -19,6 +19,9 @@ public sealed record BaseTable(string? Schema, string Table)
     public string QualifiedName => Schema == null ? Table : $"{Schema}.{Table}";
 }
 
+/// <summary>Where a query uses columns: the clause (`filter`, `join`, `group`, `having`, `order`, `window_partition`, `window_order`), the expression's text, and the columns it names.</summary>
+public sealed record ColumnUse(string Context, string ExpressionSql, IReadOnlyList<ColumnRef> References);
+
 /// <param name="GroupedColumns">Columns named in GROUP BY, in order (resolved by lineage), when the query groups.</param>
 public sealed record QueryFacts(
     IReadOnlyList<ProjectionFact> Projections,
@@ -26,7 +29,10 @@ public sealed record QueryFacts(
     IReadOnlyList<ColumnRef> GroupedColumns,
     bool IsDistinct,
     int JoinCount,
-    bool IsSetOperation);
+    bool IsSetOperation)
+{
+    public IReadOnlyList<ColumnUse> ColumnUses { get; init; } = [];
+}
 
 /// <summary>Typed view of polyglot's <c>analyze_query</c> (lineage, nullability, base tables) plus a few AST facts. Offline.</summary>
 public static class QueryAnalyzer
@@ -78,7 +84,10 @@ public static class QueryAnalyzer
         var select = ast.Children.FirstOrDefault(n => n.Type == "select");
         var distinct = select != null && Detectors_IsTrue(select, "distinct") && !HasValue(select, "distinct_on");
         var joins = select != null && select.TryGet("joins", out var j) && j.ValueKind == JsonValueKind.Array ? j.GetArrayLength() : 0;
-        return (new QueryFacts(projections, baseTables, grouped, distinct, joins, shape == "set_operation"), null);
+        var columnUses = root.TryGetProperty("columnUses", out var cu)
+            ? cu.EnumerateArray().Select(u => new ColumnUse(Str(u, "context") ?? "", Str(u, "expressionSql") ?? "", u.GetProperty("references").EnumerateArray().Select(Ref).ToList())).ToList()
+            : [];
+        return (new QueryFacts(projections, baseTables, grouped, distinct, joins, shape == "set_operation") { ColumnUses = columnUses }, null);
     }
 
     private static ColumnRef Ref(JsonElement r) => new(Str(r, "table"), Str(r, "column") ?? "");

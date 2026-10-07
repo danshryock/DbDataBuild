@@ -213,6 +213,10 @@
         "collation": {
           "description": "Logical collation name from the project's string_semantics.collations. The project default applies if omitted.",
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "trimmed": {
+          "description": "Declared: no value of this column ends in a space, so it compares the same on every engine. `check` counts the rows that break it.",
+          "type": "boolean"
         }
       }
     },
@@ -654,7 +658,7 @@
       ],
       "properties": {
         "name": {
-          "description": "Schema-qualified model name. Must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml is marts.fct_orders).",
+          "description": "Schema-qualified model name (`marts.fct_orders`): the name of the model wherever its file is. With the default `model_layout: folder` it must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml); `dotted` and `object` check the file's name instead (`marts.fct_orders.yml`, `fct_orders.yml`), and `none` does not check.",
           "$ref": "#/$defs/nonEmptyString"
         },
         "kind": {
@@ -720,7 +724,7 @@
           }
         },
         "lint_ignore": {
-          "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index) and DDB-225 (a load's slice cannot be applied below part of the query).",
+          "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index), DDB-225 (a load's slice cannot be applied below part of the query) and DDB-236 (the model compares strings on connections that compare them differently).",
           "type": "array",
           "uniqueItems": true,
           "minItems": 1,
@@ -728,7 +732,8 @@
             "enum": [
               "DDB-223",
               "DDB-224",
-              "DDB-225"
+              "DDB-225",
+              "DDB-236"
             ]
           }
         },

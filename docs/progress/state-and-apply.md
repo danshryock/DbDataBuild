@@ -705,3 +705,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Verified**: unit tests (each layout, its refusal text, duplicates, an unknown value, `define` and `import` paths, the real file in the metadata). Not run on a real engine: nothing here touches one.
 - **Assumption to confirm**: the default is `folder` because every existing project is laid out that way; a project that does not want folders sets another layout.
 - **Not built**: the statement in the query file; a per-connection schema default.
+
+## 86. String profile: the lint and `trimmed`
+
+- **Built** (`DESIGN.md` 7.4; note `docs/research/string-semantics-across-engines.md`): DDB-236, advice per model on connections that compare strings differently (the lowered query's column uses and the declared types: `QueryFacts.ColumnUses`, `ModelLowering.StringUses`, `ProjectChecks.StringProfileAdvice`; `ProjectConfig.StringProfileDifferences`), silenced with `lint_ignore: [DDB-236]`; `trimmed: true` on a column (models and mapped models; written back by `import`), which removes the trailing-space-only case from the lint; `check` counts the rows that break it (DDB-237, `TrimmedCheck`).
+- **Verified**: unit tests (a join, group, distinct, filter and order flagged only when the connections differ; trimmed and the only-trailing-space case; not flagged for integers or an order by when only trailing spaces differ; `lint_ignore`; the declaration read and written); real engines (`StringProfileConformanceTests`: SQL Server and PostgreSQL count 2 rows in the declared column, not the undeclared one, show no value, and the count clears after trimming).
+- **Not built**: the DuckDB-side emulation for `sample` and `test`, the rewrite of comparisons on the engine that cannot match.
