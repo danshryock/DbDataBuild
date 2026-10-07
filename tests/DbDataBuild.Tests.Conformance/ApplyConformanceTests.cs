@@ -1130,13 +1130,33 @@ public partial class ApplyConformanceTests
                 Assert.True(Expected(queries[i]).SequenceEqual(await engine.RowsAsync($"SELECT id FROM marts.q{i} ORDER BY id")), $"q{i}: {queries[i]}");
             Assert.NotEmpty(Expected(queries[0]));                                              // the cases are not all empty
 
-            // used as a value, the NULL a comparison can give is not reproducible: refused, with the reason
-            run.Write("models/marts/qv.yml", "name: marts.qv\nkind: {type: full}\ncolumns:\n  - {name: id, type: INTEGER, nullable: false}\n  - {name: g, type: BOOLEAN}\n");
-            run.Write("models/marts/qv.sql", "SELECT s.id, s.x > ANY (SELECT b.z FROM staging.s2 b) AS g FROM staging.s1 s\n");
-            var refused = run.Cli("render", "--write");
-            Assert.NotEqual(0, refused.Exit);
-            Assert.Contains("DDB-324", refused.Err);
-            Assert.Contains("used as a value", refused.Err);
+            // used as a value: TRUE, FALSE or NULL as DuckDB gives them (a CASE over the two predicates)
+            var valueQueries = new[]
+            {
+                "s.x > ANY (SELECT b.z FROM staging.s2 b)",
+                "s.x >= ALL (SELECT b.z FROM staging.s2 b)",
+                "s.x <> ALL (SELECT b.z FROM staging.s2 b WHERE b.w < 3)",
+                "NOT (s.x > ANY (SELECT b.z FROM staging.s2 b))",
+                "(s.x, s.y) NOT IN (SELECT b.z, b.w FROM staging.s2 b)",
+            };
+            for (var i = 0; i < valueQueries.Length; i++)
+            {
+                run.Write($"models/marts/qv{i}.yml", $"name: marts.qv{i}\nkind: {{type: full}}\ncolumns:\n  - {{name: id, type: INTEGER, nullable: false}}\n  - {{name: g, type: BOOLEAN}}\n");
+                run.Write($"models/marts/qv{i}.sql", $"SELECT s.id, {valueQueries[i]} AS g FROM staging.s1 s\n");
+            }
+            Ok(run.Cli("render", "--write"), "render values");
+            Ok(run.Cli("apply", run.PlanFile(run.Cli("plan").Out)), "apply values");
+            for (var i = 0; i < valueQueries.Length; i++)
+            {
+                using var cmd = duck.CreateCommand();
+                cmd.CommandText = $"SELECT s.id, CASE WHEN ({valueQueries[i]}) THEN '1' WHEN NOT ({valueQueries[i]}) THEN '0' ELSE 'n' END FROM staging.s1 s ORDER BY s.id";
+                using var r = cmd.ExecuteReader();
+                var expected = new List<string>();
+                while (r.Read()) expected.Add($"{r.GetValue(0)}|{r.GetValue(1)}");
+                var actual = await engine.RowsAsync($"SELECT id, COALESCE(CAST(CAST(g AS INT) AS VARCHAR(5)), 'n') FROM marts.qv{i} ORDER BY id");
+                Assert.True(expected.SequenceEqual(actual), $"qv{i}: {valueQueries[i]}\nexpected {string.Join(", ", expected)}\nactual   {string.Join(", ", actual)}");
+                Assert.Contains(expected, x => x.EndsWith("|n"));                               // the NULL case is in the data
+            }
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }

@@ -180,7 +180,7 @@ public sealed class PlanLowerer
             rel.Sel = rel.Sel.Select((s, i) => s with { Alias = outputNames[i] }).ToList();
         }
         var sql = rel.Cte(lowerer.ctesInOrder, lowerer.hasRecursiveCte) + rel.Sql();
-        if (sql.Contains('\u0003')) throw new LoweringException(MarkUsedAsValue);
+        if (sql.Contains('\u0003')) sql = lowerer.MarksAsValues(sql);
         var names = rel.SetOp != null ? rel.SetOpNames! : rel.Aliases();
         var columns = names.Select((n, i) => new LoweredColumn(n, rel.Sel.Count > i ? rel.Sel[i].Type ?? "UNKNOWN" : "UNKNOWN")).ToList();
         return new LoweredQuery(sql, columns, lowerer.rules.Distinct().Order(StringComparer.Ordinal).ToList()) { Tables = lowerer.aliasTables.Values.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList() };
@@ -1418,6 +1418,19 @@ public sealed class PlanLowerer
         return new Item($"\u0003{marks.Count - 1}\u0003", null, "BOOLEAN");
     }
 
+    /// <summary>
+    /// A comparison mark that was not consumed by a filter is a value: TRUE when a row matches, FALSE when none can, NULL otherwise, written as a `CASE` over the two predicates (one `EXISTS` for each), which
+    /// the target rules then lower like any boolean value. A mark that is still in the text after that was carried out of the query level its predicates belong to, and is refused.
+    /// </summary>
+    private string MarksAsValues(string sql)
+    {
+        return Regex.Replace(sql, "\u0003([0-9]+)\u0003", m =>
+        {
+            var mark = marks[int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)];
+            return $"(CASE WHEN {mark.True} THEN TRUE WHEN {mark.False} THEN FALSE ELSE NULL END)";
+        });
+    }
+
     private static bool ReferencesMark(JsonElement e, IReadOnlyList<string> outs)
     {
         if (e.ValueKind == JsonValueKind.Object)
@@ -1443,7 +1456,7 @@ public sealed class PlanLowerer
             case "BOUND_REF":
             {
                 var text = outs[e.GetProperty("index").GetInt32()];
-                if (!Regex.IsMatch(text, "^\u0003[0-9]+\u0003$")) throw new LoweringException(MarkUsedAsValue);
+                if (!Regex.IsMatch(text, "^\u0003[0-9]+\u0003$")) return AsValueCondition(e, outs, wantTrue);
                 var mark = marks[int.Parse(text.Trim('\u0003'), System.Globalization.CultureInfo.InvariantCulture)];
                 return wantTrue ? mark.True : mark.False;
             }
@@ -1453,8 +1466,15 @@ public sealed class PlanLowerer
                 var and = (Str(e, "type") == "CONJUNCTION_AND") == wantTrue;      // TRUE of an AND, and FALSE of an OR, need every part
                 return "(" + string.Join(and ? " AND " : " OR ", Arr(e, "children").Select(c => Truth(c, outs, wantTrue))) + ")";
             }
-            default: throw new LoweringException(MarkUsedAsValue);
+            default: return AsValueCondition(e, outs, wantTrue);
         }
+    }
+
+    /// <summary>A condition that uses a mark as a value (`(a > ANY (S)) IS NULL`, a `CASE`): the marks become their values, and the condition holds when the expression is TRUE (or FALSE).</summary>
+    private string AsValueCondition(JsonElement e, IReadOnlyList<string> outs, bool wantTrue)
+    {
+        var text = MarksAsValues(Expr(e, outs));
+        return wantTrue ? $"({text})" : $"(NOT ({text}))";
     }
 
     /// <summary>A join where one side is the duplicate-eliminated outer values: those are not a table here, they are the outer query, so the join disappears.</summary>

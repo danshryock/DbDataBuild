@@ -758,3 +758,8 @@ Operator decision: correlated subqueries are a hard requirement.
 ## 94. Fuzzing of the other inputs a person edits
 
 - **Built** (`FuzzTests`): seeded mutations (25 per file kind, the same operators as before) of a hook script, a macro file, native query text, a native model's definition, a metadata test, a model test and a query file's head, each run through `validate`, `test`, `loads`, `metadata` and `define --check`, which must finish without an internal error (DDB-900) and with a well-formed JSON document. All passed on the first run, so no defect was found by it. Not covered: the interactive question flow (it needs a terminal) and the resolver query results.
+
+## 95. `ANY`, `ALL` and row-value `IN` used as a value
+
+- **Built** (`PlanLowerer.MarksAsValues`, `AsValueCondition`; DESIGN.md 7.6): a comparison mark that a filter does not consume is written as `(CASE WHEN EXISTS (S WHERE p) THEN TRUE WHEN NOT EXISTS (S WHERE p OR an operand IS NULL) THEN FALSE ELSE NULL END)` where it appears (select list, `ORDER BY`, `GROUP BY`, aggregates, derived tables, inside `CASE` and `IS NULL`, and inside conditions that are not AND/OR/NOT of marks). It was refused (DDB-324) before.
+- **Verified**: 12 unit forms against DuckDB's own rows on data with NULLs on both sides, correlated and not, through a derived table and a `GROUP BY` of the value; on SQL Server 2022 and PostgreSQL 17 five value forms (ANY, ALL, `<> ALL` with a filter, `NOT ANY`, row-value `NOT IN`) give DuckDB's TRUE, FALSE and NULL for each row. **Not verified**: a mark carried out of the query level its predicates belong to is not detected by the lowerer (the unit forms through a derived table pass); DuckDB 2.0's different plan shape (see section A item 3).

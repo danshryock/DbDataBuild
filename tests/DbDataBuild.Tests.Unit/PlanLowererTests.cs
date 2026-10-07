@@ -567,18 +567,31 @@ public class PlanLowererTests
         Assert.DoesNotContain('\u0003', lowered);
     }
 
-    [Theory]
-    [InlineData("SELECT id, a > ANY (SELECT a FROM u) AS g FROM t")]
-    [InlineData("SELECT id, a >= ALL (SELECT a FROM u) AS g FROM t")]
-    [InlineData("SELECT id FROM t WHERE (a > ANY (SELECT a FROM u)) IS NULL")]
-    [InlineData("SELECT id FROM t WHERE CASE WHEN a > ALL (SELECT a FROM u) THEN 1 ELSE 0 END = 1")]
-    [InlineData("SELECT id, (a, b) NOT IN (SELECT a, b / 100 FROM u) AS g FROM t")]
-    [InlineData("SELECT id FROM t ORDER BY a > ANY (SELECT a FROM u), id")]
-    public void A_comparison_subquery_used_as_a_value_is_refused_because_its_NULL_cannot_be_reproduced(string source)
+    // used as a value, the mark is written as `CASE WHEN <a row matches> THEN TRUE WHEN <none can> THEN FALSE ELSE NULL END`: DuckDB's three-valued answer, on data with NULLs on both sides
+    public static TheoryData<string> ComparisonSubqueriesAsValues => new()
+    {
+        "SELECT id, a > ANY (SELECT a FROM u) AS g FROM t",
+        "SELECT id, a >= ALL (SELECT a FROM u) AS g FROM t",
+        "SELECT id, a > ALL (SELECT a FROM u WHERE b > 1000) AS g FROM t",
+        "SELECT id FROM t WHERE (a > ANY (SELECT a FROM u)) IS NULL",
+        "SELECT id FROM t WHERE CASE WHEN a > ALL (SELECT a FROM u) THEN 1 ELSE 0 END = 1",
+        "SELECT id, (a, b) NOT IN (SELECT a, b / 100 FROM u) AS g FROM t",
+        "SELECT id, (a, b) IN (SELECT a, b / 100 FROM u) AS g FROM t",
+        "SELECT id FROM t ORDER BY a > ANY (SELECT a FROM u), id",
+        "SELECT id, NOT (a > ANY (SELECT a FROM u)) AS g, (a = ANY (SELECT a FROM u)) AND b > 0 AS h FROM t",
+        "SELECT id, a > ANY (SELECT a FROM u WHERE u.b = t.b) AS g FROM t",
+        "SELECT count(*) AS n, count(a > ANY (SELECT a FROM u)) AS known FROM t",
+        "SELECT g, count(*) AS n FROM (SELECT a > ANY (SELECT a FROM u) AS g FROM t) q GROUP BY g",
+    };
+
+    [Theory, MemberData(nameof(ComparisonSubqueriesAsValues))]
+    public void A_comparison_subquery_used_as_a_value_is_written_as_a_CASE_with_DuckDBs_three_valued_answer(string source)
     {
         using var c = Open();
-        var ex = Assert.Throws<LoweringException>(() => Lower(c, source));
-        Assert.Contains("used as a value", ex.Message);
+        var lowered = Lower(c, source);
+        Assert.Equal(Rows(c, source, false), Rows(c, lowered, false));
+        Assert.DoesNotContain('\u0003', lowered);
+        Assert.Contains("CASE WHEN", lowered);
     }
 
     // what the engine probes found (tests/DbDataBuild.Tests.Conformance/EngineDifferenceProbes.cs): each lowered query returns DuckDB's rows on DuckDB itself, which is the first half of the claim that
