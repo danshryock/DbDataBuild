@@ -896,3 +896,8 @@ Operator decision: correlated subqueries are a hard requirement.
 
 - **Measured** (the 300-model PostgreSQL project, a run of 100 loads): a plan file 170 KB, its report 74 KB, a statement log about 2 MB. A job every 15 minutes leaves hundreds of megabytes a month; nothing prunes them (the plan is also kept in `migration_log`).
 - **Done**: `docs/operations.md` section 4 says so and gives a `find ... -delete` line; `OPEN-ITEMS.md` section D0 lists a retention setting as a decision for the owner. No behaviour changed.
+
+## 119. A copy of three million rows
+
+- **Measured** (`A_table_of_a_few_hundred_thousand_rows_moves_in_bulk` with `DDB_SCALE=1 DDB_SCALE_ROWS=3000000`; SQL Server 2022 and PostgreSQL 17 in local containers; a table of eleven columns with text, decimals and timestamps): 3,000,000 rows in 59.0 s from PostgreSQL to SQL Server and 58.8 s the other way, about 50,000 rows a second, with the peak working set of the whole test process at 225 to 232 MB (so the transfer holds one batch at a time, not the table). Row counts and a column sum agree. The default stays 300,000 rows.
+- **Found in the test harness only**: the helper that fills the source table had the driver's 30-second command timeout (`Engine.ExecAsync`); it now has none.

@@ -64,6 +64,7 @@ public abstract class Engine : IProbeEngine
     {
         using var cmd = c.CreateCommand();
         cmd.CommandText = sql;
+        cmd.CommandTimeout = 0;           // the scale tests fill tables with millions of rows
         await cmd.ExecuteNonQueryAsync();
     }
 

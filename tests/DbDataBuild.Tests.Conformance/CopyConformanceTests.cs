@@ -184,7 +184,7 @@ public partial class CopyConformanceTests
         await using var toEngine = pair.Destination;
         try
         {
-            const int Rows = 300_000;
+            var Rows = int.TryParse(Environment.GetEnvironmentVariable("DDB_SCALE_ROWS"), out var scaled) && Environment.GetEnvironmentVariable("DDB_SCALE") == "1" ? scaled : 300_000;       // DDB_SCALE=1 DDB_SCALE_ROWS=3000000 for a larger run
             await fromEngine.ExecAsync("DELETE FROM src.items");
             await fromEngine.ExecAsync(origin == "postgres"
                 ? $"INSERT INTO src.items (id, n, price, code, notes, seen) SELECT g, g % 1000, g / 7.0, 'code-' || g, repeat('x', 100), TIMESTAMP '2024-01-01' + g * INTERVAL '1 second' FROM generate_series(1, {Rows}) g"
@@ -199,8 +199,8 @@ public partial class CopyConformanceTests
             clock.Stop();
             Assert.Equal(Rows.ToString(), (await toEngine.RowsAsync("SELECT COUNT(*) FROM dst.items")).Single());
             Assert.Equal((await fromEngine.RowsAsync("SELECT SUM(n) FROM src.items")).Single(), (await toEngine.RowsAsync("SELECT SUM(n) FROM dst.items")).Single());
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(90), $"{Rows} rows took {clock.Elapsed.TotalSeconds:0.0}s");
-            Console.WriteLine($"copy {origin} -> {destination}: {Rows} rows in {clock.Elapsed.TotalSeconds:0.0}s");
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(30 + Rows / 5_000), $"{Rows} rows took {clock.Elapsed.TotalSeconds:0.0}s");
+            Console.WriteLine($"copy {origin} -> {destination}: {Rows} rows in {clock.Elapsed.TotalSeconds:0.0}s, peak working set of the test process {System.Diagnostics.Process.GetCurrentProcess().PeakWorkingSet64 / 1_048_576} MB");
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
     }
