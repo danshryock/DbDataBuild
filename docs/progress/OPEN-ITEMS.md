@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine tests 182 (177 run and 5 skipped, among them the scale tests that need DDB_SCALE=1; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-07. Unit tests 1811, real-engine tests 184 (179 run and 5 skipped, among them the scale tests that need DDB_SCALE=1; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -11,17 +11,17 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine 
 | 5-6 | Planning, apply | Done, with risk classes, resume, hooks, indexes, backfill, `ack`, `report` |
 | 7 | Incremental kinds, loads, `run` | Done |
 | 8 | PostgreSQL target | Done and verified. **Fabric target: written, unverified.** Operations guidance for SQL Server Audit: not written |
-| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). The Windows executable is built and published by the release workflow, and the unit suite runs on Windows in CI. Open: fuzzing of the interactive question flow, docs generation, pre-1.0 polyglot upgrade policy |
+| 9 | Hardening | **Mostly done** (entry 25): seeded fuzzing of config, source, model, SQL, answers and plan files; the real-engine error-scrub test; linux-x64 single-file publish; operations guide (`docs/operations.md`). The Windows executable is built and published by the release workflow, and the unit suite runs on Windows in CI. Open: fuzzing of the interactive question flow, the pre-1.0 polyglot upgrade policy (the command reference is generated, entry 93) |
 | extra | Plan lowering | Built (section 7.6) |
 
 ## A. Lowering: open items (the ones you asked to have written down)
 
-1. **Target-specific rules: built** (DESIGN.md 7.6.1, entries 24 and 40): `length`, `round` of a double, `TRY_CAST` of a string, `CAST` of a decimal or double to an integer, weekday numbers, and lowering rules for `%`, `//`, `position`, `round(x)`, `substr`, date parts, `string_agg`. About 200 expressions are now probed on both engines against DuckDB (`docs/research/engine-differences`). Remaining and written down there: no rule for `TRY_CAST` to a date on PostgreSQL or the `'12.7'`/`'1e3'` string-to-integer differences; division by zero (NULL, not Infinity); characters outside the BMP on SQL Server; `date_diff` month and year on PostgreSQL; `string_agg` on PostgreSQL (polyglot writes `LISTAGG`); `CAST(double AS VARCHAR)` and `CAST(datetime2 AS VARCHAR)` text forms; `lpad`, `contains`, `mode`, `corr`, `split_part`, `week`, `last_day` have no translation. Not yet probed: window functions with frames, `list`/`struct` results, string functions beyond the probe list, and aggregates over very large DECIMALs.
-2. **`sum` widening: built** (lowering rule `sum-widen`). `sum` of DECIMAL needs no rule on SQL Server (both give DECIMAL(38, s)); PostgreSQL gives NUMERIC without a scale limit, which a declared column then constrains. Not yet probed: `avg` and `sum` over very large DECIMALs.
+1. **Target-specific rules: built** (DESIGN.md 7.6.1, entries 24, 40 and 126): about thirty rules (`rewrites:` lists them, `dbdatabuild matrix --rewrites`), and about 200 expressions probed on both engines against DuckDB. What is known to differ and has no rule is in `docs/research/engine-differences` and the matrix (`approximated`, `unsupported`); do not copy that list here, it goes stale. Not yet probed: window functions with frames, `list`/`struct` results, string functions beyond the probe list.
+2. **`sum` widening: built** (lowering rule `sum-widen`). `sum` of DECIMAL needs no rule on SQL Server (both give DECIMAL(38, s)); PostgreSQL gives NUMERIC without a scale limit, which a declared column then constrains. Not yet probed: `avg` and `sum` over very large DECIMALs (and, with the aggregates above, a column that holds more than 28 digits).
 3. **`x op ANY/ALL (subquery)` and row-value `IN`: built as filter conditions** (DESIGN.md 7.6, entry 39), verified against DuckDB on data with NULLs and on both engines. Used as a *value* (select list, `CASE`, `IS NULL`, `ORDER BY`, `GROUP BY`) they are a `CASE` over the two predicates (entry 95, verified on both engines); a mark in a join condition is still refused; a correlated row-value `IN` is not supported by DuckDB itself. **On the DuckDB 2.0 alpha these plans have a different shape (a count-based CASE) and 9 of the new tests fail there, one with wrong rows: they have to be reworked when 2.0 is adopted** (the preview job is on hold).
 4. **Correlated subquery over `UNION`/`INTERSECT`/`EXCEPT`, a window partitioned by a correlated value, a correlated `LIMIT` with an offset.** Refused; no plan to build unless a real model needs them.
 5. **Author table aliases: built** (DESIGN.md 7.6; entry 89): the aliases written for tables come back in the lowered query. Not for a query with a CTE or one that reaches a macro (they keep the table names); derived-table and subquery aliases the author wrote (`FROM (SELECT ...) x`) are still generated names (`s1`).
-6. **Date/timestamp series, `UNNEST`, list/struct constructors, `USING SAMPLE`, `LIMIT ... PERCENT`.** Refused by decision. A date series could be an integer series plus `DATEADD`/interval arithmetic; I left it out because every interval unit needs its own differential check.
+6. **Date/timestamp series, `UNNEST`, list/struct constructors, `USING SAMPLE`, `LIMIT ... PERCENT`.** Refused by decision. A date series could be an integer series plus `DATEADD`/interval arithmetic; it is left out because every interval unit needs its own differential check.
 7. **Aggregate over a subquery: built** (entry 96). SQL Server rejects `sum((SELECT ...))` and a `GROUP BY` on a subquery; the lowerer computes the subquery in a derived table first and the aggregate reads its column.
 8. **Plan JSON is DuckDB-internal.** A DuckDB upgrade can change plans, which shows as a stale lowered artifact in `render --check`. The header records the DuckDB version; there is no tooling to explain *why* an artifact changed.
 9. **Evidence gaps**: none known. The `fn.generate_series` spike case was run on 2026-10-07 (SQL Server 2022: polyglot's raw text is refused because of the column list, which the renderer drops; PostgreSQL: MATCH); the matrix note says so.
@@ -37,51 +37,39 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine 
 
 ## C. Unverified or risky areas
 
-- **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. The draft upstream issue notes exist but you have not decided to submit them.
+- **Fabric**: every Fabric matrix row is `unverified`. Needs a real Fabric Warehouse to confirm MERGE/ALTER/TRUNCATE/rename, `nvarchar(max)` and constraints in the tracking tables, `sp_describe_first_result_set`, trailing-space and `LEN` behavior, collations, and the `GENERATE_SERIES` form. Draft upstream issue notes exist; the owner has not decided to submit them.
 - **Lock, resume and failure paths** are tested on SQL Server and PostgreSQL, on single local containers: a second `apply` started while a first one runs is refused and both leave the target consistent, and an `apply` whose connection is killed mid-step fails with DDB-440 and resumes (entry 102). Not tested: many concurrent applies under load, a network partition that does not close the session at once (a half-open TCP connection), a server restart mid-step.
 - **Native dependency**: polyglot-sql is pinned and fetched prebuilt from the `native-<pin>` release (`scripts/fetch-native.sh`; `scripts/build-polyglot.sh` and the `native` workflow build it); pre-1.0 API churn and an upgrade policy are open (section 17).
-- **Windows**: the unit suite runs natively on `windows-latest` on every push (CI), the release workflow builds the win-x64 single-file executable, and the owner has run the tool and the terminal interface on Windows with no problems found. Not done: PostgreSQL and the real-engine suite on Windows (PostgreSQL cannot log in under Wine; the conformance groups run on Linux), code signing and an installer, and a win-arm64 build.
+- **Windows**: the unit suite runs natively on `windows-latest` on every push (CI), the release workflow builds the win-x64 single-file executable, and the owner has run the tool, the terminal interface, the skill and the MCP server on Windows (2026-10-07: they work at some level; not exercised thoroughly). Not done: PostgreSQL and the real-engine suite on Windows (PostgreSQL cannot log in under Wine; the conformance groups run on Linux), code signing and an installer, and a win-arm64 build.
 - **Licenses**: audited 2026-10-02 (all permissive; see `THIRD-PARTY-NOTICES.md`); re-check when dependencies change.
 - **Collation**: chained collations under `GROUP BY`/`DISTINCT`/joins/windows on DuckDB and the engines are only partly verified (section 17). Live collation checks exist for SQL Server and PostgreSQL.
 - **Error scrubbing and fuzzing**: done for the file inputs (entry 25). Seeded mutation also covers hook scripts, macro files, native query text and its definition, metadata and model test files and a query file's head (entry 94). Not covered: fuzzing the interactive answer flow and the resolver query results.
 
-## D0. Housekeeping the tool does not do
+## D. Documentation debt and housekeeping
 
-- **Plan files and statement logs from a scheduled `run` pile up** (about 2.3 MB for a run of 100 loads, entry 118). The tool deletes nothing; `docs/operations.md` section 4 says how to prune them. Open for the owner: a retention setting (`run` keeping the newest N plans, and a log age), or writing the plans of `run` somewhere that is not the project tree.
-
-## D. Documentation debt
-
-- DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.
 - Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Written 2026-10-07: `docs/getting-started.md` and `docs/commands.md` (generated from the command tree; `CommandReferenceTests` fails when it is out of date). Not written: per-engine setup guides (logins and permissions are in `operations.md`).
-- REVIEW.md was rewritten as one document on 2026-10-06; keep it a summary (the log is `state-and-apply.md`).
+- REVIEW.md was rewritten as one document on 2026-10-06 and extended on 2026-10-07; keep it a summary (the log is `state-and-apply.md`).
+- **Housekeeping the tool does not do** (was D0): plan files and statement logs from a scheduled `run` pile up (about 2.3 MB for a run of 100 loads, entry 118). The tool deletes nothing; `docs/operations.md` section 4 says how to prune them. Open for the owner: a retention setting (`run` keeping the newest N plans, and a log age), or writing the plans of `run` somewhere that is not the project tree.
 
-## E. Suggested order (for you to change; refreshed 2026-10-06)
+## E. Suggested order (for you to change; refreshed 2026-10-07)
 
-1. The rest of section M that is not string semantics (`copy_to`, offline tracking). `diff` across connections is built (entry 92).
-2. Lowering gaps as real models need them (section A), and the documentation debt (section D).
-3. Real-host checks of the MCP and web interfaces (sections F and K), branch protection and templates (section H).
+1. **Decisions only the owner can make** (section R): `copy_to` and offline tracking (section M), retention of files from `run`, the test gate's recording in the plan, MCP `outputSchema`.
+2. **Real-host checks** (sections F and K): the skill and the MCP server have been tried from Windows and work at some level; they have not been exercised thoroughly. The MCP app has not been seen in a real host (see section F: the host has to advertise MCP Apps), and the page's apply and the elicitation have not been checked against one.
+3. Lowering gaps as real models need them (section A), probing with scale and edge data (it found most of the defects of 2026-10-07), and the documentation debt (section D).
 4. Fabric verification (moved to the back by the owner, 2026-10-02): needs a real Fabric instance; otherwise Fabric stays unverified for the first release.
-5. **Parked**: string comparison until it is designed as a whole (section P), change feeds (section L), and more options in a query file's head (section N).
+5. **Parked**: string comparison until it is designed as a whole (section P), change feeds (section L), and more options in a query file's head (section N). The DuckDB 2.0 CI (section H) waits for 2.0.
 
 ## F. Terminal interface and agents (added 2026-10-02)
 
 - **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; the terminal interface runs on Windows (checked by the owner); view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
 - **Sample data gaps**: string comparison follows the model's connection profile (collation and `rtrim`, DESIGN.md 7.4), other target behaviors are not emulated (it runs in DuckDB only); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
-- **Agents**: the MCP server exists (`dbdatabuild mcp`, section K: typed tools and schema resources, writers off by default); the skill has not been tried by a real agent on a real task (the tests keep it true, not useful, so it needs a trial run and revision from what an agent gets wrong); no per-engine variants of the skill (it says Fabric is unverified).
+- **Agents**: the MCP server exists (`dbdatabuild mcp`, section K: typed tools and schema resources, writers off by default); the owner has tried the skill and the MCP server from Windows (2026-10-07) and they work at some level, but not thoroughly: the skill still needs a real task and revision from what an agent gets wrong (the tests keep it true, not useful); no per-engine variants of the skill (it says Fabric is unverified).
+- **The MCP app is only offered to a host that says it supports MCP Apps** (the `io.modelcontextprotocol/ui` capability when it connects). On 2026-10-07 the owner could not make Claude Code in the Claude Desktop app on Windows use it, which is what that rule predicts if the host does not advertise the extension: the server then offers no app and no `show` tool, and says nothing in the conversation. `dbdatabuild mcp` now writes one line to its standard error at connect (client name, whether MCP Apps and confirmations are supported). Which hosts advertise it is not known here; `dbdatabuild web` shows the same screens in a browser on any host.
 
 ## G. After the slice and parameter work (2026-10-02)
 
-- Predicate pushdown and runtime parameters are no longer open questions; what remains: a first-class **custom slicing operation** (author-written filter with a declared parameter; allowed today by writing it in the query and using `full_replace` or a key load, but not modelled), **seeded parameter values for `sample`** so the strategies can be previewed, and a check that a parameter's type is one of date, timestamp, integer or short text (everything is logged).
-- The slice lint follows plain column lineage; it does not judge sargability of an expression slice column (`CAST(ts AS DATE)`) or whether the slice column is indexed on the source.
-
-## I. Sources and metadata (2026-10-02)
-
-- **`import`** (was `import-sources`, entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported (a native collation has no honest logical name: the logical names are the project's own profile); a refresh rewrites a descriptor without its comments; a source's declared indexes are read by the slice lint (DDB-239, entry 98), not yet by anything else; `--check` needs a database login in CI.
-- **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import-sources --format json` has them), and the tool's own tracking tables.
-
-## J. Project tests (2026-10-02)
-
-- **Built**: metadata rules (`test`, entry 37) and model tests (entry 38). **Gating `plan`/`check`/`run` on tests by tag group is built** (`tests: { gate: { tags } }`, entry 99); not built: a severity floor for the gate, the result in the plan file and its hash, gating `apply`; the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML (only test files have them); floating-point tolerance, parameterized loads, multi-run incremental behaviour, and array or struct values in model tests; running model tests on a real target.
+- Predicate pushdown and runtime parameters are no longer open questions; what remains: a first-class **custom slicing operation** (author-written filter with a declared parameter; allowed today by writing it in the query and using `full_replace` or a key load, but not modelled), and **seeded parameter values for `sample`** so the strategies can be previewed. (The type of a parameter is checked by the loader: VARCHAR, BIGINT, INTEGER, SMALLINT, DATE, TIMESTAMP or NAME.)
+- The slice lint follows plain column lineage; it does not judge sargability of an expression slice column (`CAST(ts AS DATE)`); whether the slice column is indexed on the source is DDB-239 (entry 98), for a source that declares indexes or a grain.
 
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 
@@ -89,9 +77,18 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine 
 - **GitHub**: the repository is public. `ci.yml` runs on every push to main and every pull request: the unit suite on Linux and Windows, and the conformance groups against real engines (`quick`, `apply`, `templates`, SQL Server 2025, and the Oracle, Spark SQL and BigQuery probes); `conformance-full.yml` runs everything weekly and on demand; `release.yml` runs on a `vX.Y.Z` tag, gates on the full conformance, builds the linux-x64 and win-x64 executables and publishes the release (and the Scoop manifest). Open: branch protection, issue templates, a pull-request template. Commits made with this repository's git configuration carry `dan.shryock@gmail.com` from 2026-10-06; earlier ones carry the old identity (rewriting them would need a force-push, which was not asked for).
 
 
+## I. Sources and metadata (2026-10-02)
+
+- **`import`** (was `import-sources`, entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported (a native collation has no honest logical name: the logical names are the project's own profile); a refresh rewrites a descriptor without its comments; a source's declared indexes are read by the slice lint (DDB-239, entry 98), not yet by anything else; `--check` needs a database login in CI.
+- **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import --format json` has them), and the tool's own tracking tables.
+
+## J. Project tests (2026-10-02)
+
+- **Built**: metadata rules (`test`, entry 37) and model tests (entry 38). **Gating `plan`/`check`/`run` on tests by tag group is built** (`tests: { gate: { tags } }`, entry 99); not built: a severity floor for the gate, the result in the plan file and its hash, gating `apply`; the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML (only test files have them); floating-point tolerance, parameterized loads, multi-run incremental behaviour, and array or struct values in model tests; running model tests on a real target.
+
 ## K. Graph and diff (2026-10-03)
 
-- **Built**: selectors and `graph` (entry 42), `diff` version 1 (entry 43). **Not built**: `diff` across connections is built (entry 92); not built: a floating-point comparison, a row filter for it, comparing a table with a DuckDB run of its model; `changed:` now follows folder files, native text, hook scripts, macro files and rendered files (entry 97); `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan. Model-level `tags:` and `tag:` selectors are built (entry 101).
+- **Built**: selectors (including `tag:` and `changed:`, which follows folder files, native text, hook scripts, macro files and rendered files, entries 97 and 101) and `graph` (entry 42); `diff` in one connection (entry 43) and across connections and engines (entries 92 and 114). **Not built**: a floating-point comparison and a row filter for `diff`, comparing a table with a DuckDB run of its model; `graph` does not draw load strategies or hooks; change impact is a list, not yet a classification (breaking or not) that would drive a plan.
 - **Loading from a source query**: `load-seeds` loads seeds (DuckDB queries) into SQL Server and PostgreSQL (entry 45). Not built: loading from a query on another engine (SQL Server or PostgreSQL to DuckDB or to each other), CSV through DuckDB `read_csv` (seeds run with external access off).
 - **Templates**: `starter`, `retail`, `chinook` and `adventureworks` are built (`dbdatabuild new`). Backlog: none named.
 - **Refused constructs the templates found** (docs/research/template-findings.md): `split_part` on SQL Server, a lateral or date series (`generate_series` bounds from another table, or dates), `UNNEST` of list columns, a quantile with a list of fractions or a DISTINCT or FILTER, `json_extract`/`json_valid`/`json_type`/`json_keys`, `json_array_length` and every regular expression on SQL Server, `nth_value` on SQL Server.
@@ -99,13 +96,13 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine 
 - **Decimal products wider than 38 digits** round at scale 6 on SQL Server (matrix `type.decimal_product_wide`); no rewrite makes SQL Server exact.
 - **Oracle, Spark SQL, BigQuery emulator** (entries 48 and 49): probed only, with first rules (Spark 253 of 267 agree, BigQuery 175, Oracle 119). Needed to make them targets: target rules for what the scoreboard shows, a matrix column each (the rows say `unverified` for nothing today: the loader requires the three existing targets), a DDL type table, tracking tables, load strategies, a driver behind `MutationGate`/`ReadSession`.
 - **How BigQuery is tested** (decision, entry 49): the emulator stays for analysis-level checks (does the rendered SQL parse and resolve, are function and part names valid). Its row answers are not authoritative: do not write rules for differences that only the emulator shows (it runs GoogleSQL analysis over a SQLite executor). Alternatives for row-level truth, to look at later: real BigQuery on the free sandbox as an opt-in release check, GoogleSQL's `execute_query` built from `google/googlesql`. Also open: the probe run time (33 s to 9 min), a per-query timeout.
-- **MCP server** (entry 50): built for tools and resources; open: `.mcpb` packaging, per-tool outputSchema, a no-values test over results, the UI extension and `dbdatabuild web` (docs/research/web-and-mcp-interface.md), verification against real hosts.
-- **Web interface** (entry 51): read-only screens built; open: plan review and apply, diff, sample data, accessibility, an answers form for plan questions, apply with an approval design (entry 53), the MCP app and VS Code shells.
-- **Page and MCP writes** (entry 54): built with approval; open: check elicitation against a real host, `apply --resume` from the page, the questions form against a real model change, the MCP app shell.
-- **MCP app** (entry 56): built and driven with a stand-in host; open: a real host (Claude Desktop, VS Code; checklist in docs/interfaces.md), attaching the `.mcpb` bundle to releases once a host has installed it.
+- **MCP server** (entry 50): built for tools, resources and prompts; `scripts/pack-mcpb.sh` builds an `.mcpb` bundle. Open: per-tool `outputSchema` (section R), a no-values test over results, and thorough use in real hosts (tried from Windows, entry above in section F).
+- **Web interface** (entry 51): read-only screens built; open: accessibility, and a VS Code shell. (Plan review, apply with confirmation, answers, diff and sample data are built, entries 53 to 56.)
+- **Page and MCP writes** (entry 54): built with approval; open: check elicitation against a real host, `apply --resume` from the page, the questions form against a real model change.
+- **MCP app** (entry 56): built and driven with a stand-in host and the extension's reference host; never seen in a real host. It is offered only to a host that advertises MCP Apps (section F). Open: a host that does (checklist in `docs/interfaces.md`), attaching the `.mcpb` bundle to releases once a host has installed it.
 - **SQL Server version** (entry 58): `version` means the T-SQL level to generate for (16: 2022 and 2025@160; 17: 2025@170) and from 17 the regular expressions are written; open: the `i`/`s` regex options, other 2025 features (a native JSON type, vectors) are not used. The SQL Server 2025 group runs in CI.
 - **Oracle empty string** (entry 59): measured and designed (DESIGN.md 7.4), not built: needs Oracle as a target and a matrix column.
-- **`agent-kit --mcp`** (entry 60): written from Claude Code's documentation, not run in it; check `${VAR:-}` with an empty default for an unset login, and the approval prompt.
+- **`agent-kit --mcp`** (entry 60): written from Claude Code's documentation; the owner has used the MCP server from Windows (2026-10-07, works at some level); still to check: `${VAR:-}` with an empty default for an unset login, and the approval prompt.
 - **Cross-server and domains** (entries 62 to 82): built; what is left is in section M.
 
 
@@ -130,7 +127,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1807, real-engine 
 
 - **Macros** (entries 81, 87): folder-scoped macros; a `NAME` parameter reaches a query only as a macro argument; enum-typed expressions are not mapped to engine types.
 - **Native models** (entries 77 to 80): the plan-time describe does not compare nullability and does not describe commands; `reads:` is not checked against the text; a command copied across engines is verified in both directions (entry 104).
-- **Parameters** (entry 76): boolean, decimal and double types; a view cannot use value parameters.
+- **Parameters** (entry 76): there are no boolean, decimal or double parameter types (a boolean has two values, so it cannot be marked uniquely in the query; the others need markers that survive the lowering); a view cannot use value parameters.
 - **Tracking** (entries 74, 82): `copy_to`, offline tracking; `init --upgrade` handles layouts 2 and 3 and not Fabric.
 - **Copies** (entries 71 to 75, 83): `--full-refresh` does not see rows deleted at the origin; author aliases are not recovered for derived tables and subqueries (section A5).
 - **Support matrix**: a `current_date` depends on each engine's time zone (`fn.current_date`).
@@ -151,11 +148,11 @@ The owner decided to keep these. A short name is fine where it is plainly a key 
 - Code: local variables and parameters called `schema` or `schemas`.
 - Correct under the terms: `schema_version` and `TrackingSchema` (the defined shape of the tracking tables), `diff`'s `schema` payload (column shapes), JSON Schema.
 
-## R. Left from the 2026-10-07 work: decisions and limits (entries 91 to 127)
+## R. Left from the 2026-10-07 work: decisions and limits (entries 91 to 128)
 
 For the owner to decide:
 
-- **Retention of files from a scheduled `run`** (D0, entry 118): plan files and statement logs pile up; the tool deletes nothing.
+- **Retention of files from a scheduled `run`** (section D, entry 118): plan files and statement logs pile up; the tool deletes nothing.
 - **The test gate** (entry 99): it runs before `plan`, `check` and `run` read the target; the result is printed, not recorded in the plan file or its hash (that changes the plan format), there is no severity floor, and `apply` is not gated. The history policy `history_inconsistency` (entry 100) defaults to a warning.
 - **MCP `outputSchema`** (section K): each tool could declare the schema of its `data`, but a tool that declares one must return conforming `structuredContent` every time, and a truncated or failed document does not. Not done; it needs a decision on what a truncated result looks like.
 - **Names too long** (DDB-241, entry 110) are an error for PostgreSQL's 63 bytes and SQL Server's 128 characters; the tracking schema name and parameter names are not checked.

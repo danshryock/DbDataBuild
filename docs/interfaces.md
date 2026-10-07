@@ -66,7 +66,7 @@ VS Code (`.vscode/mcp.json`):
 
 ## The MCP app
 
-A host that supports the MCP Apps extension and says so when it connects (`io.modelcontextprotocol/ui` in its capabilities) gets, besides the tools, the resource `ui://dbdatabuild/app` and a `show` tool. When the model calls `show`, `review`, `plan`, `graph`, `diff` or `sample`, the host renders the page in the conversation and opens the screen for that result. The page calls the server through tools only the app may call (`ui_run`, `ui_file`, `ui_apply`, ...: the extension has the host hide them from the model). A host that does not advertise the extension sees none of this, by design: it would show those tools to the model.
+A host that supports the MCP Apps extension and says so when it connects (`io.modelcontextprotocol/ui` in its capabilities) gets, besides the tools, the resource `ui://dbdatabuild/app` and a `show` tool. When the model calls `show`, `review`, `plan`, `graph`, `diff` or `sample`, the host renders the page in the conversation and opens the screen for that result. The page calls the server through tools only the app may call (`ui_run`, `ui_file`, `ui_apply`, ...: the extension has the host hide them from the model). A host that does not advertise the extension sees none of this, by design: it would show those tools to the model. **If you cannot get the app in a host, this is the first thing to check:** at connect the server writes one line to its standard error (where a host keeps a server's log) saying which client it is and whether MCP Apps are advertised. If they are not, the host is not one that renders MCP Apps (Claude Code in the Claude Desktop app on Windows was one such, 2026-10-07); `dbdatabuild web` shows the same screens in a browser.
 
 ### Trying it
 

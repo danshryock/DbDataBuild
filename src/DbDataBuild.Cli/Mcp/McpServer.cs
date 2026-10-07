@@ -217,6 +217,9 @@ internal sealed class McpServer
         protocol = asked != null && SupportedProtocols.Contains(asked) ? asked : LatestProtocol;
         clientCanAsk = p?["capabilities"]?["elicitation"] != null;
         clientHasUi = p?["capabilities"]?["extensions"]?[UiExtension] != null;
+        // standard error is where a host keeps a server's log: say what this host can do, because a host that does not advertise MCP Apps silently gets no app
+        var client = p?["clientInfo"];
+        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered (`dbdatabuild web` shows the same screens in a browser)")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}.");
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
