@@ -77,7 +77,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1763, real-engine 
 
 ## J. Project tests (2026-10-02)
 
-- **Built**: metadata rules (`test`, entry 37) and model tests (entry 38). **Not built**: gating `plan`/`apply`/`run` on tests, including by tag group (the tags exist, nothing reads them but `test --tag`); the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML (only test files have them); floating-point tolerance, parameterized loads, multi-run incremental behaviour, and array or struct values in model tests; running model tests on a real target.
+- **Built**: metadata rules (`test`, entry 37) and model tests (entry 38). **Gating `plan`/`check`/`run` on tests by tag group is built** (`tests: { gate: { tags } }`, entry 99); not built: a severity floor for the gate, the result in the plan file and its hash, gating `apply`; the `metadata_*` views in the target (only `metadata_current` and `metadata_columns` exist there); `#` comment settings for model YAML (only test files have them); floating-point tolerance, parameterized loads, multi-run incremental behaviour, and array or struct values in model tests; running model tests on a real target.
 
 ## H. DuckDB 2.0 and the repository (2026-10-02)
 

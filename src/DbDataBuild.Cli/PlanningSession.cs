@@ -165,6 +165,22 @@ internal sealed class PlanningSession
             return (null, CliApp.ExitFindings);
         }
 
+        // ---- the test gate: the tests the project names must pass before anything is read from the target ----
+        if (ctx.Config.TestGateTags.Count > 0)
+        {
+            var gateOut = new StringWriter(); var gateErr = new StringWriter();
+            var gateExit = TestCommand.Run(CommandSpecs.All.First(s => s.Name == "test"), root, [], [.. ctx.Config.TestGateTags], null, 5, false, gateOut, gateErr);
+            var summary = gateOut.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault(l => l.Contains("test(s):") || l.StartsWith("No tests", StringComparison.Ordinal)) ?? "";
+            if (gateExit != CliApp.ExitOk)
+            {
+                error.Write(gateErr.ToString());
+                output.Write(gateOut.ToString());
+                output.WriteLine($"Nothing was planned: a test tagged {string.Join(", ", ctx.Config.TestGateTags)} (`tests.gate` in {ProductInfo.ConfigFile}) did not pass. Fix it, or run `{ProductInfo.Cli} test --tag {ctx.Config.TestGateTags[0]}` to see it alone.");
+                return (null, CliApp.ExitFindings);
+            }
+            output.WriteLine($"Test gate (tags {string.Join(", ", ctx.Config.TestGateTags)}): {summary.Trim()}");
+        }
+
         // ---- the live side, on the read login ----
         var planned = mine.Select(m =>
         {

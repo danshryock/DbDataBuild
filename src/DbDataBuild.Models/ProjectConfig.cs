@@ -128,6 +128,9 @@ public sealed record ProjectConfig(
     /// <summary>How the files of a model must be named (`model_layout`; the default checks that the path is the name, as before).</summary>
     public ModelLayout Layout { get; init; } = ModelLayout.Folder;
 
+    /// <summary>The tags of the tests that `plan`, `check` and `run` run first (`tests: { gate: { tags: [...] } }`); a failure of one refuses the plan. Empty: no gate.</summary>
+    public IReadOnlyList<string> TestGateTags { get; init; } = [];
+
     /// <summary>Named, ordered sets of hooks that models reference with `use:` (`hook_groups:` in dbdatabuild.yml).</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HookDefinition>> HookGroups => DeclaredHookGroups ?? new Dictionary<string, IReadOnlyList<HookDefinition>>();
 

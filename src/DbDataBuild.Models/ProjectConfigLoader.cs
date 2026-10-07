@@ -6,7 +6,7 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites", "model_layout"];
+    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites", "model_layout", "tests"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
     private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands", "string_semantics"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
@@ -53,7 +53,7 @@ public static class ProjectConfigLoader
             var tracking = ReadTracking(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.Tracking;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>(), Layout = ReadLayout(top) };
+            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>(), Layout = ReadLayout(top), TestGateTags = ReadTestGate(top) };
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -65,6 +65,20 @@ public static class ProjectConfigLoader
             if (v is YamlScalar s && s.Value is "true" or "false") return s.Value == "true";
             Add(DiagnosticCatalog.InvalidValue, v, $"`lint.{key}` must be true or false (lowercase).");
             return true;
+        }
+
+        private IReadOnlyList<string> ReadTestGate(YamlMapping top)
+        {
+            if (top.Get("tests") is not { } node) return [];
+            if (node is not YamlMapping tests) { Add(DiagnosticCatalog.InvalidValue, node, "`tests` must be a mapping."); return []; }
+            CheckKeys(tests, ["gate"], "`tests`");
+            if (tests.Get("gate") is not { } gateNode) return [];
+            if (gateNode is not YamlMapping gate) { Add(DiagnosticCatalog.InvalidValue, gateNode, "`tests.gate` must be a mapping with `tags`."); return []; }
+            CheckKeys(gate, ["tags"], "`tests.gate`");
+            if (gate.Get("tags") is not { } tagsNode) { Add(DiagnosticCatalog.MissingKey, gate, "`tests.gate` needs `tags`: the tags of the tests that must pass before a plan is made."); return []; }
+            if (tagsNode is not YamlSequence { Items.Count: > 0 } list || list.Items.Any(i => i is not YamlScalar { Value.Length: > 0 }))
+            { Add(DiagnosticCatalog.InvalidValue, tagsNode, "`tests.gate.tags` must be a list of tags (the `tags` of tests under tests/)."); return []; }
+            return list.Items.Cast<YamlScalar>().Select(i => i.Value).Distinct(StringComparer.Ordinal).ToList();
         }
 
         private ModelLayout ReadLayout(YamlMapping top)
