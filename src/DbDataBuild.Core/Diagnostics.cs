@@ -413,8 +413,8 @@ public static class DiagnosticCatalog
         "Read-only commands run catalog and tracking-table queries through a guard that refuses anything that could change data. The read login's permissions are the real enforcement; the guard is a second layer. Nothing was executed.");
     public static readonly DiagnosticDescriptor TrackingNotInitialized = E("505", "Tracking tables are missing or have an unknown layout",
         $"The tracking tables created by `{ProductInfo.Cli} init` (in the tracking schema name), at a layout version this tool knows.",
-        $"Run `{ProductInfo.Cli} init` (review its script first), or use a newer tool if the layout is newer.",
-        "Planning and applying need the tracking tables to compare hashes and to record what was done.");
+        $"Run `{ProductInfo.Cli} init` (review its script first), or use a newer tool if the layout is newer. If they exist, the read login cannot see them: it needs SELECT on the tracking schema name, and on SQL Server an explicit DENY VIEW DEFINITION hides them from the catalog.",
+        "Planning and applying need the tracking tables to compare hashes and to record what was done. The tool finds them in the engine's catalog with the read login, so a login that is denied the metadata of those tables sees none (checked on SQL Server 2022: with `DENY VIEW DEFINITION` the tables are reported as missing; with SELECT on the schema and no VIEW DEFINITION they are found, and only routine definitions are unreadable, DDB-235).");
 
     // 9xx: internal
     public static readonly DiagnosticDescriptor InternalError = new(ProductInfo.DiagnosticPrefix + "900",

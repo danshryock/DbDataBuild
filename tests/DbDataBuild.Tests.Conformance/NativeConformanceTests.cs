@@ -315,4 +315,50 @@ public partial class NativeConformanceTests
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    [SkippableFact]
+    public async Task A_read_login_without_VIEW_DEFINITION_cannot_check_a_routine_and_says_so_instead_of_reporting_a_change()
+    {
+        var engine = EngineEnv.Require("sqlserver");
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-native-viewdef-" + Guid.NewGuid().ToString("N"));
+        var lowpriv = Regex.Replace(Regex.Replace(engine.ConnectionString, "(?i)(User Id|UID)=[^;]*", "$1=ddb_lowpriv"), "(?i)(Password|PWD)=[^;]*", "$1=Low_Priv_1234!");
+        var useLow = false;
+        string? Env(string v) => v == LoginSettings.VariableName("sqlserver", Login.Read) ? (useLow ? lowpriv : engine.ConnectionString) : v == LoginSettings.VariableName("sqlserver", Login.Write) ? engine.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        string PlanOf(string output) => Path.Combine(dir, Regex.Match(output, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+        try
+        {
+            await engine.ExecAsync("CREATE OR ALTER FUNCTION dbo.fn_tracked(@cutoff int) RETURNS TABLE AS RETURN SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2,3,4,5', ',') WHERE CAST(value AS int) > @cutoff");
+            Write("dbdatabuild.yml", Config("sqlserver"));
+            Write("models/src/tracked.yml", "name: src.tracked\ntrack_definition: [dbo.fn_tracked]\nkind:\n  type: native\n  query: SELECT n FROM dbo.fn_tracked(2)\n" + Cols);
+            Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.tracked\n");
+            Assert.Equal(0, Cli("init", "--connection", "sqlserver", "--apply").Exit);
+            Assert.Equal(0, Cli("render", "--write").Exit);
+            var first = Cli("plan", "--connection", "sqlserver");
+            Assert.True(first.Exit == 0, first.Out + first.Err);
+            Assert.True(Cli("apply", PlanOf(first.Out)).Exit == 0);                                              // the definition is recorded (read by sa)
+
+            // a login that can read the data and the tracking tables, but may not see definitions
+            await engine.ExecAsync("IF SUSER_ID('ddb_lowpriv') IS NULL CREATE LOGIN ddb_lowpriv WITH PASSWORD = 'Low_Priv_1234!', CHECK_POLICY = OFF");
+            await engine.ExecAsync("IF USER_ID('ddb_lowpriv') IS NULL CREATE USER ddb_lowpriv FOR LOGIN ddb_lowpriv");
+            foreach (var schema in new[] { "dbo", "marts", "dbdatabuild" }) await engine.ExecAsync($"GRANT SELECT, EXECUTE ON SCHEMA::{schema} TO ddb_lowpriv");
+            useLow = true;
+            var plan = Cli("plan", "--connection", "sqlserver");
+            Assert.DoesNotContain("DDB-234", plan.Err + plan.Out);                                               // not "changed": it could not be read
+            Assert.Contains("DDB-235", plan.Err + plan.Out);                                                     // not checked, and said so
+        }
+        finally
+        {
+            try { await engine.ExecAsync("IF USER_ID('ddb_lowpriv') IS NOT NULL DROP USER ddb_lowpriv"); await engine.ExecAsync("IF SUSER_ID('ddb_lowpriv') IS NOT NULL DROP LOGIN ddb_lowpriv"); } catch (Exception) { /* the container is thrown away */ }
+            try { Directory.Delete(dir, true); } catch (IOException) { }
+        }
+    }
 }
