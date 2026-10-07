@@ -20,9 +20,30 @@ public class UnhandledDriverErrorTests
         var o = new StringWriter(); var e = new StringWriter();
         var exit = CliApp.Run(["diff", "staging.orders", "--against-schema", "dev", "--project", dir], o, e, environment: v => env.GetValueOrDefault(v));
         var all = o.ToString() + e.ToString();
-        Assert.Equal(CliApp.ExitInternal, exit);
-        Assert.Contains("The tool failed with", all);
+        Assert.Equal(CliApp.ExitFindings, exit);                                  // the database, not the tool, is what failed
+        Assert.Contains("DDB-242", all);
+        Assert.DoesNotContain("DDB-900", all);
+        Assert.Contains("The database reported", all);
+        Assert.Matches(@"SqlException \(error \d+\)", all);                 // the error number says what happened; the driver's message does not appear
         foreach (var leak in new[] { "secret-host", "hunter2", "Unhandled exception", "network-related", "   at " })
             Assert.DoesNotContain(leak, all);
+    }
+
+    [Fact]
+    public void In_json_mode_the_database_error_is_one_document_with_the_diagnostic_and_no_driver_text()
+    {
+        var dir = NewProjectDir();
+        File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
+        Directory.CreateDirectory(Path.Combine(dir, "models/staging"));
+        File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
+        var env = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=secret-host.invalid,1;User Id=r;Password=hunter2;Connect Timeout=1" };
+        var o = new StringWriter(); var e = new StringWriter();
+        var exit = CliApp.Run(["diff", "staging.orders", "--against-schema", "dev", "--project", dir, "--format", "json"], o, e, environment: v => env.GetValueOrDefault(v));
+        var doc = System.Text.Json.Nodes.JsonNode.Parse(o.ToString())!;
+        Assert.Equal(CliApp.ExitFindings, exit);
+        Assert.Equal("DDB-242", (string?)doc["diagnostics"]![0]!["code"]);
+        Assert.False((bool)doc["ok"]!);
+        Assert.DoesNotContain("hunter2", o.ToString() + e);
+        Assert.DoesNotContain("secret-host", o.ToString() + e);
     }
 }

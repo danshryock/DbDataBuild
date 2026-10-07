@@ -860,3 +860,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Found** (a 300-model project on PostgreSQL, two models deleted after the apply): `plan` was silent, the objects stayed on the target (the tool never drops one, by design), and `report` listed them as "in sync", which says nothing about the fact that no model builds them any more.
 - **Changed** (`ReportCommand`): an object the tool has recorded whose name is not a model of the project now reads `in sync (no model in the project; the tool never drops it)`. The `now` field of the JSON document carries the same text. No new finding and no change to `plan`: what to do with such an object (drop it by hand, keep it, build it again) is the person's decision.
 - **Verified**: SQL Server 2022 and PostgreSQL 17 (`A_model_that_left_the_project_stays_on_the_target_and_the_report_says_nothing_builds_it_any_more`: the view is still there after the next plan, nothing is planned for it, and only that object is labelled).
+
+## 113. A refused login is not "report this to the maintainer"
+
+- **Found** while checking entry 105's fix by hand: a wrong password reached the top-level guard, which reported DDB-900 ("The tool failed with ... Report this with the command line used"), as if the tool had a bug.
+- **Changed** (`CliApp.Guarded`, DDB-242): a database exception that no command handled is reported as DDB-242, exit 1, not DDB-900, exit 70. The text carries the exception's type and the driver's error number (`SqlException (error 18456)`, `PostgresException (error 28P01)`: a failed login on each engine, checked against both containers), never the driver's message. The diagnostic's fix lists the numbers that mean a refused login or a closed connection. In JSON mode the document has the diagnostic. Other exceptions are still DDB-900.
+- **Verified**: unit (`UnhandledDriverErrorTests`: text and JSON, no server name and no password in either); by hand on both containers with a wrong password.

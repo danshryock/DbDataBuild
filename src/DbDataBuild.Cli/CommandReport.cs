@@ -73,6 +73,15 @@ internal sealed class CommandReport
         ["messages"] = Array.Empty<string>(), ["errors"] = Array.Empty<string>(),
     }, Json);
 
+    /// <summary>The document for a command that stopped on one diagnostic outside its own flow (a database exception).</summary>
+    public static string Failure(string command, Diagnostic diagnostic, int exitCode) => JsonSerializer.Serialize(new Dictionary<string, object?>
+    {
+        ["schema"] = SchemaId, ["command"] = command, ["tool_version"] = ProductInfo.Version, ["exit_code"] = exitCode, ["ok"] = false,
+        ["data"] = new Dictionary<string, object?>(),
+        ["diagnostics"] = new[] { Describe(diagnostic) },
+        ["messages"] = Array.Empty<string>(), ["errors"] = Array.Empty<string>(),
+    }, Json);
+
     public static object Describe(Diagnostic d) => new
     {
         code = d.Code,

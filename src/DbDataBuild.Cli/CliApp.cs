@@ -16,6 +16,18 @@ public static class CliApp
     public static int Run(string[] args, TextWriter output, TextWriter error, TextReader? input = null, bool interactive = false, Func<string, string?>? environment = null) =>
         Guarded(args, error, () => { DbDataBuild.Execution.DriverSettings.Apply(); return Build(output, error, input ?? TextReader.Null, interactive, environment ?? Environment.GetEnvironmentVariable).Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).Invoke(new InvocationConfiguration { Output = output, Error = error, EnableDefaultExceptionHandler = false }); }, output);
 
+    /// <summary>
+    /// The error number of a database exception (SQL Server's `Number`, PostgreSQL's `SqlState`), which says what went wrong (18456 is a failed login, 28P01 a wrong password) without the driver's message, which
+    /// can quote a server name or a value. Read by name so the CLI does not depend on a driver.
+    /// </summary>
+    private static string DriverNumber(Exception ex)
+    {
+        if (ex is not System.Data.Common.DbException) return "";
+        foreach (var name in new[] { "Number", "SqlState" })
+            if (ex.GetType().GetProperty(name)?.GetValue(ex) is { } value && value.ToString() is { Length: > 0 and <= 12 } text && text != "0") return $" (error {text})";
+        return "";
+    }
+
     /// <summary>Top-level guard: unhandled exceptions become an internal-error diagnostic, never a stack trace.</summary>
     public static int Guarded(string[] args, TextWriter error, Func<int> body, TextWriter? output = null)
     {
@@ -23,10 +35,20 @@ public static class CliApp
         {
             return body();
         }
+        catch (System.Data.Common.DbException ex)
+        {
+            // a database that refused or lost a command is not a defect of the tool: the type and the error number, never the driver's message (it can quote a server name or a value)
+            var text = $"The database reported {ex.GetType().Name}{DriverNumber(ex)} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.";
+            var json = output != null && (args.Zip(args.Skip(1)).Any(p => p is ("--format", "json")) || args.Contains("--format=json"));
+            var diagnostic = new Diagnostic(DiagnosticCatalog.DatabaseErrorUnhandled, new("<database>", 0, 0), text);
+            if (json) output!.WriteLine(CommandReport.Failure(args.FirstOrDefault(a => !a.StartsWith('-')) ?? "", diagnostic, ExitFindings));
+            else error.Diag(diagnostic);
+            return ExitFindings;
+        }
         catch (Exception ex)
         {
             // Never a stack trace as primary output (DESIGN.md 14.2). Full detail would go to a scrubbed log file.
-            var text = $"The tool failed with {ex.GetType().Name} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.";
+            var text = $"The tool failed with {ex.GetType().Name}{DriverNumber(ex)} while running `{string.Join(' ', args)}`. Statements already sent to a target are recorded in the statement log under {InitCommand.StatementLogDir}/.";
             var json = output != null && (args.Zip(args.Skip(1)).Any(p => p is ("--format", "json")) || args.Contains("--format=json"));
             if (json) output!.WriteLine(CommandReport.InternalError(args.FirstOrDefault(a => !a.StartsWith('-')) ?? "", text));
             else error.Diag(new Diagnostic(DiagnosticCatalog.InternalError, new("<internal>", 0, 0), text));
