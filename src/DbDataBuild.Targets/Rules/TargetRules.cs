@@ -73,6 +73,7 @@ public static partial class TargetRules
     /// <summary>Replaces the markers of the rules of <paramref name="target"/> in the transpiled text. Returns the text unchanged when it holds none.</summary>
     public static string Finish(string transpiled, string target)
     {
+        if (target == "sqlserver") transpiled = TsqlLiterals.Nationalize(transpiled);
         foreach (var (marker, spelling, markerTarget) in Markers)
             if (markerTarget == target) transpiled = System.Text.RegularExpressions.Regex.Replace(transpiled, marker, spelling, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return transpiled;

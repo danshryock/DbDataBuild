@@ -452,6 +452,31 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Text_literals_with_emoji_cjk_quotes_backslashes_and_newlines_survive_a_load_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("models/marts/lit.yml", "name: marts.lit\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: tag, type: \"VARCHAR(200)\"}\n");
+            // the literal goes through DuckDB, the lowerer and the engine's own text: a quote is doubled, a backslash is not an escape, a newline stays one
+            run.Write("models/marts/lit.sql", "SELECT order_id, 'café ☕ 😀 日本語 it''s a \\ b ' || chr(10) || 'second line' AS tag FROM staging.orders WHERE order_id = 1\n");
+            run.Write("models/marts/lit_v.yml", "name: marts.lit_v\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: tag, type: \"VARCHAR(200)\"}\n");
+            run.Write("models/marts/lit_v.sql", "SELECT order_id, 'café ☕ 😀 日本語 it''s a \\ b ' || chr(10) || 'second line' AS tag FROM staging.orders WHERE order_id = 1\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            var value = (await engine.RowsAsync("SELECT tag FROM marts.lit")).Single();
+            Assert.Equal("café ☕ 😀 日本語 it's a \\ b \nsecond line", value.Replace("\r\n", "\n"));
+            var viewValue = (await engine.RowsAsync("SELECT tag FROM marts.lit_v")).Single();                   // the same text in a view
+            Assert.Equal("café ☕ 😀 日本語 it's a \\ b \nsecond line", viewValue.Replace("\r\n", "\n"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);
