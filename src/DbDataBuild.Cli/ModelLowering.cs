@@ -156,9 +156,14 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
     {
         var key = source.Definition.Name + "\0" + sql;
         if (duckDbCache.TryGetValue(key, out var hit)) return hit;
-        var upstream = models.Where(m => m.Name != source.Definition.Name).Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns))).Select(ToTable).ToList();
+        var upstream = UpstreamFor(source.Definition.Name, sql, restrict: true);
         var prelude = (macros ?? MacroLibrary.Empty).PreludeFor([sql]);
         var (json, error) = QueryDescriber.SerializePlan(upstream, sql, prelude);
+        if (json == null && upstream.Count < models.Count + descriptors.Count - 1)
+        {
+            upstream = UpstreamFor(source.Definition.Name, sql, restrict: false);                                  // an error is reported on the whole project's tables
+            (json, error) = QueryDescriber.SerializePlan(upstream, sql, prelude);
+        }
         if (json == null) return duckDbCache[key] = (null, error);
         try
         {
@@ -179,20 +184,31 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
     {
         var key = source.Definition.Name + "\0" + variant + "\0" + authorSql;
         if (cache.TryGetValue(key, out var hit)) return hit;
-        return cache[key] = Compute(source, authorSql, parameters ?? [], variant);
+        var result = Compute(source, authorSql, parameters ?? [], variant, restrict: true);
+        if (result.Item1 == null) result = Compute(source, authorSql, parameters ?? [], variant, restrict: false);      // a refusal is given on the whole project's tables, so a table the quick way missed cannot cause one
+        return cache[key] = result;
     }
 
-    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters, string? variant)
+    /// <summary>
+    /// The declared tables DuckDB needs to bind a query: the ones its text names (plus none else), so a project of a few hundred models does not create every table of the project for each query (the cost grew with the
+    /// square of the models). Every table when the query reaches a macro (a macro can name a table through an argument) or its text cannot be read.
+    /// </summary>
+    private List<DuckTable> UpstreamFor(string modelName, string sql, bool restrict)
+    {
+        var all = models.Where(m => m.Name != modelName).Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns))).Select(ToTable).ToList();
+        if (!restrict || ReachesMacros(sql)) return all;
+        var named = QueryAnalyzer.Analyze(sql).Facts?.BaseTables;
+        if (named == null) return all;
+        var wanted = named.Select(t => ((t.SchemaName ?? "main").ToLowerInvariant(), t.Table.ToLowerInvariant())).ToHashSet();
+        return all.Where(t => wanted.Contains((t.SchemaName.ToLowerInvariant(), t.Name.ToLowerInvariant()))).ToList();
+    }
+
+    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters, string? variant, bool restrict)
     {
         var name = source.Definition.Name;
         Diagnostic Fail(string why) => new(DiagnosticCatalog.QueryNotLowerable, new(source.QueryFile, 0, 0), $"{name} cannot be lowered: {why}.");
 
-        var upstream = models.Where(m => m.Name != name).Select(m => (m.Name, m.Columns)).Concat(descriptors.Select(d => (d.Name, d.Columns)))
-            .Select(u =>
-            {
-                var i = u.Name.LastIndexOf('.');
-                return new DuckTable(i < 0 ? "main" : u.Name[..i], i < 0 ? u.Name : u.Name[(i + 1)..], u.Columns.Select(c => new DuckColumn(c.Name, c.Type, c.Nullable)).ToList());
-            }).ToList();
+        var upstream = UpstreamFor(name, authorSql, restrict);
 
         var policy = RewriteCatalog.For(config, source.Definition);
         var prelude = (macros ?? MacroLibrary.Empty).PreludeFor([authorSql]);
