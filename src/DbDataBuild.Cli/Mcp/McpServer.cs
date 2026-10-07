@@ -35,8 +35,11 @@ internal sealed class McpServer
     private IReadOnlyDictionary<string, CommandInfo> tools => surface.Tools;
     private string protocol = LatestProtocol;
 
-    public McpServer(string projectRoot, bool allowWrites, TextReader input, TextWriter output, ICommandHost host, bool allowAppApply = false)
+    private readonly bool noShow;
+
+    public McpServer(string projectRoot, bool allowWrites, TextReader input, TextWriter output, ICommandHost host, bool allowAppApply = false, bool noShow = false)
     {
+        this.noShow = noShow;
         this.host0 = host; this.allowAppApply = allowAppApply;
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.allowWrites = allowWrites;
@@ -150,7 +153,7 @@ internal sealed class McpServer
             if (clientHasUi && ToolsWithApp.Contains(t.Name)) d["_meta"] = UiMeta(false);
             yield return d;
         }
-        yield return new JsonObject
+        if (!noShow) yield return new JsonObject
         {
             ["name"] = "show", ["title"] = "Show the interface", ["_meta"] = clientHasUi ? UiMeta(false) : null,
             ["description"] = clientHasUi
@@ -249,7 +252,7 @@ internal sealed class McpServer
         clientHasUi = p?["capabilities"]?["extensions"]?[UiExtension] != null;
         // standard error is where a host keeps a server's log: say what this host can do, because a host that does not advertise MCP Apps silently gets no app
         var client = p?["clientInfo"];
-        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered, and `show` gives the person a one-time link to the page in a browser")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}.");
+        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered, and `show` gives the person a one-time link to the page in a browser")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}{(noShow ? "; `show` is switched off (--no-show)" : "")}.");
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
@@ -264,7 +267,7 @@ internal sealed class McpServer
     {
         var name = p?["name"]?.GetValue<string>() ?? throw new McpException(-32602, "tools/call needs a tool name");
         if (name.StartsWith("ui_", StringComparison.Ordinal) && clientHasUi && AppOnlyTools.Contains(name)) return CallAppTool(name, p?["arguments"] as JsonObject);
-        if (name == "show") return clientHasUi ? Show(p?["arguments"] as JsonObject) : ShowByLink(p?["arguments"] as JsonObject);
+        if (name == "show" && !noShow) return clientHasUi ? Show(p?["arguments"] as JsonObject) : ShowByLink(p?["arguments"] as JsonObject);
         if (!tools.TryGetValue(name, out var command)) throw new McpException(-32602, $"Unknown tool: {name}");
         var arguments = p?["arguments"] as JsonObject ?? new JsonObject();
         if (!surface.TryBuildArguments(command, arguments, out var argv, out var problem)) return Failure(problem!);

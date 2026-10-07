@@ -297,6 +297,18 @@ public class McpServerTests : IDisposable
 
     private static string Text(JsonObject result) => (string)result["content"]![0]!["text"]!;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void No_show_removes_the_tool_whether_or_not_the_host_has_the_app(bool hostHasApp)
+    {
+        var s = new McpServer(dir, false, TextReader.Null, new StringWriter(), new TuiCommand.CliHost(_ => null), noShow: true);
+        var caps = hostHasApp ? new JsonObject { ["extensions"] = new JsonObject { [McpServer.UiExtension] = new JsonObject() } } : new JsonObject();
+        Result(s, "initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = caps });
+        Assert.DoesNotContain(Result(s, "tools/list")["tools"]!.AsArray(), t => (string)t!["name"]! == "show");
+        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "show", ["arguments"] = new JsonObject() })).Single()["error"]!["code"]!);
+    }
+
     [Fact]
     public void Show_in_a_host_without_the_app_gives_a_link_that_works_once()
     {

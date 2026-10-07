@@ -126,6 +126,7 @@ Effect: Offline only.
 |---|---|
 | `--allow-apply` | Let an MCP app (a page the host shows the person) apply plans: the person confirms in the app by typing the plan's target; the tools it calls are hidden from the model. Needs the write login in this environment. Independent of --allow-writes, which offers the commands to the model (each run then needs the person's approval). |
 | `--allow-writes` | Also offer the commands that change a target or its tracking tables (apply, run, load-seeds, init, ack, publish-metadata). Off by default: a person runs those. |
+| `--no-show` | Do not offer the `show` tool (the link to the page in a browser, or the app screen). The other tools, and the app for the tools that carry it, are unchanged. |
 | `--project` `<path>` | Project root the tools work on |
 
 ## web
