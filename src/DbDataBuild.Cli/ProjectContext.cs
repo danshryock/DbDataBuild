@@ -40,9 +40,33 @@ internal sealed class ProjectContext
     /// </summary>
     public (RenderResult Result, string BodySql) RenderModel(ModelSource source, string authorSql, IReadOnlyList<string> targets)
     {
+        var variants = source.QueryVariants(Root, Config, targets);
+        if (variants.Count == 1) return RenderVariant(source, variants[0].Variant == null ? authorSql : variants[0].Sql, variants[0].Targets, variants[0].Variant);
+        // the model names something by a parameter that is not the same on all its connections: each group of connections that reads the same query is lowered and rendered on its own
+        var files = new List<RenderedFile>();
+        var operations = new List<OperationReport>();
+        var diagnostics = new List<Diagnostic>();
+        var loads = new List<RenderedOperation>();
+        foreach (var v in variants)
+        {
+            var (part, _) = RenderVariant(source, v.Sql, v.Targets, v.Variant);
+            files.AddRange(part.Files);
+            operations.AddRange(part.Operations);
+            diagnostics.AddRange(part.Diagnostics);
+            loads.AddRange(part.Loads);
+        }
+        return (new RenderResult(files.OrderBy(f => f.Path, StringComparer.Ordinal).ToList(), operations, diagnostics, loads), variants[0].Sql);
+    }
+
+    /// <summary>The distinct texts a model's query has on its connections (one, for a model that names nothing by a parameter).</summary>
+    public IReadOnlyList<string> QueryVariants(ModelSource source) =>
+        source.QueryVariants(Root, Config, TargetsOf(source.Definition)).Select(v => v.Sql).ToList();
+
+    private (RenderResult Result, string BodySql) RenderVariant(ModelSource source, string authorSql, IReadOnlyList<string> targets, string? variant)
+    {
         var parameters = source.QueryParameterList(Root, Config);
         if (!Lowering.Enabled) return (Renderer.Render(source.Definition, authorSql, source.QueryFile, targets, queryParameters: parameters, natives: Lowering.NativeUsesFor(authorSql)), authorSql);
-        var (lowered, error) = Lowering.Lower(source, authorSql, parameters);
+        var (lowered, error) = Lowering.Lower(source, authorSql, parameters, variant);
         if (lowered == null) return (new RenderResult([], [], [error!]), authorSql);
         var result = Renderer.Render(source.Definition, lowered.Sql, source.QueryFile, targets, bodyFile: $"rendered/{lowered.ArtifactPath}", queryParameters: parameters, natives: Lowering.NativeUsesFor(lowered.Sql));
         var files = result.Files.Append(new RenderedFile(lowered.ArtifactPath, lowered.ArtifactText)).OrderBy(f => f.Path, StringComparer.Ordinal).ToList();

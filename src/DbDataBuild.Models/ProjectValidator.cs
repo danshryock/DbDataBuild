@@ -25,16 +25,38 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     private string Raw(string projectRoot) => GeneratedQuery ?? File.ReadAllText(Path.Combine(projectRoot, QueryFile));
 
     /// <summary>The query as the tool works on it (lowering, rendering, hashing, lineage): each parameter reference stands as a marker literal of its type, so the text, its hash and the rendered files do not depend on a value.</summary>
-    public string ReadQuery(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Sql;
+    public string ReadQuery(string projectRoot, ProjectConfig config, string? connection = null) =>
+        QueryParameters.Mark(QueryParameters.ResolveNames(Raw(projectRoot), this, config, connection ?? FirstConnection(config)), this, config).Sql;
+
+    /// <summary>
+    /// The queries a model reads, each with the connections that read it and the name that tells its lowering apart: one for a model that names nothing by a parameter, or whose names are the same on every
+    /// connection (the text is then the one for the first of <paramref name="requested"/>, and the variant is null); otherwise one per distinct text, labelled with the first connection of the model that reads it
+    /// (whatever subset is asked for, so a plan for one connection and `render` of all agree on the files). Only the groups with a requested connection are returned.
+    /// </summary>
+    public IReadOnlyList<(string Sql, IReadOnlyList<string> Targets, string? Variant)> QueryVariants(string projectRoot, ProjectConfig config, IReadOnlyList<string> requested)
+    {
+        var all = Definition.Targets ?? config.DefaultConnections;
+        if (all.Count < 2 || !HasNames(projectRoot, config)) return [(ReadQuery(projectRoot, config, requested.FirstOrDefault()), requested, null)];
+        var groups = all.GroupBy(c => ReadQuery(projectRoot, config, c)).ToList();
+        if (groups.Count == 1) return [(groups[0].Key, requested, null)];
+        return groups.Select(g => (Sql: g.Key, Targets: (IReadOnlyList<string>)g.Where(requested.Contains).ToList(), Variant: (string?)g.First())).Where(v => v.Targets.Count > 0).ToList();
+    }
+
+    /// <summary>The connection a text that does not say which is read for: the model's first.</summary>
+    private string FirstConnection(ProjectConfig config) => (Definition.Targets ?? config.DefaultConnections).FirstOrDefault() ?? "";
+
+    /// <summary>True when the query names something by a parameter (a table or column given to a macro), so it reads differently on different connections.</summary>
+    public bool HasNames(string projectRoot, ProjectConfig config) => QueryParameters.HasNames(Raw(projectRoot), this, config);
 
     /// <summary>The query with each parameter reference replaced by its value on <paramref name="connection"/>: what DuckDB runs for real (`sample`, `test`).</summary>
     public string ReadQueryWithValues(string projectRoot, ProjectConfig config, string connection) => QueryParameters.WithValues(Raw(projectRoot), this, config, connection);
 
     /// <summary>The problems with the parameter references in the query (an undefined one, a view's, a clash with a marker).</summary>
-    public IReadOnlyList<string> QueryParameterProblems(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Problems;
+    public IReadOnlyList<string> QueryParameterProblems(string projectRoot, ProjectConfig config) =>
+        QueryParameters.NameProblems(Raw(projectRoot), this, config).Concat(QueryParameters.Mark(QueryParameters.ResolveNames(Raw(projectRoot), this, config, FirstConnection(config)), this, config).Problems).ToList();
 
     /// <summary>The parameters the query uses as values, with their markers.</summary>
-    public IReadOnlyList<QueryParameter> QueryParameterList(string projectRoot, ProjectConfig config) => QueryParameters.Mark(Raw(projectRoot), this, config).Parameters;
+    public IReadOnlyList<QueryParameter> QueryParameterList(string projectRoot, ProjectConfig config) => QueryParameters.Mark(QueryParameters.ResolveNames(Raw(projectRoot), this, config, FirstConnection(config)), this, config).Parameters;
 
     /// <summary>The settings this model took from a project file above it (`defaults:` of the root file or of a folder's `_dbdatabuild.yml`), with the file and line each was written on. Empty when the model's own file says everything.</summary>
     public IReadOnlyList<SettingOrigin> Inherited { get; init; } = [];

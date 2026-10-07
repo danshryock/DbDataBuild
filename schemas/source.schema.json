@@ -264,7 +264,8 @@
                 "INTEGER",
                 "SMALLINT",
                 "DATE",
-                "TIMESTAMP"
+                "TIMESTAMP",
+                "NAME"
               ]
             },
             "value": {

@@ -11,9 +11,12 @@ internal static class ProjectGraph
         var edges = new List<(string Model, string Reads)>();
         foreach (var m in ctx.Project.Sources)
         {
-            var sql = m.ReadQuery(ctx.Root, ctx.Config);
-            foreach (var t in ctx.BaseTablesOf(m, sql)) edges.Add((m.Definition.Name, t));
-            foreach (var macro in ctx.MacrosCalledBy(sql)) edges.Add((m.Definition.Name, macro));            // the model depends on the macro itself as well as on what it expands to
+            // a model that names something by a parameter reads other tables on connections that give other names: the graph has all of them
+            foreach (var sql in ctx.QueryVariants(m))
+            {
+                foreach (var t in ctx.BaseTablesOf(m, sql)) edges.Add((m.Definition.Name, t));
+                foreach (var macro in ctx.MacrosCalledBy(sql)) edges.Add((m.Definition.Name, macro));        // the model depends on the macro itself as well as on what it expands to
+            }
         }
         foreach (var macro in ctx.Project.Macros.Definitions.Where(d => !d.IsType))
             foreach (var callee in macro.Calls) edges.Add((ProjectContext.MacroNode(macro.ShortName), ProjectContext.MacroNode(callee)));

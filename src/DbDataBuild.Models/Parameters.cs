@@ -14,7 +14,21 @@ public sealed record ParameterValue(string Value, string Type = ParameterValue.T
     public const string Text = "VARCHAR";
 
     /// <summary>The types a parameter may have (the ones a query value can be bound and typed as offline).</summary>
-    public static readonly IReadOnlyList<string> Types = [Text, "BIGINT", "INTEGER", "SMALLINT", "DATE", "TIMESTAMP"];
+    public static readonly IReadOnlyList<string> Types = [Text, "BIGINT", "INTEGER", "SMALLINT", "DATE", "TIMESTAMP", Name];
+
+    /// <summary>
+    /// A **name**: a table (`schema.table`), a column or another identifier that a macro takes as a constant string (`query_table(tbl)`, `COLUMNS(lambda c: c = col)`). Not a value to bind: it is written into the query
+    /// as the string `'orders_snap'` before DuckDB binds it, so the lowering, the matrix and the rendered files see the query for that name. An empty value is `NULL` (a macro may take "no column" that way).
+    /// </summary>
+    public const string Name = "NAME";
+
+    private static readonly Regex NamePattern = new(@"^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$", RegexOptions.Compiled);
+
+    /// <summary>A name is dotted identifiers, or empty (NULL): never text that could be more than a name.</summary>
+    public static bool IsName(string value) => value.Length == 0 || NamePattern.IsMatch(value);
+
+    /// <summary>The query text of a name: the string literal, or NULL for an empty one.</summary>
+    public string NameLiteral => Value.Length == 0 ? "NULL" : "'" + Value + "'";
 }
 
 /// <summary>
@@ -49,7 +63,8 @@ public static class ParameterReferences
                     var type = (m.Get("type") as YamlScalar)?.Value.Trim().ToUpperInvariant() ?? ParameterValue.Text;
                     if (m.Get("value") is not YamlScalar v) { add(DiagnosticCatalog.MissingKey, m, $"The parameter `{e.Key.Value}` needs a single `value`."); break; }
                     if (!ParameterValue.Types.Contains(type)) { add(DiagnosticCatalog.InvalidValue, (YamlNode?)m.Get("type") ?? m, $"`{type}` is not a parameter type. One of: {string.Join(", ", ParameterValue.Types)}."); break; }
-                    if (type != ParameterValue.Text && !ColumnTypes.LiteralFits(type, v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a {type} (integers, `yyyy-MM-dd`, `yyyy-MM-dd HH:mm:ss`)."); break; }
+                    if (type == ParameterValue.Name && !ParameterValue.IsName(v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a name: identifiers joined by dots (`schema.table`, `snap_date`), or empty for NULL."); break; }
+                    if (type != ParameterValue.Text && type != ParameterValue.Name && !ColumnTypes.LiteralFits(type, v.Value)) { add(DiagnosticCatalog.InvalidValue, v, $"`{v.Value}` is not a {type} (integers, `yyyy-MM-dd`, `yyyy-MM-dd HH:mm:ss`)."); break; }
                     result[e.Key.Value] = new ParameterValue(v.Value, type);
                     break;
                 }

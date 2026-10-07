@@ -352,6 +352,12 @@ lowering (the support matrix, the transpile, the rendered files, the hashes) see
 - **Dependencies**: a model that calls a macro depends on the macro (a `name()` node of kind `macro` in `graph` and `metadata`'s `upstream`, with macro to macro edges) and on the tables of the bound plan, which are
   there once DuckDB has expanded it (so a table that is only an argument is a dependency of the model, and is checked for connections like any other). The model's definition hash includes the text of the macros it
   reaches, so changing a macro changes what every model that reaches it is planned and blocked on. `define`, `sample`, `test` and the planner use the same tables and macros.
+- **Names as parameters** (type `NAME`): a parameter `{ type: NAME, value: src.orders_snap }` (any scope; `value: ""` is `NULL`) is **not a value to bind**: before DuckDB binds the query,
+  `${connection.table}` is replaced by the string `'src.orders_snap'` (`NULL` for an empty one), so `snapshot_at(${connection.table}, ${connection.date_col})` is the call for that connection's table and column.
+  A name is dotted identifiers only (validated; nothing that could be more than a name), a parameter is a name on every connection of the model or on none (and has a value on each), and a view may use one
+  (a name is not bound). When a model's names differ between its connections, each distinct query is lowered on its own and written to `rendered/lowered/<model>/lowered.<first connection that reads it>.sql`
+  (one `lowered.sql` when they agree); the plan for one connection and `render` of all produce the same files; `validate`, the lint and the graph (the union of the tables its names can point at) see every variant,
+  and a table is checked against the connections that read it through their own name only (DDB-231). Changing a name changes the model's definition hash on that connection.
 - **Types** (`CREATE TYPE ... AS ENUM`) load in the same place, before the tables. They are DuckDB's, for macros and for readability; the lowerer does not map an enum to an engine type.
 
 ### 6.5.4 Native models and local copies (as built; design: `docs/research/native-queries.md`)

@@ -115,7 +115,8 @@ internal sealed class PlanningSession
         if (selected == null) return (null, CliApp.ExitUsage);
         foreach (var named in (operations ?? new Dictionary<string, string>()).Keys.Concat(backfills ?? new HashSet<string>()))
             if (!ctx.Project.Sources.Any(m => m.Definition.Name == named)) { error.WriteLine($"`{named}` is not a model of this project."); return (null, CliApp.ExitUsage); }
-        var mine = selected.Where(m => ctx.TargetsOf(m.Source.Definition).Contains(target)).ToList();
+        // each model's query as this connection reads it (a name given by a parameter may be another on another connection)
+        var mine = selected.Where(m => ctx.TargetsOf(m.Source.Definition).Contains(target)).Select(m => m with { Sql = m.Source.ReadQuery(root, ctx.Config, target) }).ToList();
         foreach (var skipped in selected.Except(mine)) output.WriteLine($"note: {skipped.Source.Definition.Name} does not declare target `{target}` and is not planned.");
 
         // ---- offline preflight: nothing is planned from a project that does not validate (DESIGN.md 11) ----

@@ -93,17 +93,18 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         return called.Count + mentioned.Count > 0;
     }
 
-    public static string ArtifactPathFor(string model) => $"lowered/{model}/lowered.sql";
+    public static string ArtifactPathFor(string model, string? variant = null) => variant == null ? $"lowered/{model}/lowered.sql" : $"lowered/{model}/lowered.{variant}.sql";
 
     /// <param name="parameters">The parameters the query uses as values (their markers are in <paramref name="authorSql"/>); the committed artifact shows them as the references they stand for.</param>
-    public (LoweredModel? Model, Diagnostic? Error) Lower(ModelSource source, string authorSql, IReadOnlyList<QueryParameter>? parameters = null)
+    /// <param name="variant">Which of several lowerings of one model this is (the first connection of the group that reads this text), when a name it is given differs between its connections; it is part of the artifact's file name.</param>
+    public (LoweredModel? Model, Diagnostic? Error) Lower(ModelSource source, string authorSql, IReadOnlyList<QueryParameter>? parameters = null, string? variant = null)
     {
-        var key = source.Definition.Name + "\0" + authorSql;
+        var key = source.Definition.Name + "\0" + variant + "\0" + authorSql;
         if (cache.TryGetValue(key, out var hit)) return hit;
-        return cache[key] = Compute(source, authorSql, parameters ?? []);
+        return cache[key] = Compute(source, authorSql, parameters ?? [], variant);
     }
 
-    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters)
+    private (LoweredModel?, Diagnostic?) Compute(ModelSource source, string authorSql, IReadOnlyList<QueryParameter> parameters, string? variant)
     {
         var name = source.Definition.Name;
         Diagnostic Fail(string why) => new(DiagnosticCatalog.QueryNotLowerable, new(source.QueryFile, 0, 0), $"{name} cannot be lowered: {why}.");
@@ -144,6 +145,6 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         if (!policy.IsDefault) sb.Append($"-- rewrites off: {policy.Describe()}\n");
         sb.Append(QueryParameters.BackToReferences(query.Sql, parameters)).Append('\n');
         var text = sb.ToString();
-        return (new LoweredModel(query.Sql, query, ArtifactPathFor(name), text, DbDataBuild.State.Hashing.ScriptHash(text)), null);
+        return (new LoweredModel(query.Sql, query, ArtifactPathFor(name, variant), text, DbDataBuild.State.Hashing.ScriptHash(text)), null);
     }
 }

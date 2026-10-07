@@ -183,4 +183,85 @@ public class MacroTests
         Assert.True(sample.Exit == 0, sample.Out + sample.Err);
         Assert.Contains("as_of_date", sample.Out);
     }
+
+    // ---- names as parameters ----
+
+    private const string TwoConnections = """
+        defaults: {connections: [live, snap]}
+        tracking: none
+        connections:
+          live:
+            engine: sqlserver
+            parameters:
+              table: { type: NAME, value: src.orders }
+              date_col: { type: NAME, value: "" }
+          snap:
+            engine: sqlserver
+            parameters:
+              table: { type: NAME, value: src.orders_snap }
+              date_col: { type: NAME, value: snap_date }
+        """;
+
+    private static string NamedProject(string config = TwoConnections)
+    {
+        var dir = Project(config: config);
+        File.Delete(Path.Combine(dir, "models", "marts", "live_totals.yml")); File.Delete(Path.Combine(dir, "models", "marts", "live_totals.sql"));
+        File.Delete(Path.Combine(dir, "models", "marts", "snap_totals.yml")); File.Delete(Path.Combine(dir, "models", "marts", "snap_totals.sql"));
+        Write(dir, "models/marts/totals.yml", "name: marts.totals\nkind: {type: full}\ngrain: [as_of_date, status]\ncolumns:\n  - {name: as_of_date, type: DATE, nullable: false}\n  - {name: status, type: \"VARCHAR(20)\", nullable: false}\n  - {name: total, type: \"DECIMAL(38,2)\", nullable: false}\n");
+        Write(dir, "models/marts/totals.sql", "SELECT * FROM status_totals(${connection.table}, ${connection.date_col})\n");
+        return dir;
+    }
+
+    [Fact]
+    public void A_name_given_by_a_connection_parameter_makes_each_connection_read_its_own_table()
+    {
+        var dir = NamedProject();
+        var render = Cli("render", "--project", dir, "--write");
+        Assert.True(render.Exit == 0, render.Out + render.Err);
+        var live = File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.live.sql"));
+        var snap = File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.snap.sql"));
+        Assert.Contains("FROM src.orders\nGROUP BY status", live);
+        Assert.Contains("FROM src.orders_snap\nGROUP BY snap_date, status", snap);
+        Assert.False(File.Exists(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.sql")));
+        Assert.Contains("FROM src.orders_snap", File.ReadAllText(Path.Combine(dir, "rendered", "snap", "marts.totals", "load.default.sql")));
+        Assert.DoesNotContain("snap_date", File.ReadAllText(Path.Combine(dir, "rendered", "live", "marts.totals", "load.default.sql")));
+        Assert.Equal(0, Cli("render", "--project", dir, "--check").Exit);
+        Assert.Equal(0, Cli("validate", "--project", dir).Exit);
+    }
+
+    [Fact]
+    public void The_graph_has_every_table_a_name_can_point_at_and_a_connection_only_has_its_own()
+    {
+        var dir = NamedProject();
+        var ctx = ProjectContext.Load(dir);
+        Assert.Equal(["src.orders", "src.orders_snap", "status_totals()"], ctx.Graph.Reads("marts.totals").Order(StringComparer.Ordinal));
+        var source = ctx.Project.Sources.Single(s => s.Definition.Name == "marts.totals");
+        Assert.Equal(["src.orders"], ctx.BaseTablesOf(source, source.ReadQuery(dir, ctx.Config, "live")));
+        Assert.Equal(["src.orders_snap"], ctx.BaseTablesOf(source, source.ReadQuery(dir, ctx.Config, "snap")));
+        Assert.Equal(2, ctx.QueryVariants(source).Count);
+        Assert.NotEqual(ctx.DefinitionHashOf(source.ReadQuery(dir, ctx.Config, "live")), ctx.DefinitionHashOf(source.ReadQuery(dir, ctx.Config, "snap")));
+    }
+
+    [Fact]
+    public void A_parameter_is_a_name_everywhere_or_nowhere_and_a_name_must_be_a_name()
+    {
+        var dir = NamedProject(TwoConnections.Replace("date_col: { type: NAME, value: snap_date }", "date_col: snap_date"));
+        var validate = Cli("validate", "--project", dir);
+        Assert.Contains("a name on some of the model's connections and a VARCHAR on `snap`", validate.Err);
+
+        var unknown = NamedProject(TwoConnections.Replace("table: { type: NAME, value: src.orders_snap }", "table: { type: NAME, value: \"x; DROP TABLE y\" }"));
+        Assert.Contains("is not a name", Cli("validate", "--project", unknown).Err);
+
+        var missing = NamedProject(TwoConnections.Replace("\n      date_col: { type: NAME, value: snap_date }", ""));
+        Assert.Contains("a name but has no value on the connection `snap`", Cli("validate", "--project", missing).Err);
+    }
+
+    [Fact]
+    public void A_name_that_is_the_same_on_every_connection_gives_one_lowering()
+    {
+        var dir = NamedProject(TwoConnections.Replace("table: { type: NAME, value: src.orders_snap }", "table: { type: NAME, value: src.orders }").Replace("date_col: { type: NAME, value: snap_date }", "date_col: { type: NAME, value: \"\" }"));
+        Assert.Equal(0, Cli("render", "--project", dir, "--write").Exit);
+        Assert.True(File.Exists(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.sql")));
+        Assert.Single(ProjectContext.Load(dir).QueryVariants(ProjectContext.Load(dir).Project.Sources.Single(s => s.Definition.Name == "marts.totals")));
+    }
 }

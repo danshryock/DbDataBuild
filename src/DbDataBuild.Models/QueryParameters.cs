@@ -40,6 +40,43 @@ public static class QueryParameters
 
     private static string DateText(int n) => $"1000-{(n - 1) / 28 + 1:00}-{(n - 1) % 28 + 1:00}";
 
+    /// <summary>
+    /// The query with each reference to a **name** (a parameter of type NAME) replaced by the string it is on <paramref name="connection"/>: `snapshot_at(${connection.table}, ${connection.date_column})`
+    /// becomes `snapshot_at('src.orders_snap', 'snap_date')`. This is done before anything else, so DuckDB binds the query for that name. References to values are left for <see cref="Mark"/>.
+    /// </summary>
+    public static string ResolveNames(string sql, ModelSource source, ProjectConfig config, string connection)
+    {
+        if (!Uses(sql)) return sql;
+        var values = source.ParametersFor(config, connection);
+        return ParameterReferences.Substitute(sql, (scope, name) => values.TryGetValue($"{scope}.{name}", out var v) && v.Type == ParameterValue.Name ? v.NameLiteral : null);
+    }
+
+    /// <summary>True when the query refers to a name on any of the model's connections (so its text, and everything made from it, can differ between them).</summary>
+    public static bool HasNames(string sql, ModelSource source, ProjectConfig config)
+    {
+        foreach (var (scope, name) in ParameterReferences.In(sql))
+            foreach (var c in source.Definition.Targets ?? config.DefaultConnections)
+                if (source.ParametersFor(config, c).TryGetValue($"{scope}.{name}", out var v) && v.Type == ParameterValue.Name) return true;
+        return false;
+    }
+
+    /// <summary>What is wrong with the names of a query: a reference that is a name on one connection of the model and not on another, or missing there. Names are not values: they are not bound, so a view may use them.</summary>
+    public static IReadOnlyList<string> NameProblems(string sql, ModelSource source, ProjectConfig config)
+    {
+        var problems = new List<string>();
+        var connections = source.Definition.Targets ?? config.DefaultConnections;
+        foreach (var (scope, name) in ParameterReferences.In(sql))
+        {
+            var key = $"{scope}.{name}";
+            var types = connections.Select(c => source.ParametersFor(config, c).TryGetValue(key, out var v) ? v.Type : null).ToList();
+            if (!types.Contains(ParameterValue.Name)) continue;
+            for (var i = 0; i < connections.Count; i++)
+                if (types[i] == null) problems.Add($"`${{{key}}}` is a name but has no value on the connection `{connections[i]}`");
+                else if (types[i] != ParameterValue.Name) problems.Add($"`${{{key}}}` is a name on some of the model's connections and a {types[i]} on `{connections[i]}`: a parameter is one or the other");
+        }
+        return problems;
+    }
+
     /// <summary>The problems with the references in a query, and the query with each reference replaced by its marker.</summary>
     public static (string Sql, IReadOnlyList<QueryParameter> Parameters, IReadOnlyList<string> Problems) Mark(string sql, ModelSource source, ProjectConfig config)
     {
@@ -84,6 +121,7 @@ public static class QueryParameters
                 "DATE" => $"DATE '{v.Value}'",
                 "TIMESTAMP" => $"TIMESTAMP '{v.Value}'",
                 ParameterValue.Text => "'" + v.Value.Replace("'", "''") + "'",
+                ParameterValue.Name => v.NameLiteral,
                 _ => long.Parse(v.Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
             };
         });

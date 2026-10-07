@@ -26,30 +26,35 @@ internal static class ProjectChecks
             foreach (var problem in source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config))
                 diagnostics.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(source.QueryFile, 0, 0), $"{source.Definition.Name}: {problem}."));
             if (source.QueryParameterProblems(projectRoot ?? Directory.GetCurrentDirectory(), config).Count > 0) continue;
-            var sql = source.ReadQuery(projectRoot ?? Directory.GetCurrentDirectory(), config);
+            var root = projectRoot ?? Directory.GetCurrentDirectory();
             var targets = (source.Definition.Targets ?? config.DefaultConnections).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
-            if (lowering is { Enabled: false } && lowering.ReachesMacros(sql))
+            // a model that names something by a parameter reads a different query on connections that give different names: each such query is checked on its own
+            var variants = source.QueryVariants(root, config, targets);
+            foreach (var (sql, variantTargets, variant) in variants.DefaultIfEmpty((Sql: source.ReadQuery(root, config), Targets: (IReadOnlyList<string>)targets, Variant: (string?)null)))
             {
-                diagnostics.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(source.QueryFile, 0, 0), $"{source.Definition.Name} calls a macro of the project, and a macro is expanded by DuckDB while the query is lowered, which is switched off.",
-                    Fix: "Remove `lowering: { enabled: false }` from dbdatabuild.yml, or do not call macros."));
-                continue;
+                if (lowering is { Enabled: false } && lowering.ReachesMacros(sql))
+                {
+                    diagnostics.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(source.QueryFile, 0, 0), $"{source.Definition.Name} calls a macro of the project, and a macro is expanded by DuckDB while the query is lowered, which is switched off.",
+                        Fix: "Remove `lowering: { enabled: false }` from dbdatabuild.yml, or do not call macros."));
+                    continue;
+                }
+                // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
+                var body = sql;
+                string? bodyFile = null;
+                if (lowering is { Enabled: true })
+                {
+                    var (lowered, error) = lowering.Lower(source, sql, source.QueryParameterList(root, config), variant);
+                    if (lowered == null) { diagnostics.Add(error!); continue; }
+                    body = lowered.Sql;
+                    bodyFile = $"rendered/{lowered.ArtifactPath}";
+                }
+                // each target is linted on the query it will actually get: the lowered one with that target's rules applied
+                var rewrites = RewriteCatalog.For(config, source.Definition, diagnostics);
+                foreach (var t in variantTargets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
+                // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
+                if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, variantTargets, body));
+                diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, variantTargets, bodyFile, source.QueryParameterList(root, config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             }
-            // with lowering on, the matrix lint and the transpile work on the lowered query (what actually runs), and findings point at its committed artifact
-            var body = sql;
-            string? bodyFile = null;
-            if (lowering is { Enabled: true })
-            {
-                var (lowered, error) = lowering.Lower(source, sql, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config));
-                if (lowered == null) { diagnostics.Add(error!); continue; }
-                body = lowered.Sql;
-                bodyFile = $"rendered/{lowered.ArtifactPath}";
-            }
-            // each target is linted on the query it will actually get: the lowered one with that target's rules applied
-            var rewrites = RewriteCatalog.For(config, source.Definition, diagnostics);
-            foreach (var t in targets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
-            // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
-            if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, targets, body));
-            diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, targets, bodyFile, source.QueryParameterList(projectRoot ?? Directory.GetCurrentDirectory(), config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             foreach (var target in targets) HookLoader.Load(source, config, target, projectRoot ?? Directory.GetCurrentDirectory(), diagnostics);   // missing or unparseable hook scripts
         }
         if (config.LintIndexes)
@@ -73,6 +78,9 @@ internal static class ProjectChecks
             if (ctx.Project.AllDescriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase)) is { } mapped) return mapped.Connections ?? config.DefaultConnections;
             return null;
         }
+        // a table read through a name that differs between connections is read on the connections that give it that name only
+        bool ReadsOn(ModelSource source, string target, string read) =>
+            !source.HasNames(ctx.Root, ctx.Config) || read.EndsWith("()", StringComparison.Ordinal) || ctx.BaseTablesOf(source, source.ReadQuery(ctx.Root, ctx.Config, target)).Contains(read, StringComparer.OrdinalIgnoreCase);
         foreach (var n in ctx.Project.NativeModels.Where(n => n.Native is { Reads.Count: 0 }).OrderBy(n => n.Name, StringComparer.Ordinal))
             found.Add(new Diagnostic(DiagnosticCatalog.NativeReadsNotDeclared, new(n.Native!.File, n.Native.Line, 0), $"{n.Name} is a native {n.Native.Access} and does not declare what it reads, so it has no ancestors in the graph."));
         foreach (var source in ctx.Project.Sources.OrderBy(s => s.Definition.Name, StringComparer.Ordinal))
@@ -80,11 +88,12 @@ internal static class ProjectChecks
             var targets = ctx.TargetsOf(source.Definition).Where(t => onlyTargets == null || onlyTargets.Contains(t)).ToList();
             foreach (var read in ctx.Graph.Reads(source.Definition.Name))
             {
+                if (source.HasNames(ctx.Root, ctx.Config) && targets.All(t => !ctx.BaseTablesOf(source, source.ReadQuery(ctx.Root, ctx.Config, t)).Contains(read, StringComparer.OrdinalIgnoreCase)) && !read.EndsWith("()", StringComparison.Ordinal)) continue;
                 if (ctx.Project.NativeModels.FirstOrDefault(n => string.Equals(n.Name, read, StringComparison.OrdinalIgnoreCase)) is { Native.Access: NativeQuery.Command })
                     found.Add(new Diagnostic(DiagnosticCatalog.ModelReadsAnotherConnection, new(source.DefinitionFile, 0, 0), $"{source.Definition.Name} reads `{read}`, a native command: a command can only be run, never read inside a query.",
                         Fix: $"Copy it (`kind: {{type: copy, from: {read}}}`, on its own connection or another) and read the copy."));
                 if (ConnectionsOf(read) is { } where)
-                    foreach (var target in targets.Where(t => !where.Contains(t, StringComparer.Ordinal)))
+                    foreach (var target in targets.Where(t => !where.Contains(t, StringComparer.Ordinal) && ReadsOn(source, t, read)))
                         found.Add(new Diagnostic(DiagnosticCatalog.ModelReadsAnotherConnection, new(source.DefinitionFile, 0, 0),
                             $"{source.Definition.Name} is built on `{target}` and reads `{read}`, which is on {string.Join(", ", where.Select(w => $"`{w}`"))}, not on `{target}`.",
                             Fix: $"Copy `{read}` to `{target}` (a model of `kind: {{type: copy, from: {read}}}` on `{target}`) and read the copy, or build {source.Definition.Name} on {where[0]}."));
