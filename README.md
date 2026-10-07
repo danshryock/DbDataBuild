@@ -60,6 +60,8 @@ The real-engine suite uses throwaway SQL Server and PostgreSQL containers (`scri
 ## Documentation
 
 - `DESIGN.md`: the design. Sections marked "as built" describe what exists.
+- `docs/getting-started.md`: from an offline example project to a build on a database.
+- `docs/commands.md`: every command and option (generated from the program; a test keeps it current).
 - `docs/operations.md`: running it against real databases, scheduling, failure and recovery.
 - `docs/agents.md`: working with AI agents.
 - `docs/interfaces.md`: the terminal, web page, MCP server and MCP app; connecting a host.

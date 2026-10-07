@@ -48,7 +48,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine 
 ## D. Documentation debt
 
 - DESIGN.md section 17 said plan lowering was "researched twice, not built"; corrected in this commit.
-- Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Not written: user-facing getting-started docs, a generated command reference.
+- Operations guide written (`docs/operations.md`; Fabric parts say "not checked"). Written 2026-10-07: `docs/getting-started.md` and `docs/commands.md` (generated from the command tree; `CommandReferenceTests` fails when it is out of date). Not written: per-engine setup guides (logins and permissions are in `operations.md`).
 - REVIEW.md was rewritten as one document on 2026-10-06; keep it a summary (the log is `state-and-apply.md`).
 
 ## E. Suggested order (for you to change; refreshed 2026-10-06)
