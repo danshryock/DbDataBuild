@@ -10,7 +10,7 @@ using DbDataBuild.Targets.Ddl;
 namespace DbDataBuild.Apply;
 
 /// <summary>Where the records of an apply are kept: the logins of the tracking connection (which may be the connection being applied to, or another) and the schema name of its tracking tables there.</summary>
-public sealed record ApplyTracking(LoginSettings Read, LoginSettings? Write, string Schema);
+public sealed record ApplyTracking(LoginSettings Read, LoginSettings? Write, string SchemaName);
 
 /// <param name="OpenOrigin">Opens the read session of the connection a `transfer` step reads from (by name). A plan with a transfer step cannot be applied for real without it.</param>
 /// <param name="AllowDestructive">Object names (`marts.fct`) whose destructive steps are allowed. Never "all".</param>
@@ -61,11 +61,11 @@ public static class ApplyEngine
         var sameConnection = tracking != null && string.Equals(tracking.Read.Connection, read.Connection, StringComparison.Ordinal);
         await using var ownTrackingReader = tracking != null && !sameConnection ? await ReadSession.OpenAsync(tracking.Read, ct) : null;
         var trackReader = tracking == null ? null : sameConnection ? reader : ownTrackingReader;
-        TrackingScope? scope = tracking == null ? null : new TrackingScope(tracking.Read.Engine, tracking.Schema, read.Connection);
+        TrackingScope? scope = tracking == null ? null : new TrackingScope(tracking.Read.Engine, tracking.SchemaName, read.Connection);
         if (tracking != null && scope != null)
         {
-            var status = await TrackingStore.StatusAsync(trackReader!, scope.Engine, scope.Schema, ct);
-            if (status.AsDiagnostic(scope.Schema) is { } notReady) return new ApplyResult([], [notReady]);
+            var status = await TrackingStore.StatusAsync(trackReader!, scope.Engine, scope.SchemaName, ct);
+            if (status.AsDiagnostic(scope.SchemaName) is { } notReady) return new ApplyResult([], [notReady]);
         }
 
         // every connection the plan reads rows from answers before the first statement runs: a copy that cannot read its origin fails before it touches anything
@@ -89,7 +89,7 @@ public static class ApplyEngine
             : null;
         var tracker = tracking == null ? Tracker.None : Tracker.For(sameConnection ? gate : ownTrackingGate!, scope!);
 
-        var lockName = $"{ProductInfo.Cli}:{tracking?.Schema ?? ProductInfo.TrackingSchema}";
+        var lockName = $"{ProductInfo.Cli}:{tracking?.SchemaName ?? ProductInfo.TrackingSchemaName}";
         if (!await gate.TryAcquireApplicationLockAsync(lockName, ct))
             return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.ApplyLockHeld, new($"lock:{lockName}", 0, 0), $"Another apply holds the application lock `{lockName}` on this target.")]);
         try
@@ -106,7 +106,7 @@ public static class ApplyEngine
     {
         var engine = reader.Engine;
         var objects = plan.Steps.Select(s => s.Object).Concat(plan.Bases.Select(b => b.Object)).Distinct(StringComparer.Ordinal).ToList();
-        var schemas = objects.Select(x => DdlGenerator.Split(x).Schema).Distinct(StringComparer.Ordinal).ToList();
+        var schemas = objects.Select(x => DdlGenerator.Split(x).SchemaName).Distinct(StringComparer.Ordinal).ToList();
 
         // ---- what this plan already did (resume) ----
         var progressInfo = scope == null ? new PlanProgress([], new HashSet<string>(), new HashSet<string>(), []) : await AuditLog.ProgressAsync(trackReader!, scope, plan.Id, ct);
@@ -221,7 +221,7 @@ public static class ApplyEngine
     private static async Task<ObjectShape?> LiveAsync(ReadSession reader, string engine, string obj, CancellationToken ct)
     {
         var (schema, _) = DdlGenerator.Split(obj);
-        return (await CatalogReader.ReadSchemaAsync(reader, engine, schema, ct)).GetValueOrDefault(obj);
+        return (await CatalogReader.ReadObjectsAsync(reader, engine, schema, ct)).GetValueOrDefault(obj);
     }
 
     /// <summary>Executes one step. Returns a diagnostic when the step ran but its result is not what the plan promised.</summary>

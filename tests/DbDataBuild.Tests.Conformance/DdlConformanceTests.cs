@@ -51,7 +51,7 @@ public class DdlConformanceTests
         await engine.ExecAsync(ddl.CreateTable("marts", "fct", native));
 
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
-        var live = (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct"];
+        var live = (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct"];
         Assert.Equal(native.Select(n => n.Name), live.Columns.Select(c => c.Name));
         foreach (var (expected, actual) in DdlGenerator.ExpectedShape(native).Zip(live.Columns))
             Assert.Equal(expected, actual);                                    // record equality: every attribute the shape hash covers
@@ -67,7 +67,7 @@ public class DdlConformanceTests
         var ddl = target.CreateDdl(Config(name));
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
 
-        async Task<ObjectShape> Live(string obj) => (await CatalogReader.ReadSchemaAsync(read, name, "marts"))[$"marts.{obj}"];
+        async Task<ObjectShape> Live(string obj) => (await CatalogReader.ReadObjectsAsync(read, name, "marts"))[$"marts.{obj}"];
         NativeColumn N(ColumnDefinition c) => ddl.Map("marts.fct", c);
 
         var id = new ColumnDefinition("id", "BIGINT", false);

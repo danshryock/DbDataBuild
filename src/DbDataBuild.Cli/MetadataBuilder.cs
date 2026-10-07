@@ -39,7 +39,7 @@ internal static class MetadataBuilder
                 default_connections = cfg.DefaultConnections,
                 connections = cfg.Connections.OrderBy(c => c.Key, StringComparer.Ordinal).ToDictionary(c => c.Key, c => c.Value.Version is { } v ? (object)new { engine = c.Value.Engine, version = v } : new { engine = c.Value.Engine }),
                 target_versions = cfg.TargetVersions,
-                tracking_schema = cfg.TrackingSchema,
+                tracking_schema = cfg.TrackingSchemaName,
                 rewrites = new { fidelity = cfg.Rewrites?.Fidelity ?? RewriteSettings.Exact, disable = cfg.Rewrites?.Disable ?? [], enable = cfg.Rewrites?.Enable ?? [] },
                 string_semantics = new
                 {

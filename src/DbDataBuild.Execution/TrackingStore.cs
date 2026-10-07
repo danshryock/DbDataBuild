@@ -76,8 +76,8 @@ public static class TrackingStore
     {
         string C(string n) => Quote(scope.Engine, n);
         var rows = await read.QueryAsync(
-            $"SELECT sv.{C("object_name")}, sv.{C("shape_hash")} FROM {C(scope.Schema)}.{C("schema_version")} sv WHERE sv.{C("connection")} = @connection " +
-            $"AND sv.{C("first_seen_utc")} = (SELECT MAX(x.{C("first_seen_utc")}) FROM {C(scope.Schema)}.{C("schema_version")} x WHERE x.{C("connection")} = sv.{C("connection")} AND x.{C("object_name")} = sv.{C("object_name")})",
+            $"SELECT sv.{C("object_name")}, sv.{C("shape_hash")} FROM {C(scope.SchemaName)}.{C("schema_version")} sv WHERE sv.{C("connection")} = @connection " +
+            $"AND sv.{C("first_seen_utc")} = (SELECT MAX(x.{C("first_seen_utc")}) FROM {C(scope.SchemaName)}.{C("schema_version")} x WHERE x.{C("connection")} = sv.{C("connection")} AND x.{C("object_name")} = sv.{C("object_name")})",
             [new GateParameter("connection", DbType.String, scope.Connection)], ct);
         return rows.ToDictionary(r => (string)r[0]!, r => ((string)r[1]!).Trim());
     }
@@ -87,7 +87,7 @@ public static class TrackingStore
         string source, string? planId, string? gitCommit, CancellationToken ct = default)
     {
         string C(string n) => Quote(scope.Engine, n);
-        var text = $"INSERT INTO {C(scope.Schema)}.{C("schema_version")} ({C("connection")}, {C("object_name")}, {C("shape_hash")}, {C("physical_hash")}, {C("first_seen_utc")}, {C("source")}, {C("plan_id")}, {C("git_commit")}) " +
+        var text = $"INSERT INTO {C(scope.SchemaName)}.{C("schema_version")} ({C("connection")}, {C("object_name")}, {C("shape_hash")}, {C("physical_hash")}, {C("first_seen_utc")}, {C("source")}, {C("plan_id")}, {C("git_commit")}) " +
                    "VALUES (@connection, @object_name, @shape_hash, @physical_hash, @first_seen_utc, @source, @plan_id, @git_commit)";
         return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
         [
@@ -108,7 +108,7 @@ public sealed record PlanProgress(IReadOnlyList<string> MigrationStatuses, IRead
 public static class AuditLog
 {
     private static string C(string engine, string n) => TrackingDdl.For(engine).Quote(n);
-    private static string T(TrackingScope scope, string table) => $"{C(scope.Engine, scope.Schema)}.{C(scope.Engine, table)}";
+    private static string T(TrackingScope scope, string table) => $"{C(scope.Engine, scope.SchemaName)}.{C(scope.Engine, table)}";
     private static GateParameter Connection(TrackingScope scope) => new("connection", DbType.String, scope.Connection);
 
     private static GateParameter S(string name, string? v, int length = 0) => new(name, v == null ? DbType.String : DbType.String, v);

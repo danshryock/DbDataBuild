@@ -63,7 +63,7 @@ internal static class CopyOriginCheck
     {
         await using var read = await ReadSession.OpenAsync(login);
         var (schema, name) = (origin.Table[..origin.Table.IndexOf('.')], origin.Table[(origin.Table.IndexOf('.') + 1)..]);
-        var shapes = await CatalogReader.ReadSchemaAsync(read, origin.Engine, schema);
+        var shapes = await CatalogReader.ReadObjectsAsync(read, origin.Engine, schema);
         if (!shapes.TryGetValue(origin.Table, out var shape)) return [$"the table does not exist there"];
         var live = SourceImport.Describe(origin.Engine, shape, null);
         var now = SourceImport.ToDescriptor(live, declared);

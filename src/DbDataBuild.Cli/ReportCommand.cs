@@ -29,7 +29,7 @@ internal static class ReportCommand
         if (tracking == null) return CliApp.ExitFindings;
 
         var scope = tracking.Scope;
-        var schema = scope.Schema;
+        var schema = scope.SchemaName;
         var ddl = TrackingDdl.For(scope.Engine);
         string C(string n) => ddl.Quote(n);
         string T(string t) => $"{C(schema)}.{C(t)}";
@@ -77,9 +77,9 @@ internal static class ReportCommand
 
             var versions = await trackRead.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} WHERE {C("connection")} = @connection GROUP BY {C("object_name")} ORDER BY {C("object_name")}", byConnection);
             var recorded = await TrackingStore.LatestShapeHashesAsync(trackRead, scope);
-            var schemas = recorded.Keys.Select(k => DdlGenerator.Split(k).Schema).Distinct(StringComparer.Ordinal).ToList();
+            var schemas = recorded.Keys.Select(k => DdlGenerator.Split(k).SchemaName).Distinct(StringComparer.Ordinal).ToList();
             var live = new Dictionary<string, ObjectShape>();
-            foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadSchemaAsync(read, engine, s)) live[k] = v;
+            foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadObjectsAsync(read, engine, s)) live[k] = v;
             var drifted = new List<string>();
             var accepted = (await TargetSnapshotReader.ReadAsync(read, trackRead, scope, engine, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
             bool Accepted(string name) => live.TryGetValue(name, out var l) && accepted.Contains(Acknowledgements.Key(DiagnosticCatalog.ObjectChangedOutsideTool.Code, name, l.ShapeHash));

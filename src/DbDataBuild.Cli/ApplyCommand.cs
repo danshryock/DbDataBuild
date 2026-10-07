@@ -148,7 +148,7 @@ internal static class ApplyCommand
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
             logPath = Path.GetRelativePath(root, log.Path);
             output.WriteLine($"Statement log: {logPath}");
-            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, tracking.Target is { } tt ? new ApplyTracking(trackRead!, trackWrite, tt.Schema) : null, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
+            result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, tracking.Target is { } tt ? new ApplyTracking(trackRead!, trackWrite, tt.SchemaName) : null, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
         }
 
         if (dryRun)
@@ -159,10 +159,10 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
-        if (result.Success && !dryRun && tracking.Target is { } definitionTarget) RecordDefinitions(plan, root, new TrackingScope(definitionTarget.Engine, definitionTarget.Schema, plan.Connection), trackRead!, trackWrite!, env, commit, output);
+        if (result.Success && !dryRun && tracking.Target is { } definitionTarget) RecordDefinitions(plan, root, new TrackingScope(definitionTarget.Engine, definitionTarget.SchemaName, plan.Connection), trackRead!, trackWrite!, env, commit, output);
         if (result.Success && !dryRun && config.StoreMetadataOnApply)
         {
-            if (tracking.Target is { } storeTarget) StoreMetadata(plan, root, new TrackingScope(storeTarget.Engine, storeTarget.Schema, plan.Connection), trackRead!, trackWrite!, commit, output, error);
+            if (tracking.Target is { } storeTarget) StoreMetadata(plan, root, new TrackingScope(storeTarget.Engine, storeTarget.SchemaName, plan.Connection), trackRead!, trackWrite!, commit, output, error);
             else output.WriteLine("note: metadata was not stored: nothing is tracked for this connection.");
         }
         output.Payload("outcomes", result.Outcomes.Select(o => new { step = o.StepId, description = o.Description, status = o.Status, detail = o.Detail }).ToList());

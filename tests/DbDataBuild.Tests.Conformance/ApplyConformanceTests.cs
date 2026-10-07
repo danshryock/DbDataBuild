@@ -176,7 +176,7 @@ public partial class ApplyConformanceTests
             Ok(run.Cli("apply", plan3File), "apply the column change");
             await using (var read = await ReadSession.OpenAsync(LoginSettings.FromEnvironment(name, DbDataBuild.Execution.Login.Read, _ => engine.ConnectionString).Settings!))
             {
-                var shape = (await DbDataBuild.Execution.CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct_orders"];
+                var shape = (await DbDataBuild.Execution.CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct_orders"];
                 Assert.Contains(shape.Columns, c => c.Name == "discount_code");
             }
 
@@ -440,7 +440,7 @@ public partial class ApplyConformanceTests
             Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply the indexes");
 
             await using var read = await ReadSession.OpenAsync(LoginSettings.FromEnvironment(name, DbDataBuild.Execution.Login.Read, _ => engine.ConnectionString).Settings!);
-            async Task<IReadOnlyList<DbDataBuild.State.PhysicalItem>> Physical() => (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct_orders"].Physical;
+            async Task<IReadOnlyList<DbDataBuild.State.PhysicalItem>> Physical() => (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct_orders"].Physical;
             var physical = await Physical();
             Assert.Contains(physical, i => i is { Kind: "index", Name: "ix_amount", Definition: "unique=0;keys=amount;include=" });
             Assert.Contains(physical, i => i is { Kind: "index", Name: "uq_order", Definition: "unique=1;keys=order_id;include=" });

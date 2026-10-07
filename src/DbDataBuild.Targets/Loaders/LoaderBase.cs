@@ -30,7 +30,7 @@ public abstract partial class LoaderBase : ILoader
     protected abstract string SubtractDuration(string expression, LoadDuration duration, string columnType);
     protected abstract string TypedLiteral(string logicalType, string literal);
 
-    /// <summary>Schema-qualified, quoted target table of a model (`marts.fct_orders` becomes [marts].[fct_orders]).</summary>
+    /// <summary>SchemaName-qualified, quoted target table of a model (`marts.fct_orders` becomes [marts].[fct_orders]).</summary>
     protected string Table(string model)
     {
         var i = model.LastIndexOf('.');

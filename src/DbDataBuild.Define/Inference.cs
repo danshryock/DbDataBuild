@@ -167,7 +167,7 @@ public static class ModelInference
 
     private static bool IsTemporal(string duckType) => duckType is "DATE" or "TIMESTAMP" or "TIMESTAMP WITH TIME ZONE" || duckType.StartsWith("TIMESTAMP_");
 
-    public static (string Schema, string Name) Split(string qualified)
+    public static (string SchemaName, string Name) Split(string qualified)
     {
         var i = qualified.LastIndexOf('.');
         return i < 0 ? ("main", qualified) : (qualified[..i], qualified[(i + 1)..]);

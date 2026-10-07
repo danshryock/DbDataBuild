@@ -9,7 +9,7 @@ namespace DbDataBuild.Targets.DuckDb;
 /// </summary>
 public static class DuckParseTree
 {
-    public sealed record Table(string? Schema, string Name);
+    public sealed record Table(string? SchemaName, string Name);
 
     public static (IReadOnlyList<Table>? Tables, string? Error) BaseTables(string sql)
     {
@@ -37,13 +37,13 @@ public static class DuckParseTree
             var ctes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tables = new List<Table>();
             Walk(doc.RootElement, ctes, tables);
-            return (tables.Where(t => t.Schema != null || !ctes.Contains(t.Name)).DistinctBy(t => (t.Schema ?? "").ToLowerInvariant() + "." + t.Name.ToLowerInvariant()).ToList(), null);
+            return (tables.Where(t => t.SchemaName != null || !ctes.Contains(t.Name)).DistinctBy(t => (t.SchemaName ?? "").ToLowerInvariant() + "." + t.Name.ToLowerInvariant()).ToList(), null);
         }
         catch (DuckDBException ex) { return (null, ex.Message.Split('\n')[0]); }
     }
 
     /// <summary>A table the query names, with the alias the author gave it (null: none), in the order the planner reaches them: `FROM` (left to right, into subqueries), then `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, then the select list.</summary>
-    public sealed record AliasedTable(string? Schema, string Name, string? Alias);
+    public sealed record AliasedTable(string? SchemaName, string Name, string? Alias);
 
     /// <summary>
     /// The tables of a query with the aliases written for them (DuckDB's plan does not carry aliases, so the lowered query would name each table after itself). Null when the order cannot be trusted to line up

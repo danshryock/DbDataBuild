@@ -19,14 +19,14 @@ internal static class DiffCommand
         if (limit < 0) { error.WriteLine("--limit must not be negative."); return CliApp.ExitUsage; }
         if ((against == null) == (againstSchema == null)) { error.WriteLine("Name the other table with exactly one of --against <schema_name.table_name> or --against-schema <schema name> (the same table name under another schema name)."); return CliApp.ExitUsage; }
         if (Split(table) is not { } left) { error.WriteLine($"`{table}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
-        (string Schema, string Name) right;
+        (string SchemaName, string Name) right;
         if (against != null)
         {
             if (Split(against) is not { } r) { error.WriteLine($"`{against}` is not `schema_name.table_name`."); return CliApp.ExitUsage; }
             right = r;
         }
         else right = (againstSchema!, left.Name);
-        if (string.Equals(left.Schema, right.Schema, StringComparison.OrdinalIgnoreCase) && string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) { error.WriteLine("Both sides name the same table."); return CliApp.ExitUsage; }
+        if (string.Equals(left.SchemaName, right.SchemaName, StringComparison.OrdinalIgnoreCase) && string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) { error.WriteLine("Both sides name the same table."); return CliApp.ExitUsage; }
 
         var ctx = ProjectContext.Load(root);
         var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
@@ -38,7 +38,7 @@ internal static class DiffCommand
         var keySource = "option";
         if (key.Count == 0)
         {
-            var qualified = $"{left.Schema}.{left.Name}";
+            var qualified = $"{left.SchemaName}.{left.Name}";
             var model = ctx.Project.Sources.FirstOrDefault(s => string.Equals(s.Definition.Name, qualified, StringComparison.OrdinalIgnoreCase))?.Definition;
             var descriptor = ctx.Project.Descriptors.FirstOrDefault(d => string.Equals(d.Name, qualified, StringComparison.OrdinalIgnoreCase));
             if (model is { Grain.Count: > 0 }) (key, keySource) = (model.Grain.ToList(), "grain");
@@ -59,16 +59,16 @@ internal static class DiffCommand
             Task.Run(async () =>
             {
                 await using var read = await ReadSession.OpenAsync(login!);
-                async Task<DiffTable?> Find((string Schema, string Name) t)
+                async Task<DiffTable?> Find((string SchemaName, string Name) t)
                 {
-                    var shapes = await CatalogReader.ReadSchemaAsync(read, engine, t.Schema);
+                    var shapes = await CatalogReader.ReadObjectsAsync(read, engine, t.SchemaName);
                     var shape = shapes.Values.FirstOrDefault(s => string.Equals(s.Name, t.Name, StringComparison.OrdinalIgnoreCase));
-                    return shape == null ? null : new DiffTable(shape.Schema, shape.Name, shape.Columns);
+                    return shape == null ? null : new DiffTable(shape.SchemaName, shape.Name, shape.Columns);
                 }
                 var l = await Find(left);
-                if (l == null) { problem = $"{left.Schema}.{left.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
+                if (l == null) { problem = $"{left.SchemaName}.{left.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
                 var r = await Find(right);
-                if (r == null) { problem = $"{right.Schema}.{right.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
+                if (r == null) { problem = $"{right.SchemaName}.{right.Name} is not a table or view of {target} (or the read login cannot see it)."; return; }
                 (plan, problem) = TableDiffer.Plan(engine, l, r, key, only, except);
                 if (plan == null) return;
                 outcome = await TableDiffer.RunAsync(read, plan, showValues, limit);
@@ -81,7 +81,7 @@ internal static class DiffCommand
         return outcome.Identical ? CliApp.ExitOk : CliApp.ExitFindings;
     }
 
-    private static (string Schema, string Name)? Split(string text)
+    private static (string SchemaName, string Name)? Split(string text)
     {
         var i = text.IndexOf('.');
         return i <= 0 || i == text.Length - 1 ? null : (text[..i], text[(i + 1)..]);

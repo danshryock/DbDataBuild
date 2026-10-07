@@ -223,7 +223,7 @@ public static class SampleRun
 
     private static IReadOnlyList<SampleColumn> Columns(IReadOnlyList<ColumnDefinition> cols) => cols.Select(c => new SampleColumn(c.Name, c.Type)).ToList();
 
-    private static (string Schema, string Table) Split(string name)
+    private static (string SchemaName, string Table) Split(string name)
     {
         var i = name.LastIndexOf('.');
         return i < 0 ? ("main", name) : (name[..i], name[(i + 1)..]);

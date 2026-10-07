@@ -5,9 +5,9 @@ using DbDataBuild.State;
 namespace DbDataBuild.Execution;
 
 /// <summary>A table or view to compare: where it is and the columns the catalog reports.</summary>
-public sealed record DiffTable(string Schema, string Name, IReadOnlyList<ColumnShape> Columns)
+public sealed record DiffTable(string SchemaName, string Name, IReadOnlyList<ColumnShape> Columns)
 {
-    public string Qualified => $"{Schema}.{Name}";
+    public string Qualified => $"{SchemaName}.{Name}";
 }
 
 /// <summary>A column present on both sides and comparable: the key columns are among them.</summary>
@@ -95,7 +95,7 @@ public static class TableDiffer
     // ---- the queries ----
 
     private static string Q(string target, string id) => TrackingDdl.For(target).Quote(id);
-    private static string Table(string target, DiffTable t) => $"{Q(target, t.Schema)}.{Q(target, t.Name)}";
+    private static string Table(string target, DiffTable t) => $"{Q(target, t.SchemaName)}.{Q(target, t.Name)}";
 
     /// <summary>A side as a derived table of the columns that are compared, plus a marker that says the row exists (a NULL key column must not look like an absent row).</summary>
     private static string Side(DiffPlan p, DiffTable t, bool left) =>

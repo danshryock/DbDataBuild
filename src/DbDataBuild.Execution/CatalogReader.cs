@@ -55,7 +55,7 @@ JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = @schema AND t.relkind = 'r'
 ORDER BY t.relname, ic.relname";
 
-    public static async Task<IReadOnlyDictionary<string, ObjectShape>> ReadSchemaAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
+    public static async Task<IReadOnlyDictionary<string, ObjectShape>> ReadObjectsAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
     {
         var p = new[] { new GateParameter("schema", DbType.String, schema) };
         var postgres = target == "postgres";

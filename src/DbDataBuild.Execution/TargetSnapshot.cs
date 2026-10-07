@@ -32,13 +32,13 @@ public static class TargetSnapshotReader
 
         var live = new Dictionary<string, ObjectShape>(StringComparer.Ordinal);
         foreach (var schema in managedSchemas.Distinct(StringComparer.Ordinal).Where(schemas.Contains))
-            foreach (var (name, shape) in await CatalogReader.ReadSchemaAsync(read, target, schema, ct)) live[name] = shape;
+            foreach (var (name, shape) in await CatalogReader.ReadObjectsAsync(read, target, schema, ct)) live[name] = shape;
 
         if (trackingRead == null || scope == null)
             return new TargetSnapshot(live, schemas, new Dictionary<string, string>(), new Dictionary<string, string>(), new Dictionary<string, string>(), new HashSet<string>());
 
         string C(string n) => TrackingDdl.For(scope.Engine).Quote(n);
-        var t = (string table) => $"{C(scope.Schema)}.{C(table)}";
+        var t = (string table) => $"{C(scope.SchemaName)}.{C(table)}";
         var byConnection = new[] { new GateParameter("connection", DbType.String, scope.Connection) };
 
         var recorded = await TrackingStore.LatestShapeHashesAsync(trackingRead, scope, ct);

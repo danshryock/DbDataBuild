@@ -40,8 +40,8 @@ internal static class MetadataPublisher
     public static async Task<Result> PublishAsync(IReadOnlyList<Document> documents, TrackingScope scope, LoginSettings read, LoginSettings write, string command, string root, string? planId, string? gitCommit)
     {
         await using var reader = await ReadSession.OpenAsync(read);
-        var status = await TrackingStore.StatusAsync(reader, scope.Engine, scope.Schema);
-        if (status.AsDiagnostic(scope.Schema) is { } notReady) throw new GateRefusedException(notReady);
+        var status = await TrackingStore.StatusAsync(reader, scope.Engine, scope.SchemaName);
+        if (status.AsDiagnostic(scope.SchemaName) is { } notReady) throw new GateRefusedException(notReady);
         var latest = await MetadataStore.LatestHashesAsync(reader, scope);
 
         var written = new List<Document>();

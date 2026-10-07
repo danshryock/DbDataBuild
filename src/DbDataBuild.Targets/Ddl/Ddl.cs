@@ -42,7 +42,7 @@ public abstract partial class DdlGenerator(string target, ProjectConfig config)
     public string DropTableIfExists(string schema, string name) => $"DROP TABLE IF EXISTS {Qualified(schema, name)};";
 
     /// <summary>Splits `marts.fct_orders` into schema and name.</summary>
-    public static (string Schema, string Name) Split(string model)
+    public static (string SchemaName, string Name) Split(string model)
     {
         var i = model.LastIndexOf('.');
         return i < 0 ? ("dbo", model) : (model[..i], model[(i + 1)..]);

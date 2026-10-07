@@ -25,7 +25,7 @@ internal static class InitCommand
         var target = connection.Name; var engine = connection.Engine;
 
         // the tables go where records are kept: a connection that keeps the records of any connection (itself, or others: central tracking), in the schema name each of them names
-        var schemas = config.Connections.Keys.Select(c => config.TrackingOf(c).Target).Where(t => t?.Connection == connection.Name).Select(t => t!.Schema).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        var schemas = config.Connections.Keys.Select(c => config.TrackingOf(c).Target).Where(t => t?.Connection == connection.Name).Select(t => t!.SchemaName).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         if (schemas.Count == 0)
         {
             var elsewhere = config.TrackingOf(target).Target;

@@ -3,9 +3,9 @@ namespace DbDataBuild.State;
 public enum ObjectKind { Table, View }
 
 /// <summary>An object as the live catalog reports it. Columns are in ordinal order; the hashes sort them (see <see cref="Hashing"/>).</summary>
-public sealed record ObjectShape(string Schema, string Name, ObjectKind Kind, IReadOnlyList<ColumnShape> Columns, IReadOnlyList<PhysicalItem> Physical)
+public sealed record ObjectShape(string SchemaName, string Name, ObjectKind Kind, IReadOnlyList<ColumnShape> Columns, IReadOnlyList<PhysicalItem> Physical)
 {
-    public string QualifiedName => $"{Schema}.{Name}";
+    public string QualifiedName => $"{SchemaName}.{Name}";
     public string ShapeHash => Hashing.ShapeHash(Columns);
     public string PhysicalHash => Hashing.PhysicalHash(Physical);
 }

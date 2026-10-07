@@ -10,10 +10,10 @@ public sealed record ImportedColumn(string Name, string NativeType, string? Logi
 public sealed record ForeignKeyShape(string Name, IReadOnlyList<string> Columns, string ReferencedSchema, string ReferencedTable, IReadOnlyList<string> ReferencedColumns);
 
 /// <param name="Notes">What was left out of the descriptor, and why (an expression index, an index on a column that has no logical type).</param>
-public sealed record ImportedObject(string Schema, string Name, ObjectKind Kind, string? File, IReadOnlyList<ImportedColumn> Columns, IReadOnlyList<string> PrimaryKey,
+public sealed record ImportedObject(string SchemaName, string Name, ObjectKind Kind, string? File, IReadOnlyList<ImportedColumn> Columns, IReadOnlyList<string> PrimaryKey,
     IReadOnlyList<IndexDefinition>? Indexes = null, IReadOnlyList<SourceForeignKey>? ForeignKeys = null, IReadOnlyList<string>? Notes = null)
 {
-    public string QualifiedName => $"{Schema}.{Name}";
+    public string QualifiedName => $"{SchemaName}.{Name}";
 }
 
 public enum SourceChangeKind { New, ColumnAdded, ColumnRemoved, TypeChanged, NullabilityChanged, GrainAdded, IndexAdded, IndexRemoved, IndexChanged, ForeignKeyAdded, ForeignKeyRemoved, ForeignKeyChanged }
@@ -54,7 +54,7 @@ public static class SourceImport
             if (f.Columns.Any(c => !typed.Contains(c))) { notes.Add($"foreign key {f.Name} names a column that has no logical type and was not exported"); continue; }
             fks.Add(new SourceForeignKey(f.Name, f.Columns, $"{f.ReferencedSchema}.{f.ReferencedTable}", f.ReferencedColumns));
         }
-        return new ImportedObject(shape.Schema, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.Schema, shape.Name, layout), columns, primaryKey ?? [], indexes, fks, notes);
+        return new ImportedObject(shape.SchemaName, shape.Name, shape.Kind, SourceDescriptorWriter.PathFor(shape.SchemaName, shape.Name, layout), columns, primaryKey ?? [], indexes, fks, notes);
     }
 
     /// <summary>The descriptor for a live object, merged with the committed one (null for a new descriptor). Columns with no logical type and no committed declaration are left out.</summary>

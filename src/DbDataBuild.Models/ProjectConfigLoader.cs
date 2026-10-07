@@ -202,12 +202,12 @@ public static class ProjectConfigLoader
         private TrackingConfig? ReadTracking(YamlMapping top, IReadOnlySet<string> connections)
         {
             if (top.Get("tracking") is not { } node) return null;
-            if (node is YamlScalar { Value: "none" }) return new TrackingConfig(null, ProductInfo.TrackingSchema, Disabled: true);
+            if (node is YamlScalar { Value: "none" }) return new TrackingConfig(null, ProductInfo.TrackingSchemaName, Disabled: true);
             var t = ReadTrackingMapping(node, connections, "`tracking`");
-            return t == null ? null : new TrackingConfig(t.Value.Connection, t.Value.Schema ?? ProductInfo.TrackingSchema);
+            return t == null ? null : new TrackingConfig(t.Value.Connection, t.Value.SchemaName ?? ProductInfo.TrackingSchemaName);
         }
 
-        private (string? Connection, string? Schema)? ReadTrackingMapping(YamlNode node, IReadOnlySet<string> connections, string where)
+        private (string? Connection, string? SchemaName)? ReadTrackingMapping(YamlNode node, IReadOnlySet<string> connections, string where)
         {
             if (node is not YamlMapping map) { Add(DiagnosticCatalog.InvalidValue, node, $"{where} is `none`, or a mapping with `connection` and `schema`."); return null; }
             CheckKeys(map, ["connection", "schema"], where);
@@ -231,7 +231,7 @@ public static class ProjectConfigLoader
             if (settings.Get("tracking") is not { } node) return null;
             if (node is YamlScalar { Value: "none" }) return new ConnectionTracking(true, null, null);
             var t = ReadTrackingMapping(node, connections, $"`connections.{name}.tracking`");
-            return t == null ? null : new ConnectionTracking(false, t.Value.Connection, t.Value.Schema);
+            return t == null ? null : new ConnectionTracking(false, t.Value.Connection, t.Value.SchemaName);
         }
 
         private StringSemantics ReadSemantics(YamlMapping top, StringSemantics defaults)

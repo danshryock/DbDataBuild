@@ -15,7 +15,7 @@ public static class MetadataStore
     public static async Task<IReadOnlyDictionary<string, string>> LatestHashesAsync(ReadSession read, TrackingScope scope, CancellationToken ct = default)
     {
         string c(string n) => C(scope.Engine, n);
-        var rows = await read.QueryAsync($"SELECT m.{c("kind")}, m.{c("subject")}, m.{c("document_hash")} FROM {c(scope.Schema)}.{c("metadata_current")} m WHERE m.{c("connection")} = @connection",
+        var rows = await read.QueryAsync($"SELECT m.{c("kind")}, m.{c("subject")}, m.{c("document_hash")} FROM {c(scope.SchemaName)}.{c("metadata_current")} m WHERE m.{c("connection")} = @connection",
             [new GateParameter("connection", DbType.String, scope.Connection)], ct);
         return rows.ToDictionary(r => $"{((string)r[0]!).Trim()}|{r[1]}", r => ((string)r[2]!).Trim(), StringComparer.Ordinal);
     }
@@ -24,7 +24,7 @@ public static class MetadataStore
     public static async Task<string?> LatestDocumentAsync(ReadSession read, TrackingScope scope, string kind, string subject, CancellationToken ct = default)
     {
         string c(string n) => C(scope.Engine, n);
-        var rows = await read.QueryAsync($"SELECT m.{c("document")} FROM {c(scope.Schema)}.{c("metadata_current")} m WHERE m.{c("connection")} = @connection AND m.{c("kind")} = @kind AND m.{c("subject")} = @subject",
+        var rows = await read.QueryAsync($"SELECT m.{c("document")} FROM {c(scope.SchemaName)}.{c("metadata_current")} m WHERE m.{c("connection")} = @connection AND m.{c("kind")} = @kind AND m.{c("subject")} = @subject",
             [new GateParameter("connection", DbType.String, scope.Connection), new GateParameter("kind", DbType.String, kind), new GateParameter("subject", DbType.String, subject)], ct);
         return rows.Count == 0 ? null : rows[0][0]?.ToString();
     }
@@ -36,7 +36,7 @@ public static class MetadataStore
     {
         string c(string n) => C(scope.Engine, n);
         var document = scope.Engine == "postgres" ? "CAST(@document AS jsonb)" : "@document";
-        var text = $"INSERT INTO {c(scope.Schema)}.{c("metadata_document")} ({c("connection")}, {c("kind")}, {c("subject")}, {c("document")}, {c("document_hash")}, {c("recorded_utc")}, {c("tool_version")}, {c("plan_id")}, {c("git_commit")}) " +
+        var text = $"INSERT INTO {c(scope.SchemaName)}.{c("metadata_document")} ({c("connection")}, {c("kind")}, {c("subject")}, {c("document")}, {c("document_hash")}, {c("recorded_utc")}, {c("tool_version")}, {c("plan_id")}, {c("git_commit")}) " +
                    $"VALUES (@connection, @kind, @subject, {document}, @document_hash, @recorded_utc, @tool_version, @plan_id, @git_commit)";
         return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
         [

@@ -39,7 +39,7 @@ internal static class PublishMetadataCommand
         output.Payload("connection", target);
         output.Payload("written", result.Written.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
         output.Payload("unchanged", result.Unchanged.Select(d => new { kind = d.Kind, subject = d.Subject, hash = d.Hash }).ToList());
-        output.WriteLine($"Stored {result.Written.Count} document(s); {result.Unchanged.Count} already up to date. Query `{tracking.Scope.Schema}.metadata_current` and `{tracking.Scope.Schema}.metadata_columns` on `{tracking.Target.Connection}`.");
+        output.WriteLine($"Stored {result.Written.Count} document(s); {result.Unchanged.Count} already up to date. Query `{tracking.Scope.SchemaName}.metadata_current` and `{tracking.Scope.SchemaName}.metadata_columns` on `{tracking.Target.Connection}`.");
         return CliApp.ExitOk;
     }
 }

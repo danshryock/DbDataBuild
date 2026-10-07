@@ -32,7 +32,7 @@ public class HookPlanningTests
         var live = new ObjectShape(schema, name, ObjectKind.Table, DdlGenerator.ExpectedShape(Ddl.MapAll(liveAs)), []);
         return Empty(m) with
         {
-            Live = new Dictionary<string, ObjectShape> { [m.Definition.Name] = live }, LiveSchemas = new HashSet<string> { schema },
+            Live = new Dictionary<string, ObjectShape> { [m.Definition.Name] = live }, LiveSchemaNames = new HashSet<string> { schema },
             RecordedShapeHashes = new Dictionary<string, string> { [m.Definition.Name] = live.ShapeHash },
         };
     }

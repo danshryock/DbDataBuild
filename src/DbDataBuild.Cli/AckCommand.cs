@@ -37,8 +37,8 @@ internal static class AckCommand
             await using var reader = await ReadSession.OpenAsync(read);
             await using var ownTrackingReader = tracking.Read.Connection == read.Connection ? null : await ReadSession.OpenAsync(tracking.Read);
             var trackReader = ownTrackingReader ?? reader;
-            var status = await TrackingStore.StatusAsync(trackReader, scope.Engine, scope.Schema);
-            if (status.AsDiagnostic(scope.Schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
+            var status = await TrackingStore.StatusAsync(trackReader, scope.Engine, scope.SchemaName);
+            if (status.AsDiagnostic(scope.SchemaName) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
             if (kind == "history")
             {
@@ -67,7 +67,7 @@ internal static class AckCommand
 
             if (kind == "drift")
             {
-                var live = (await CatalogReader.ReadSchemaAsync(reader, engine, objSchema)).GetValueOrDefault(name);
+                var live = (await CatalogReader.ReadObjectsAsync(reader, engine, objSchema)).GetValueOrDefault(name);
                 var recorded = (await TrackingStore.LatestShapeHashesAsync(trackReader, scope)).GetValueOrDefault(name);
                 var state = Drift.Classify(live, recorded);
                 if (state != ObjectState.OutOfBand)

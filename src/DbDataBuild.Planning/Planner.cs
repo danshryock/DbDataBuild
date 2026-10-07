@@ -41,7 +41,7 @@ public sealed record PlanInput(
     ProjectConfig Config,
     IReadOnlyList<PlannedModel> Models,
     IReadOnlyDictionary<string, ObjectShape> Live,
-    IReadOnlySet<string> LiveSchemas,
+    IReadOnlySet<string> LiveSchemaNames,
     IReadOnlyDictionary<string, string> RecordedShapeHashes,
     IReadOnlyDictionary<string, string> LastViewStatementHashes,
     IReadOnlyDictionary<string, string> LastLoadDefinitionHashes,
@@ -145,7 +145,7 @@ public static class Planner
         public ModelDefinition Def => model.Definition;
         public DdlGenerator Ddl => ddl;
         public List<string> Noticed => noticed;
-        public (string Schema, string Name) Name => DdlGenerator.Split(Def.Name);
+        public (string SchemaName, string Name) Name => DdlGenerator.Split(Def.Name);
 
         public ResolvedAnswer? Answer(Question q)
         {
@@ -154,7 +154,7 @@ public static class Planner
             return null;
         }
 
-        public bool NeedsSchema(string schema) => !input.LiveSchemas.Contains(schema) && schemasCreated.Add(schema);
+        public bool NeedsSchema(string schema) => !input.LiveSchemaNames.Contains(schema) && schemasCreated.Add(schema);
     }
 
     private static PlanStep Step(StepType type, string obj, string description, string text, RiskClass risk, IEnumerable<string> reasons, string? hashAfter = null,

@@ -57,16 +57,16 @@ public sealed record ConnectionConfig(string Name, string Engine, int? Version =
 /// The project's `tracking:` section: the connection that keeps the records of what the tool built (null: none is configured, which is "nothing is tracked", with a warning) and the schema name they live in there.
 /// <see cref="Disabled"/> is the explicit choice `tracking: none`: not tracked, and no warning.
 /// </summary>
-public sealed record TrackingConfig(string? Connection, string Schema, bool Disabled = false)
+public sealed record TrackingConfig(string? Connection, string SchemaName, bool Disabled = false)
 {
-    public static TrackingConfig Default { get; } = new(null, ProductInfo.TrackingSchema);
+    public static TrackingConfig Default { get; } = new(null, ProductInfo.TrackingSchemaName);
 }
 
 /// <summary>A connection's own `tracking:`: `none` (an explicit opt-out), or another tracking connection and, optionally, schema name.</summary>
-public sealed record ConnectionTracking(bool None, string? Connection, string? Schema);
+public sealed record ConnectionTracking(bool None, string? Connection, string? SchemaName);
 
 /// <summary>Where the records about one data connection are kept, resolved: the tracking connection, its engine, and the schema name there.</summary>
-public sealed record TrackingTarget(string Connection, string Engine, string Schema);
+public sealed record TrackingTarget(string Connection, string Engine, string SchemaName);
 
 /// <summary>What a connection's tracking resolved to. <see cref="Target"/> is null when nothing is tracked; <see cref="Explicit"/> says that was a choice (`tracking: none`), so no warning is due.</summary>
 public sealed record TrackingResolution(TrackingTarget? Target, bool Explicit);
@@ -141,7 +141,7 @@ public sealed record ProjectConfig(
     public IReadOnlyDictionary<string, ParameterValue> Parameters { get; init; } = new Dictionary<string, ParameterValue>();
 
     /// <summary>The schema name of the tracking tables (the project's; a connection may name another connection but keeps this schema name unless it says its own).</summary>
-    public string TrackingSchema => Tracking.Schema;
+    public string TrackingSchemaName => Tracking.SchemaName;
 
     /// <summary>
     /// Where the records about <paramref name="connection"/> are kept: its own `tracking:`, else the project's. Nothing is tracked unless a project says where (`tracking: { connection: audit }`); `tracking: none`
@@ -154,10 +154,10 @@ public sealed record ProjectConfig(
         {
             if (own.None) return new(null, true);
             var name = own.Connection ?? Tracking.Connection;
-            return name != null && Connections.TryGetValue(name, out var t) ? new(new TrackingTarget(name, t.Engine, own.Schema ?? Tracking.Schema), true) : new(null, false);
+            return name != null && Connections.TryGetValue(name, out var t) ? new(new TrackingTarget(name, t.Engine, own.SchemaName ?? Tracking.SchemaName), true) : new(null, false);
         }
         if (Tracking.Disabled) return new(null, true);
-        return Tracking.Connection is { } p && Connections.TryGetValue(p, out var pc) ? new(new TrackingTarget(p, pc.Engine, Tracking.Schema), true) : new(null, false);
+        return Tracking.Connection is { } p && Connections.TryGetValue(p, out var pc) ? new(new TrackingTarget(p, pc.Engine, Tracking.SchemaName), true) : new(null, false);
     }
 
     /// <summary>The engine of a connection, or null when the project has no such connection.</summary>

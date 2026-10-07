@@ -18,7 +18,7 @@ public class TrackingConformanceTests
     private static async Task<MutationGate> GateAsync(Engine e, StatementKind permitted, MemoryStatementLog? log = null) =>
         await MutationGate.OpenAsync(Login(e, DbDataBuild.Execution.Login.Write), "test", permitted, log ?? new MemoryStatementLog(), Guid.NewGuid());
 
-    private const string Schema = "dbdatabuild";
+    private const string SchemaName = "dbdatabuild";
 
     [SkippableTheory, MemberData(nameof(Engines))]
     public async Task Init_creates_the_tracking_tables_and_is_idempotent(string name)
@@ -27,20 +27,20 @@ public class TrackingConformanceTests
         await engine.StartAsync();
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
 
-        Assert.Equal(TrackingState.Missing, (await TrackingStore.StatusAsync(read, name, Schema)).State);
+        Assert.Equal(TrackingState.Missing, (await TrackingStore.StatusAsync(read, name, SchemaName)).State);
         await using (var gate = await GateAsync(engine, StatementKind.Tracking))
         {
-            await TrackingStore.InitAsync(gate, name, Schema);
-            await TrackingStore.InitAsync(gate, name, Schema); // twice: nothing changes, nothing fails
+            await TrackingStore.InitAsync(gate, name, SchemaName);
+            await TrackingStore.InitAsync(gate, name, SchemaName); // twice: nothing changes, nothing fails
         }
-        var status = await TrackingStore.StatusAsync(read, name, Schema);
+        var status = await TrackingStore.StatusAsync(read, name, SchemaName);
         Assert.Equal(new TrackingStatus(TrackingState.Ready, TrackingSchema.Version), status);
-        Assert.Null(status.AsDiagnostic(Schema));
+        Assert.Null(status.AsDiagnostic(SchemaName));
 
-        var shapes = await CatalogReader.ReadSchemaAsync(read, name, Schema);
-        Assert.Equal(TrackingSchema.Tables.Select(t => $"{Schema}.{t.Name}").Order(), shapes.Where(x => x.Value.Kind == ObjectKind.Table).Select(x => x.Key).Order());
-        Assert.Contains(shapes, x => x.Value.Kind == ObjectKind.View && x.Key == $"{Schema}.metadata_current");
-        Assert.Single(await engine.RowsAsync($"SELECT version FROM {engine.QuoteIdent(Schema)}.{engine.QuoteIdent("tracking_version")}"));
+        var shapes = await CatalogReader.ReadObjectsAsync(read, name, SchemaName);
+        Assert.Equal(TrackingSchema.Tables.Select(t => $"{SchemaName}.{t.Name}").Order(), shapes.Where(x => x.Value.Kind == ObjectKind.Table).Select(x => x.Key).Order());
+        Assert.Contains(shapes, x => x.Value.Kind == ObjectKind.View && x.Key == $"{SchemaName}.metadata_current");
+        Assert.Single(await engine.RowsAsync($"SELECT version FROM {engine.QuoteIdent(SchemaName)}.{engine.QuoteIdent("tracking_version")}"));
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
@@ -48,12 +48,12 @@ public class TrackingConformanceTests
     {
         await using var engine = EngineEnv.Require(name);
         await engine.StartAsync();
-        await using (var gate = await GateAsync(engine, StatementKind.Tracking)) await TrackingStore.InitAsync(gate, name, Schema);
-        await engine.ExecAsync($"UPDATE {engine.QuoteIdent(Schema)}.{engine.QuoteIdent("tracking_version")} SET {engine.QuoteIdent("version")} = 99");
+        await using (var gate = await GateAsync(engine, StatementKind.Tracking)) await TrackingStore.InitAsync(gate, name, SchemaName);
+        await engine.ExecAsync($"UPDATE {engine.QuoteIdent(SchemaName)}.{engine.QuoteIdent("tracking_version")} SET {engine.QuoteIdent("version")} = 99");
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
-        var status = await TrackingStore.StatusAsync(read, name, Schema);
+        var status = await TrackingStore.StatusAsync(read, name, SchemaName);
         Assert.Equal(new TrackingStatus(TrackingState.UnknownLayout, 99), status);
-        Assert.Equal("DDB-505", status.AsDiagnostic(Schema)!.Code);
+        Assert.Equal("DDB-505", status.AsDiagnostic(SchemaName)!.Code);
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
@@ -69,7 +69,7 @@ public class TrackingConformanceTests
         await engine.ExecAsync($"CREATE VIEW marts.{q("v_fct")} AS SELECT {q("id")} FROM marts.{q("fct")}");
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
 
-        var first = await CatalogReader.ReadSchemaAsync(read, name, "marts");
+        var first = await CatalogReader.ReadObjectsAsync(read, name, "marts");
         var fct = first["marts.fct"];
         Assert.Equal(ObjectKind.Table, fct.Kind);
         Assert.Equal(["id", "label", "amount", "at"], fct.Columns.Select(c => c.Name));
@@ -83,24 +83,24 @@ public class TrackingConformanceTests
         Assert.Contains(fct.Physical, p => p.Kind == "index" && p.Name == "ix_fct_id");
 
         // reading twice gives the same hashes
-        var again = (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct"];
+        var again = (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct"];
         Assert.Equal(fct.ShapeHash, again.ShapeHash);
         Assert.Equal(fct.PhysicalHash, again.PhysicalHash);
 
         // a new column changes the shape hash and leaves the physical hash alone
         await engine.ExecAsync($"ALTER TABLE marts.{q("fct")} ADD {q("note")} {engine.ColumnType("VARCHAR(5)")} NULL");
-        var added = (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct"];
+        var added = (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct"];
         Assert.NotEqual(fct.ShapeHash, added.ShapeHash);
         Assert.Equal(fct.PhysicalHash, added.PhysicalHash);
 
         // widening a column changes the shape hash (length is covered)
         await engine.ExecAsync(name == "postgres" ? $"ALTER TABLE marts.{q("fct")} ALTER COLUMN {q("label")} TYPE VARCHAR(40)" : $"ALTER TABLE marts.{q("fct")} ALTER COLUMN {q("label")} NVARCHAR(40) NULL");
-        var widened = (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct"];
+        var widened = (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct"];
         Assert.NotEqual(added.ShapeHash, widened.ShapeHash);
 
         // a new index changes the physical hash and leaves the shape hash alone
         await engine.ExecAsync($"CREATE INDEX ix_fct_at ON marts.{q("fct")} ({q("at")})");
-        var indexed = (await CatalogReader.ReadSchemaAsync(read, name, "marts"))["marts.fct"];
+        var indexed = (await CatalogReader.ReadObjectsAsync(read, name, "marts"))["marts.fct"];
         Assert.Equal(widened.ShapeHash, indexed.ShapeHash);
         Assert.NotEqual(widened.PhysicalHash, indexed.PhysicalHash);
     }
@@ -114,34 +114,34 @@ public class TrackingConformanceTests
         await engine.ExecAsync(name == "postgres" ? "CREATE SCHEMA marts" : "EXEC('CREATE SCHEMA marts')");
         await engine.ExecAsync($"CREATE TABLE marts.{q("fct")} ({q("id")} BIGINT NOT NULL)");
         await using var read = await ReadSession.OpenAsync(Login(engine, DbDataBuild.Execution.Login.Read));
-        await using (var g = await GateAsync(engine, StatementKind.Tracking)) await TrackingStore.InitAsync(g, name, Schema);
+        await using (var g = await GateAsync(engine, StatementKind.Tracking)) await TrackingStore.InitAsync(g, name, SchemaName);
 
         ObjectShape? Live(IReadOnlyDictionary<string, ObjectShape> all) => all.GetValueOrDefault("marts.fct");
-        var recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
-        var shapes = await CatalogReader.ReadSchemaAsync(read, name, "marts");
+        var recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, SchemaName, "data"));
+        var shapes = await CatalogReader.ReadObjectsAsync(read, name, "marts");
         Assert.Equal(ObjectState.Untracked, Drift.Classify(Live(shapes), recorded.GetValueOrDefault("marts.fct")));
         Assert.Equal(ObjectState.Missing, Drift.Classify(null, null));
 
         var log = new MemoryStatementLog();
         await using (var gate = await GateAsync(engine, StatementKind.Tracking, log))
         {
-            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, Schema, "data"), "rec-1", "marts.fct", Live(shapes)!.ShapeHash, Live(shapes)!.PhysicalHash, "tool", "plan-1", "abc123");
+            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, SchemaName, "data"), "rec-1", "marts.fct", Live(shapes)!.ShapeHash, Live(shapes)!.PhysicalHash, "tool", "plan-1", "abc123");
         }
-        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
+        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, SchemaName, "data"));
         Assert.Equal(ObjectState.InSync, Drift.Classify(Live(shapes), recorded["marts.fct"]));
         Assert.Equal(Live(shapes)!.ShapeHash, recorded["marts.fct"]);
 
         // an out-of-band change is seen as drift
         await engine.ExecAsync($"ALTER TABLE marts.{q("fct")} ADD {q("sneaky")} INT NULL");
-        shapes = await CatalogReader.ReadSchemaAsync(read, name, "marts");
+        shapes = await CatalogReader.ReadObjectsAsync(read, name, "marts");
         Assert.Equal(ObjectState.OutOfBand, Drift.Classify(Live(shapes), recorded["marts.fct"]));
 
         // recording the new state as out_of_band makes it the newest record, even when written immediately after the first
         await using (var gate = await GateAsync(engine, StatementKind.Tracking))
-            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, Schema, "data"), "rec-2", "marts.fct", Live(shapes)!.ShapeHash, null, "out_of_band", null, null);
-        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, Schema, "data"));
+            await TrackingStore.RecordSchemaVersionAsync(gate, new TrackingScope(name, SchemaName, "data"), "rec-2", "marts.fct", Live(shapes)!.ShapeHash, null, "out_of_band", null, null);
+        recorded = await TrackingStore.LatestShapeHashesAsync(read, new TrackingScope(name, SchemaName, "data"));
         Assert.Equal(ObjectState.InSync, Drift.Classify(Live(shapes), recorded["marts.fct"]));
-        var sources = await engine.RowsAsync($"SELECT source FROM {q(Schema)}.{q("schema_version")}");
+        var sources = await engine.RowsAsync($"SELECT source FROM {q(SchemaName)}.{q("schema_version")}");
         Assert.Equal(["out_of_band", "tool"], sources);
 
         // the statement log saw the parameters (as strings) and the outcome, and nothing from the driver

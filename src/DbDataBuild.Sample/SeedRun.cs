@@ -109,7 +109,7 @@ public static class SeedRun
         return names;
     }
 
-    private static (string Schema, string Table) Split(string name)
+    private static (string SchemaName, string Table) Split(string name)
     {
         var i = name.LastIndexOf('.');
         return i < 0 ? ("main", name) : (name[..i], name[(i + 1)..]);

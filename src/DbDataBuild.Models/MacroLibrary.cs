@@ -11,7 +11,7 @@ namespace DbDataBuild.Models;
 public sealed record MacroDefinition(string Name, bool IsType, string Sql, string File, int Line, IReadOnlyList<string> Calls, IReadOnlyList<string> Uses)
 {
     public string ShortName => Name[(Name.LastIndexOf('.') + 1)..];
-    public string? Schema => Name.Contains('.') ? Name[..Name.LastIndexOf('.')] : null;
+    public string? SchemaName => Name.Contains('.') ? Name[..Name.LastIndexOf('.')] : null;
 }
 
 /// <summary>
@@ -170,7 +170,7 @@ public sealed class MacroLibrary
     {
         var closure = Closure(sqlTexts);
         if (closure.Count == 0) return DuckPrelude.Empty;
-        var schemas = closure.Where(d => d.Schema != null).Select(d => $"CREATE SCHEMA IF NOT EXISTS \"{d.Schema!.Replace("\"", "\"\"")}\"").Distinct(StringComparer.Ordinal).ToList();
+        var schemas = closure.Where(d => d.SchemaName != null).Select(d => $"CREATE SCHEMA IF NOT EXISTS \"{d.SchemaName!.Replace("\"", "\"\"")}\"").Distinct(StringComparer.Ordinal).ToList();
         var ordered = new List<MacroDefinition>();
         var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Place(MacroDefinition d)

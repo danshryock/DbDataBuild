@@ -40,7 +40,7 @@ public class PlannerTests
         var input = Empty(model);
         return input with
         {
-            Live = new Dictionary<string, ObjectShape> { [model.Definition.Name] = live }, LiveSchemas = new HashSet<string> { live.Schema },
+            Live = new Dictionary<string, ObjectShape> { [model.Definition.Name] = live }, LiveSchemaNames = new HashSet<string> { live.SchemaName },
             RecordedShapeHashes = new Dictionary<string, string> { [model.Definition.Name] = live.ShapeHash },
         };
     }
@@ -48,7 +48,7 @@ public class PlannerTests
     private static PlanInput With(PlanInput input, PlannedModel model, ObjectShape live) => input with
     {
         Live = new Dictionary<string, ObjectShape>(input.Live) { [model.Definition.Name] = live },
-        LiveSchemas = new HashSet<string>(input.LiveSchemas) { live.Schema },
+        LiveSchemaNames = new HashSet<string>(input.LiveSchemaNames) { live.SchemaName },
         RecordedShapeHashes = new Dictionary<string, string>(input.RecordedShapeHashes) { [model.Definition.Name] = live.ShapeHash },
     };
 
@@ -80,7 +80,7 @@ public class PlannerTests
         var b = Model(Table("marts.b", ModelKinds.Full, Basic));
         var r = Planner.Plan(Empty(a, b), []);
         Assert.Single(r.Steps, s => s.Description == "create schema marts");
-        var r2 = Planner.Plan(Empty(a) with { LiveSchemas = new HashSet<string> { "marts" } }, []);
+        var r2 = Planner.Plan(Empty(a) with { LiveSchemaNames = new HashSet<string> { "marts" } }, []);
         Assert.DoesNotContain(r2.Steps, s => s.Description.StartsWith("create schema"));
     }
 

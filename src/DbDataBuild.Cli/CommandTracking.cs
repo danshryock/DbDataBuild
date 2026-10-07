@@ -27,6 +27,6 @@ internal static class CommandTracking
         var (write, writeMissing) = needWrite ? LoginSettings.FromEnvironment(t.Connection, t.Engine, Login.Write, env) : (null, null);
         foreach (var m in new[] { readMissing, writeMissing }.OfType<Diagnostic>()) error.Diag(m);
         if (read == null || (needWrite && write == null)) return null;
-        return new TrackingLogins(new TrackingScope(t.Engine, t.Schema, data.Name), read, write, t);
+        return new TrackingLogins(new TrackingScope(t.Engine, t.SchemaName, data.Name), read, write, t);
     }
 }

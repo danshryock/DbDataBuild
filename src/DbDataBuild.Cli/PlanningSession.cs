@@ -187,7 +187,7 @@ internal sealed class PlanningSession
         }
         else if (trackingResolution.Target == null && !trackingResolution.Explicit)
             error.Diag(new Diagnostic(DiagnosticCatalog.TrackingNotConfigured, new($"connection:{target}", 0, 0), $"Nothing is tracked for `{target}`: plans are made from the declared shape against the live one, every change to an existing object is marked risky, and nothing is recorded when the plan is applied."));
-        DbDataBuild.State.TrackingScope? trackingScope = trackingResolution.Target is { } ts ? new DbDataBuild.State.TrackingScope(ts.Engine, ts.Schema, target) : null;
+        DbDataBuild.State.TrackingScope? trackingScope = trackingResolution.Target is { } ts ? new DbDataBuild.State.TrackingScope(ts.Engine, ts.SchemaName, target) : null;
 
         // the routines native models list under `track_definition`, against the last record in the tracking tables
         var watched = NativeDefinitions.InPlay(ctx, mine.Select(m => (m.Source, m.Sql)), target);
@@ -226,10 +226,10 @@ internal sealed class PlanningSession
                 var trackRead = trackingScope == null ? null : ownTrackingRead ?? read;
                 if (trackingScope != null)
                 {
-                    var status = await TrackingStore.StatusAsync(trackRead!, trackingScope.Engine, trackingScope.Schema);
-                    if (status.AsDiagnostic(trackingScope.Schema) is { } notReady) throw new GateRefusedException(notReady);
+                    var status = await TrackingStore.StatusAsync(trackRead!, trackingScope.Engine, trackingScope.SchemaName);
+                    if (status.AsDiagnostic(trackingScope.SchemaName) is { } notReady) throw new GateRefusedException(notReady);
                 }
-                var snap = await TargetSnapshotReader.ReadAsync(read, trackRead, trackingScope, engine, planned.Select(p => DdlSchema(p.Definition.Name)));
+                var snap = await TargetSnapshotReader.ReadAsync(read, trackRead, trackingScope, engine, planned.Select(p => SchemaNameOf(p.Definition.Name)));
                 var results = new Dictionary<string, ResolverOutcome>();
                 foreach (var op in renderedOps.Where(o => (operations != null && operations.TryGetValue(o.Model, out var chosen) ? o.Operation == chosen : o.IsDefault) && o.Resolver != null && snap.Live.ContainsKey(o.Model)))
                 {
@@ -287,5 +287,5 @@ internal sealed class PlanningSession
     private static IReadOnlyDictionary<string, ParameterValue> Merge(IReadOnlyDictionary<string, ParameterValue> a, IReadOnlyDictionary<string, ParameterValue> b) =>
         b.Count == 0 ? a : new Dictionary<string, ParameterValue>(a, StringComparer.Ordinal).Concat(b).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
 
-    private static string DdlSchema(string model) => DbDataBuild.Targets.Ddl.DdlGenerator.Split(model).Schema;
+    private static string SchemaNameOf(string model) => DbDataBuild.Targets.Ddl.DdlGenerator.Split(model).SchemaName;
 }

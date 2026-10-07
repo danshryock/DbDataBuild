@@ -6,7 +6,7 @@ namespace DbDataBuild.Targets.DuckDb;
 
 public sealed record DuckColumn(string Name, string Type, bool Nullable);
 
-public sealed record DuckTable(string Schema, string Name, IReadOnlyList<DuckColumn> Columns);
+public sealed record DuckTable(string SchemaName, string Name, IReadOnlyList<DuckColumn> Columns);
 
 /// <summary>A statement of a macro file that DuckDB refused.</summary>
 public sealed class PreludeException(string message) : Exception(message);
@@ -156,9 +156,9 @@ public static partial class QueryDescriber
         foreach (var statement in (prelude?.Schemas ?? []).Concat(prelude?.Types ?? [])) RunMacroStatement(connection, statement);
         foreach (var table in upstream)
         {
-            Run(connection, $"CREATE SCHEMA IF NOT EXISTS {Quote(table.Schema)}");
+            Run(connection, $"CREATE SCHEMA IF NOT EXISTS {Quote(table.SchemaName)}");
             var columns = string.Join(", ", table.Columns.Select(c => $"{Quote(c.Name)} {c.Type.Trim()}{(c.Nullable ? "" : " NOT NULL")}"));
-            Run(connection, $"CREATE TABLE {Quote(table.Schema)}.{Quote(table.Name)} ({columns})");
+            Run(connection, $"CREATE TABLE {Quote(table.SchemaName)}.{Quote(table.Name)} ({columns})");
         }
         foreach (var statement in prelude?.Macros ?? []) RunMacroStatement(connection, statement);
     }

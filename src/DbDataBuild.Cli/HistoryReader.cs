@@ -12,7 +12,7 @@ internal static class HistoryReader
     {
         var ddl = TrackingDdl.For(scope.Engine);
         string C(string n) => ddl.Quote(n);
-        string T(string t) => $"{C(scope.Schema)}.{C(t)}";
+        string T(string t) => $"{C(scope.SchemaName)}.{C(t)}";
         var byConnection = new[] { new GateParameter("connection", System.Data.DbType.String, scope.Connection) };
         string Cell(object? v) => v switch { null => "", string s => s.Trim(), _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "" };
 

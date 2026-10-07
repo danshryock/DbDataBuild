@@ -149,7 +149,7 @@ public sealed class PlanLowerer
     /// of a comparison, `IN`, `BETWEEN`, a join condition, a window partition, a `GROUP BY` key and a `DISTINCT` are wrapped in `rtrim()`. For DuckDB runs only (`sample`, `test`); never what an engine is given.
     /// Not covered: set operations without ALL, `count(DISTINCT x)`, and `LIKE` (which keeps trailing spaces on SQL Server too).
     /// </param>
-    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null, bool ignoreTrailingSpaces = false, IReadOnlyList<(string? Schema, string Table, string? Alias)>? authorAliases = null)
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null, bool ignoreTrailingSpaces = false, IReadOnlyList<(string? SchemaName, string Table, string? Alias)>? authorAliases = null)
     {
         using var doc = JsonDocument.Parse(PlanNormalizer.Normalize(planJson));
         var root = doc.RootElement;

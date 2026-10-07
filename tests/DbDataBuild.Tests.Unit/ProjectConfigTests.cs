@@ -107,7 +107,7 @@ public class ProjectConfigTests
         Assert.Equal(16, cfg.TargetVersions["sqlserver"]);
         Assert.Equal(17, cfg.TargetVersions["postgres"]);
         Assert.False(cfg.TargetVersions.ContainsKey("fabric"));
-        Assert.Equal("ddb_meta", cfg.TrackingSchema);
+        Assert.Equal("ddb_meta", cfg.TrackingSchemaName);
         Assert.Equal(CaseSensitivity.Sensitive, cfg.StringSemantics.Case);
         Assert.Equal(AccentSensitivity.Insensitive, cfg.StringSemantics.Accent);
         Assert.Equal(TrailingSpace.Significant, cfg.StringSemantics.TrailingSpace);
@@ -130,7 +130,7 @@ public class ProjectConfigTests
         Assert.Equal(AccentSensitivity.Sensitive, d.StringSemantics.Accent);
         Assert.Equal(TrailingSpace.Ignored, d.StringSemantics.TrailingSpace);
         Assert.Equal("NOCASE", d.StringSemantics.Collations["default"]["duckdb"]);
-        Assert.Equal("dbdatabuild", d.TrackingSchema);
+        Assert.Equal("dbdatabuild", d.TrackingSchemaName);
         Assert.Equal(Severity.Warning, d.Policy[PolicyKeys.Approximated]);
         Assert.Equal(Severity.Note, d.Policy[PolicyKeys.Emulated]);
     }

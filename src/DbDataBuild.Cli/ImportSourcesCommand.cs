@@ -31,7 +31,7 @@ internal static class ImportSourcesCommand
         var models = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // what to look at: the patterns, or (none given) every descriptor the project has
-        var wanted = new List<(Regex Schema, Regex Table, string? LiteralSchema)>();
+        var wanted = new List<(Regex SchemaName, Regex Table, string? LiteralSchema)>();
         var refresh = patterns.Length == 0;
         if (refresh)
         {
@@ -46,7 +46,7 @@ internal static class ImportSourcesCommand
             foreach (var p in patterns)
             {
                 if (Split(p) is not { } st) { error.WriteLine($"`{p}` is not `schema_name.table_name`. Use `*` and `?` as wildcards, for example `staging.*` or `*.orders`."); return CliApp.ExitUsage; }
-                wanted.Add((Glob(st.Schema), Glob(st.Table), st.Schema.AsSpan().IndexOfAny('*', '?') < 0 ? st.Schema : null));
+                wanted.Add((Glob(st.SchemaName), Glob(st.Table), st.SchemaName.AsSpan().IndexOfAny('*', '?') < 0 ? st.SchemaName : null));
             }
 
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes models/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
@@ -61,17 +61,17 @@ internal static class ImportSourcesCommand
             {
                 await using var read = await ReadSession.OpenAsync(login!);
                 var allSchemas = await SourceCatalogReader.SchemasAsync(read, engine);
-                var schemas = allSchemas.Where(s => wanted.Any(w => w.Schema.IsMatch(s))).ToList();
+                var schemas = allSchemas.Where(s => wanted.Any(w => w.SchemaName.IsMatch(s))).ToList();
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var schema in schemas)
                 {
-                    if (string.Equals(schema, ctx.Config.TrackingSchema, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema name holds the tool's own tables")); continue; }
-                    var shapes = await CatalogReader.ReadSchemaAsync(read, engine, schema);
+                    if (string.Equals(schema, ctx.Config.TrackingSchemaName, StringComparison.OrdinalIgnoreCase)) { skipped.Add(new(schema, "the tracking schema name holds the tool's own tables")); continue; }
+                    var shapes = await CatalogReader.ReadObjectsAsync(read, engine, schema);
                     var keys = await SourceCatalogReader.PrimaryKeysAsync(read, engine, schema);
                     var foreignKeys = await SourceCatalogReader.ForeignKeysAsync(read, engine, schema);
                     foreach (var (qualified, shape) in shapes.OrderBy(k => k.Key, StringComparer.Ordinal))
                     {
-                        if (!wanted.Any(w => w.Schema.IsMatch(shape.Schema) && w.Table.IsMatch(shape.Name))) continue;
+                        if (!wanted.Any(w => w.SchemaName.IsMatch(shape.SchemaName) && w.Table.IsMatch(shape.Name))) continue;
                         seen.Add(qualified);
                         if (models.Contains(qualified)) { skipped.Add(new(qualified, "it is a model, not a source")); continue; }
                         var live = SourceImport.Describe(engine, shape, keys.GetValueOrDefault(shape.Name), foreignKeys.GetValueOrDefault(shape.Name), ctx.Config.Layout);
@@ -87,7 +87,7 @@ internal static class ImportSourcesCommand
                     }
                 }
                 // descriptors the project has for tables the target does not show (in the schema names searched)
-                foreach (var d in committed.Values.Where(d => wanted.Any(w => { var (s, t) = Split(d.Name)!.Value; return w.Schema.IsMatch(s) && w.Table.IsMatch(t); })))
+                foreach (var d in committed.Values.Where(d => wanted.Any(w => { var (s, t) = Split(d.Name)!.Value; return w.SchemaName.IsMatch(s) && w.Table.IsMatch(t); })))
                 {
                     var (s, _) = Split(d.Name)!.Value;
                     if (seen.Contains(d.Name) || models.Contains(d.Name)) continue;
@@ -189,7 +189,7 @@ internal static class ImportSourcesCommand
         return new Row(live.QualifiedName, kind, live.File, status, changes, live, descriptor, status is "new" or "changed" ? SourceDescriptorWriter.Yaml(descriptor) : null, oldText, hash);
     }
 
-    private static (string Schema, string Table)? Split(string name)
+    private static (string SchemaName, string Table)? Split(string name)
     {
         var i = name.IndexOf('.');
         return i <= 0 || i == name.Length - 1 ? null : (name[..i], name[(i + 1)..]);
