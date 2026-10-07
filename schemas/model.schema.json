@@ -653,9 +653,6 @@
           "description": "A suffix on a setting that inherits from the project files above (`defaults:` in dbdatabuild.yml and in each folder's _dbdatabuild.yml): `key=` replaces what was inherited, `key-` removes the listed items or keys, `key+` merges (what happens without a suffix)."
         }
       },
-      "required": [
-        "name"
-      ],
       "properties": {
         "name": {
           "description": "Schema-qualified model name (`marts.fct_orders`): the name of the model wherever its file is. With the default `model_layout: folder` it must equal the path under models/ with '/' replaced by '.' (models/marts/fct_orders.yml); `dotted` and `object` check the file's name instead (`marts.fct_orders.yml`, `fct_orders.yml`), and `none` does not check.",
@@ -910,6 +907,10 @@
             }
           }
         }
+      ],
+      "description": "As a file read alone `name` is required; the project lets a definition leave out `name` and `kind` when its query file starts with a head (`CREATE TABLE schema.name WITH (kind = ...) AS`), which says them; the project checks that one of the two does.",
+      "required": [
+        "name"
       ]
     },
     "parameterValue": {

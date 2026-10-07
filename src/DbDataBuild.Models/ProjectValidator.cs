@@ -9,6 +9,9 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     /// <summary>The query of a model that has none on disk: a copy reads its generated staging table (DuckDB dialect). Null for a model with a `.sql` file.</summary>
     public string? GeneratedQuery { get; init; }
 
+    /// <summary>The head of the query file (`CREATE TABLE schema.name WITH (...) AS`), when it has one (DESIGN.md 6.5.7).</summary>
+    public QueryHead? Head { get; init; }
+
     /// <summary>The project parameters this model sees: the root file's, overridden by the folder files above it (nearest wins).</summary>
     public IReadOnlyDictionary<string, ParameterValue> ProjectParameters { get; init; } = new Dictionary<string, ParameterValue>();
 
@@ -22,7 +25,7 @@ public sealed record ModelSource(ModelDefinition Definition, string DefinitionFi
     }
 
     /// <summary>The model's query in DuckDB dialect: its `.sql` file, or the generated one of a copy.</summary>
-    private string Raw(string projectRoot) => GeneratedQuery ?? File.ReadAllText(Path.Combine(projectRoot, QueryFile));
+    private string Raw(string projectRoot) => GeneratedQuery ?? (Head == null ? File.ReadAllText(Path.Combine(projectRoot, QueryFile)) : QueryHeadParser.Body(File.ReadAllText(Path.Combine(projectRoot, QueryFile))));
 
     /// <summary>The query as the tool works on it (lowering, rendering, hashing, lineage): each parameter reference stands as a marker literal of its type, so the text, its hash and the rendered files do not depend on a value.</summary>
     public string ReadQuery(string projectRoot, ProjectConfig config, string? connection = null) =>
@@ -163,13 +166,45 @@ public static class ProjectValidator
             if (effectiveConfig.Defaults != null) above.Add(new YamlLayer(ProductInfo.ConfigFile, effectiveConfig.Defaults));
             above.AddRange(folders.Above(file));
 
+            // a query file may start with a head that says what it builds: its name, table or view, and the reload options of its kind (DESIGN.md 6.5.7)
+            QueryHead? head = null;
+            if (set.Contains(stem + ".sql"))
+            {
+                var parsedHead = QueryHeadParser.Parse(stem + ".sql", File.ReadAllText(Path.Combine(projectRoot, stem + ".sql")));
+                diags.AddRange(parsedHead.Problems);
+                if (parsedHead.Problems.Count > 0) continue;
+                head = parsedHead.Head;
+            }
+
             // the kind decides what the file is, and the kind may come from a folder: so the file is merged first
             var before = diags.Count;
             var root = StrictYamlReader.Read(text, file, diags);
             if (root is YamlMapping own)
             {
                 if (diags.Count > before) continue;
-                var merged = YamlMerge.Merge([.. above, new YamlLayer(file, own)], ModelDefinitionLoader.LayeredKeys, diags);
+                YamlLayer? headLayer = null;
+                if (head != null)
+                {
+                    var ownKind = own.Entries.Any(e => e.Key.Value is "kind" or "kind=" or "kind+" or "kind-");
+                    var headWhere = new SourceLocation(stem + ".sql", head.Line, head.Column);
+                    if (own.Get("name") is YamlScalar ownName && ownName.Value != head.Name)
+                    {
+                        diags.Add(new Diagnostic(DiagnosticCatalog.NameMismatch, new(file, ownName.Line, ownName.Column), $"name is `{ownName.Value}`, but the head of `{stem}.sql` says `{head.Name}`.", Fix: "Remove `name:` (the head names the model) or make them the same."));
+                        continue;
+                    }
+                    if (ownKind && head.KindIsExplicit)
+                    {
+                        diags.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, headWhere, $"the kind is said in the head ({(head.IsView ? "CREATE VIEW" : "`kind` in `WITH`")}) and again in `{file}`: it is said in one place.", Fix: $"Remove `kind:` from `{file}` or the kind from the head."));
+                        continue;
+                    }
+                    if (ownKind && !head.IsView && ((own.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value == ModelKinds.View)
+                    {
+                        diags.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, headWhere, $"the head says `CREATE TABLE`, and `{file}` says the kind is `view`.", Fix: "Write `CREATE VIEW` in the head, or change the kind."));
+                        continue;
+                    }
+                    headLayer = new YamlLayer(stem + ".sql", QueryHeadParser.ToLayer(head, withKind: !ownKind));
+                }
+                var merged = YamlMerge.Merge(headLayer == null ? [.. above, new YamlLayer(file, own)] : [.. above, headLayer, new YamlLayer(file, own)], ModelDefinitionLoader.LayeredKeys, diags);
                 if (diags.Count > before) continue;
                 var kindName = ((merged.Root.Get("kind") as YamlMapping)?.Get("type") as YamlScalar)?.Value;
                 if (kindName is SourceDescriptorLoader.MappedKind or NativeQuery.Kind)
@@ -194,7 +229,7 @@ public static class ProjectValidator
                     CheckLayout(effectiveConfig.Layout, file, def.Name, diags);
                     declared.Add((def.Name, file));
                     if (isCopy) copies.Add((def, file));
-                    else models.Add(WithParameters(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file) }));
+                    else models.Add(WithParameters(new ModelSource(def, file, stem + ".sql") { Inherited = Inherited(merged, file, stem + ".sql"), Head = head }));
                 }
                 continue;
             }
@@ -386,8 +421,8 @@ public static class ProjectValidator
     }
 
     /// <summary>What a model's effective settings took from other files: the scalars under a layered key written in a file other than the model's own.</summary>
-    private static List<SettingOrigin> Inherited(MergedYaml merged, string modelFile) =>
-        merged.Origins().Where(o => o.File != modelFile && ModelDefinitionLoader.LayeredKeys.Contains(o.Path.Split('.', '[')[0]))
+    private static List<SettingOrigin> Inherited(MergedYaml merged, string modelFile, string queryFile) =>
+        merged.Origins().Where(o => o.File != modelFile && o.File != queryFile && ModelDefinitionLoader.LayeredKeys.Contains(o.Path.Split('.', '[')[0]))
             .Select(o => new SettingOrigin(o.Path, o.File, o.Line, o.Value)).ToList();
 
     /// <summary>

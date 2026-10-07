@@ -13,7 +13,7 @@ namespace DbDataBuild.Define;
 /// <param name="Existing">The loaded definition; null when there is no file, or the file does not load (then <paramref name="ExistingProblems"/> says why).</param>
 public sealed record DefineTarget(
     string ModelName, string DefinitionFile, string QueryFile, string Sql,
-    string? ExistingText, ModelDefinition? Existing, IReadOnlyList<Diagnostic> ExistingProblems, MacroSupport? Macros = null)
+    string? ExistingText, ModelDefinition? Existing, IReadOnlyList<Diagnostic> ExistingProblems, MacroSupport? Macros = null, QueryHead? Head = null)
 {
     public bool HasDefinitionFile => ExistingText != null;
 }
@@ -134,7 +134,9 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
     {
         var text = o.NewText ?? o.Target.ExistingText;
         if (text == null) return null;
-        return ModelDefinitionLoader.Load(text, o.Target.DefinitionFile, o.Target.ModelName, [], config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
+        // a file whose query has a head says its name and kind there, not in the definition: they are put back to read the definition as the project does
+        if (o.Target.Head != null) text = QueryHeadParser.YamlFields(o.Target.Head) + text;
+        return ModelDefinitionLoader.Load(text, o.Target.DefinitionFile, null, [], config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
     }
 
     private static DefineOutcome Failed(DefineTarget t, IReadOnlyList<ResolvedAnswer> answers, IReadOnlyList<string> notes, params Diagnostic[] diags) =>
@@ -150,7 +152,10 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         var notes = new List<string>();
         var answers = new List<ResolvedAnswer>();
 
-        var round1 = new List<Question> { DefineQuestions.Name(t.ModelName, t.QueryFile), DefineQuestions.Kind(t.ModelName), DefineQuestions.Targets(t.ModelName, config.DefaultConnections, Portability(t)) };
+        // the head of the query file, when there is one, has already said the name and the kind (and the options of the kind): they are not asked
+        var head = t.Head;
+        var round1 = new List<Question> { DefineQuestions.Targets(t.ModelName, config.DefaultConnections, Portability(t)) };
+        if (head == null) { round1.Insert(0, DefineQuestions.Kind(t.ModelName)); round1.Insert(0, DefineQuestions.Name(t.ModelName, t.QueryFile)); }
         foreach (var c in inf.Columns)
         {
             round1.Add(DefineQuestions.ColumnType(t.ModelName, c));
@@ -167,8 +172,8 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         }
 
         var a1 = answers.ToDictionary(a => a.QuestionId);
-        var name = a1[QuestionIds.Define(t.ModelName, "name")].Value!;
-        var kind = a1[QuestionIds.Define(t.ModelName, "kind")].Choice;
+        var name = head?.Name ?? a1[QuestionIds.Define(t.ModelName, "name")].Value!;
+        var kind = head?.KindType ?? a1[QuestionIds.Define(t.ModelName, "kind")].Choice;
         var targets = ParseTargets(a1[QuestionIds.Define(t.ModelName, "connections")], out var targetProblem);
         if (targetProblem != null) return Failed(t, answers, notes, targetProblem);
 
@@ -188,8 +193,12 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
         {
             var outputs = inf.Columns.Select(c => c.Name).ToList();
             var round2 = new List<Question> { DefineQuestions.Grain(t.ModelName, inf.GrainCandidates, outputs) };
-            if (kind == ModelKinds.IncrementalByUniqueKey) round2.Add(DefineQuestions.UniqueKey(t.ModelName, outputs));
-            else { round2.Add(DefineQuestions.TimeColumn(t.ModelName, inf.TimeColumnCandidates)); round2.Add(DefineQuestions.Lookback(t.ModelName)); }
+            if (kind == ModelKinds.IncrementalByUniqueKey) { if (head?.Property("unique_key") == null) round2.Add(DefineQuestions.UniqueKey(t.ModelName, outputs)); }
+            else
+            {
+                if (head?.Property("time_column") == null) round2.Add(DefineQuestions.TimeColumn(t.ModelName, inf.TimeColumnCandidates));
+                if (head?.Property("lookback") == null && head?.Property("time_column") == null) round2.Add(DefineQuestions.Lookback(t.ModelName));
+            }
 
             var r2 = session.Ask(round2);
             answers.AddRange(r2.Answers);
@@ -207,7 +216,9 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
                 grain = parsedGrain;
             }
 
-            if (kind == ModelKinds.IncrementalByUniqueKey)
+            if (kind == ModelKinds.IncrementalByUniqueKey && head?.Property("unique_key") is { } headKey)
+                uniqueKey = headKey.Value.Items?.ToList() ?? [headKey.Value.Text!];
+            else if (kind == ModelKinds.IncrementalByUniqueKey)
             {
                 var u = a2[QuestionIds.Define(t.ModelName, "unique_key")];
                 if (u.Choice == "same_as_grain") uniqueKey = grain.ToList();
@@ -217,6 +228,13 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
                     if (parsed == null) return Failed(t, answers, notes, keyProblem!);
                     uniqueKey = parsed;
                 }
+            }
+            else if (head?.Property("time_column") is { } headTime)
+            {
+                var match = outputs.FirstOrDefault(o => string.Equals(o, headTime.Value.Text!.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (match == null) return Failed(t, answers, notes, BadAnswer($"time_column `{headTime.Value.Text}` of the head is not an output column of the query."));
+                timeColumn = match;
+                lookback = head.Property("lookback")?.Value.Text;
             }
             else
             {
@@ -244,9 +262,9 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
                 notes.Add($"Declared {advice.Count} suggested index(es): {string.Join(", ", advice.Select(a => a.SuggestedName))}.");
             }
         }
-        var text = DefinitionWriter.Create(def);
+        var text = DefinitionWriter.Create(def, withNameAndKind: head == null);
         var verify = new List<Diagnostic>();
-        if (ModelDefinitionLoader.Load(text, t.DefinitionFile, t.ModelName, verify, config.Connections.Keys.ToHashSet(StringComparer.Ordinal)) == null)
+        if (ModelDefinitionLoader.Load(head == null ? text : QueryHeadParser.YamlFields(head) + text, t.DefinitionFile, head == null ? t.ModelName : null, verify, config.Connections.Keys.ToHashSet(StringComparer.Ordinal)) == null)
             return Failed(t, answers, notes, [.. verify]);
         return new DefineOutcome(t, DefineStatus.Created, text, [], answers, notes, []);
     }

@@ -1,6 +1,6 @@
 # Open items and status
 
-Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine tests 147 (145 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
+Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1737, real-engine tests 149 (147 run, 2 skipped; SQL Server 2022 and 2025, PostgreSQL 17, and the dialect probes for Oracle, Spark SQL and the BigQuery emulator). CI runs the unit suite on Linux and Windows and the conformance groups on every push (section H). Fabric has never been run against a real engine.
 
 ## Where the milestones stand (DESIGN.md section 16)
 
@@ -63,7 +63,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine 
 
 - **TUI gaps**: progress and stop-between-steps are built (entry 33); a stop cannot interrupt a long single statement (by design: a started statement is never abandoned), and a `plan` or `sample` that takes minutes cannot be cancelled; forms do not scroll on a terminal shorter than the longest form (`plan`, 9 fields); no menu bar or mouse testing; the terminal interface runs on Windows (checked by the owner); view code is covered only by the pty walk-through (`scripts/tui_drive.py`), not by unit tests; the target chosen in the TUI is not shown in the title until the next screen change; `define` is reachable but its interactive prompts are answered through dialogs only for open questions, not for the accept/inferred flow.
 - **Sample data gaps**: string comparison follows the model's connection profile (collation and `rtrim`, DESIGN.md 7.4), other target behaviors are not emulated (it runs in DuckDB only); a source whose type has no generator needs a CSV; no PIVOT/seed values yet; generated values do not respect CHECK-like rules that are not declared.
-- **Agents**: no MCP server (a thin wrapper over the command layer would add typed tools and schema resources; `apply` and the other writers would stay off by default); the skill has not been tried by a real agent on a real task (the tests keep it true, not useful, so it needs a trial run and revision from what an agent gets wrong); no per-engine variants of the skill (it says Fabric is unverified).
+- **Agents**: the MCP server exists (`dbdatabuild mcp`, section K: typed tools and schema resources, writers off by default); the skill has not been tried by a real agent on a real task (the tests keep it true, not useful, so it needs a trial run and revision from what an agent gets wrong); no per-engine variants of the skill (it says Fabric is unverified).
 
 ## G. After the slice and parameter work (2026-10-02)
 
@@ -72,7 +72,7 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine 
 
 ## I. Sources and metadata (2026-10-02)
 
-- **`import-sources`** (entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported (a native collation has no honest logical name: the logical names are the project's own profile); a refresh rewrites a descriptor without its comments; nothing reads a source's indexes yet (the obvious use: a load that slices by a source column no index leads, the open half of DDB-225); `--check` needs a database login in CI.
+- **`import`** (was `import-sources`, entry 36) is built and verified on SQL Server 2022 and PostgreSQL 17; Fabric is unverified (the catalog queries are the SQL Server ones). Open: collation is not exported (a native collation has no honest logical name: the logical names are the project's own profile); a refresh rewrites a descriptor without its comments; nothing reads a source's indexes yet (the obvious use: a load that slices by a source column no index leads, the open half of DDB-225); `--check` needs a database login in CI.
 - **Metadata** now covers the project, sources and models. Not yet in metadata: the diagnostics catalog and the support matrix (both are printed by `explain` and `matrix`, and the matrix hash is in the project document), observed live shapes of sources (`import-sources --format json` has them), and the tool's own tracking tables.
 
 ## J. Project tests (2026-10-02)
@@ -94,19 +94,17 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine 
 - **Recursion on SQL Server**: a hierarchy deeper than 100 levels fails (error 530); `OPTION (MAXRECURSION n)` cannot be put in a view, so it needs the load statement of a table.
 - **Decimal products wider than 38 digits** round at scale 6 on SQL Server (matrix `type.decimal_product_wide`); no rewrite makes SQL Server exact.
 - **Oracle, Spark SQL, BigQuery emulator** (entries 48 and 49): probed only, with first rules (Spark 253 of 267 agree, BigQuery 175, Oracle 119). Needed to make them targets: target rules for what the scoreboard shows, a matrix column each (the rows say `unverified` for nothing today: the loader requires the three existing targets), a DDL type table, tracking tables, load strategies, a driver behind `MutationGate`/`ReadSession`.
-- **Web interface** (idea, `docs/research/web-and-mcp-interface.md`): an MCP server (`dbdatabuild mcp`), a loopback web page, an MCP app for Claude Desktop and a VS Code extension, all clients of the JSON surface; suggested order: the MCP server without a UI, VS Code diagnostics, the web page, the MCP app, the webview.
 - **How BigQuery is tested** (decision, entry 49): the emulator stays for analysis-level checks (does the rendered SQL parse and resolve, are function and part names valid). Its row answers are not authoritative: do not write rules for differences that only the emulator shows (it runs GoogleSQL analysis over a SQLite executor). Alternatives for row-level truth, to look at later: real BigQuery on the free sandbox as an opt-in release check, GoogleSQL's `execute_query` built from `google/googlesql`. Also open: the probe run time (33 s to 9 min), a per-query timeout.
 - **MCP server** (entry 50): built for tools and resources; open: `.mcpb` packaging, per-tool outputSchema, a no-values test over results, the UI extension and `dbdatabuild web` (docs/research/web-and-mcp-interface.md), verification against real hosts.
 - **Web interface** (entry 51): read-only screens built; open: plan review and apply, diff, sample data, accessibility, an answers form for plan questions, apply with an approval design (entry 53), the MCP app and VS Code shells.
 - **Page and MCP writes** (entry 54): built with approval; open: check elicitation against a real host, `apply --resume` from the page, the questions form against a real model change, the MCP app shell.
 - **MCP app** (entry 56): built and driven with a stand-in host; open: a real host (Claude Desktop, VS Code; checklist in docs/interfaces.md), attaching the `.mcpb` bundle to releases once a host has installed it.
-- **SQL Server version** (entry 58): `version` means the T-SQL level to generate for (16: 2022 and 2025@160; 17: 2025@170) and from 17 the regular expressions are written; open: the `i`/`s` regex options, other 2025 features (a native JSON type, vectors) are not used, the 2025 group in CI has not run yet on GitHub (first push of entry 58).
+- **SQL Server version** (entry 58): `version` means the T-SQL level to generate for (16: 2022 and 2025@160; 17: 2025@170) and from 17 the regular expressions are written; open: the `i`/`s` regex options, other 2025 features (a native JSON type, vectors) are not used. The SQL Server 2025 group runs in CI.
 - **Oracle empty string** (entry 59): measured and designed (DESIGN.md 7.4), not built: needs Oracle as a target and a matrix column.
 - **`agent-kit --mcp`** (entry 60): written from Claude Code's documentation, not run in it; check `${VAR:-}` with an empty default for an unset login, and the approval prompt.
 - **Cross-server and domains** (entries 62 to 82): built; what is left is in section M.
 
 
-- Copies (progress 71 to 75): fan-in, incremental copies, the origin check and the throughput test are built; what is left is in section M.
 
 ## L. Backlog: change feeds (2026-10-06)
 
@@ -121,5 +119,14 @@ Written 2026-10-02, brought up to date 2026-10-06. Unit tests 1711, real-engine 
 
 ## N. Schema and name out of the folder path (2026-10-06)
 
-- **Built**: the name is the definition's `name:`; `model_layout: folder | dotted | object | none` (default `folder`, as before) says whether the file names must spell it (`DESIGN.md` 6.5.6, `docs/research/model-naming.md`).
-- **To revisit soon (the owner's wish)**: declaring the object in the query file, `CREATE TABLE schema.name AS SELECT ...` / `CREATE VIEW ...`, so a reader of the `.sql` file sees what it builds without knowing this tool; not for DuckDB compatibility. Open points are in the note: what the statement may carry, a per-connection schema default, how an incremental model reads, whether a bare `SELECT` stays valid.
+- **Built**: the name is the definition's `name:` (`model_layout: folder | dotted | object | none`, `DESIGN.md` 6.5.6), and a query file may start with a head, `CREATE TABLE schema.name WITH (kind = ..., unique_key = (...)) AS` or `CREATE VIEW schema.name AS`, which says the name, table or view and the reload options (`DESIGN.md` 6.5.7; the options and what is open are in `docs/research/model-naming.md`).
+- **Open**: more options in the head (`grain`, `connections`, `loads:`), a head for native models and copies, a per-connection schema, `define` writing a head into a `.sql` that has none.
+
+## O. Limits recorded in the progress log, collected here (2026-10-06)
+
+- **Macros** (entries 81, 87): folder-scoped macros; a `NAME` parameter reaches a query only as a macro argument; enum-typed expressions are not mapped to engine types.
+- **Native models** (entries 77 to 80): the plan-time describe does not compare nullability and does not describe commands; `reads:` is not checked against the text; a command copied across engines was verified only through the transfer that native selects use.
+- **Parameters** (entry 76): boolean, decimal and double types; a view cannot use value parameters.
+- **Tracking** (entries 74, 82): `copy_to`, offline tracking; `init --upgrade` handles layouts 2 and 3 and not Fabric.
+- **Copies** (entries 71 to 75, 83): `--full-refresh` does not see rows deleted at the origin; author aliases are not recovered for derived tables and subqueries (section A5).
+- **Support matrix**: a `current_date` depends on each engine's time zone (`fn.current_date`).

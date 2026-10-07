@@ -332,13 +332,35 @@ operation parameters (`@name`, section 6.6) are bound at run time and are a diff
   `origin` reference in a query, differing types of one `${connection.x}` across the model's connections, and a query that already contains a marker are refused when the project is checked.
 - **Not built**: a parameter that changes a schema or table **name written in a query** (a name reaches a query only as the string a macro receives: type `NAME`, 6.5.5), and parameters of other types (boolean, decimal, double).
 
+### 6.5.7 A query file's head (as built; design note: `docs/research/model-naming.md`)
+
+A query file may start with a **head** that says what it builds, so a reader of the `.sql` file does not have to guess what a "model" is:
+
+```sql
+CREATE TABLE marts.fct_orders
+WITH (kind = 'incremental_by_unique_key', unique_key = (order_id))
+AS
+SELECT ...
+```
+
+`CREATE VIEW schema.name AS SELECT ...` is a view; `CREATE TABLE schema.name AS SELECT ...` is a table, a full replace unless the definition file says another kind. The grammar is `CREATE (TABLE | VIEW) name
+[WITH (key = value, ...)] AS query`: a name is `schema.object` (words or "quoted names"), a key is a word, a value is a word, a 'string', a number or a (list) of those, keywords and keys are not case-sensitive, and comments may come
+first. The options are the reload options of a kind: `kind` (`full`, `incremental_by_unique_key`, `incremental_by_time_range`), `unique_key`, `time_column`, `lookback` (`'3 days'`); a view takes none. Everything else about the model
+(columns, grain, indexes, hooks, connections, parameters, `loads:`) stays in its definition file. A file whose first word is not `CREATE` has no head and is only a query, as before.
+
+The head is parsed by the tool itself (a small hand-written reader: nothing in DuckDB or the SQL parser knows `WITH (kind = ...)` for a model), so its errors name a line and a column (DDB-238), and the query after `AS` is passed
+on exactly as written (its hash, its lowering and its line numbers are those of the query). The head is a settings layer of the model, merged like the others: its name and kind replace what a folder's `defaults:` says (`kind=`),
+the definition file may leave out `name:` and `kind:`, and **the kind is said in one place**: `CREATE VIEW` or a `kind` in `WITH` together with a `kind:` in the definition file is an error, as is a `name:` that differs from the head's, or
+`CREATE TABLE` over a definition that says `kind: view`. A plain `CREATE TABLE` leaves a kind that the definition file gives alone. `model_layout` applies to the name the head gives. `define` takes the name, the kind and the
+options from the head (it does not ask for them) and writes a definition without `name:` and `kind:`. Not built: options other than the four (the multi-operation `loads:` stays in YAML), heads for native models and copies,
+and a per-connection schema.
+
 ### 6.5.6 Where a model's name comes from (as built; design note: `docs/research/model-naming.md`)
 
 A model's name is the `name:` of its definition file, whatever its path (`schema.object`: the schema is the part before the last dot). `model_layout` in `dbdatabuild.yml` says whether the files must spell the name:
 `folder` (the default, as before: `models/<schema>/<object>.yml`, any depth, the path is the name; mismatch is DDB-107), `dotted` (`<schema>.<object>.yml` in any folder), `object` (`<object>.yml` in any folder) or
 `none` (no check). The query is always the file beside the definition (same stem, `.sql`; `.native.sql` for a native model). Two files that claim one name are an error. `define` and `import` follow the layout for a
-file that does not exist yet and the definition's own file for one that does; the graph and the metadata show each mapped model's real file. Not built: declaring the object in the query file (`CREATE TABLE schema.name AS
-SELECT ...`), which the owner wants to revisit for the clarity of reading the file (the note has the options and what is open); a per-connection schema.
+file that does not exist yet and the definition's own file for one that does; the graph and the metadata show each mapped model's real file. Declaring the object in the query file is 6.5.7; not built: a per-connection schema.
 
 ### 6.5.5 Macros and types (as built; design: this section)
 

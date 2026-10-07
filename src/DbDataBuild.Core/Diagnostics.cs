@@ -173,6 +173,10 @@ public static class DiagnosticCatalog
         "every value of a column declared `trimmed: true` ends in a non-space",
         "Trim the values (at the source, or in the model that builds the column), or remove `trimmed: true` and let the connections' string semantics decide.",
         "`trimmed: true` is the declaration that makes trailing spaces, the difference SQL Server and PostgreSQL disagree on, irrelevant for a column. `check` counts the rows whose value ends in a space (no value is read or shown); one is enough to make the declaration untrue.");
+    public static readonly DiagnosticDescriptor QueryHeadInvalid = E("238", "A model's query file has a head that cannot be read",
+        "a head of the form `CREATE TABLE schema.name [WITH (kind = '...', unique_key = (...), time_column = ..., lookback = '...')] AS` (or `CREATE VIEW schema.name AS`) followed by the query, naming the same model as the definition file and not repeating its kind",
+        "Correct the head at the reported line and column, or remove it and keep `name:` and `kind:` in the definition file.",
+        "A query file may start with a head that says what it builds: a table or a view, its name, and the reload options of its kind. The head is read by the tool itself (it is not SQL that DuckDB or an engine runs); the query after `AS` is passed on as written. The name must be the definition file's `name:` when that says one, and the kind must be said in one place: the head or the definition file, not both.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
         "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
         "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
@@ -412,7 +416,7 @@ public static class DiagnosticCatalog
 
     public static readonly IReadOnlyList<DiagnosticDescriptor> All =
     [
-        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, StringsCompareDifferently, TrimmedColumnHasTrailingSpaces, NativeDefinitionChanged, NativeDefinitionNotChecked, TrackingNotConfigured,
+        YamlSyntax, DuplicateKey, UnsupportedYamlFeature, UnknownKey, MissingKey, InvalidValue, NameMismatch, OrphanFile, ConfigNotFound, CopyOriginDiffers, ModelReadsAnotherConnection, NativeReadsNotDeclared, StringsCompareDifferently, TrimmedColumnHasTrailingSpaces, QueryHeadInvalid, NativeDefinitionChanged, NativeDefinitionNotChecked, TrackingNotConfigured,
         MissingUniqueKey, MissingTimeColumn, GrainMismatch, UnknownColumnReference, UpstreamNotFound, QueryNotDescribable, OutputColumnUnusable, ModelCycle, ResolverResultInvalid, MergeKeyNotIndexed, LoadColumnNotIndexed, LoadSliceNotPushable, SourceColumnNoLogicalType, SourceOutOfSync, SourceNotImportable, RewriteNotOptional, ApplyStopped,
         ConstructUnsupported, ConstructApproximated, ConstructEmulated, ConstructUnverified, ConstructNotCovered,
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,

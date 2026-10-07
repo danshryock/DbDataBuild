@@ -376,4 +376,50 @@ public class DefineCommandTests
         Assert.Contains("--check", help);
         Assert.Contains("--accept-inferred", help);
     }
+
+    // ---------------- a query file with a head ----------------
+
+    private const string HeadAnswers = """
+        answers:
+          - {id: Q-define-marts.fct_orders-connections, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.order_id.type, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.order_id.nullable, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.customer_id.type, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.customer_id.nullable, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.amount.type, accept: inferred}
+          - {id: Q-define-marts.fct_orders-columns.amount.nullable, accept: inferred}
+        """;
+
+    [Fact]
+    public void A_head_has_already_said_the_name_and_the_kind_so_define_does_not_ask_or_write_them()
+    {
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
+        var stem = Model(dir, "marts.fct_orders", "CREATE TABLE marts.fct_orders AS\n" + OrdersSql);
+        var (exit, output, err) = Define(dir, "--write", "--answers", Answers(dir, HeadAnswers));
+        Assert.True(exit == CliApp.ExitOk, output + err);
+        var written = File.ReadAllText(stem + ".yml");
+        Assert.False(written.StartsWith("name:", StringComparison.Ordinal));
+        Assert.DoesNotContain("kind:", written);
+        Assert.StartsWith("columns:", written);
+        Assert.Contains("CREATE TABLE marts.fct_orders AS", File.ReadAllText(stem + ".sql"));                       // the query file is never written
+        // the project reads the two together, and define sees them in sync
+        var model = DbDataBuild.Models.ProjectValidator.Validate(dir).Sources.Single(s => s.Definition.Name == "marts.fct_orders");
+        Assert.Equal("full", model.Definition.KindType);
+        Assert.Equal((CliApp.ExitOk, ""), (Define(dir, "--check").Exit, Define(dir, "--check").Err));
+    }
+
+    [Fact]
+    public void A_head_with_a_key_gives_the_unique_key_and_define_asks_only_for_what_it_does_not_say()
+    {
+        var dir = Project("defaults: {connections: [sqlserver]}\n");
+        var stem = Model(dir, "marts.fct_orders", "CREATE TABLE marts.fct_orders WITH (kind = 'incremental_by_unique_key', unique_key = (order_id)) AS\n" + OrdersSql);
+        var (_, _, err) = Define(dir, "--write", "--answers", Answers(dir, HeadAnswers));
+        Assert.Contains("Q-define-marts.fct_orders-grain", err);                                                    // the grain is still asked
+        Assert.DoesNotContain("Q-define-marts.fct_orders-unique_key", err);                                         // the key is the head's
+        Assert.DoesNotContain("Q-define-marts.fct_orders-kind", err);
+        var (exit, output, err2) = Define(dir, "--write", "--answers", Answers(dir, HeadAnswers.Replace("answers:\n", "answers:\n  - {id: Q-define-marts.fct_orders-grain, choice: candidate_1}\n  - {id: Q-define-marts.fct_orders-indexes, choice: no_indexes}\n")));
+        Assert.True(exit == CliApp.ExitOk, output + err2);
+        Assert.DoesNotContain("unique_key", File.ReadAllText(stem + ".yml"));
+        Assert.Equal(["order_id"], DbDataBuild.Models.ProjectValidator.Validate(dir).Sources.Single(s => s.Definition.Name == "marts.fct_orders").Definition.UniqueKey);
+    }
 }

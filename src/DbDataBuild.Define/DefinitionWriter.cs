@@ -9,14 +9,18 @@ namespace DbDataBuild.Define;
 /// </summary>
 public static class DefinitionWriter
 {
-    public static string Create(ModelDefinition d)
+    /// <param name="withNameAndKind">False for a model whose query file has a head: the head says the name, the kind and its options, so the definition does not.</param>
+    public static string Create(ModelDefinition d, bool withNameAndKind = true)
     {
         var sb = new StringBuilder();
-        sb.Append("name: ").Append(YamlText.Scalar(d.Name)).Append('\n');
-        sb.Append("kind:\n  type: ").Append(d.KindType).Append('\n');
-        if (d.UniqueKey.Count > 0) sb.Append("  unique_key: ").Append(YamlText.FlowList(d.UniqueKey)).Append('\n');
-        if (d.TimeColumn != null) sb.Append("  time_column: ").Append(YamlText.Scalar(d.TimeColumn)).Append('\n');
-        if (d.Lookback != null) sb.Append("  lookback: ").Append(YamlText.Scalar(d.Lookback)).Append('\n');
+        if (withNameAndKind)
+        {
+            sb.Append("name: ").Append(YamlText.Scalar(d.Name)).Append('\n');
+            sb.Append("kind:\n  type: ").Append(d.KindType).Append('\n');
+            if (d.UniqueKey.Count > 0) sb.Append("  unique_key: ").Append(YamlText.FlowList(d.UniqueKey)).Append('\n');
+            if (d.TimeColumn != null) sb.Append("  time_column: ").Append(YamlText.Scalar(d.TimeColumn)).Append('\n');
+            if (d.Lookback != null) sb.Append("  lookback: ").Append(YamlText.Scalar(d.Lookback)).Append('\n');
+        }
         if (d.Grain.Count > 0) sb.Append("grain: ").Append(YamlText.FlowList(d.Grain)).Append('\n');
         if (d.Targets is { Count: > 0 }) sb.Append("connections=: ").Append(YamlText.FlowList(d.Targets)).Append('\n');
 

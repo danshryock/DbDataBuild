@@ -1,6 +1,6 @@
 # Where a model's schema and name come from
 
-Status: **decided for now** (2026-10-06): option A below is built (`model_layout`, `DESIGN.md` 6.5.6). The owner wants to **revisit the idea of declaring the object in the query file (option B) soon**. This note records the options, the reasoning and what is still open.
+Status: option A (`model_layout`, `DESIGN.md` 6.5.6) and then the head of the query file (option B, in the owner's chosen `WITH (...)` form, `DESIGN.md` 6.5.7) are built. This note records the options, the reasoning and what is still open.
 
 ## The problem
 
@@ -56,3 +56,21 @@ What the layout changes elsewhere:
 2. What a model built on several connections does about its schema: the same everywhere, or a per-connection default (a `schema` setting for a connection, so a dev/prod split is a setting and not a name).
 3. Copies and mapped models have no query file; they keep the definition's `name:` under every option.
 4. If B is built, how an incremental model's `CREATE TABLE ... AS` is read (the strategy is not in the statement), and whether a view must be written `CREATE VIEW`, so the file can no longer be a bare `SELECT`. A bare `SELECT` should stay valid (compatibility, and short examples).
+
+## Option B, built (2026-10-06)
+
+The owner chose the general, commonly understood property list, `WITH (key = value, ...)`, over clause keywords (`INCREMENTAL BY UNIQUE KEY (...)`), and the rule that the head is the file's own layer: it wins over a folder's `defaults:`, and a kind said in the head and in the definition file is an error. A hand-written parser reads the head (polyglot has no dialect that knows these options, the head needs its own line and column errors, and it must load even when the query does not), and the query after `AS` is untouched.
+
+```sql
+CREATE TABLE marts.daily_sales
+WITH (kind = 'incremental_by_time_range', time_column = sale_date, lookback = '3 days')
+AS
+SELECT ...
+```
+
+What stays open:
+
+1. More options in the head (`grain`, `connections`, the operations of `loads:`): each removes a line from the YAML and adds a second place that says it. Only the four reload options are in the head.
+2. A head for a native model (`.native.sql`, the engine's own text) and for copies (no query).
+3. A per-connection schema (a dev/prod split as a setting, not a name).
+4. Whether `define` should be able to write a head into a query file that has none (today it never writes a `.sql`).
