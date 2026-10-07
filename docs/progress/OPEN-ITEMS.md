@@ -150,3 +150,19 @@ The owner decided to keep these. A short name is fine where it is plainly a key 
 - CLI: `diff --against-schema`.
 - Code: local variables and parameters called `schema` or `schemas`.
 - Correct under the terms: `schema_version` and `TrackingSchema` (the defined shape of the tracking tables), `diff`'s `schema` payload (column shapes), JSON Schema.
+
+## R. Left from the 2026-10-07 work: decisions and limits (entries 91 to 127)
+
+For the owner to decide:
+
+- **Retention of files from a scheduled `run`** (D0, entry 118): plan files and statement logs pile up; the tool deletes nothing.
+- **The test gate** (entry 99): it runs before `plan`, `check` and `run` read the target; the result is printed, not recorded in the plan file or its hash (that changes the plan format), there is no severity floor, and `apply` is not gated. The history policy `history_inconsistency` (entry 100) defaults to a warning.
+- **MCP `outputSchema`** (section K): each tool could declare the schema of its `data`, but a tool that declares one must return conforming `structuredContent` every time, and a truncated or failed document does not. Not done; it needs a decision on what a truncated result looks like.
+- **Names too long** (DDB-241, entry 110) are an error for PostgreSQL's 63 bytes and SQL Server's 128 characters; the tracking schema name and parameter names are not checked.
+
+Limits, written down:
+
+- **Decimals of more than 28 digits cannot be copied** between connections (the drivers' `decimal` holds 28; the transfer stops with a message, it does not round).
+- **Fabric** has none of the work done in this stretch checked: the `N'...'` literals (entry 120), the `now()` rule (126) and the cross-connection digests (92, which also need `HASHBYTES` and a UTF-8 collation there) are applied to SQL Server only or unverified.
+- **Cross-connection `diff`**: floating-point columns and a PostgreSQL `numeric` without precision are not compared; a comparison that differs in most rows stops at the buckets (114); about 25 s a million rows.
+- **Probed and found sound** (no entry needed beyond the log): names with keywords, spaces, accents and quotes (110), text edge values in copies (123), CRLF and paths with spaces and accents (124), a case-sensitive SQL Server database (124), a 1,500-view chain, a 600-column model, 300 models (107, 109), a server at -07:00 and one at +05:30, a German SQL Server session (127).
