@@ -557,6 +557,33 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task The_current_time_is_loaded_as_the_instant_it_is_on_both_engines(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            foreach (var f in new[] { "v_orders", "fct_orders" }) foreach (var ext in new[] { "yml", "sql" }) File.Delete(Path.Combine(run.Dir, $"models/marts/{f}.{ext}"));
+            run.Write("models/marts/clock.yml", "name: marts.clock\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: t1, type: TIMESTAMP WITH TIME ZONE}\n  - {name: t2, type: TIMESTAMP WITH TIME ZONE}\n  - {name: d, type: DATE}\n");
+            // current_timestamp is bound by DuckDB as get_current_timestamp(), which no engine has; now() was written as GETDATE(), the local clock without a zone
+            run.Write("models/marts/clock.sql", "SELECT order_id, now() AS t1, current_timestamp AS t2, current_date AS d FROM staging.orders WHERE order_id = 1\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            var render = run.Cli("render", "--write"); Ok(render, "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            foreach (var column in new[] { "t1", "t2" })
+            {
+                var seconds = int.Parse((await engine.RowsAsync(pg
+                    ? $"SELECT CAST(ABS(EXTRACT(EPOCH FROM (now() - {column}))) AS INT) FROM marts.clock"
+                    : $"SELECT ABS(DATEDIFF(SECOND, SWITCHOFFSET({column}, '+00:00'), SYSUTCDATETIME())) FROM marts.clock")).Single());
+                Assert.True(seconds < 300, $"{column} is {seconds} seconds from the engine's own clock");
+            }
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

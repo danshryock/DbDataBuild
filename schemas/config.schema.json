@@ -473,7 +473,8 @@
               "concat-plus",
               "pad-to-length",
               "split-part",
-              "string-agg-array"
+              "string-agg-array",
+              "now-with-zone"
             ]
           }
         },
@@ -499,7 +500,8 @@
               "concat-plus",
               "pad-to-length",
               "split-part",
-              "string-agg-array"
+              "string-agg-array",
+              "now-with-zone"
             ]
           }
         }

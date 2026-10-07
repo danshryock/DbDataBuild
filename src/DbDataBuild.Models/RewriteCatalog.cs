@@ -60,6 +60,7 @@ public static class RewriteCatalog
         new("left-right-substr", RewriteLayer.Target, Oracle, Oracle, "left(s, n) and right(s, n) with a positive literal n are SUBSTR", "Oracle has no LEFT or RIGHT"),
         new("date-diff-argument-order", RewriteLayer.Target, BigQuery, BigQuery, "date_diff('day' | 'month' | 'quarter' | 'year', a, b) is DATE_DIFF(b, a, PART)", "the transpile writes DuckDB's argument order with the part as a column name"),
         new("regexp-replace-first", RewriteLayer.Target, SqlServer17, None, "regexp_replace replaces the first match, or every match with the 'g' flag: the occurrence is written out (1, or 0)", "SQL Server's REGEXP_REPLACE replaces every match"),
+        new("now-with-zone", RewriteLayer.Target, SqlServer, None, "now() and current_timestamp are SYSDATETIMEOFFSET(), a point in time", "GETDATE() is the server's local clock without a zone: stored in a column with a zone it is read as UTC, wrong by the server's offset"),
         new("string-agg-array", RewriteLayer.Target, Postgres, Postgres, "string_agg is array_to_string(array_agg(... ORDER BY ...), sep)", "polyglot writes LISTAGG, which PostgreSQL does not have"),
     ];
 

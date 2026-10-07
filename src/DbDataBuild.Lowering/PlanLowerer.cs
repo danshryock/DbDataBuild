@@ -452,6 +452,8 @@ public sealed class PlanLowerer
         if (name == "->>") name = "json_extract_string";
         else if (name == "->") name = "json_extract";
         if (name is "list_value" or "struct_pack" or "map") throw new LoweringException($"the nested-type function {name}");
+        // `current_timestamp` is bound as get_current_timestamp(), which no engine has (and polyglot does not translate); `now()` is the same value and is translated
+        if (name == "get_current_timestamp" && children.Count == 0) name = "now";
         var a = children.Select(c => Expr(c, outs)).ToList();
         var returns = TypeId(e);
         // position(needle IN haystack) is `position(haystack, needle)` in the plan, which reads the other way round as written; strpos(haystack, needle) says what it means

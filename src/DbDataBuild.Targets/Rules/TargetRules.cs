@@ -42,6 +42,7 @@ public static partial class TargetRules
     public const string VarcharLength = "varchar-length";
     public const string LeftRightAsSubstr = "left-right-substr";
     public const string DateDiffArgumentOrder = "date-diff-argument-order";
+    public const string NowKeepsTheZone = "now-with-zone";
 
     /// <summary>Applies the rules of <paramref name="target"/> to a DuckDB-dialect query. Returns the text unchanged, byte for byte, when no rule fires.</summary>
     /// <param name="version">The configured engine version (`targets.<target>.version`), when one is: a rule that needs a newer engine only fires from that version on.</param>
@@ -68,6 +69,7 @@ public static partial class TargetRules
         (@"\bddb_mod\s*\(", "MOD(", "oracle"), (@"\bddb_mod\s*\(", "MOD(", "bigquery"),
         (@"\bddb_varchar\b", "VARCHAR2(4000)", "oracle"), (@"\bddb_date_diff\s*\(", "DATE_DIFF(", "bigquery"),
         (@"\bddb_regexp_replace\s*\(", "REGEXP_REPLACE(", "sqlserver"),
+        (@"\bddb_sysdatetimeoffset\s*\(", "SYSDATETIMEOFFSET(", "sqlserver"),
     ];
 
     /// <summary>Replaces the markers of the rules of <paramref name="target"/> in the transpiled text. Returns the text unchanged when it holds none.</summary>
@@ -95,7 +97,7 @@ public static partial class TargetRules
 
     private static HashSet<string> RulesFor(string target, int? version = null) => target switch
     {
-        "sqlserver" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks, ..(version >= SqlServerWithRegularExpressions ? SqlServerRegularExpressions : [])],
+        "sqlserver" => [NowKeepsTheZone, LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks, ..(version >= SqlServerWithRegularExpressions ? SqlServerRegularExpressions : [])],
         "fabric" => [LengthKeepsTrailingSpaces, RoundDouble, TryCastParse, DoubleToInt, WeekdayIndependentOfDateFirst, PadToLength, DatePlusDays, ConcatAsPlus, DateDiffWeeks],
         "postgres" => [RoundDouble, TryCastParse, SplitPart, StringAggAsArrayToString, DateDiffBoundaries, DateDiffWeeks, JsonExtractString, JsonArrayLength, RegexpFullMatch, RegexpExtract],
         "oracle" => [ModAsFunction, VarcharLength, LeftRightAsSubstr],
@@ -129,6 +131,11 @@ public static partial class TargetRules
         if (body == null) return null;
         switch (kind)
         {
+            case "function" when rules.Contains(NowKeepsTheZone) && body["name"]?.GetValue<string>() is "now" && body["args"] is JsonArray { Count: 0 }:
+                // DuckDB's now() is a point in time (a timestamp with a zone). The transpile writes GETDATE(), the server's local clock without a zone, which a column with a zone reads as UTC: wrong by the
+                // server's offset on any server that is not at UTC. SYSDATETIMEOFFSET() carries the offset.
+                fired.Add(NowKeepsTheZone);
+                return Template("ddb_sysdatetimeoffset()");
             case "length" when rules.Contains(LengthKeepsTrailingSpaces) && body["this"] is { } x:
                 // LEN ignores trailing spaces; appending a character and taking one off counts them. NULL stays NULL.
                 fired.Add(LengthKeepsTrailingSpaces);

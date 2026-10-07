@@ -27,6 +27,25 @@ public class TargetRulesTests
         Assert.Contains(expected.Replace(" ", ""), ForSpark(sql).Replace(" ", "").Replace("\\\\", "\\"), StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("SELECT now() AS v FROM t", "SYSDATETIMEOFFSET()")]
+    [InlineData("SELECT CAST(now() AS TIMESTAMP) AS v FROM t", "CAST(SYSDATETIMEOFFSET() AS DATETIME2)")]
+    [InlineData("SELECT date_trunc('day', now()) AS v FROM t", "SYSDATETIMEOFFSET()")]
+    public void SQL_Server_reads_the_clock_with_its_zone(string sql, string expected)
+    {
+        Assert.Contains(TargetRules.NowKeepsTheZone, TargetRules.Apply(sql, "sqlserver").Rules);
+        Assert.Contains(expected, For("sqlserver", sql));
+        Assert.DoesNotContain("GETDATE", For("sqlserver", sql));
+        Assert.DoesNotContain(TargetRules.NowKeepsTheZone, TargetRules.Apply(sql, "postgres").Rules);       // PostgreSQL's CURRENT_TIMESTAMP has a zone already
+    }
+
+    [Fact]
+    public void The_date_and_local_time_functions_keep_the_engines_local_clock()
+    {
+        Assert.Contains("GETDATE", For("sqlserver", "SELECT current_date AS v FROM t"));
+        Assert.Contains("GETDATE", For("sqlserver", "SELECT localtimestamp AS v FROM t"));
+    }
+
     private static string For(string target, string sql) => TargetRules.Finish(Polyglot.TranspileOne(TargetRules.Apply(sql, target).Sql, Dialects.Canonical, Dialects.ForTarget(target)).Sql!, target);
 
     [Theory]
