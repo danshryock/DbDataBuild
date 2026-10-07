@@ -50,6 +50,30 @@ public sealed class PlanLowerer
     private Func<string, IReadOnlyList<string>>? grainOf;
     private readonly Dictionary<string, string> aliasTables = new(StringComparer.Ordinal);
     private bool trimTrailing;
+    private readonly Dictionary<string, Queue<string?>> aliasHints = new(StringComparer.Ordinal);
+    private readonly HashSet<string> issuedAliases = new(StringComparer.Ordinal);
+
+    private static string AliasKey(string? schema, string table) => (schema is null or "" or "main" ? table : $"{schema}.{table}").ToLowerInvariant();
+
+    /// <summary>The alias of a scan of a table: the author's, when there is one for this scan and it is safe to use; otherwise the table's name, numbered when it is used again.</summary>
+    private string AliasForTable(string baseName, string? schema)
+    {
+        if (aliasHints.TryGetValue(AliasKey(schema, baseName), out var queue) && queue.Count > 0 && queue.Dequeue() is { } hint)
+        {
+            var wanted = hint.ToLowerInvariant();
+            if (Regex.IsMatch(wanted, "^[a-z_][a-z0-9_]*$") && !Reserved.Contains(wanted) && !reserved.Contains(wanted) && !issuedAliases.Contains(wanted))
+            {
+                uses[baseName] = uses.GetValueOrDefault(baseName) + 1;
+                issuedAliases.Add(wanted);
+                return wanted;
+            }
+        }
+        string alias;
+        if (!issuedAliases.Contains(baseName) && aliasHints.ContainsKey(AliasKey(schema, baseName))) { uses[baseName] = uses.GetValueOrDefault(baseName) + 1; alias = baseName; }      // an unaliased mention keeps the table's own name even after an aliased one
+        else do alias = UniqueAlias(baseName, baseName); while (issuedAliases.Contains(alias));
+        issuedAliases.Add(alias);
+        return alias;
+    }
 
     /// <summary>The text of an operand, trimmed when the query must ignore trailing spaces and the operand is a string.</summary>
     private string Trim(JsonElement e, string sql) => trimTrailing && TypeNameOf(e) == "VARCHAR" ? $"rtrim({sql})" : sql;
@@ -115,12 +139,17 @@ public sealed class PlanLowerer
     /// The columns that identify one row of a table (its declared grain), by the name the query uses (`staging.orders`). `DISTINCT ON` keeps one arbitrary row per key unless its
     /// ordering decides which, so it is lowered only when the ordering includes the grain of every table it reads; an unknown or empty grain means "cannot prove it".
     /// </param>
+    /// <param name="authorAliases">
+    /// The tables of the author's query in the order the plan reaches them, with the alias written for each (null: none). DuckDB's plan has no aliases, so a table would be named after itself (`orders`, `orders_2`); the n-th
+    /// scan of a table takes the alias of the n-th mention of it, when the alias is a plain lowercase name that no table or earlier alias uses. An alias is a label: giving one to the wrong scan of a self-joined table is
+    /// still the same query, so a plan that does not line up with the text costs readability, never correctness.
+    /// </param>
     /// <param name="ignoreTrailingSpaces">
     /// Write the query as DuckDB must run it to answer as an engine that **ignores trailing spaces** in a string comparison does (the project's default profile; DuckDB cannot do it with any collation): string operands
     /// of a comparison, `IN`, `BETWEEN`, a join condition, a window partition, a `GROUP BY` key and a `DISTINCT` are wrapped in `rtrim()`. For DuckDB runs only (`sample`, `test`); never what an engine is given.
     /// Not covered: set operations without ALL, `count(DISTINCT x)`, and `LIKE` (which keeps trailing spaces on SQL Server too).
     /// </param>
-    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null, bool ignoreTrailingSpaces = false)
+    public static LoweredQuery Lower(string planJson, IReadOnlyList<string>? outputNames = null, Func<string, IReadOnlyList<string>>? grainOf = null, RewritePolicy? rewrites = null, bool ignoreTrailingSpaces = false, IReadOnlyList<(string? Schema, string Table, string? Alias)>? authorAliases = null)
     {
         using var doc = JsonDocument.Parse(PlanNormalizer.Normalize(planJson));
         var root = doc.RootElement;
@@ -129,6 +158,12 @@ public sealed class PlanLowerer
         var plans = root.GetProperty("plans");
         if (plans.GetArrayLength() != 1) throw new LoweringException($"expected one plan, got {plans.GetArrayLength()}");
         var lowerer = new PlanLowerer { grainOf = grainOf, rewrites = rewrites ?? RewritePolicy.Exact, trimTrailing = ignoreTrailingSpaces };
+        foreach (var (schema, table, alias) in authorAliases ?? [])
+        {
+            var key = AliasKey(schema, table);
+            if (!lowerer.aliasHints.TryGetValue(key, out var queue)) lowerer.aliasHints[key] = queue = new Queue<string?>();
+            queue.Enqueue(alias);
+        }
         lowerer.Reserve(plans);
         Rel rel;
         try { rel = lowerer.Node(plans[0]); }
@@ -858,8 +893,8 @@ public sealed class PlanLowerer
                 var idx = Arr(p, "column_indexes").Select(c => c.GetProperty("index").TryGetInt32(out var i) && i < names.Count ? i : -1).ToList();
                 if (idx.Count == 0) idx = Enumerable.Range(0, names.Count).ToList();
                 var baseName = table.GetString()!;
-                var alias = UniqueAlias(baseName, baseName);
                 var schema = Str(fd, "schema");
+                var alias = AliasForTable(baseName, schema);
                 aliasTables[alias] = schema is null or "main" ? baseName : $"{schema}.{baseName}";
                 var rel = new Rel
                 {

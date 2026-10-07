@@ -26,6 +26,7 @@ public class MatrixLinterTests
         ["str.ilike"] = "SELECT * FROM t WHERE s ILIKE 'a%'",
         ["str.concat"] = "SELECT s || s AS x FROM t",
         ["fn.replace"] = "SELECT REPLACE(s, 'a', 'b') AS x FROM t",
+        ["fn.current_date"] = "SELECT CURRENT_DATE AS x FROM t",
         ["fn.regexp"] = "SELECT * FROM t WHERE REGEXP_MATCHES(s, 'a')",
         ["syntax.qualify"] = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1",
         ["syntax.group_by_ordinal"] = "SELECT a, COUNT(*) FROM t GROUP BY 1",

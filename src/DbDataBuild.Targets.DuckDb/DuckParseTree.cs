@@ -42,6 +42,72 @@ public static class DuckParseTree
         catch (DuckDBException ex) { return (null, ex.Message.Split('\n')[0]); }
     }
 
+    /// <summary>A table the query names, with the alias the author gave it (null: none), in the order the planner reaches them: `FROM` (left to right, into subqueries), then `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, then the select list.</summary>
+    public sealed record AliasedTable(string? Schema, string Name, string? Alias);
+
+    /// <summary>
+    /// The tables of a query with the aliases written for them (DuckDB's plan does not carry aliases, so the lowered query would name each table after itself). Null when the order cannot be trusted to line up
+    /// with the plan: the query has a CTE (it is planned once per use) or cannot be parsed.
+    /// </summary>
+    public static IReadOnlyList<AliasedTable>? TableAliases(string sql)
+    {
+        try
+        {
+            using var connection = new DuckDBConnection("DataSource=:memory:");
+            connection.Open();
+            foreach (var setting in new[] { "SET autoinstall_known_extensions = false", "SET autoload_known_extensions = false", "SET enable_external_access = false" })
+            {
+                using var lockDown = connection.CreateCommand();
+                lockDown.CommandText = setting;
+                lockDown.ExecuteNonQuery();
+            }
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT json_serialize_sql(CAST($sql AS VARCHAR))";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "sql";
+            p.Value = sql;
+            cmd.Parameters.Add(p);
+            if (cmd.ExecuteScalar() is not string json) return null;
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.True) return null;
+            var found = new List<AliasedTable>();
+            var cte = false;
+            WalkAliases(doc.RootElement, found, ref cte);
+            return cte ? null : found;
+        }
+        catch (DuckDBException) { return null; }
+    }
+
+    private static readonly string[] SelectOrder = ["from_table", "where_clause", "group_expressions", "having", "qualify", "select_list"];
+
+    private static void WalkAliases(JsonElement e, List<AliasedTable> found, ref bool cte)
+    {
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (e.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String)
+                {
+                    if (type.GetString() == "BASE_TABLE" && e.TryGetProperty("table_name", out var name) && name.ValueKind == JsonValueKind.String)
+                    {
+                        string? Text(string key) => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } s ? s : null;
+                        found.Add(new AliasedTable(Text("schema_name"), name.GetString()!, Text("alias")));
+                    }
+                }
+                if (e.TryGetProperty("cte_map", out var map) && map.ValueKind == JsonValueKind.Object && map.TryGetProperty("map", out var entries) && entries.ValueKind == JsonValueKind.Array && entries.GetArrayLength() > 0) cte = true;
+                var select = e.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "SELECT_NODE";
+                var visited = new HashSet<string>();
+                if (select)
+                    foreach (var key in SelectOrder)
+                        if (e.TryGetProperty(key, out var part)) { visited.Add(key); WalkAliases(part, found, ref cte); }
+                foreach (var property in e.EnumerateObject())
+                    if (!visited.Contains(property.Name)) WalkAliases(property.Value, found, ref cte);
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in e.EnumerateArray()) WalkAliases(item, found, ref cte);
+                break;
+        }
+    }
+
     private static void Walk(JsonElement e, HashSet<string> ctes, List<Table> tables)
     {
         switch (e.ValueKind)

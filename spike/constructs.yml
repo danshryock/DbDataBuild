@@ -28,6 +28,7 @@
 - { id: date_diff,           sql: "SELECT DATE_DIFF('day', d1, d2) AS x FROM t",               expect: translate }
 - { id: extract_year,        sql: "SELECT EXTRACT(year FROM d) AS x FROM t",                   expect: translate }
 - { id: current_ts,          sql: "SELECT CURRENT_TIMESTAMP AS x",                             expect: differs }
+- { id: current_date_fn,     sql: "SELECT CURRENT_DATE AS x",                                  expect: differs }
 - { id: group_by_ordinal,    sql: "SELECT a, COUNT(*) FROM t GROUP BY 1",                      expect: translate }
 - { id: group_by_all,        sql: "SELECT a, COUNT(*) FROM t GROUP BY ALL",                    expect: unsupported }
 - { id: distinct,            sql: "SELECT DISTINCT a, b FROM t",                               expect: translate }

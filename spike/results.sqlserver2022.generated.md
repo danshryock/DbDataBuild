@@ -30,6 +30,7 @@ fabric* = Fabric-transpiled text executed on SQL Server as a proxy (no Fabric en
 | date_diff | translate | MATCH | MATCH | MATCH |
 | extract_year | translate | MATCH | MATCH | MATCH |
 | current_ts | differs | MATCH | MATCH | MATCH |
+| current_date_fn | differs | MATCH | MATCH | MATCH |
 | group_by_ordinal | translate | EXEC_ERR | EXEC_ERR | MATCH |
 | group_by_all | unsupported | SYNTAX_ERR | SYNTAX_ERR | EXEC_ERR |
 | distinct | translate | MATCH | MATCH | MATCH |

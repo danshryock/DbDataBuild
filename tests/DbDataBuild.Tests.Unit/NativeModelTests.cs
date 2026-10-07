@@ -87,7 +87,7 @@ public class NativeModelTests
         var (exit, _, err) = Cli("render", "--write", "--project", dir);
         Assert.True(exit == 0, err);
         var script = File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.m/load.default.sql"));
-        Assert.Contains("FROM (SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2', ',') WHERE 1 < @p_native_src_nums__project_top) AS [nums]", script);   // the table's own name is its alias (the lowered query is unaliased), the text is the engine's own
+        Assert.Contains("FROM (SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2', ',') WHERE 1 < @p_native_src_nums__project_top) AS x", script);   // the author's alias, the text is the engine's own
         Assert.Contains("@p_native_src_nums__project_top (INTEGER, parameter)", script);
         Assert.Equal(0, Cli("render", "--check", "--project", dir).Exit);
     }

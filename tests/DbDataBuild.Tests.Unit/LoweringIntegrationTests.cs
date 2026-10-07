@@ -130,8 +130,8 @@ public class LoweringIntegrationTests
         Assert.True(exit == 0, err);
         var text = File.ReadAllText(Path.Combine(dir, "rendered/lowered/marts.fct/lowered.sql"));
         Assert.Contains("EXISTS (", text);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, @"\(orders_\d\.customer_id = orders\.customer_id\)").Count);   // the outer column is qualified inside each subquery
-        Assert.Contains("FROM staging.orders\nWHERE EXISTS", text);                                                                         // and the outer block names its table once
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, @"\([pq]\.customer_id = o\.customer_id\)").Count);   // the outer column is qualified inside each subquery, by the aliases the author wrote
+        Assert.Contains("FROM staging.orders AS o\nWHERE EXISTS", text);                                                           // and the outer block names its table once
         Assert.DoesNotContain("DELIM", text);
         Assert.Contains("EXISTS", File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.fct/load.default.sql")), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, Run("render", "--project", dir, "--check").Exit);
@@ -166,5 +166,39 @@ public class LoweringIntegrationTests
         Assert.Equal("avg-double", (string?)model["lowered"]!["rules"]![0]);
         Assert.Equal("rendered/lowered/marts.fct/lowered.sql", (string?)model["lowered"]!["file"]);
         Assert.Matches("^[0-9a-f]{64}$", (string?)model["lowered"]!["hash"]);
+    }
+
+    private static string Lowered(string sql)
+    {
+        var dir = Project(sql + "\n");
+        var (exit, _, err) = Run("render", "--project", dir, "--write");
+        Assert.True(exit == 0, err);
+        return File.ReadAllText(Path.Combine(dir, "rendered/lowered/marts.fct/lowered.sql"));
+    }
+
+    [Fact]
+    public void The_aliases_the_author_wrote_for_tables_come_back_in_the_lowered_query()
+    {
+        var text = Lowered("SELECT a.order_id, b.order_id AS other FROM staging.orders a JOIN staging.orders b ON b.customer_id = a.customer_id AND b.order_id <> a.order_id");
+        Assert.Contains("FROM staging.orders AS a\nJOIN staging.orders AS b", text);
+        Assert.Contains("(a.customer_id = b.customer_id) AND (a.order_id <> b.order_id)", text);
+        Assert.DoesNotContain("orders_2", text);
+    }
+
+    [Fact]
+    public void A_table_mentioned_without_an_alias_keeps_its_own_name_even_after_an_aliased_mention()
+    {
+        var text = Lowered("SELECT x.order_id, orders.order_id AS other FROM staging.orders x JOIN staging.orders ON orders.customer_id = x.customer_id");
+        Assert.Contains("staging.orders AS x", text);
+        Assert.Contains("JOIN staging.orders\n", text);                                 // the second mention has no alias, and is not called orders_2
+        Assert.Contains("(x.customer_id = orders.customer_id)", text);
+    }
+
+    [Fact]
+    public void A_query_with_a_cte_is_lowered_with_the_tables_own_names_because_the_plan_uses_a_cte_once_per_use()
+    {
+        var text = Lowered("WITH big AS (SELECT * FROM staging.orders o WHERE o.amount > 10) SELECT big.order_id, other.order_id AS o2 FROM big JOIN big AS other ON other.customer_id = big.customer_id");
+        Assert.DoesNotContain(" AS o\n", text);
+        Assert.DoesNotContain("orders AS o ", text);
     }
 }

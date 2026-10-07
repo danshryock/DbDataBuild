@@ -184,7 +184,9 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
             PlanLowerer.ThrowIfError(json);                                        // DuckDB's own parse and bind errors first
             var described = QueryDescriber.Describe(upstream, authorSql, prelude);
             if (!described.Ok) return (null, Fail(described.Error ?? "DuckDB could not describe the query"));
-            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf, policy);
+            // the author's table aliases come back where the text and the plan line up (not for a query that reaches a macro: the plan then has scans the text never names)
+            var written = ReachesMacros(authorSql) ? null : DuckParseTree.TableAliases(authorSql);
+            query = PlanLowerer.Lower(json, described.Columns!.Select(c => c.Name).ToList(), GrainOf, policy, authorAliases: written?.Select(a => (a.Schema, a.Name, a.Alias)).ToList());
         }
         catch (LoweringException ex) when (ex.Kind == "parser") { return (null, new Diagnostic(DiagnosticCatalog.SqlParseFailure, new(source.QueryFile, 0, 0), $"The DuckDB parser reported: {ex.Message}")); }
         catch (LoweringException ex) when (ex.Kind is "binder" or "catalog" && ex.Message.StartsWith("Table with name", StringComparison.Ordinal))

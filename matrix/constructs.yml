@@ -76,6 +76,13 @@
   fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
   postgres: { status: approximated, test: spike/concat_pipes, note: "|| on non-string operands is an error on Postgres; DuckDB concatenates them." }
 
+- id: fn.current_date
+  detect: fn:CURRENT_DATE
+  duckdb: native
+  sqlserver: { status: emulated, test: spike/current_date_fn, note: "Written as CAST(GETDATE() AS DATE). The date is the one on each engine's own clock in its own time zone (DuckDB: its TimeZone setting, which `sample` and `test` use; SQL Server: the server's local time; PostgreSQL: the session TimeZone), so near midnight engines in different time zones return different dates. The spike matches on SQL Server 2022 and 2025 and PostgreSQL when the zones are the same (run with TZ=UTC), and does not when the DuckDB host is in another zone. Pass the date as a parameter when it must not depend on a clock." }
+  fabric:    { status: unverified, note: "Observed on SQL Server only; no Fabric engine was available to test." }
+  postgres: { status: native, note: "CURRENT_DATE is the date in the session TimeZone; see the SQL Server note for what that means across time zones." }
+
 - id: fn.replace
   detect: fn:REPLACE
   duckdb: native
