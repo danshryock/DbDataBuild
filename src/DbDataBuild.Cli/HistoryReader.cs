@@ -16,7 +16,7 @@ internal static class HistoryReader
         var byConnection = new[] { new GateParameter("connection", System.Data.DbType.String, scope.Connection) };
         string Cell(object? v) => v switch { null => "", string s => s.Trim(), _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "" };
 
-        var planRows = await read.QueryAsync($"SELECT m.{C("plan_id")}, m.{C("applied_by")}, m.{C("applied_utc")}, m.{C("plan_text")} FROM {T("migration_log")} m WHERE m.{C("connection")} = @connection AND m.{C("status")} = 'completed' ORDER BY m.{C("applied_utc")}", byConnection, ct);
+        var planRows = await read.QueryAsync($"SELECT m.{C("plan_id")}, m.{C("applied_by")}, m.{C("applied_utc")}, m.{C("plan_text")} FROM {T("migration_log")} m WHERE m.{C("connection")} = @connection AND m.{C("status")} = 'completed' AND m.{C("plan_text")} LIKE '%Q-history-%' ORDER BY m.{C("applied_utc")}", byConnection, ct);   // only a plan that holds a history answer has anything to say here: a plan text is large, and every `plan` now reads these
         var applied = new List<AppliedPlan>();
         var unreadable = new List<string>();
         foreach (var r in planRows)
