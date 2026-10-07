@@ -851,7 +851,7 @@ policy:
 ### 9.4.1 Project files in folders and the merge rules (as built)
 
 `dbdatabuild.yml` is the root **project file**. A folder under `models/` may hold `_dbdatabuild.yml`: not a model (the loader and the orphan check skip it). Both files have a `defaults:` section of **model settings**
-(`connections`, `kind`, `hooks`, `rewrites`, `lint_ignore`; `ModelDefinitionLoader.LayeredKeys`), and for a model the layers are the root file, then each folder's file from `models/` down to the model's folder, then the
+(`connections`, `kind`, `hooks`, `rewrites`, `lint_ignore`, `tags`; `ModelDefinitionLoader.LayeredKeys`; `tags` are labels that `tag:<name>` selects by, merged like `lint_ignore`: they append, `tags=` replaces, `tags-` removes; entry 101), and for a model the layers are the root file, then each folder's file from `models/` down to the model's folder, then the
 model's own file, **the nearest winning**. A folder file has no other section yet; the project-wide sections (connections, tracking, policy, string semantics) are root-only. What is not layered (`name`, `columns`, `grain`,
 `loads`, `indexes`, `renames`) stays in the model's own file.
 
@@ -965,7 +965,7 @@ These tests check a model's **logic in DuckDB**: the lowering to each engine is 
 | `model+` | the model and everything that depends on it |
 | `2+model`, `model+1` | the same, limited to that many steps |
 | `@model` | the model, everything that depends on it, and everything those need to be built (dbt's `@`) |
-| `kind:full`, `target:postgres`, `path:models/marts` | by kind, by a target the model is built for, by directory |
+| `kind:full`, `connection:postgres`, `tag:finance`, `path:models/marts` | by kind, by a connection the model is built for, by tag (`tags:` in the definition or in a `defaults:` section above it), by directory |
 | `changed:<git ref>` | the models whose `.sql` or `.yml` differs from the ref in the working tree (committed or not, and untracked files); a changed source descriptor selects the models that read it; a changed `dbdatabuild.yml` selects every model; a changed folder file (`_dbdatabuild.yml`) selects every model beneath it, a changed native text the models that read it, a changed hook script the models that run it, a changed macro file the models whose queries reach one of its macros, and a changed rendered file the model it was rendered for (entry 97). `changed:origin/main+` is the changed models and what depends on them. Nothing changed is a valid, empty selection |
 | `a,b` | the intersection of the terms: `kind:view,stg.orders+` |
 | `exclude:<selector>` | takes models out again: `marts.fct_orders+ exclude:marts.big` |

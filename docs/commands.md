@@ -207,7 +207,7 @@ Effect: Offline only.
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model) |
+| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model) |
 
 | Option | Meaning |
 |---|---|
@@ -262,7 +262,7 @@ Effect: Offline only.
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `connection:`, `path:`, `changed:<git ref>`, `exclude:...` |
+| `models` (several) | Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `tag:`, `connection:`, `path:`, `changed:<git ref>`, `exclude:...` |
 
 | Option | Meaning |
 |---|---|
@@ -314,7 +314,7 @@ Effect: Target read-only.
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection) |
+| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection) |
 
 | Option | Meaning |
 |---|---|
@@ -366,7 +366,7 @@ Effect: Tracking tables only.
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model) |
+| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model) |
 
 | Option | Meaning |
 |---|---|
@@ -412,7 +412,7 @@ Effect: Target writes (data only).
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection) |
+| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection) |
 
 | Option | Meaning |
 |---|---|

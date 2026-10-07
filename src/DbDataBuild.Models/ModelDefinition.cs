@@ -64,8 +64,12 @@ public sealed record ModelDefinition(
     bool SliceColumnAdded = false,
     CopyWatermark? Watermark = null,
     IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null,
-    bool LocalCopy = false)
+    bool LocalCopy = false,
+    IReadOnlyList<string>? DeclaredTags = null)
 {
+    /// <summary>The model's tags (`tags:` in its file and in the project files above it, merged): labels that `tag:` selects by.</summary>
+    public IReadOnlyList<string> Tags => DeclaredTags ?? [];
+
     /// <summary>The model's own parameters (`parameters:` in its file, never inherited). Referenced as `${model.name}`.</summary>
     public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();
 

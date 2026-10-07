@@ -177,7 +177,7 @@ public static class CliApp
                         o, e, input, interactive && !o.IsJson(), environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "check":
-                    var checkModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
+                    var checkModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
                     var checkProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var checkTarget = new Option<string?>("--connection") { Description = "Connection to check (default: the project's only default connection)" };
                     cmd.Arguments.Add(checkModels);
@@ -208,7 +208,7 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => AckCommand.Run(spec, pr.GetValue(ackProject)!.FullName, pr.GetValue(ackKind)!, pr.GetValue(ackName)!, pr.GetValue(ackReason), pr.GetValue(ackTarget), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "run":
-                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
+                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
                     var runProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var runTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
@@ -241,7 +241,7 @@ public static class CliApp
                         pr.GetValue(diffKey) ?? [], pr.GetValue(diffOnly) ?? [], pr.GetValue(diffExcept) ?? [], pr.GetValue(diffValues), pr.GetValue(diffLimit), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "graph":
-                    var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `connection:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
+                    var graphModels = new Argument<string[]>("models") { Description = "Selectors (default: every model): names, paths, `+model`, `model+`, `2+model`, `@model`, `kind:`, `tag:`, `connection:`, `path:`, `changed:<git ref>`, `exclude:...`", Arity = ArgumentArity.ZeroOrMore };
                     var graphProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var graphColumns = new Option<bool>("--columns") { Description = "Also show which column of which table each output column comes from" };
                     var graphColumn = new Option<string?>("--column") { Description = "Follow one column (model.column) up to the columns it comes from and down to the columns built from it" };
@@ -269,13 +269,13 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => TestCommand.Run(spec, pr.GetValue(testProject)!.FullName, pr.GetValue(testNames) ?? [], pr.GetValue(testTag) ?? [], pr.GetValue(testKind), pr.GetValue(testLimit), pr.GetValue(testStrict), o, e)));
                     break;
                 case "metadata":
-                    var metaModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var metaModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var metaProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     cmd.Arguments.Add(metaModels); cmd.Options.Add(metaProject);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => MetadataCommand.Run(spec, pr.GetValue(metaProject)!.FullName, pr.GetValue(metaModels) ?? [], o, e)));
                     break;
                 case "publish-metadata":
-                    var pubModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
+                    var pubModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var pubProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var pubTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     cmd.Arguments.Add(pubModels); cmd.Options.Add(pubProject); cmd.Options.Add(pubTarget);

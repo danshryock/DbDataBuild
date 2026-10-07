@@ -213,6 +213,7 @@ internal static class MetadataBuilder
             name = def.Name,
             kind = new { type = def.KindType, unique_key = def.UniqueKey, time_column = def.TimeColumn, lookback = def.Lookback },
             grain = def.Grain,
+            tags = def.Tags.Count == 0 ? null : def.Tags.Order(StringComparer.Ordinal).ToList(),
             connections = targets,
             files = new { definition = source.DefinitionFile, query = source.QueryFile },
             inherited = source.Inherited.Select(o => new { path = o.Path, file = o.File, line = o.Line, value = o.Value }).ToList(),

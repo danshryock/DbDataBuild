@@ -649,7 +649,7 @@
       "type": "object",
       "additionalProperties": false,
       "patternProperties": {
-        "^(connections|kind|hooks|rewrites|lint_ignore)[=+-]$": {
+        "^(connections|kind|hooks|rewrites|lint_ignore|tags)[=+-]$": {
           "description": "A suffix on a setting that inherits from the project files above (`defaults:` in dbdatabuild.yml and in each folder's _dbdatabuild.yml): `key=` replaces what was inherited, `key-` removes the listed items or keys, `key+` merges (what happens without a suffix)."
         }
       },
@@ -718,6 +718,16 @@
                 "$ref": "#/$defs/hookUse"
               }
             ]
+          }
+        },
+        "tags": {
+          "description": "Labels for the model. `tag:<name>` in a model selector (`plan`, `graph`, `metadata`, ...) selects the models that carry it. Lists append across the project files above the model (a folder's `defaults:`), as `lint_ignore` does; `tags=` replaces and `tags-` removes.",
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:\\-]*$"
           }
         },
         "lint_ignore": {

@@ -635,6 +635,13 @@
             "type": "string"
           }
         },
+        "tags": {
+          "description": "The model's tags, sorted; omitted when it has none.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "connections": {
           "type": "array",
           "items": {

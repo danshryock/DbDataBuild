@@ -6,7 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "patternProperties": {
-    "^(connections|kind)[=+-]$": {
+    "^(connections|kind|tags)[=+-]$": {
       "description": "A suffix on a setting that inherits from the project files above: `key=` replaces what was inherited, `key-` removes the listed items, `key+` merges (the default)."
     }
   },
@@ -221,6 +221,16 @@
       "items": {
         "type": "string",
         "minLength": 1
+      }
+    },
+    "tags": {
+      "description": "Labels for the model. `tag:<name>` in a model selector (`plan`, `graph`, `metadata`, ...) selects the models that carry it. Lists append across the project files above the model (a folder's `defaults:`), as `lint_ignore` does; `tags=` replaces and `tags-` removes.",
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:\\-]*$"
       }
     },
     "track_definition": {
