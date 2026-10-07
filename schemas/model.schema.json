@@ -721,7 +721,7 @@
           }
         },
         "lint_ignore": {
-          "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index), DDB-225 (a load's slice cannot be applied below part of the query) and DDB-236 (the model compares strings on connections that compare them differently).",
+          "description": "Advisory lint codes to silence for this model: DDB-223 (a key-based load has no index on its key), DDB-224 (a load's column has no leading index), DDB-225 (a load's slice cannot be applied below part of the query), DDB-239 (a load's slice column is read from a source column no index leads) and DDB-236 (the model compares strings on connections that compare them differently).",
           "type": "array",
           "uniqueItems": true,
           "minItems": 1,
@@ -730,7 +730,8 @@
               "DDB-223",
               "DDB-224",
               "DDB-225",
-              "DDB-236"
+              "DDB-236",
+              "DDB-239"
             ]
           }
         },

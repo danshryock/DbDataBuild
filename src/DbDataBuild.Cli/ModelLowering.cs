@@ -28,6 +28,26 @@ internal sealed class ModelLowering(IReadOnlyList<ModelDefinition> models, IRead
         models.FirstOrDefault(m => string.Equals(m.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain
         ?? descriptors.FirstOrDefault(d => string.Equals(d.Name, table, StringComparison.OrdinalIgnoreCase))?.Grain ?? [];
 
+    /// <summary>
+    /// The source columns a query's output column is read from, directly or through a cast, when the project declares something about the source (its `indexes:` or its `grain`) and no declared index leads with the
+    /// column: what the slice advice (DDB-239) reports. A computed column, a source with nothing declared and a model (whose indexes are the tool's to create) give nothing.
+    /// </summary>
+    public IReadOnlyList<(string Table, string Column)> SourceColumnsWithoutLeadingIndex(string sql, string column)
+    {
+        var facts = QueryAnalyzer.Analyze(sql).Facts;
+        var projection = facts?.Projections.FirstOrDefault(p => string.Equals(p.Name, column, StringComparison.OrdinalIgnoreCase));
+        if (projection is not { TransformKind: "direct" or "cast" }) return [];
+        var result = new List<(string, string)>();
+        foreach (var from in projection.Upstream)
+        {
+            var table = descriptors.FirstOrDefault(d => !d.IsNative && !d.IsGenerated && from.Table != null && (string.Equals(d.Name, from.Table, StringComparison.OrdinalIgnoreCase) || d.Name.EndsWith("." + from.Table, StringComparison.OrdinalIgnoreCase)));
+            if (table == null || table.Grain.Count == 0 && (table.DeclaredIndexes?.Count ?? 0) == 0) continue;
+            var leads = table.Grain.Take(1).Concat((table.DeclaredIndexes ?? []).Select(i => i.Columns[0]));
+            if (!leads.Contains(from.Column, StringComparer.OrdinalIgnoreCase)) result.Add((table.Name, from.Column));
+        }
+        return result;
+    }
+
     private readonly Dictionary<string, NativeUse> nativeUses = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The native models a query reads (by lineage of its text), ready to be spliced into the target's text after transpiling.</summary>

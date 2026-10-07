@@ -176,7 +176,7 @@ public static class ModelDefinitionLoader
             return (new CopySlice(column.Value, value.Value, type?.Value, map.Line), onMismatch);
         }
 
-        private static readonly string[] IndexAdvisorCodes = [DiagnosticCatalog.MergeKeyNotIndexed.Code, DiagnosticCatalog.LoadColumnNotIndexed.Code, DiagnosticCatalog.LoadSliceNotPushable.Code, DiagnosticCatalog.StringsCompareDifferently.Code];
+        private static readonly string[] IndexAdvisorCodes = [DiagnosticCatalog.MergeKeyNotIndexed.Code, DiagnosticCatalog.LoadColumnNotIndexed.Code, DiagnosticCatalog.LoadSliceNotPushable.Code, DiagnosticCatalog.LoadSliceSourceNotIndexed.Code, DiagnosticCatalog.StringsCompareDifferently.Code];
 
         private (YamlScalar? Type, List<YamlScalar>? UniqueKey, YamlScalar? TimeColumn, YamlScalar? Lookback, YamlNode? Node) ReadKind(YamlMapping top)
         {

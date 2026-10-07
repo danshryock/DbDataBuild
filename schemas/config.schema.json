@@ -404,7 +404,7 @@
       }
     },
     "lint": {
-      "description": "Advisory lints. `indexes: false` turns off the index advice (DDB-223, DDB-224) and `slices: false` the slice advice (DDB-225) for the whole project; a model can silence single codes with `lint_ignore`. Both default to true.",
+      "description": "Advisory lints. `indexes: false` turns off the index advice (DDB-223, DDB-224) and `slices: false` the slice advice (DDB-225, DDB-239) for the whole project; a model can silence single codes with `lint_ignore`. Both default to true.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

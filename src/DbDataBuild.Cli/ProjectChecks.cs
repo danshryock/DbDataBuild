@@ -53,6 +53,7 @@ internal static class ProjectChecks
                 foreach (var t in variantTargets) diagnostics.AddRange(linter.Lint(DbDataBuild.Targets.Rules.TargetRules.Apply(body, config.EngineOf(t) ?? t, rewrites, config.TargetVersions.TryGetValue(t, out var tv) ? tv : null).Sql, bodyFile ?? source.QueryFile, [t], config));
                 // every declared model x target x operation pair must render (in memory; nothing is written), and the scripts must pass offline validation
                 if (config.LintSlices) diagnostics.AddRange(SliceAdvice(source, variantTargets, body));
+                if (config.LintSlices && lowering != null) diagnostics.AddRange(SliceSourceAdvice(source, variantTargets, body, lowering));
                 if (lowering != null && !source.Definition.LintIgnore.Contains(DiagnosticCatalog.StringsCompareDifferently.Code)) diagnostics.AddRange(StringProfileAdvice(source, variantTargets, config, lowering, body));
                 diagnostics.AddRange(renderer.Render(source.Definition, body, source.QueryFile, variantTargets, bodyFile, source.QueryParameterList(root, config), lowering?.NativeUsesFor(body) ?? []).Diagnostics.Where(d => d.Code != DiagnosticCatalog.SqlParseFailure.Code));
             }
@@ -150,6 +151,32 @@ internal static class ProjectChecks
                 : $"Add under `indexes:` in {source.DefinitionFile}:  {Models.IndexAdvisor.Yaml(a)}";
             yield return new Diagnostic(a.Severity == Severity.Warning ? DiagnosticCatalog.MergeKeyNotIndexed : DiagnosticCatalog.LoadColumnNotIndexed, new(source.DefinitionFile, 0, 0), found, Fix: fix);
         }
+    }
+
+    /// <summary>
+    /// Slice lint (DDB-239): the slice column of a load that reads only the rows after its watermark or in its range is read from a source column, and the project says what indexes that source has, and none
+    /// leads with the column. Advice only; the tool never creates an index on a source.
+    /// </summary>
+    internal static IEnumerable<Diagnostic> SliceSourceAdvice(ModelSource source, IReadOnlyList<string> targets, string body, ModelLowering lowering)
+    {
+        var def = source.Definition;
+        if (def.LintIgnore.Contains(DiagnosticCatalog.LoadSliceSourceNotIndexed.Code)) yield break;
+        var done = new HashSet<(string Operation, string Column)>();
+        foreach (var target in targets)
+            foreach (var op in LoadPlan.For(def, target))
+            {
+                var (column, what) = op.Strategy switch
+                {
+                    LoadStrategies.WatermarkAppend when op.Watermark?.Column is { } w => (w, "loads rows at or after its watermark"),
+                    LoadStrategies.DeleteInsertByRange => (op.Column ?? def.TimeColumn, "reloads a range"),
+                    _ => (null, ""),
+                };
+                if (column == null || !done.Add((op.Name, column))) continue;
+                foreach (var (table, sourceColumn) in lowering.SourceColumnsWithoutLeadingIndex(body, column))
+                    yield return new Diagnostic(DiagnosticCatalog.LoadSliceSourceNotIndexed, new(source.DefinitionFile, 0, 0),
+                        $"{def.Name} / {op.Name} {what} by `{column}`, which the query reads from `{table}.{sourceColumn}`, and no index declared for `{table}` leads with that column, so each load scans the source to find the slice.",
+                        Fix: $"If `{table}` has an index that leads with `{sourceColumn}`, add it under `indexes:` in its declaration (`dbdatabuild import {table} --write` exports it); otherwise ask its owner for one. Silence this with `lint_ignore: [DDB-239]` if the cost is acceptable.");
+            }
     }
 
     /// <summary>

@@ -72,7 +72,7 @@ public sealed record ModelDefinition(
     /// <summary>True for a model that copies another one (<see cref="ModelKinds.Copy"/>): `From` is the model it copies.</summary>
     public bool IsCopy => KindType == ModelKinds.Copy;
 
-    /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224, DDB-225, DDB-236) the operator has silenced for this model (`lint_ignore:`).</summary>
+    /// <summary>Diagnostic codes of advisory lints (DDB-223, DDB-224, DDB-225, DDB-236, DDB-239) the operator has silenced for this model (`lint_ignore:`).</summary>
     public IReadOnlyList<string> LintIgnore => DeclaredLintIgnore ?? [];
 
     public IReadOnlyList<IndexDefinition> Indexes => DeclaredIndexes ?? [];

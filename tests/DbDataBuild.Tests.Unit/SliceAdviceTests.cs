@@ -119,4 +119,43 @@ public class SliceAdviceTests
         var file = "rendered/sqlserver/marts.fct_daily/load.daily.sql";
         Assert.Equal(File.ReadAllText(Path.Combine(without, file)), File.ReadAllText(Path.Combine(with, file)));
     }
+
+    // ---- the source column of the slice (DDB-239) ----
+
+    private const string Simple = "SELECT order_id, order_date, modified_at, amount AS total FROM staging.orders";
+
+    [Fact]
+    public void A_slice_read_from_a_source_column_that_no_declared_index_leads_is_a_warning_naming_the_source_column()
+    {
+        var (exit, _, err) = Cli("validate", "--project", Project(Simple));
+        Assert.Equal(CliApp.ExitOk, exit);
+        Assert.Contains("warning DDB-239  models/marts/fct_daily.yml", err);
+        Assert.Contains("which the query reads from `staging.orders.order_date`", err);
+        Assert.DoesNotContain("DDB-225", err);
+    }
+
+    [Fact]
+    public void A_declared_index_that_leads_with_the_column_or_a_grain_that_starts_with_it_silences_it_and_a_source_with_nothing_declared_is_not_judged()
+    {
+        var withIndex = Project(Simple);
+        File.AppendAllText(Path.Combine(withIndex, "models/staging/orders.yml"), "indexes:\n  - {name: ix_orders_date, columns: [order_date, order_id]}\n");
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", withIndex).Err);
+
+        var byGrain = Project(Simple);
+        File.WriteAllText(Path.Combine(byGrain, "models/staging/orders.yml"), File.ReadAllText(Path.Combine(byGrain, "models/staging/orders.yml")).Replace("grain: [order_id]", "grain: [order_date, order_id]"));
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", byGrain).Err);
+
+        var nothing = Project(Simple);
+        File.WriteAllText(Path.Combine(nothing, "models/staging/orders.yml"), File.ReadAllText(Path.Combine(nothing, "models/staging/orders.yml")).Replace("grain: [order_id]\n", ""));
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", nothing).Err);
+    }
+
+    [Fact]
+    public void A_computed_slice_column_is_not_traced_and_the_advice_can_be_silenced()
+    {
+        const string computed = "SELECT order_id, CAST(order_date AS DATE) + 1 AS order_date, modified_at, amount AS total FROM staging.orders";
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(computed)).Err);
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(Simple, extra: "lint_ignore: [DDB-239]\n")).Err);
+        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(Simple, config: "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n  slices: false\n")).Err);
+    }
 }
