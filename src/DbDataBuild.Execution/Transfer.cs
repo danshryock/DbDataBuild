@@ -39,7 +39,8 @@ public static partial class TransferValues
                 "DATE" => value switch { DateOnly d => d.ToDateTime(TimeOnly.MinValue), DateTime dt => dt.Date, _ => System.Convert.ToDateTime(value, CultureInfo.InvariantCulture).Date },
                 "TIMESTAMP" => value switch { DateTime dt => DateTime.SpecifyKind(dt, DateTimeKind.Unspecified), DateTimeOffset o => DateTime.SpecifyKind(o.UtcDateTime, DateTimeKind.Unspecified), _ => System.Convert.ToDateTime(value, CultureInfo.InvariantCulture) },
                 "TIME" => value switch { TimeSpan s => s, TimeOnly o => o.ToTimeSpan(), _ => TimeSpan.Parse(System.Convert.ToString(value, CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture) },
-                "TIMESTAMP WITH TIME ZONE" => value switch { DateTimeOffset o => o, DateTime dt => new DateTimeOffset(dt.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : dt.ToUniversalTime()), _ => throw new InvalidCastException() },
+                "TIMESTAMP WITH TIME ZONE" => value switch { DateTimeOffset o => o.ToUniversalTime(),   // the instant is what is kept: PostgreSQL takes only an offset of zero, and SQL Server keeps whichever it is given
+                                                          DateTime dt => new DateTimeOffset(dt.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : dt.ToUniversalTime()), _ => throw new InvalidCastException() },
                 "UUID" => value is Guid g ? g : Guid.Parse(System.Convert.ToString(value, CultureInfo.InvariantCulture)!),
                 "BLOB" => value is byte[] b ? b : throw new InvalidCastException(),
                 _ when Decimal().IsMatch(t) => System.Convert.ToDecimal(value, CultureInfo.InvariantCulture),

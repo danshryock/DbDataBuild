@@ -412,4 +412,43 @@ public partial class CopyConformanceTests
             try { Microsoft.Data.SqlClient.SqlConnection.ClearAllPools(); await server.ExecAsync($"ALTER DATABASE [{warehouseDb}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{warehouseDb}]"); } catch (Exception) { }
         }
     }
+
+    /// <summary>
+    /// Types the main copy test does not cover (binary, uuid, time of day, timestamp with a zone), checked by the tool itself: after the copy, `diff --against-connection` of the origin table against the destination table
+    /// must find them identical (the digests are computed in each engine, so this is a comparison of what each engine holds, not of what the transfer meant to write).
+    /// </summary>
+    [SkippableTheory, MemberData(nameof(Directions))]
+    public async Task Binary_uuid_time_and_zoned_timestamp_values_copy_exactly_and_the_diff_agrees(string origin, string destination)
+    {
+        var from = EngineEnv.Require(origin);
+        var to = EngineEnv.Require(destination);
+        await from.StartAsync(); await to.StartAsync();
+        await using var _f = from; await using var _t = to;
+        var pair = new Pair(from, to, Path.Combine(Path.GetTempPath(), "ddb-copy-types-" + Guid.NewGuid().ToString("N")));
+        try
+        {
+            pair.Write("dbdatabuild.yml", $"defaults: {{connections: [{destination}]}}\ntracking: {{ connection: {destination} }}\n" + Sensitive(destination));
+            pair.Write("models/src/typed.yml", $"name: src.typed\nkind: {{type: mapped}}\nconnections=: [{origin}]\ngrain: [id]\ncolumns:\n  - {{name: id, type: BIGINT, nullable: false}}\n  - {{name: blob, type: BLOB}}\n  - {{name: uid, type: UUID}}\n  - {{name: tm, type: TIME}}\n  - {{name: tz, type: TIMESTAMP WITH TIME ZONE}}\n");
+            pair.Write("models/dst/typed.yml", "name: dst.typed\nkind: {type: copy, from: src.typed}\n");
+            var pg = origin == "postgres";
+            await from.ExecAsync(pg ? "CREATE SCHEMA src" : "EXEC('CREATE SCHEMA src')");
+            await from.ExecAsync(pg
+                ? "CREATE TABLE src.typed (id BIGINT NOT NULL, blob BYTEA, uid UUID, tm TIME(6), tz TIMESTAMPTZ(6))"
+                : "CREATE TABLE src.typed (id BIGINT NOT NULL, blob VARBINARY(MAX), uid UNIQUEIDENTIFIER, tm TIME(6), tz DATETIMEOFFSET(6))");
+            await from.ExecAsync(pg
+                ? "INSERT INTO src.typed VALUES (1, '\\x00ff10'::bytea, '0e984725-c51c-4bf4-9960-e1c80e27aba0', '13:14:15.123456', '2024-03-10 08:30:00.123456+02'), (2, ''::bytea, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00:00:00', '2024-01-01 00:00:00+00'), (3, NULL, NULL, NULL, NULL), (4, decode(repeat('ab', 100000), 'hex'), '00000000-0000-0000-0000-000000000000', '23:59:59.999999', '9999-12-31 23:59:59.999999+00')"
+                : "INSERT INTO src.typed VALUES (1, 0x00FF10, '0e984725-c51c-4bf4-9960-e1c80e27aba0', '13:14:15.123456', '2024-03-10 08:30:00.123456 +02:00'), (2, 0x, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00:00:00', '2024-01-01 00:00:00 +00:00'), (3, NULL, NULL, NULL, NULL), (4, CAST(REPLICATE(CAST('AB' AS VARCHAR(MAX)), 100000) AS VARBINARY(MAX)), '00000000-0000-0000-0000-000000000000', '23:59:59.999999', '9999-12-31 23:59:59.999999 +00:00')");
+            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("render", "--write"), "render");
+            var plan = pair.Cli("plan", "--connection", destination); Ok(plan, "plan");
+            var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+            Ok(pair.Cli("apply", planFile), "apply");
+            Assert.Equal("4", (await to.RowsAsync("SELECT COUNT(*) FROM dst.typed")).Single());
+            // the same table on the two connections: src.typed on the origin, dst.typed on the destination
+            var diff = pair.Cli("diff", "src.typed", "--connection", origin, "--against-connection", destination, "--against", "dst.typed", "--key", "id");
+            Assert.True(diff.Exit == 0, diff.Out + diff.Err);
+            Assert.Contains("The tables are identical", diff.Out);
+        }
+        finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
+    }
 }
