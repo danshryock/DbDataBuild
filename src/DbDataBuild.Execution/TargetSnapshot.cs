@@ -61,6 +61,9 @@ public static class TargetSnapshotReader
 
     /// <summary>Runs a committed resolver on the read login. Exactly one row and one column is required; anything else is reported, never guessed at.</summary>
     /// <summary>`MIN` and `MAX` of one column of one table, as plan-time text (a single read-only SELECT through the read session). Names are quoted for the target.</summary>
+    /// <summary>A resolver, a range's bounds and a copy's newest value each scan a table (a MAX with no index on the column): ten minutes, not the driver's 30 seconds.</summary>
+    public const int ScanTimeoutSeconds = 600;
+
     public static async Task<(string? Min, string? Max, string? Error)> ColumnBoundsAsync(ReadSession read, string target, string objectName, string column, string parameterType, CancellationToken ct = default)
     {
         var ddl = TrackingDdl.For(target);
@@ -85,7 +88,7 @@ public static class TargetSnapshotReader
     public static async Task<ResolverValue> RunResolverAsync(ReadSession read, string resolverText, string parameterType, CancellationToken ct = default)
     {
         IReadOnlyList<IReadOnlyList<object?>> rows;
-        try { rows = await read.QueryAsync(resolverText, null, ct); }
+        try { rows = await read.QueryAsync(resolverText, null, ct, timeoutSeconds: ScanTimeoutSeconds); }
         catch (GateRefusedException) { throw; }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

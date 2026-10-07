@@ -26,12 +26,13 @@ public sealed class ReadSession : IAsyncDisposable
     /// <summary>Seconds a query of <see cref="QueryAsync"/> may run before the driver gives up (the driver's own default, 30, when null; 0 is no limit). A comparison of two large tables is one query that scans each.</summary>
     public int? CommandTimeoutSeconds { get; set; }
 
-    public async Task<IReadOnlyList<IReadOnlyList<object?>>> QueryAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default)
+    /// <param name="timeoutSeconds">For this query only (a scan of a table: a resolver, a range's bounds, a count of values); otherwise <see cref="CommandTimeoutSeconds"/>, otherwise the driver's default.</param>
+    public async Task<IReadOnlyList<IReadOnlyList<object?>>> QueryAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default, int? timeoutSeconds = null)
     {
         if (ReadGuard.Check(sql) is { } refused) throw new GateRefusedException(refused);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
-        if (CommandTimeoutSeconds is { } seconds) cmd.CommandTimeout = seconds;
+        if ((timeoutSeconds ?? CommandTimeoutSeconds) is { } seconds) cmd.CommandTimeout = seconds;
         foreach (var p in parameters ?? [])
         {
             var dp = cmd.CreateParameter();

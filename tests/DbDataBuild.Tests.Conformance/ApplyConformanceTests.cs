@@ -317,6 +317,25 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_statement_that_runs_longer_than_the_drivers_default_timeout_is_not_abandoned(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            // the drivers give up on a command after 30 seconds unless told otherwise; a load of a large model takes longer
+            run.Write("hooks/slow.sql", name == "postgres" ? "SELECT pg_sleep(32);\n" : "WAITFOR DELAY '00:00:32';\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: slow, event: post_create, script: hooks/slow.sql}\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply with a 32 second statement");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'fct_orders'"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

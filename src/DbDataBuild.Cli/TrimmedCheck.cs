@@ -34,7 +34,7 @@ internal static class TrimmedCheck
                     ? $"SELECT COUNT(*) FROM {quote.Quote(schema)}.{quote.Quote(name)} WHERE length({c}) <> length(rtrim({c}))"
                     : $"SELECT COUNT(*) FROM {quote.Quote(schema)}.{quote.Quote(name)} WHERE DATALENGTH({c}) <> DATALENGTH(RTRIM({c}))";
                 long count;
-                try { count = Convert.ToInt64((await read.QueryAsync(text, null)).Single()[0], System.Globalization.CultureInfo.InvariantCulture); }
+                try { count = Convert.ToInt64((await read.QueryAsync(text, null, timeoutSeconds: 1800)).Single()[0], System.Globalization.CultureInfo.InvariantCulture); }
                 catch (DbException) { continue; }             // no such table here (yet): nothing to count
                 if (count > 0)
                     found.Add(new Diagnostic(DiagnosticCatalog.TrimmedColumnHasTrailingSpaces, new(file, column.Line, 0), $"`{table}.{column.Name}` is declared `trimmed: true` on `{connection}`, and {count} row(s) hold a value that ends in a space."));

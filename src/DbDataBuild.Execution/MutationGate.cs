@@ -147,6 +147,7 @@ internal sealed class AdoWriteExecutor(DbConnection connection, bool postgres) :
     {
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = text;
+        cmd.CommandTimeout = 0;           // a statement that has started is never abandoned because it is slow: the load of a large model runs as long as it takes (the person can stop between steps)
         foreach (var p in parameters)
         {
             var dp = cmd.CreateParameter();
