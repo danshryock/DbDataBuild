@@ -515,6 +515,48 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task The_first_Ctrl_C_stops_an_apply_after_the_step_that_is_running_and_the_plan_resumes(string name)
+    {
+        Skip.If(!OperatingSystem.IsLinux(), "sends SIGINT with kill");
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            run.Write("hooks/pause.sql", pg ? "SELECT pg_sleep(6);\n" : "WAITFOR DELAY '00:00:06';\n");
+            run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: pause, event: post_create, script: hooks/pause.sql}\n");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            var planFile = run.PlanFile(plan.Out);
+
+            // the real executable, in its own process, so that the signal is the operator's Ctrl-C
+            // the executable's own folder (the test folder lacks some of the libraries the CLI needs on its own): <repo>/src/DbDataBuild.Cli/bin/<configuration>/<framework>/
+            var baseDir = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+            var dll = Path.Combine(baseDir.Parent!.Parent!.Parent!.Parent!.Parent!.FullName, "src", "DbDataBuild.Cli", "bin", baseDir.Parent!.Name, baseDir.Name, "dbdatabuild.dll");
+            Skip.IfNot(File.Exists(dll), $"{dll} is not built");
+            var psi = new System.Diagnostics.ProcessStartInfo("dotnet", $"\"{dll}\" apply \"{planFile}\" --project \"{run.Dir}\"") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            foreach (var variable in new[] { LoginSettings.VariableName(name, Login.Read), LoginSettings.VariableName(name, Login.Write) }) psi.Environment[variable] = engine.ConnectionString;
+            using var process = System.Diagnostics.Process.Start(psi)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await Task.Delay(3500);                                                              // inside the hook (the apply starts in a second)
+            System.Diagnostics.Process.Start("kill", $"-INT {process.Id}")!.WaitForExit();
+            Assert.True(process.WaitForExit(60_000), "the apply did not stop");
+            var output = await stdout; var errors = await stderr;
+            Assert.True(process.ExitCode == 1, $"exit {process.ExitCode}\n{output}\n{errors}");
+            Assert.Contains("Interrupt received", output);
+            Assert.Contains("DDB-445", errors + output);                                          // stopped by the operator
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'fct_orders'"));      // the step that had started was finished, not cut off
+            Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'v_orders'"));         // and nothing after it ran
+
+            Ok(run.Cli("apply", planFile, "--resume"), "resume after the stop");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'v_orders'"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

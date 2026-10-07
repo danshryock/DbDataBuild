@@ -119,7 +119,23 @@ internal static class ApplyCommand
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, commit, dirty, write?.User ?? Environment.UserName, CommandContext.Hooks?.StopRequested,
+        // run on its own (not inside the terminal interface, which has its own stop), the first Ctrl-C asks the apply to stop after the step that is running, and the second ends the process: a statement that has started is
+        // not abandoned by one keypress
+        Func<bool>? stopRequested = CommandContext.Hooks?.StopRequested;
+        ConsoleCancelEventHandler? onInterrupt = null;
+        if (stopRequested == null && !dryRun)
+        {
+            var asked = false;
+            onInterrupt = (_, e) =>
+            {
+                if (asked) return;                                  // the second one is the default: the process ends
+                asked = true; e.Cancel = true;
+                output.WriteLine("Interrupt received: the apply stops after the step that is running (press Ctrl-C again to end it now; `apply --resume` continues a plan that stopped).");
+            };
+            Console.CancelKeyPress += onInterrupt;
+            stopRequested = () => asked;
+        }
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, commit, dirty, write?.User ?? Environment.UserName, stopRequested,
             (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"));
 
         // refusals that need no connection come first
@@ -144,12 +160,14 @@ internal static class ApplyCommand
         var hooks = CommandContext.Hooks;       // captured here: the apply runs on another thread
         ApplyResult result;
         string? logPath = null;
+        try
         {
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
             logPath = Path.GetRelativePath(root, log.Path);
             output.WriteLine($"Statement log: {logPath}");
             result = Task.Run(() => ApplyEngine.RunAsync(plan, planText, read!, write, tracking.Target is { } tt ? new ApplyTracking(trackRead!, trackWrite, tt.SchemaName) : null, options, log, runId, line => { output.WriteLine(line); hooks?.Progress?.Invoke(line); })).GetAwaiter().GetResult();
         }
+        finally { if (onInterrupt != null) Console.CancelKeyPress -= onInterrupt; }
 
         if (dryRun)
             foreach (var step in plan.Steps)
