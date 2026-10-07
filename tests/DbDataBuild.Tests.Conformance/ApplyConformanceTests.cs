@@ -428,6 +428,30 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task A_model_that_left_the_project_stays_on_the_target_and_the_report_says_nothing_builds_it_any_more(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.yml")); File.Delete(Path.Combine(run.Dir, "models/marts/v_orders.sql"));
+            Ok(run.Cli("render", "--write"), "render without the view");
+            var again = run.Cli("plan"); Ok(again, "plan without the view");
+            Assert.DoesNotContain("v_orders", again.Out.Replace("marts.fct_orders", ""));                              // nothing is dropped, nothing is planned for it
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'v_orders'"));
+            var report = run.Cli("report"); Ok(report, "report");
+            Assert.Contains("marts.v_orders", report.Out);
+            Assert.Contains("in sync (no model in the project; the tool never drops it)", report.Out);
+            Assert.Single(report.Out.Split('\n'), l => l.Contains("no model in the project"));                      // only the view that left, not the table that stayed
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);

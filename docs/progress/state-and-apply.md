@@ -854,3 +854,9 @@ Operator decision: correlated subqueries are a hard requirement.
 ## 111. Incremental load by key at two million rows
 
 - **Measured** (`An_incremental_load_by_key_of_two_million_rows_takes_seconds_not_minutes`, off unless `DDB_SCALE=1`): a source of 2,000,000 rows, a model `incremental_by_unique_key` on the key, local containers. First load: 6.1 s on SQL Server 2022, 3.6 s on PostgreSQL 17. After changing 10% of the source rows, the second load (delete the keys, insert them again): 10.3 s and 4.5 s; the row count stays exact. Includes the plan. No defect found.
+
+## 112. `report` on an object whose model left the project
+
+- **Found** (a 300-model project on PostgreSQL, two models deleted after the apply): `plan` was silent, the objects stayed on the target (the tool never drops one, by design), and `report` listed them as "in sync", which says nothing about the fact that no model builds them any more.
+- **Changed** (`ReportCommand`): an object the tool has recorded whose name is not a model of the project now reads `in sync (no model in the project; the tool never drops it)`. The `now` field of the JSON document carries the same text. No new finding and no change to `plan`: what to do with such an object (drop it by hand, keep it, build it again) is the person's decision.
+- **Verified**: SQL Server 2022 and PostgreSQL 17 (`A_model_that_left_the_project_stays_on_the_target_and_the_report_says_nothing_builds_it_any_more`: the view is still there after the next plan, nothing is planned for it, and only that object is labelled).

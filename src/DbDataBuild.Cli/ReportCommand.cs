@@ -81,6 +81,7 @@ internal static class ReportCommand
             var live = new Dictionary<string, ObjectShape>();
             foreach (var s in schemas) foreach (var (k, v) in await CatalogReader.ReadObjectsAsync(read, engine, s)) live[k] = v;
             var drifted = new List<string>();
+            var projectModels = ProjectContext.Load(root).Project.Sources.Select(s => s.Definition.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var accepted = (await TargetSnapshotReader.ReadAsync(read, trackRead, scope, engine, schemas)).Acknowledged;        // drift an operator has accepted (`ack drift`) is shown, but is not something that needs attention
             bool Accepted(string name) => live.TryGetValue(name, out var l) && accepted.Contains(Acknowledgements.Key(DiagnosticCatalog.ObjectChangedOutsideTool.Code, name, l.ShapeHash));
             Table("objects", "Objects the tool has recorded", ["object", "shapes recorded", "last recorded (UTC)", "now"], versions.Select(r =>
@@ -88,7 +89,9 @@ internal static class ReportCommand
                 var name = Cell(r[0]);
                 var state = Drift.Classify(live.GetValueOrDefault(name), recorded.GetValueOrDefault(name));
                 if (state == ObjectState.OutOfBand && !Accepted(name)) drifted.Add(name);
-                return new[] { name, Cell(r[1]), Cell(r[2]), state switch { ObjectState.InSync => "in sync", ObjectState.Missing => "MISSING on the target", ObjectState.OutOfBand => Accepted(name) ? "changed outside the tool (accepted)" : "CHANGED OUTSIDE THE TOOL", _ => "not tracked" } };
+                // an object the tool built whose model has since left the project stays on the target (the tool never drops one): it is in sync with what was recorded, and nothing builds it any more
+                var inProject = projectModels.Contains(name);
+                return new[] { name, Cell(r[1]), Cell(r[2]), state switch { ObjectState.InSync => inProject ? "in sync" : "in sync (no model in the project; the tool never drops it)", ObjectState.Missing => "MISSING on the target", ObjectState.OutOfBand => Accepted(name) ? "changed outside the tool (accepted)" : "CHANGED OUTSIDE THE TOOL", _ => "not tracked" } };
             }));
 
             // ---- column history (DESIGN.md 12.3), from the answers embedded in the applied plans ----
