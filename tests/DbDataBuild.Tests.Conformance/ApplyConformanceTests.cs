@@ -397,6 +397,37 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task An_incremental_load_by_key_of_two_million_rows_takes_seconds_not_minutes(string name)
+    {
+        Skip.IfNot(Environment.GetEnvironmentVariable("DDB_SCALE") == "1", "set DDB_SCALE=1 to run");
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            var pg = name == "postgres";
+            const int Rows = 2_000_000;
+            await engine.ExecAsync("DELETE FROM staging.orders");
+            await engine.ExecAsync(pg
+                ? $"INSERT INTO staging.orders SELECT g, (g % 1000) / 7.0 FROM generate_series(1, {Rows}) g"
+                : $"INSERT INTO staging.orders SELECT TOP ({Rows}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 1000) / 7.0 FROM sys.all_objects a CROSS JOIN sys.all_objects b CROSS JOIN sys.all_objects c");
+            Ok(run.Cli("init", "--apply"), "init");
+            Ok(run.Cli("render", "--write"), "render");
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var plan = run.Cli("plan"); Ok(plan, "plan");
+            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "first apply");
+            Console.WriteLine($"SCALE first load ({name}): {clock.Elapsed.TotalSeconds:0.0}s");
+            Assert.Equal(Rows, await CountAsync(run, "marts.fct_orders"));
+            await engine.ExecAsync("UPDATE staging.orders SET amount = amount + 1 WHERE order_id % 10 = 0");
+            clock.Restart();
+            var again = run.Cli("plan"); Ok(again, "plan 2");
+            Ok(run.Cli("apply", run.PlanFile(again.Out)), "second apply");
+            Console.WriteLine($"SCALE second load, 10% changed ({name}): {clock.Elapsed.TotalSeconds:0.0}s");
+            Assert.Equal(Rows, await CountAsync(run, "marts.fct_orders"));
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
     public async Task An_apply_whose_connection_is_killed_mid_step_fails_cleanly_and_the_plan_resumes(string name)
     {
         var run = await SetUp(name);
