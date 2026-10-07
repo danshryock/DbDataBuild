@@ -14,6 +14,13 @@ public interface ITrackingDdl
     bool Unverified { get; }
     string Quote(string identifier);
     IReadOnlyList<InitStatement> InitScript(string schema, string toolVersion);
+
+    /// <summary>
+    /// Brings tracking tables of an older layout (before 4: no `connection` column in any record) to this one, in place: each table that exists without the column gets it, every existing row is
+    /// given <paramref name="connection"/>, and the primary key becomes the one that includes it; the two views are dropped (the init script that follows creates them again). Safe to run on a layout
+    /// that is current (it changes nothing but the views). Run before <see cref="InitScript"/>.
+    /// </summary>
+    IReadOnlyList<InitStatement> UpgradeScript(string schema, string connection);
 }
 
 public static class TrackingDdl
@@ -57,6 +64,29 @@ internal sealed class TSqlTrackingDdl(string target, bool unverified) : ITrackin
         TrackingType.Json => target == "fabric" ? "varchar(max)" : "nvarchar(max)",
         _ => throw new ArgumentOutOfRangeException(nameof(t)),
     };
+
+    public IReadOnlyList<InitStatement> UpgradeScript(string schema, string connection)
+    {
+        if (target == "fabric") throw new NotSupportedException("The upgrade of an older tracking layout has not been verified on Fabric.");
+        var s = Quote(schema);
+        var list = new List<InitStatement>();
+        var n = 0;
+        foreach (var t in TrackingSchema.Tables.Where(t => t.Columns.Any(c => c.Name == "connection")))
+        {
+            var obj = $"{s}.{Quote(t.Name)}";
+            var key = string.Join(", ", t.PrimaryKey.Select(Quote));
+            var column = t.Columns.First(c => c.Name == "connection");
+            list.Add(new($"upgrade-{++n:00}", $"table {t.Name}: add `connection`, set to {connection} on the rows it has, and put it in the primary key",
+                $"IF OBJECT_ID({TrackingDdl.Literal(schema + "." + t.Name)}, N'U') IS NOT NULL AND COL_LENGTH({TrackingDdl.Literal(schema + "." + t.Name)}, 'connection') IS NULL\nBEGIN\n" +
+                $"  ALTER TABLE {obj} ADD {Quote("connection")} {Native(column.Type)} NOT NULL CONSTRAINT {Quote("df_" + t.Name + "_connection")} DEFAULT {TrackingDdl.Literal(connection)};\n" +
+                $"  ALTER TABLE {obj} DROP CONSTRAINT {Quote("df_" + t.Name + "_connection")};\n" +
+                $"  ALTER TABLE {obj} DROP CONSTRAINT {Quote("pk_" + t.Name)};\n" +
+                $"  ALTER TABLE {obj} ADD CONSTRAINT {Quote("pk_" + t.Name)} PRIMARY KEY ({key});\nEND;"));
+        }
+        list.Add(new($"upgrade-{++n:00}", "drop the views of the older layout (the init script creates them again)",
+            $"IF OBJECT_ID({TrackingDdl.Literal(schema + ".metadata_columns")}, N'V') IS NOT NULL DROP VIEW {s}.[metadata_columns];\nIF OBJECT_ID({TrackingDdl.Literal(schema + ".metadata_current")}, N'V') IS NOT NULL DROP VIEW {s}.[metadata_current];"));
+        return list;
+    }
 
     public IReadOnlyList<InitStatement> InitScript(string schema, string toolVersion)
     {
@@ -105,6 +135,28 @@ internal sealed class PostgresTrackingDdl : ITrackingDdl
         TrackingType.Json => "jsonb",
         _ => throw new ArgumentOutOfRangeException(nameof(t)),
     };
+
+    public IReadOnlyList<InitStatement> UpgradeScript(string schema, string connection)
+    {
+        var s = Quote(schema);
+        var list = new List<InitStatement>();
+        var n = 0;
+        foreach (var t in TrackingSchema.Tables.Where(t => t.Columns.Any(c => c.Name == "connection")))
+        {
+            var obj = $"{s}.{Quote(t.Name)}";
+            var key = string.Join(", ", t.PrimaryKey.Select(Quote));
+            var column = t.Columns.First(c => c.Name == "connection");
+            list.Add(new($"upgrade-{++n:00}", $"table {t.Name}: add `connection`, set to {connection} on the rows it has, and put it in the primary key",
+                $"DO $$\nBEGIN\n  IF to_regclass({TrackingDdl.Literal(schema + "." + t.Name)}) IS NOT NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = {TrackingDdl.Literal(schema)} AND table_name = {TrackingDdl.Literal(t.Name)} AND column_name = 'connection') THEN\n" +
+                $"    ALTER TABLE {obj} ADD COLUMN {Quote("connection")} {Native(column.Type)} NOT NULL DEFAULT {TrackingDdl.Literal(connection)};\n" +
+                $"    ALTER TABLE {obj} ALTER COLUMN {Quote("connection")} DROP DEFAULT;\n" +
+                $"    ALTER TABLE {obj} DROP CONSTRAINT {Quote("pk_" + t.Name)};\n" +
+                $"    ALTER TABLE {obj} ADD CONSTRAINT {Quote("pk_" + t.Name)} PRIMARY KEY ({key});\n  END IF;\nEND $$;"));
+        }
+        list.Add(new($"upgrade-{++n:00}", "drop the views of the older layout (the init script creates them again)",
+            $"DROP VIEW IF EXISTS {s}.\"metadata_columns\";\nDROP VIEW IF EXISTS {s}.\"metadata_current\";"));
+        return list;
+    }
 
     public IReadOnlyList<InitStatement> InitScript(string schema, string toolVersion)
     {

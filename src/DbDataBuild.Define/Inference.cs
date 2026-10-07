@@ -24,7 +24,7 @@ public sealed record Inference(
     IReadOnlyList<ProjectionFact> Lineage);
 
 /// <summary>What a query that calls the project's macros needs besides its text: the macros to bind it with, and the tables the bound plan scans once they are expanded (and the names its text gave that are macros, not tables).</summary>
-public sealed record MacroSupport(DuckPrelude Prelude, IReadOnlyList<string> Tables, IReadOnlyList<string> MacroNames);
+public sealed record MacroSupport(DuckPrelude Prelude, IReadOnlyList<string> Tables, IReadOnlyList<string> MacroNames, string? LoweredSql = null);
 
 /// <summary>What `define` learns from a model body, offline: output columns and types from DuckDB's describe, lineage and nullability from polyglot.</summary>
 public static class ModelInference
@@ -77,7 +77,7 @@ public static class ModelInference
             return new SchemaTableSpec(schema == "main" && !u.Name.Contains('.') ? null : schema, name,
                 u.Columns.Select(c => new SchemaColumnSpec(c.Name, c.Type, c.Nullable)).ToList());
         }).ToList();
-        var (facts, _) = QueryAnalyzer.Analyze(sql, specs);
+        var (facts, _) = QueryAnalyzer.Analyze(macros?.LoweredSql ?? sql, specs);
         // Projections align with DuckDB's columns by position. A name must agree, except that polyglot labels an unaliased expression
         // `_col_<index>` while DuckDB names it by its text; that mismatch is how an expression without an alias is recognized.
         var lineage = facts != null && facts.Projections.Count == output.Count &&

@@ -319,7 +319,97 @@ public partial class CopyConformanceTests
             Assert.Contains("@watermark", second);
             Assert.Contains("value: \"2024-01-01 11:00:00", second);                                          // the newest row held (12:00) less the lookback (1 hour)
             Assert.Equal(["1|one", "2|two", "3|three, edited", "4|four"], await Dest());                     // read: 2 (11:00 is at the bound), 3, 4. Not read: 1
+
+            // a full refresh reads the origin from the start: row 1, whose updated_at never moved, comes through now
+            var refreshed = pair.Cli("plan", "--connection", destination, "--full-refresh", "dst.events");
+            Ok(refreshed, "full-refresh plan");
+            var refreshFile = Path.Combine(pair.Dir, Regex.Match(refreshed.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+            Assert.DoesNotContain("@watermark", File.ReadAllText(refreshFile));
+            Ok(pair.Cli("apply", refreshFile), "full-refresh apply");
+            Assert.Equal(["1|one, edited", "2|two", "3|three, edited", "4|four"], await Dest());
+            Assert.NotEqual(0, pair.Cli("plan", "--connection", destination, "--full-refresh", "src.events").Exit);       // not a model of the project that copies
+
+            // `report` says which origin copied well last
+            var report = pair.Cli("report", "--connection", destination);
+            Ok(report, "report");
+            Assert.Contains("Copy origins", report.Out);
+            Assert.Matches($@"dst\.events\s+{origin}\s+\d{{4}}-\d\d-\d\d", report.Out);
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
+    }
+
+    [SkippableFact]
+    public async Task A_copy_of_a_model_built_on_the_origin_is_checked_against_that_models_columns()
+    {
+        // two connections of one engine, each in its own database: the system that builds a model, and the warehouse that copies it
+        var server = EngineEnv.Require("sqlserver");
+        await server.StartAsync();
+        await using var _ = server;
+        var warehouseDb = "ddb_wh_" + Guid.NewGuid().ToString("N")[..8];
+        var warehouse = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(server.ConnectionString) { InitialCatalog = warehouseDb }.ConnectionString;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-built-origin-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v is "DBDATABUILD_ORIGIN_READ" or "DBDATABUILD_ORIGIN_WRITE" ? server.ConnectionString : v is "DBDATABUILD_WH_READ" or "DBDATABUILD_WH_WRITE" ? warehouse : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
+        void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
+        string PlanOf(string output) => Path.Combine(dir, Regex.Match(output, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
+        async Task<List<string>> Rows(string connection, string sql)
+        {
+            await using var c = new Microsoft.Data.SqlClient.SqlConnection(connection);
+            await c.OpenAsync();
+            await using var cmd = c.CreateCommand();
+            cmd.CommandText = sql;
+            var rows = new List<string>();
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) rows.Add(Convert.ToString(r.GetValue(0), System.Globalization.CultureInfo.InvariantCulture)!);
+            return rows;
+        }
+        try
+        {
+            await server.ExecAsync($"CREATE DATABASE [{warehouseDb}]");
+            await server.ExecAsync("IF SCHEMA_ID('src') IS NULL EXEC('CREATE SCHEMA src')");
+            await server.ExecAsync("DROP TABLE IF EXISTS src.base_t");
+            await server.ExecAsync("DROP TABLE IF EXISTS marts.fct");
+            await server.ExecAsync("CREATE TABLE src.base_t (id bigint NOT NULL, name varchar(20) NOT NULL)");
+            await server.ExecAsync("INSERT INTO src.base_t VALUES (1, 'a'), (2, 'b')");
+            Write("dbdatabuild.yml", "defaults: {connections: [wh]}\ntracking: none\nconnections:\n  origin: {engine: sqlserver}\n  wh: {engine: sqlserver}\n");
+            Write("models/src/base_t.yml", "name: src.base_t\nkind: {type: mapped}\nconnections=: [origin]\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: name, type: \"VARCHAR(20)\", nullable: false}\n");
+            Write("models/marts/fct.yml", "name: marts.fct\nkind: {type: full}\nconnections=: [origin]\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: name, type: \"VARCHAR(20)\", nullable: false}\n");
+            Write("models/marts/fct.sql", "SELECT id, name FROM src.base_t\n");
+            Write("models/dst/fct.yml", "name: dst.fct\nkind:\n  type: copy\n  from: marts.fct\n");
+            Ok(Cli("render", "--write"), "render");
+
+            // the model is not built on its connection yet: the copy is planned, with a note that the origin was not checked
+            var first = Cli("plan", "--connection", "wh");
+            Ok(first, "first plan");
+            Assert.Contains("is not built on `origin` yet", first.Err + first.Out);
+
+            var build = Cli("plan", "--connection", "origin");
+            Ok(build, "plan of the origin");
+            Ok(Cli("apply", PlanOf(build.Out)), "apply on the origin");
+            var second = Cli("plan", "--connection", "wh");
+            Ok(second, "second plan");
+            Assert.DoesNotContain("is not built on", second.Err + second.Out);
+            Assert.DoesNotContain("DDB-230", second.Err + second.Out);
+            Ok(Cli("apply", PlanOf(second.Out)), "apply the copy");
+            Assert.Equal(["1|a", "2|b"], await Rows(warehouse, "SELECT CAST(id AS VARCHAR(10)) + '|' + name FROM dst.fct ORDER BY 1"));
+
+            // the table on the origin is changed outside the tool: the copy is stopped before it reads a table that no longer has what the model declares
+            await server.ExecAsync("ALTER TABLE marts.fct DROP COLUMN name");
+            var third = Cli("plan", "--connection", "wh");
+            Assert.NotEqual(0, third.Exit);
+            Assert.Contains("DDB-230", third.Err + third.Out);
+            Assert.Contains("column `name` is gone", third.Err + third.Out);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch (IOException) { }
+            try { Microsoft.Data.SqlClient.SqlConnection.ClearAllPools(); await server.ExecAsync($"ALTER DATABASE [{warehouseDb}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{warehouseDb}]"); } catch (Exception) { }
+        }
     }
 }

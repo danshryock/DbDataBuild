@@ -97,7 +97,7 @@ internal sealed class PlanningSession
 
     /// <summary>Returns the session, or null and the exit code after printing why not.</summary>
     public static (PlanningSession? Session, int Exit) Prepare(CommandSpec spec, string root, string? targetArg, string[] models, TextWriter output, TextWriter error, Func<string, string?> env,
-        IReadOnlyDictionary<string, string>? operations = null, IReadOnlySet<string>? backfills = null)
+        IReadOnlyDictionary<string, string>? operations = null, IReadOnlySet<string>? backfills = null, IReadOnlySet<string>? fullRefresh = null)
     {
         var ctx = ProjectContext.Load(root);
         var connection = CommandTargets.Resolve(ctx.Config, targetArg, error);
@@ -113,8 +113,10 @@ internal sealed class PlanningSession
 
         var selected = ctx.Select(models, error);
         if (selected == null) return (null, CliApp.ExitUsage);
-        foreach (var named in (operations ?? new Dictionary<string, string>()).Keys.Concat(backfills ?? new HashSet<string>()))
+        foreach (var named in (operations ?? new Dictionary<string, string>()).Keys.Concat(backfills ?? new HashSet<string>()).Concat(fullRefresh ?? new HashSet<string>()))
             if (!ctx.Project.Sources.Any(m => m.Definition.Name == named)) { error.WriteLine($"`{named}` is not a model of this project."); return (null, CliApp.ExitUsage); }
+        foreach (var named in fullRefresh ?? new HashSet<string>())
+            if (ctx.Project.Sources.First(m => m.Definition.Name == named).Definition is not { IsCopy: true, Watermark: not null }) { error.WriteLine($"`{named}` is not an incremental copy (a copy with a `watermark`), so `--full-refresh` does nothing for it."); return (null, CliApp.ExitUsage); }
         // each model's query as this connection reads it (a name given by a parameter may be another on another connection)
         var mine = selected.Where(m => ctx.TargetsOf(m.Source.Definition).Contains(target)).Select(m => m with { Sql = m.Source.ReadQuery(root, ctx.Config, target) }).ToList();
         foreach (var skipped in selected.Except(mine)) output.WriteLine($"note: {skipped.Source.Definition.Name} does not declare target `{target}` and is not planned.");
@@ -241,7 +243,7 @@ internal sealed class PlanningSession
                 }
                 // an incremental copy reads each origin from the newest value the destination holds for it (less its lookback); nothing there yet reads everything
                 var marks = new Dictionary<string, string?>();
-                foreach (var copy in planned.Where(p => p.Definition.IsCopy && p.Definition.Watermark != null && snap.Live.ContainsKey(p.Definition.Name)))
+                foreach (var copy in planned.Where(p => p.Definition.IsCopy && p.Definition.Watermark != null && snap.Live.ContainsKey(p.Definition.Name) && fullRefresh?.Contains(p.Definition.Name) != true))
                     foreach (var origin in copy.OriginList)
                     {
                         var def = copy.Definition;

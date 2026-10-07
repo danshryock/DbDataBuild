@@ -1,0 +1,79 @@
+using DbDataBuild.Cli;
+using DbDataBuild.Execution;
+using DbDataBuild.State;
+using Xunit;
+
+namespace DbDataBuild.Tests.Conformance;
+
+/// <summary>Tracking tables of the older layout (no `connection` column in any record) brought to the current one in place, on the real engines.</summary>
+[Trait("Group", "apply")]
+public class TrackingUpgradeConformanceTests
+{
+    public static TheoryData<string> Engines => new() { "sqlserver", "postgres" };
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Tables_of_layout_three_get_the_connection_column_and_keep_their_rows(string name)
+    {
+        var engine = EngineEnv.Require(name);
+        await engine.StartAsync();
+        await using var _ = engine;
+        var dir = Path.Combine(Path.GetTempPath(), "ddb-upgrade-" + Guid.NewGuid().ToString("N"));
+        string? Env(string v) => v == LoginSettings.VariableName(name, Login.Read) || v == LoginSettings.VariableName(name, Login.Write) ? engine.ConnectionString : null;
+        (int Exit, string Out, string Err) Cli(params string[] args)
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            return (exit, o.ToString(), e.ToString());
+        }
+        void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
+        var schema = "dbdatabuild_up_" + Guid.NewGuid().ToString("N")[..6];
+        var ddl = TrackingDdl.For(name);
+        string Q(string id) => ddl.Quote(id);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "models"));
+            File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), $"defaults: {{connections: [{name}]}}\ntracking: {{ connection: {name}, schema: {schema} }}\n" + (name == "postgres" ? "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n" : ""));
+
+            // the layout as it was: this layout, less the column, with the keys as they were, the version recorded as 3
+            Ok(Cli("init", "--connection", name, "--apply"), "init");
+            foreach (var view in new[] { "metadata_columns", "metadata_current" }) await engine.ExecAsync($"DROP VIEW {Q(schema)}.{Q(view)}");
+            foreach (var t in TrackingSchema.Tables.Where(t => t.Columns.Any(c => c.Name == "connection")))
+            {
+                var old = string.Join(", ", t.PrimaryKey.Where(k => k != "connection").Select(Q));
+                await engine.ExecAsync($"ALTER TABLE {Q(schema)}.{Q(t.Name)} DROP CONSTRAINT {Q("pk_" + t.Name)}");
+                await engine.ExecAsync($"ALTER TABLE {Q(schema)}.{Q(t.Name)} DROP COLUMN {Q("connection")}");
+                await engine.ExecAsync($"ALTER TABLE {Q(schema)}.{Q(t.Name)} ADD CONSTRAINT {Q("pk_" + t.Name)} PRIMARY KEY ({old})");
+            }
+            await engine.ExecAsync($"UPDATE {Q(schema)}.{Q("tracking_version")} SET {Q("version")} = 3");
+            await engine.ExecAsync($"INSERT INTO {Q(schema)}.{Q("migration_log")} ({Q("plan_id")}, {Q("plan_hash")}, {Q("plan_text")}, {Q("applied_by")}, {Q("applied_utc")}, {Q("status")}) VALUES ('old-plan', '{new string('a', 64)}', 'text', 'someone', '2026-01-01 00:00:00', 'completed')");
+
+            // without the upgrade the tool says what to do
+            var refused = Cli("plan", "--connection", name);
+            Assert.NotEqual(0, refused.Exit);
+            Assert.Contains("init --upgrade", refused.Err + refused.Out);
+
+            // the script is printed for review first
+            var review = Cli("init", "--connection", name, "--upgrade");
+            Ok(review, "review");
+            Assert.Contains("upgrade-01", review.Out);
+            Assert.Contains("This is an upgrade", review.Out);
+
+            Ok(Cli("init", "--connection", name, "--upgrade", "--apply"), "upgrade");
+            Assert.Equal([name], await engine.RowsAsync($"SELECT {Q("connection")} FROM {Q(schema)}.{Q("migration_log")}"));        // the rows it had belong to the connection that was initialized
+            Assert.Equal(["4"], await engine.RowsAsync($"SELECT CAST(MAX({Q("version")}) AS VARCHAR(10)) FROM {Q(schema)}.{Q("tracking_version")}"));
+            // the key includes the connection now: another connection can have the same plan id
+            await engine.ExecAsync($"INSERT INTO {Q(schema)}.{Q("migration_log")} ({Q("connection")}, {Q("plan_id")}, {Q("plan_hash")}, {Q("plan_text")}, {Q("applied_by")}, {Q("applied_utc")}, {Q("status")}) VALUES ('other', 'old-plan', '{new string('b', 64)}', 'text', 'someone', '2026-01-01 00:00:00', 'completed')");
+            Assert.Equal(2, int.Parse((await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {Q(schema)}.{Q("migration_log")}")).Single()));
+            var report = Cli("report", "--connection", name);
+            Assert.Contains("old-plan", report.Out);                                                                          // the tool reads the upgraded tables
+            Assert.DoesNotContain("DDB-505", report.Err + report.Out);
+            Ok(Cli("init", "--connection", name, "--upgrade", "--apply"), "a second upgrade changes nothing");              // safe to repeat
+            Assert.Equal(2, int.Parse((await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {Q(schema)}.{Q("migration_log")}")).Single()));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch (IOException) { }
+            try { await engine.ExecAsync(name == "postgres" ? $"DROP SCHEMA IF EXISTS {Q(schema)} CASCADE" : $"DECLARE @s nvarchar(max) = N''; SELECT @s += N'DROP VIEW ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';' FROM sys.views WHERE schema_id = SCHEMA_ID('{schema}'); SELECT @s += N'DROP TABLE ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';' FROM sys.tables WHERE schema_id = SCHEMA_ID('{schema}'); EXEC(@s); DROP SCHEMA {Q(schema)}"); } catch (Exception) { }
+        }
+    }
+}

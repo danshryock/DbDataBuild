@@ -13,7 +13,7 @@ internal static class InitCommand
 {
     public const string StatementLogDir = ".dbdatabuild/statement-log";
 
-    public static int Run(CommandSpec spec, string projectRoot, string? targetArg, bool apply, TextWriter output, TextWriter error, Func<string, string?> environment)
+    public static int Run(CommandSpec spec, string projectRoot, string? targetArg, bool apply, bool upgrade, TextWriter output, TextWriter error, Func<string, string?> environment)
     {
         var diags = new List<Diagnostic>();
         var config = ProjectConfigLoader.LoadFromProject(projectRoot, diags);
@@ -49,9 +49,10 @@ internal static class InitCommand
         }
 
         var ddl = TrackingDdl.For(engine);
-        var script = schemas.SelectMany(s => ddl.InitScript(s, ProductInfo.Version)).ToList();
+        if (upgrade && ddl.Unverified) { error.WriteLine($"The upgrade of an older tracking layout has not been verified on {engine}."); return CliApp.ExitUsage; }
+        var script = schemas.SelectMany(s => (upgrade ? ddl.UpgradeScript(s, target) : []).Concat(ddl.InitScript(s, ProductInfo.Version))).ToList();
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
-        output.WriteLine($"Tracking schema: {string.Join(", ", schemas)}. Statements: {script.Count}. The script only creates what is missing; it never alters or drops.");
+        output.WriteLine($"Tracking schema: {string.Join(", ", schemas)}. Statements: {script.Count}. {(upgrade ? $"This is an upgrade: tables of an older layout get the `connection` column (set to `{target}` on what they hold) and the views are replaced; nothing else is altered or dropped." : "The script only creates what is missing; it never alters or drops.")}");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
         output.Payload("connection", target);
@@ -74,7 +75,7 @@ internal static class InitCommand
             using var log = new FileStatementLog(Path.Combine(projectRoot, StatementLogDir), spec.Name, runId);
             output.WriteLine($"Statement log: {Path.GetRelativePath(projectRoot, log.Path)}");
             var gate = Task.Run(() => MutationGate.OpenAsync(write!, spec.Name, StatementKind.Tracking, log, runId)).GetAwaiter().GetResult();
-            try { foreach (var schema in schemas) Task.Run(() => TrackingStore.InitAsync(gate, engine, schema)).GetAwaiter().GetResult(); }
+            try { foreach (var schema in schemas) Task.Run(() => upgrade ? TrackingStore.UpgradeAsync(gate, engine, schema, target) : TrackingStore.InitAsync(gate, engine, schema)).GetAwaiter().GetResult(); }
             finally { gate.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
         }
         catch (GateRefusedException ex)

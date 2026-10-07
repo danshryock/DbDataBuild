@@ -311,10 +311,9 @@ warning. An origin whose login is not in the environment is reported as not chec
 the origin read gains `WHERE <column> >= @watermark`, the bound being the newest value of that column the destination holds (for the origin's own rows when there is a slice) less the lookback (days, weeks, months
 for a DATE; any unit for a TIMESTAMP), computed at plan time and recorded in the plan's transfer step (`watermark: {column, type, value}`; the value is bound by the driver, never in the text). With nothing in the
 destination yet the bound is absent and everything is read. The rows read replace the rows with the same `unique_key` (`delete_insert_by_key`; with a slice the key gains the slice column); **rows deleted at the origin are
-not deleted in the destination** (an incremental copy cannot see them: plan a full copy, a copy with no `watermark`, to reconcile).
+not deleted in the destination** (an incremental copy cannot see them: plan a full copy, a copy with no `watermark`, to reconcile). `plan --full-refresh <model>` reads such a copy from the start once (the merge by `unique_key` makes that safe; it still does not see rows deleted at the origin). `report` lists each origin's last good run and its latest attempt.
 
-Not built: `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, project parameters and folder-level connection parameters, the origin check
-for an origin that is a built model, a full refresh of one incremental copy without removing its `watermark`.
+Not built: `columns` selection or a row filter (do it with a model on the origin, then copy that), copying types the logical types do not cover, rows deleted at the origin in an incremental copy.
 
 ### 6.5.3 Parameters (as built)
 
@@ -358,6 +357,7 @@ lowering (the support matrix, the transpile, the rendered files, the hashes) see
   (a name is not bound). When a model's names differ between its connections, each distinct query is lowered on its own and written to `rendered/lowered/<model>/lowered.<first connection that reads it>.sql`
   (one `lowered.sql` when they agree); the plan for one connection and `render` of all produce the same files; `validate`, the lint and the graph (the union of the tables its names can point at) see every variant,
   and a table is checked against the connections that read it through their own name only (DDB-231). Changing a name changes the model's definition hash on that connection.
+- **Column lineage** goes through a macro: for a query that calls one, `graph --column`, the metadata and `define` read lineage and nullability from the lowered query (plain SQL on real tables), so a column is followed to the table column it was given.
 - **Types** (`CREATE TYPE ... AS ENUM`) load in the same place, before the tables. They are DuckDB's, for macros and for readability; the lowerer does not map an enum to an engine type.
 
 ### 6.5.4 Native models and local copies (as built; design: `docs/research/native-queries.md`)

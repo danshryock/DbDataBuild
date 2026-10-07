@@ -351,7 +351,7 @@ public static class ApplyEngine
         }
 
         await gate.ExecuteAsync(GateStatement.FromPlanStep(step.Id + ":staging", StatementKind.Ddl, step.Text), ct);
-        await tracker.BeginRunAsync(step.Id, runId, step.Object, "transfer", plan.Id, o.GitCommit, null, null, "transfer", null, null, null, null, ct);
+        await tracker.BeginRunAsync(step.Id, runId, step.Object, "transfer", plan.Id, o.GitCommit, null, null, $"from {spec.Origin}", null, null, null, null, ct);          // the origin is in the record, so `report` can say which origin last copied well
         try
         {
             await using var origin = await o.OpenOrigin!(spec.Origin, ct);

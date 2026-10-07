@@ -67,6 +67,14 @@ internal static class ReportCommand
             var runs = await trackRead.QueryAsync(Top($"{C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("plan_id")}", T("run_log"), $"{C("started_utc")} DESC"), byConnection);
             Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
 
+            // each origin of each copy: when it last copied well, and how the latest attempt ended (a run is recorded as `from <origin>`; older records have no origin)
+            var transfers = await trackRead.QueryAsync($"SELECT {C("model")}, {C("load_name")}, {C("status")}, {C("started_utc")}, {C("rows_affected")} FROM {T("run_log")} WHERE {C("connection")} = @connection AND {C("operation")} = 'transfer' ORDER BY {C("started_utc")} DESC", byConnection);
+            var origins = transfers.GroupBy(r => (Model: Cell(r[0]), Origin: Cell(r[1]).StartsWith("from ", StringComparison.Ordinal) ? Cell(r[1])[5..] : ""))
+                .OrderBy(g => g.Key.Model, StringComparer.Ordinal).ThenBy(g => g.Key.Origin, StringComparer.Ordinal)
+                .Select(g => (g.Key.Model, g.Key.Origin, Latest: g.First(), Good: g.FirstOrDefault(r => Cell(r[2]) == "ok"))).ToList();
+            Table("origins", "Copy origins (last good run, and the latest attempt)", ["model", "origin", "last good (UTC)", "rows", "latest attempt"],
+                origins.Select(o => new[] { o.Model, o.Origin, o.Good == null ? "never" : Cell(o.Good[3]), o.Good == null ? "" : Cell(o.Good[4]), $"{Cell(o.Latest[3])} {Cell(o.Latest[2])}" }));
+
             var versions = await trackRead.QueryAsync($"SELECT {C("object_name")}, COUNT(*), MAX({C("first_seen_utc")}) FROM {T("schema_version")} WHERE {C("connection")} = @connection GROUP BY {C("object_name")} ORDER BY {C("object_name")}", byConnection);
             var recorded = await TrackingStore.LatestShapeHashesAsync(trackRead, scope);
             var schemas = recorded.Keys.Select(k => DdlGenerator.Split(k).Schema).Distinct(StringComparer.Ordinal).ToList();
@@ -100,6 +108,8 @@ internal static class ReportCommand
                 open.Add($"DDL on {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
             foreach (var r in await trackRead.QueryAsync($"SELECT {C("model")}, {C("plan_id")} FROM {T("run_log")} WHERE {C("connection")} = @connection AND {C("status")} <> 'ok'", byConnection))
                 open.Add($"load of {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
+            foreach (var o in origins.Where(o => Cell(o.Latest[2]) != "ok"))
+                open.Add($"{o.Model}: {(o.Origin.Length > 0 ? $"the origin `{o.Origin}`" : "an origin")} {(o.Good == null ? "has never copied well" : $"last copied well at {Cell(o.Good[3])} UTC")}, and its latest attempt ended `{Cell(o.Latest[2])}` (`{ProductInfo.Cli} plan` and `apply`, or `apply --resume`)");
             foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} ack drift {d} --reason ...`, or restore it)");
             output.WriteLine();
             output.Payload("needs_attention", open);

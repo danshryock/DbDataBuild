@@ -108,13 +108,23 @@ internal sealed class ProjectContext
         return named.Where(n => !called.Contains(n, StringComparer.OrdinalIgnoreCase)).Concat(scanned).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// The text lineage and nullability are read from: the query as written, or, for one that calls macros, the lowered query (what DuckDB expanded the macros to), which is plain SQL on real tables, so the
+    /// analyzer follows each output column through the macro to the column it comes from. Falls back to the written query when it cannot be lowered (its error is reported where it is lowered).
+    /// </summary>
+    public string AnalysisSql(ModelSource source, string sql)
+    {
+        if (!Lowering.Enabled || !Lowering.ReachesMacros(sql)) return sql;
+        return Lowering.Lower(source, sql, source.QueryParameterList(Root, Config)).Model?.Sql ?? sql;
+    }
+
     /// <summary>What binding a query that calls macros needs (null for one that does not): the macros it reaches and the tables its bound plan scans.</summary>
     public DbDataBuild.Define.MacroSupport? MacroSupportFor(ModelSource source, string sql)
     {
         var (called, mentioned) = Project.Macros.ReachedBy(sql);
         if (called.Count == 0 && mentioned.Count == 0) return null;
         var scanned = Lowering.TablesRead(source, sql, source.QueryParameterList(Root, Config)) ?? [];
-        return new DbDataBuild.Define.MacroSupport(Project.Macros.PreludeFor([sql]), scanned, called);
+        return new DbDataBuild.Define.MacroSupport(Project.Macros.PreludeFor([sql]), scanned, called, AnalysisSql(source, sql));
     }
 
     /// <summary>

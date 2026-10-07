@@ -2006,6 +2006,37 @@
           "items": {
             "type": "string"
           }
+        },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "last_good_utc": {
+                "type": "string"
+              },
+              "rows": {
+                "type": "string"
+              },
+              "latest_attempt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "model",
+              "origin",
+              "last_good_utc",
+              "rows",
+              "latest_attempt"
+            ]
+          }
         }
       }
     },

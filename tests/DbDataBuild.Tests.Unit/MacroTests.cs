@@ -264,4 +264,21 @@ public class MacroTests
         Assert.True(File.Exists(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.sql")));
         Assert.Single(ProjectContext.Load(dir).QueryVariants(ProjectContext.Load(dir).Project.Sources.Single(s => s.Definition.Name == "marts.totals")));
     }
+
+    [Fact]
+    public void Column_lineage_follows_a_column_through_a_macro_to_the_table_column_it_was_given()
+    {
+        var dir = Project();
+        string[] Upstream(string column)
+        {
+            var doc = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "--column", column).Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
+            return doc.Select(u => $"{(string?)u!["table"]}.{(string?)u["column"]}").Order(StringComparer.Ordinal).ToArray();
+        }
+        Assert.Equal(["src.orders_snap.amount"], Upstream("marts.snap_totals.total"));
+        Assert.Equal(["src.orders_snap.snap_date"], Upstream("marts.snap_totals.as_of_date"));          // the column the caller named
+        Assert.Equal(["src.orders.amount"], Upstream("marts.live_totals.total"));
+        var model = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json", "marts.snap_totals").Out)!["data"]!["models"]!.AsArray().Single()!;
+        var total = model["columns"]!.AsArray().Single(c => (string?)c!["name"] == "total")!;
+        Assert.Equal("src.orders_snap", (string?)total["lineage"]!["upstream"]![0]!["table"]);
+    }
 }

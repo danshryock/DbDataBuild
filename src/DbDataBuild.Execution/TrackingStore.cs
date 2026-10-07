@@ -14,7 +14,7 @@ public sealed record TrackingStatus(TrackingState State, int? Version)
         TrackingState.Ready => null,
         TrackingState.Missing => new Diagnostic(DiagnosticCatalog.TrackingNotInitialized, new($"schema:{schema}", 0, 0), $"The tracking tables do not exist in schema `{schema}` on the target."),
         _ => new Diagnostic(DiagnosticCatalog.TrackingNotInitialized, new($"schema:{schema}", 0, 0),
-            $"The tracking tables in schema `{schema}` are at layout version {(Version?.ToString() ?? "unreadable")}; this tool knows version {TrackingSchema.Version}. A layout older than 4 has no `connection` column in its records and cannot be upgraded in place: move the old tables aside (or name another schema with `tracking: {{ schema: ... }}`) and run `init` again."),
+            $"The tracking tables in schema `{schema}` are at layout version {(Version?.ToString() ?? "unreadable")}; this tool knows version {TrackingSchema.Version}. A layout older than 4 has no `connection` column in its records: `init --upgrade --apply` adds it (every existing record is given the connection that is initialized) and replaces the views; or name another schema with `tracking: {{ schema: ... }}` and run `init` there."),
     };
 }
 
@@ -39,6 +39,14 @@ internal static class TrackingClock
 public static class TrackingStore
 {
     private static string Quote(string target, string id) => TrackingDdl.For(target).Quote(id);
+
+    /// <summary>Runs the upgrade script of an older layout, then the init script, through the gate (`init --upgrade`).</summary>
+    public static async Task UpgradeAsync(MutationGate gate, string target, string schema, string connection, CancellationToken ct = default)
+    {
+        foreach (var s in TrackingDdl.For(target).UpgradeScript(schema, connection))
+            await gate.ExecuteAsync(GateStatement.Tracking(s.Id, s.Text), ct);
+        await InitAsync(gate, target, schema, ct);
+    }
 
     /// <summary>Runs the init script through the gate. Idempotent: a second run changes nothing.</summary>
     public static async Task InitAsync(MutationGate gate, string target, string schema, CancellationToken ct = default)

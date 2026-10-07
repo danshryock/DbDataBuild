@@ -155,8 +155,9 @@ public static class CliApp
                     var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var initTarget = new Option<string?>("--connection") { Description = "Connection to initialize (default: the project's only default connection)" };
                     var initApply = new Option<bool>("--apply") { Description = "Run the script on the write login (default: print it for review and connect to nothing)" };
-                    cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    var initUpgrade = new Option<bool>("--upgrade") { Description = "Bring tracking tables of an older layout (before 4) to this one first: adds the `connection` column to each record table (every existing row gets the connection being initialized), puts it in the primary keys and drops the old views; the script is printed for review like the rest" };
+                    cmd.Options.Add(initProject); cmd.Options.Add(initTarget); cmd.Options.Add(initApply); cmd.Options.Add(initUpgrade);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => InitCommand.Run(spec, pr.GetValue(initProject)!.FullName, pr.GetValue(initTarget), pr.GetValue(initApply), pr.GetValue(initUpgrade), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "plan":
                     var planModels = new Argument<string[]>("models") { Description = "Model names, files or directories to plan (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
@@ -168,10 +169,11 @@ public static class CliApp
                     var planOp = new Option<string[]>("--op") { Description = "model=operation: load this model with a non-default operation (repeatable)", DefaultValueFactory = _ => [] };
                     var planBackfill = new Option<string[]>("--backfill") { Description = "model=operation: plan that operation as a backfill (risky; needs --allow-risky at apply); the model has no routine load in this plan (repeatable)", DefaultValueFactory = _ => [] };
                     var planParam = new Option<string[]>("--param") { Description = "model.operation.parameter=value: the value of a runtime parameter of a load operation, instead of an answers file (repeatable)", DefaultValueFactory = _ => [] };
-                    cmd.Options.Add(planOp); cmd.Options.Add(planBackfill); cmd.Options.Add(planParam);
+                    var planFullRefresh = new Option<string[]>("--full-refresh") { Description = "model: read an incremental copy's origins from the start instead of from the newest value the destination holds (the merge by unique key makes it safe to repeat; it does not see rows deleted at the origin; repeatable)", DefaultValueFactory = _ => [] };
+                    cmd.Options.Add(planOp); cmd.Options.Add(planBackfill); cmd.Options.Add(planFullRefresh); cmd.Options.Add(planParam);
                     cmd.Arguments.Add(planModels);
                     cmd.Options.Add(planProject); cmd.Options.Add(planTarget); cmd.Options.Add(planAnswers); cmd.Options.Add(planAccept); cmd.Options.Add(planOut);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut), pr.GetValue(planOp) ?? [], pr.GetValue(planBackfill) ?? [], pr.GetValue(planParam) ?? [],
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Plan(spec, pr.GetValue(planProject)!.FullName, pr.GetValue(planTarget), pr.GetValue(planModels) ?? [], pr.GetValue(planAnswers), pr.GetValue(planAccept), pr.GetValue(planOut), pr.GetValue(planOp) ?? [], pr.GetValue(planBackfill) ?? [], pr.GetValue(planFullRefresh) ?? [], pr.GetValue(planParam) ?? [],
                         o, e, input, interactive && !o.IsJson(), environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "check":

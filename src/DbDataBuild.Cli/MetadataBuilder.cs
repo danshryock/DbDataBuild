@@ -153,7 +153,7 @@ internal static class MetadataBuilder
 
         // lineage and inferred nullability, against the declared columns of everything upstream
         var specs = UpstreamSpecs(ctx, def.Name);
-        var (facts, _) = QueryAnalyzer.Analyze(sql, specs);
+        var (facts, _) = QueryAnalyzer.Analyze(ctx.AnalysisSql(source, sql), specs);
         var known = ctx.Project.Models.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sources = ctx.Project.AllDescriptors.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

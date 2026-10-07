@@ -22,6 +22,9 @@ internal static class CopyOriginCheck
         foreach (var copy in copies)
         {
             var declared = ctx.Project.Descriptors.Concat(ctx.Project.NativeModels).FirstOrDefault(d => string.Equals(d.Name, copy.From, StringComparison.OrdinalIgnoreCase));
+            // a model the project builds on the origin is declared by its own columns: the origin's table is what that model's plan made (or it is not built yet)
+            var builtModel = declared == null && ctx.Project.Models.FirstOrDefault(m => string.Equals(m.Name, copy.From, StringComparison.OrdinalIgnoreCase) && !m.IsCopy) is { } model;
+            if (builtModel) declared = new SourceDescriptor(ctx.Project.Models.First(m => string.Equals(m.Name, copy.From, StringComparison.OrdinalIgnoreCase)).Name, ctx.Project.Models.First(m => string.Equals(m.Name, copy.From, StringComparison.OrdinalIgnoreCase)).Columns, []);
             if (declared == null) continue;
             if (declared.Native is { Access: NativeQuery.Command }) continue;      // a command is not described: the transfer's own check at apply is its net
             foreach (var origin in ctx.OriginsOf(copy, destination))
@@ -39,6 +42,11 @@ internal static class CopyOriginCheck
                     continue;
                 }
                 if (differences.Count == 0) continue;
+                if (builtModel && differences is [{ } only] && only == "the table does not exist there")
+                {
+                    findings.Add(new Diagnostic(DiagnosticCatalog.CopyOriginDiffers, new(copy.From ?? copy.Name, 0, 0), $"{copy.Name}: `{copy.From}` is not built on `{origin.Connection}` yet, so it was not checked against its declaration (plan and apply it there first).") with { SeverityOverride = Severity.Warning });
+                    continue;
+                }
                 var text = $"{copy.Name}: `{copy.From}` on `{origin.Connection}` differs from its declaration: {string.Join("; ", differences)}.";
                 if (copy.OnMismatch == CopySlice.Skip)
                 {
