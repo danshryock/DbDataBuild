@@ -262,6 +262,7 @@ internal sealed class ProjectContext
             if (files.Contains(ProductInfo.ConfigFile)) changed.UnionWith(all.Select(s => s.Definition.Name));                    // the project settings reach every model
             foreach (var s in all.Where(s => files.Contains(s.QueryFile) || files.Contains(s.DefinitionFile))) changed.Add(s.Definition.Name);
             foreach (var d in Project.FileDescriptors.Where(d => files.Contains(d.File.Length > 0 ? d.File : ModelSourcePath(d.Name)))) changed.UnionWith(Graph.ReadBy(d.Name));      // a changed source changes what reads it
+            changed.UnionWith(ChangedThroughOtherFiles(files, all));
             return changed.OrderBy(n => n, StringComparer.Ordinal).ToList();                                                          // nothing changed is a valid, empty answer
         }
 
@@ -273,6 +274,43 @@ internal sealed class ProjectContext
         var found = byName.Count > 0 ? byName : byPath.Count > 0 ? byPath : byDir;
         if (found.Count == 0) { error.WriteLine($"`{core}` does not name a valid model, a model file, or a directory containing models."); return null; }
         return found.Select(s => s.Definition.Name).ToList();
+    }
+
+    /// <summary>
+    /// The models that a changed file reaches without being the model's own query or definition: a folder file (`_dbdatabuild.yml`: every model beneath it), the text of a native model, a hook script a model runs, a macro file
+    /// (the models whose queries reach one of its macros), and a rendered file (the model it was rendered for).
+    /// </summary>
+    private HashSet<string> ChangedThroughOtherFiles(HashSet<string> files, List<ModelSource> all)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in files.Where(f => f.StartsWith(ProjectValidator.ModelsDir + "/", StringComparison.Ordinal) && f.EndsWith("/_dbdatabuild.yml", StringComparison.Ordinal)))
+        {
+            var dir = folder[..^"_dbdatabuild.yml".Length];
+            result.UnionWith(all.Where(s => s.DefinitionFile.StartsWith(dir, StringComparison.Ordinal) || s.QueryFile.StartsWith(dir, StringComparison.Ordinal)).Select(s => s.Definition.Name));
+        }
+        foreach (var native in files.Where(f => f.EndsWith(".native.sql", StringComparison.Ordinal)))
+        {
+            var definition = native[..^".native.sql".Length] + ".yml";
+            foreach (var d in Project.FileDescriptors.Where(d => string.Equals(d.File, definition, StringComparison.Ordinal))) result.UnionWith(Graph.ReadBy(d.Name));
+        }
+        foreach (var s in all)
+        {
+            var scripts = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var target in TargetsOf(s.Definition))
+                foreach (var hook in HookReader.Resolve(s.Definition, Config, target, s.DefinitionFile, []))
+                    scripts.Add(hook.ScriptPath.Replace('\\', '/'));
+            if (scripts.Overlaps(files)) result.Add(s.Definition.Name);
+        }
+        var changedMacroFiles = files.Where(f => f.StartsWith("macros/", StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
+        if (changedMacroFiles.Count > 0)
+            foreach (var s in all)
+                if (Project.Macros.Closure(s.QueryVariants(Root, Config, TargetsOf(s.Definition)).Select(v => v.Sql)).Any(m => changedMacroFiles.Contains(m.File.Replace('\\', '/')))) result.Add(s.Definition.Name);
+        foreach (var f in files.Where(f => f.StartsWith("rendered/", StringComparison.Ordinal)))
+        {
+            var parts = f.Split('/');
+            if (parts.Length >= 4) result.UnionWith(all.Where(s => string.Equals(s.Definition.Name, parts[2], StringComparison.OrdinalIgnoreCase)).Select(s => s.Definition.Name));
+        }
+        return result;
     }
 
     private static string ModelSourcePath(string name) => $"{ProjectValidator.ModelsDir}/{name.Replace('.', '/')}.yml";

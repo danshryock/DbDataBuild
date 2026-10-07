@@ -252,6 +252,44 @@ public class GraphTests
         Assert.Equal(["marts.big", "marts.fct_orders", "stg.customers", "stg.orders"], Chosen("changed:HEAD"));   // the project settings reach every model
     }
 
+    [Fact]
+    public void Changed_also_follows_a_folder_file_a_hook_script_a_macro_file_and_a_rendered_file_to_the_models_they_reach()
+    {
+        var dir = Project();
+        Directory.CreateDirectory(Path.Combine(dir, "hooks"));
+        Directory.CreateDirectory(Path.Combine(dir, "macros"));
+        Directory.CreateDirectory(Path.Combine(dir, "rendered/lowered/stg.customers"));
+        File.WriteAllText(Path.Combine(dir, "hooks/g.sql"), "GRANT SELECT ON stg.customers TO reader;\n");
+        File.AppendAllText(Path.Combine(dir, "models/stg/customers.yml"), "hooks:\n  - {name: grant, event: post_create, script: hooks/g.sql}\n");
+        File.WriteAllText(Path.Combine(dir, "macros/twice.sql"), "CREATE MACRO twice(x) AS x * 2;\n");
+        File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, twice(o.amount) AS double_amount, c.name FROM stg.orders o JOIN stg.customers c ON c.customer_id = o.customer_id\n");
+        File.WriteAllText(Path.Combine(dir, "models/marts/_dbdatabuild.yml"), "defaults:\n  lint_ignore: [DDB-223]\n");
+        File.WriteAllText(Path.Combine(dir, "rendered/lowered/stg.customers/lowered.sql"), "SELECT 1\n");
+        Assert.True(Git(dir, "init -q") && Git(dir, "config user.email t@example.com") && Git(dir, "config user.name t") && Git(dir, "add -A") && Git(dir, "-c commit.gpgsign=false commit -q -m base"), "git must be available to test `changed:`");
+        string[] Chosen()
+        {
+            var o = new StringWriter(); var e = new StringWriter();
+            Assert.Equal(0, CliApp.Run(["metadata", "changed:HEAD", "--project", dir, "--format", "json"], o, e, environment: _ => null));
+            return JsonNode.Parse(o.ToString())!["data"]!["models"]!.AsArray().Select(m => (string)m!["name"]!).Order().ToArray();
+        }
+        Assert.Empty(Chosen());
+
+        File.AppendAllText(Path.Combine(dir, "hooks/g.sql"), "-- touched\n");
+        Assert.Equal(["stg.customers"], Chosen());                                                    // the model that runs the script
+        Git(dir, "checkout -q -- .");
+
+        File.AppendAllText(Path.Combine(dir, "macros/twice.sql"), "-- touched\n");
+        Assert.Equal(["marts.fct_orders"], Chosen());                                                 // the model whose query calls the macro
+        Git(dir, "checkout -q -- .");
+
+        File.AppendAllText(Path.Combine(dir, "models/marts/_dbdatabuild.yml"), "# touched\n");
+        Assert.Equal(["marts.big", "marts.fct_orders"], Chosen());                                    // every model beneath the folder file
+        Git(dir, "checkout -q -- .");
+
+        File.AppendAllText(Path.Combine(dir, "rendered/lowered/stg.customers/lowered.sql"), "-- touched\n");
+        Assert.Equal(["stg.customers"], Chosen());                                                    // the model the file was rendered for
+    }
+
     // ---- for rules ----
 
     [Fact]

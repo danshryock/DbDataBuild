@@ -768,3 +768,8 @@ Operator decision: correlated subqueries are a hard requirement.
 
 - **Built** (`PlanLowerer`, the aggregate node; DESIGN.md 7.6): when an aggregate's argument or a group key holds a subquery, the child is wrapped in a derived table first, so the subquery is a column of the derived table and the aggregate reads the column. SQL Server answers `sum((SELECT ...))` with "Cannot perform an aggregate function on an expression containing an aggregate or a subquery"; PostgreSQL accepts it either way.
 - **Verified**: three unit forms equal to DuckDB's rows (a correlated count inside `sum`, a `max` over `coalesce` of a subquery, a `GROUP BY` with a sum over a subquery); on SQL Server 2022 and PostgreSQL 17 the two model forms give 5 and 7|8; the SQL Server test fails without the change.
+
+## 97. `changed:` follows the files a model depends on
+
+- **Built** (`ProjectContext.ChangedThroughOtherFiles`; DESIGN.md 9.9 selectors): besides a model's own `.sql` and `.yml`, a changed source descriptor and `dbdatabuild.yml`, `changed:<ref>` now selects the models beneath a changed `_dbdatabuild.yml`, the readers of a changed `.native.sql`, the models that run a changed hook script (groups expanded, per connection), the models whose queries reach a macro of a changed `macros/` file (the closure: macros that call macros), and the model a changed `rendered/` file belongs to.
+- **Verified**: `GraphTests` (a git repository: touch a hook script, a macro file, a folder file, a rendered file; each selects exactly the models it should). The native-text branch has no test of its own (it reuses the descriptor lookup).

@@ -965,7 +965,7 @@ These tests check a model's **logic in DuckDB**: the lowering to each engine is 
 | `2+model`, `model+1` | the same, limited to that many steps |
 | `@model` | the model, everything that depends on it, and everything those need to be built (dbt's `@`) |
 | `kind:full`, `target:postgres`, `path:models/marts` | by kind, by a target the model is built for, by directory |
-| `changed:<git ref>` | the models whose `.sql` or `.yml` differs from the ref in the working tree (committed or not, and untracked files); a changed source descriptor selects the models that read it; a changed `dbdatabuild.yml` selects every model. `changed:origin/main+` is the changed models and what depends on them. Nothing changed is a valid, empty selection |
+| `changed:<git ref>` | the models whose `.sql` or `.yml` differs from the ref in the working tree (committed or not, and untracked files); a changed source descriptor selects the models that read it; a changed `dbdatabuild.yml` selects every model; a changed folder file (`_dbdatabuild.yml`) selects every model beneath it, a changed native text the models that read it, a changed hook script the models that run it, a changed macro file the models whose queries reach one of its macros, and a changed rendered file the model it was rendered for (entry 97). `changed:origin/main+` is the changed models and what depends on them. Nothing changed is a valid, empty selection |
 | `a,b` | the intersection of the terms: `kind:view,stg.orders+` |
 | `exclude:<selector>` | takes models out again: `marts.fct_orders+ exclude:marts.big` |
 
