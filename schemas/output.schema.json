@@ -115,6 +115,13 @@
       "items": {
         "type": "string"
       }
+    },
+    "next": {
+      "description": "What to do next, as commands (the `Next:` block of the text). Present when the command has a suggestion.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "allOf": [

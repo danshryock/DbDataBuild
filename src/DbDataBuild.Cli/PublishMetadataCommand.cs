@@ -16,7 +16,7 @@ internal static class PublishMetadataCommand
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
         var tracking = CommandTracking.Require(ctx.Config, connection, env, needWrite: true, error, spec.Name);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  records on {tracking?.Target.Connection ?? "none"}: read {tracking?.Read.Describe() ?? "none"}, write {tracking?.Write?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  records on {tracking?.Target.Connection ?? "none"}: read {tracking?.Read.Describe() ?? "none"}, write {tracking?.Write?.Describe() ?? "none"}");
         if (tracking?.Write == null) return CliApp.ExitFindings;
         var read = tracking.Read; var write = tracking.Write;
 

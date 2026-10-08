@@ -13,7 +13,7 @@ internal static class GraphCommand
 {
     public static int Run(CommandSpec spec, string root, string[] models, bool columns, string? column, string? diagram, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         if (diagram is not (null or "dot" or "mermaid")) { error.WriteLine("--diagram is `dot` or `mermaid`."); return CliApp.ExitUsage; }
         var ctx = ProjectContext.Load(root);
         var selected = ctx.Select(models, error);

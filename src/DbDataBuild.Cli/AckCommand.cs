@@ -24,7 +24,7 @@ internal static class AckCommand
 
         var (read, readMissing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var tracking = CommandTracking.Require(ctx.Config, connection, env, needWrite: true, error, spec.Name);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: read {read?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}: write {tracking?.Write?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: read {read?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}: write {tracking?.Write?.Describe() ?? "none"}");
         if (readMissing != null) error.Diag(readMissing);
         if (read == null || tracking?.Write == null) return CliApp.ExitFindings;
         var write = tracking.Write;
@@ -104,6 +104,7 @@ internal static class AckCommand
             await AuditLog.AcknowledgeAsync(gate, scope, "ack", name, code, detail, write.User ?? Environment.UserName, reason!);
             output.Payload("acknowledged", new[] { new { kind, subject = name, key = $"{code}|{name}|{detail}", by = write.User ?? Environment.UserName, reason } });
             output.WriteLine($"Recorded: {code} on {name} for hash {detail[..Math.Min(12, detail.Length)]} acknowledged by {write.User ?? Environment.UserName}. The next plan will accept exactly this change.");
+            output.Next("connection deploy --write-plan");
             return CliApp.ExitOk;
         }).GetAwaiter().GetResult();
     }

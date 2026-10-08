@@ -14,7 +14,7 @@ internal static class ReviewCommand
 {
     public static int Run(CommandSpec spec, string projectRoot, string? planFile, string? target, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         if (target != null && CommandTargets.NamesOf(projectRoot) is var names && !names.Contains(target)) { error.WriteLine($"Unknown connection `{target}`. One of: {string.Join(", ", names)}."); return CliApp.ExitUsage; }
         return planFile == null ? List(projectRoot, target, output) : Show(projectRoot, planFile, output, error);
     }

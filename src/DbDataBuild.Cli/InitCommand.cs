@@ -41,7 +41,7 @@ internal static class InitCommand
             var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
-                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: none");
+                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: none");
                 error.Diag(missing);
                 return CliApp.ExitFindings;
             }
@@ -51,7 +51,7 @@ internal static class InitCommand
         var ddl = TrackingDdl.For(engine);
         if (upgrade && ddl.Unverified) { error.WriteLine($"The upgrade of an older tracking layout has not been verified on {engine}."); return CliApp.ExitUsage; }
         var script = schemas.SelectMany(s => (upgrade ? ddl.UpgradeScript(s, target) : []).Concat(ddl.InitScript(s, ProductInfo.Version))).ToList();
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
         output.WriteLine($"Tracking schema name: {string.Join(", ", schemas)}. Statements: {script.Count}. {(upgrade ? $"This is an upgrade: tables of an older layout get the `connection` column (set to `{target}` on what they hold) and the views are replaced; nothing else is altered or dropped." : "The script only creates what is missing; it never alters or drops.")}");
         if (ddl.Unverified) output.WriteLine($"note: this script has not been run on {target} (no engine was available to verify it).");
 
@@ -66,6 +66,7 @@ internal static class InitCommand
             output.WriteLine();
             output.Write(TrackingDdl.Render(script));
             output.WriteLine($"Review the script above, then run `{ProductInfo.Cli} {spec.Name} --connection {target} --apply` with the write login configured.");
+            output.Next($"connection init --connection {target} --apply");
             return CliApp.ExitOk;
         }
 
@@ -84,6 +85,7 @@ internal static class InitCommand
             return CliApp.ExitFindings;
         }
         output.WriteLine($"Applied {script.Count} statements. The tracking tables are ready.");
+        output.Next("connection status", "connection deploy");
         return CliApp.ExitOk;
     }
 }

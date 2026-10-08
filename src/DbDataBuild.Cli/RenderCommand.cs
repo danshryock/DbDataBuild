@@ -16,7 +16,7 @@ internal static class RenderCommand
 
     public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, bool content, TextWriter output, TextWriter error, bool header = true)
     {
-        if (header) output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        if (header) output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         if (content && (write || check))
         {
             error.WriteLine("--content only goes with a plain render: --write and --check have their own documents.");
@@ -178,7 +178,7 @@ internal static class RenderCommand
 
     public static int Loads(CommandSpec spec, string projectRoot, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         var ctx = ProjectContext.Load(projectRoot);
         var rows = new List<string[]>();
         var diags = new List<Diagnostic>();

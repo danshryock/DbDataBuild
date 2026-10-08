@@ -28,6 +28,7 @@ internal sealed class CommandReport
     private readonly TextWriter realOutput;
     private readonly List<Diagnostic> diagnostics = [];
     private readonly Dictionary<string, object?> data = new(StringComparer.Ordinal);
+    private readonly List<string> next = [];
 
     public bool IsJson { get; }
     public TextWriter Output { get; }
@@ -43,6 +44,7 @@ internal sealed class CommandReport
 
     internal void AddDiagnostic(Diagnostic d) => diagnostics.Add(d);
     internal void Set(string key, object? value) => data[key] = value;
+    internal void AddNext(IEnumerable<string> commands) => next.AddRange(commands);
 
     /// <summary>Writes the document in JSON mode (and returns the exit code unchanged in both modes).</summary>
     public int Finish(int exit)
@@ -60,6 +62,7 @@ internal sealed class CommandReport
             ["messages"] = ((CapturingWriter)Output).Lines,
             ["errors"] = ((CapturingWriter)Error).Lines,
         };
+        if (next.Count > 0) doc["next"] = next;
         realOutput.WriteLine(JsonSerializer.Serialize(doc, Json));
         return exit;
     }
@@ -134,6 +137,20 @@ internal static class ReportExtensions
     public static void Payload(this TextWriter w, string key, object? value)
     {
         if (w is CommandReport.CapturingWriter c) c.Owner.Set(key, value);
+    }
+
+    /// <summary>
+    /// What a person (or an agent) would do next, as commands: a `Next:` block of text, and `next` in the JSON document. A command names one to three, the ones that follow from what just happened,
+    /// so nobody has to remember the order of the steps.
+    /// </summary>
+    public static void Next(this TextWriter w, params string[] commands)
+    {
+        if (commands.Length == 0) return;
+        var shown = commands.Select(c => $"{ProductInfo.Cli} {c}").ToArray();
+        if (w is CommandReport.CapturingWriter owner) owner.Owner.AddNext(shown);
+        w.WriteLine();
+        w.WriteLine(shown.Length == 1 ? $"Next: {shown[0]}" : "Next:");
+        if (shown.Length > 1) foreach (var c in shown) w.WriteLine($"  {c}");
     }
 
     /// <summary>True when output is going into a JSON document (so decorative text and prompts are pointless).</summary>

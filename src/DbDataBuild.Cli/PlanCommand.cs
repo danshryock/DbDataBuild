@@ -113,7 +113,11 @@ internal static class PlanCommand
         if (result.Blocks.Count + result.Skipped.Count > 0)
             output.WriteLine($"  NOT planned: {result.Blocks.Count} blocked, {result.Skipped.Count} skipped (see above and the report).");
         written?.Invoke(yamlPath);
-        if (hintApply) output.WriteLine($"Review the report, then `{ProductInfo.Cli} connection deploy --apply-plan {Path.GetRelativePath(root, yamlPath)}`.");
+        if (hintApply)
+        {
+            output.WriteLine("Read the report before applying the plan.");
+            output.Next($"connection deploy --apply-plan {Path.GetRelativePath(root, yamlPath).Replace('\\', '/')}");
+        }
         return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
@@ -193,7 +197,9 @@ internal static class PlanCommand
         output.WriteLine();
         var steps = result.Steps;
         output.WriteLine($"A plan now would have {steps.Count} step(s) ({steps.Count(s => s.Risk == RiskClass.Risky)} risky, {steps.Count(s => s.Risk == RiskClass.Destructive)} destructive) and ask {result.Questions.Count} question(s) first; {result.Blocks.Count} blocked, {result.Skipped.Count} skipped.");
-        return result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) || trimmedFindings.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
+        var attention = result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) || trimmedFindings.Count > 0;
+        output.Next(attention || steps.Count > 0 ? "connection deploy" : "connection refresh", "connection monitor");
+        return attention ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
     internal static object QuestionJson(Question q) => new

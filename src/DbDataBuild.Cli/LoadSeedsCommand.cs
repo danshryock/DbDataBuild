@@ -38,13 +38,13 @@ internal static class LoadSeedsCommand
             var (settings, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Write, environment);
             if (missing != null)
             {
-                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: none");
+                output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: none");
                 error.Diag(missing);
                 return CliApp.ExitFindings;
             }
             write = settings;
         }
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: {(write?.Describe() ?? "none (not applying)")}");
 
         var ctx = ProjectContext.Load(root);
         var seeds = SeedLoader.Load(root);
@@ -91,6 +91,7 @@ internal static class LoadSeedsCommand
                 }
                 output.WriteLine();
                 output.WriteLine($"Nothing was executed. Run `{ProductInfo.Cli} {spec.Name} --connection {target} --apply` with the write login configured to create and fill these tables{(replace ? "" : " (it stops at a table that already exists; --replace drops and recreates)")}.");
+                output.Next($"connection seed --connection {target} --apply");
                 return CliApp.ExitOk;
             }
 
@@ -101,6 +102,7 @@ internal static class LoadSeedsCommand
                 output.WriteLine($"Statement log: {Path.GetRelativePath(root, log.Path)}");
                 var loaded = Task.Run(() => LoadAsync(write!, spec.Name, ddl, data, tables, replace, log, runId)).GetAwaiter().GetResult();
                 output.WriteLine($"Loaded {loaded.Count} table(s), {loaded.Sum(t => t.Rows)} row(s).");
+                output.Next("connection init --apply", "connection deploy");
             }
             catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
             catch (LoadFailedException ex)

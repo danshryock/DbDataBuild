@@ -28,7 +28,8 @@ internal static class RunCommand
         {
             foreach (var d in result.Blocks.Concat(result.Skipped)) error.Diag(d);
             output.WriteLine($"`{ProductInfo.Cli} {spec.Name}` only runs routine loads, and this is not one: {string.Join("; ", reasons)}.");
-            output.WriteLine($"Nothing was executed. Use `{ProductInfo.Cli} connection deploy` to review and decide.");
+            output.WriteLine($"Nothing was executed. A deploy decides what a refresh may not.");
+            output.Next("connection deploy");
             return CliApp.ExitFindings;
         }
         if (result.Steps.Count == 0)

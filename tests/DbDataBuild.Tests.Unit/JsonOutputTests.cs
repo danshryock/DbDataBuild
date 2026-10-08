@@ -57,6 +57,31 @@ public class JsonOutputTests
     }
 
     [Fact]
+    public void A_command_says_what_comes_next_as_commands_in_the_text_and_in_the_document()
+    {
+        var dir = Project();
+        var (exit, doc, _, _) = Run("project", "compile", "--project", dir);
+        Assert.Equal(0, exit);
+        var next = doc["next"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        Assert.Contains("dbdatabuild project tests run", next);
+        Assert.Contains("Next:", string.Join("\n", doc["messages"]!.AsArray().Select(m => m!.GetValue<string>())));
+        // a check changes nothing and has nothing to suggest
+        Assert.Null(Run("project", "compile", "--check", "--project", dir).Doc["next"]);
+    }
+
+    [Fact]
+    public void Every_header_says_what_the_command_reads_and_writes_and_its_lane()
+    {
+        var dir = Project();
+        var o = new StringWriter();
+        CliApp.Run(["project", "show", "loads", "--project", dir], o, new StringWriter());
+        Assert.Contains("reads/writes: P→", o.ToString().Split('\n')[0]);
+        var d = new StringWriter();
+        CliApp.Run(["connection", "deploy", "--write-plan", "--project", dir], d, new StringWriter(), environment: _ => null);
+        Assert.Contains("reads/writes: C→P  |  lane: deploy", d.ToString().Split('\n')[0]);
+    }
+
+    [Fact]
     public void Validate_reports_counts_and_the_full_metadata_of_every_model()
     {
         var dir = Project();

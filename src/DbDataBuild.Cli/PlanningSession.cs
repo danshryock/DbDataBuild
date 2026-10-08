@@ -105,7 +105,7 @@ internal sealed class PlanningSession
         var target = connection.Name; var engine = connection.Engine;
 
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         output.Payload("effect", spec.Effect.Describe());
         output.Payload("login", login?.Describe());
         output.WriteLine($"Effective: {ctx.Config.Describe()}");

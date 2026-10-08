@@ -349,7 +349,7 @@ public static class CliApp
     }
 
     private static void WriteHeader(CommandSpec spec, TextWriter output) =>
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
 
     /// <summary>`project compile`: validate the project and write the compiled files; with --check compare them instead; with --content only show them (that is what a read-only client asks for, and it wins over --check).</summary>
     private static int Compile(CommandSpec spec, string projectRoot, string[] models, string[] connections, bool check, bool content, TextWriter output, TextWriter error)
@@ -362,7 +362,9 @@ public static class CliApp
             output.WriteLine(check ? "Rendered files were not compared: the project has errors." : "Nothing was written: the project has errors.");
             return validated;
         }
-        return RenderCommand.Render(spec, projectRoot, models, connections, write: !check, check: check, content: false, output, error, header: false);
+        var rendered = RenderCommand.Render(spec, projectRoot, models, connections, write: !check, check: check, content: false, output, error, header: false);
+        if (rendered == ExitOk && !check) output.Next("project tests run", "connection status");
+        return rendered;
     }
 
     private static int Validate(CommandSpec spec, string projectRoot, TextWriter output, TextWriter error)

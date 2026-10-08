@@ -24,7 +24,7 @@ internal static class ReportCommand
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var tracking = CommandTracking.Require(config, connection, env, needWrite: false, error, spec.Name);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
         if (tracking == null) return CliApp.ExitFindings;
 

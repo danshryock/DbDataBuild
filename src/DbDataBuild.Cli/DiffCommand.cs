@@ -56,7 +56,7 @@ internal static class DiffCommand
 
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var (otherLogin, otherMissing) = across ? LoginSettings.FromEnvironment(otherConnection.Name, otherConnection.Engine, Login.Read, env) : (login, null);
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: {target}{(across ? $" against {otherConnection.Name}" : "")}  |  login: {login?.Describe() ?? "none"}{(across ? $", {otherLogin?.Describe() ?? "none"}" : "")}  |  values: {(showValues ? "shown (requested)" : "not read")}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}{(across ? $" against {otherConnection.Name}" : "")}  |  login: {login?.Describe() ?? "none"}{(across ? $", {otherLogin?.Describe() ?? "none"}" : "")}  |  values: {(showValues ? "shown (requested)" : "not read")}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
         if (otherMissing != null) { error.Diag(otherMissing); return CliApp.ExitFindings; }
 

@@ -49,7 +49,7 @@ internal static class ImportSourcesCommand
                 wanted.Add((Glob(st.SchemaName), Glob(st.Table), st.SchemaName.AsSpan().IndexOfAny('*', '?') < 0 ? st.SchemaName : null));
             }
 
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(write ? " + writes models/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}{(write ? " + writes models/" : "")}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}");
         if (missing != null) { error.Diag(missing); return CliApp.ExitFindings; }
 
         var rows = new List<Row>();
@@ -159,7 +159,8 @@ internal static class ImportSourcesCommand
             else { output.WriteLine($"wrote {r.File}"); written.Add(r.File!); }
         }
         output.Payload("written", written);
-        output.WriteLine($"Wrote {written.Count} descriptor(s). Run `{ProductInfo.Cli} project compile` and `{ProductInfo.Cli} project model update --check` to see what they change for the models.");
+        output.WriteLine($"Wrote {written.Count} descriptor(s). Compile and check the definitions to see what they change for the models.");
+        if (!failed) output.Next("project compile", "project model update --check");
         return failed ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 

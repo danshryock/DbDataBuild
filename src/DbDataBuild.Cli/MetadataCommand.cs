@@ -10,7 +10,7 @@ internal static class MetadataCommand
 {
     public static int Run(CommandSpec spec, string root, string[] models, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         var ctx = ProjectContext.Load(root);
         var selected = ctx.Select(models, error);
         if (selected == null) return CliApp.ExitUsage;

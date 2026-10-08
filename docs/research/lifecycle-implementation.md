@@ -23,7 +23,7 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 4 | Refresh from a compiled plan | `project compile` writes `refresh.plan.yml` with `requires`; `connection refresh` runs it; check levels `none`, `project`, `objects`, `live`; `--on-fail` | 2, 5 for `project` | yes | planned |
 | 5 | Plan policy, events, layout 5 | `plans.*.keep/audit`, `event_log`, `plan_store`, statement log without tracking writes, `retention.statement_logs_days`; `init --upgrade` from 4 | 1 | tracking layout | planned |
 | 6 | `status` and `monitor` views | structure/data/attention; the event timeline and drill-down | 5 | | planned |
-| 7 | Hints | lane and disposition in every header, `Next:` blocks, `next` in JSON, one error per cause | 2 | | planned |
+| 7 | Hints | lane and disposition in every header, `Next:` blocks, `next` in JSON, one error per cause | 2 | | **partly done** (entry 136): headers, `Next:`, `next`; status lines and one-error-per-cause remain |
 | 8 | Interfaces | terminal menu groups, web tabs, MCP tool names and `next`, lane chips | 2, 6, 7 | | planned |
 | 9 | Close | templates' READMEs, skill, getting-started, operations guide, `docs/commands.md` regenerated, open items | all | | planned |
 | later | `connection inspect`, `project model create`, `project tests list`, `connection tests run` | the new commands that are not renames | 2 | | planned |
@@ -99,3 +99,4 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 2026-10-07 | 1.2 | `rows_affected` of a load is the rows inserted; verified on both engines |
 | 2026-10-07 | 1.3 | `plan` reports stale rendered files as one DDB-424 naming the first three and the fix; the not-interactive note appears only when a question is open |
 | 2026-10-07 | 2, 3 | the command tree, `connection deploy` as one flow, `--resume` gone (a stopped plan continues); unit suite and all conformance groups pass on SQL Server 2022 and PostgreSQL 17 |
+| 2026-10-07 | 7 | headers carry reads/writes and lane; `Next:` blocks and a `next` array in the JSON |

@@ -111,7 +111,7 @@ internal static class ApplyCommand
             if (config.Connections.TryGetValue(step.Transfer!.Origin, out var host) && !host.AllowNativeCommands)
                 originMissing.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new($"step:{step.Id}", 0, 0), $"Step {step.Id} runs a native command on `{step.Transfer.Origin}`, which does not allow native commands (`connections.{step.Transfer.Origin}.allow_native_commands`)."));
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());
         output.Payload("connection", plan.Connection);
         output.Payload("dry_run", dryRun);
@@ -190,10 +190,19 @@ internal static class ApplyCommand
         foreach (var d in result.Refusals) error.Diag(d);
         output.WriteLine();
         foreach (var o in result.Outcomes) output.WriteLine($"  step {o.StepId}: {o.Status}{(o.Detail != null && o.Status != "ok" ? " (" + o.Detail + ")" : "")}  {o.Description}");
+        var planRelative = Path.GetRelativePath(root, planPath).Replace('\\', '/');
         if (result.Success)
+        {
             output.WriteLine(dryRun ? "Dry run complete: every check passed and nothing was executed." : $"Applied plan {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) executed.");
+            if (dryRun) output.Next($"connection deploy --apply-plan {planRelative}");
+            else output.Next("connection monitor");
+        }
         else
+        {
             output.WriteLine($"Plan {plan.Id} did not complete. {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran before the stop; see the statement log {logPath}.");
+            // a plan that stopped part-way continues when it is applied again; a refused one has to be planned again
+            if (result.Outcomes.Count > 0) output.Next($"connection deploy --apply-plan {planRelative}", "connection monitor");
+        }
         return result.Success ? CliApp.ExitOk : CliApp.ExitFindings;
     }
 }

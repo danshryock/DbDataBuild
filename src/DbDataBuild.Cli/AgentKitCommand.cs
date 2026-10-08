@@ -33,7 +33,7 @@ internal static class AgentKitCommand
 
     public static int Run(CommandSpec spec, string projectRoot, string? dir, bool write, bool check, bool mcp, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         if (write && check) { error.WriteLine("--write and --check cannot be combined: --check writes nothing."); return CliApp.ExitUsage; }
         var target = Path.GetFullPath(Path.Combine(projectRoot, dir ?? DefaultDir));
         var rel = Path.GetRelativePath(projectRoot, target).Replace('\\', '/');

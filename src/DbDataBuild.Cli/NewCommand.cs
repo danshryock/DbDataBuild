@@ -10,7 +10,7 @@ internal static class NewCommand
 {
     public static int Run(CommandSpec spec, string? template, string? directory, TextWriter output, TextWriter error)
     {
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: none");
         output.Payload("templates", TemplateStore.All.Select(t => new { name = t.Name, description = t.Description, files = t.Files.Count }).ToList());
         if (template == null)
         {
@@ -19,7 +19,8 @@ internal static class NewCommand
             output.WriteLine();
             output.WriteLine("Project templates:");
             foreach (var t in TemplateStore.All) output.WriteLine($"  {t.Name,-10} {t.Description}  ({t.Files.Count} files)");
-            output.WriteLine($"\nCreate one with `{ProductInfo.Cli} project create <template> [directory]`.");
+            output.WriteLine("\nCreate one with the command below.");
+            output.Next("project create <template> [directory]");
             return CliApp.ExitOk;
         }
         if (TemplateStore.Find(template) is not { } found)
@@ -45,7 +46,8 @@ internal static class NewCommand
         output.Payload("written", found.Files.Select(f => f.Path).ToList());
         output.WriteLine();
         output.WriteLine($"Wrote {found.Files.Count} file(s) of the `{found.Name}` project to {target}.");
-        output.WriteLine($"\nNext, in that directory:\n  {ProductInfo.Cli} project compile\n  {ProductInfo.Cli} project seed\n  {ProductInfo.Cli} project sample --limit 5\n  {ProductInfo.Cli} project tests run\nand read README.md.");
+        output.WriteLine("Read README.md in it first. The commands below take --project (or run them from inside the directory).");
+        output.Next($"project compile --project {target}", $"project seed --project {target}", $"project tests run --project {target}");
         return CliApp.ExitOk;
     }
 }

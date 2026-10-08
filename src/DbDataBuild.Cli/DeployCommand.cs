@@ -18,7 +18,7 @@ internal static class DeployCommand
             if (writePlan || applyPlan != null) { error.WriteLine("--ack records a decision and nothing else: it does not go with --write-plan or --apply-plan."); return CliApp.ExitUsage; }
             var colon = ack.IndexOf(':');
             if (colon <= 0 || colon == ack.Length - 1) { error.WriteLine($"--ack takes kind:name (drift:marts.fct, definition:marts.fct, history:marts.fct.column), not `{ack}`."); return CliApp.ExitUsage; }
-            return AckCommand.Run(spec with { Effect = EffectClass.TrackingTablesOnly }, root, ack[..colon], ack[(colon + 1)..], reason, target, output, error, env);
+            return AckCommand.Run(spec with { Effect = EffectClass.TrackingTablesOnly, Disposition = "P⇒T" }, root, ack[..colon], ack[(colon + 1)..], reason, target, output, error, env);
         }
         if (applyPlan != null)
         {
@@ -27,7 +27,7 @@ internal static class DeployCommand
         }
 
         string? written = null;
-        var exit = PlanCommand.Plan(writePlan ? spec with { Effect = EffectClass.TargetReadOnly } : spec, root, target, models, answers, acceptInferred, outDir, ops, backfill, fullRefresh, parameters,
+        var exit = PlanCommand.Plan(writePlan ? spec with { Effect = EffectClass.TargetReadOnly, Disposition = "C→P" } : spec, root, target, models, answers, acceptInferred, outDir, ops, backfill, fullRefresh, parameters,
             output, error, input, interactive, env, path => written = path, hintApply: writePlan);
         if (writePlan || written == null || exit != CliApp.ExitOk) return exit;
 

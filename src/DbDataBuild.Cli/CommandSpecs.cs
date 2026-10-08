@@ -36,6 +36,9 @@ public sealed record CommandSpec(string Name, EffectClass Effect, string Purpose
     /// <summary>The words of the path: `connection deploy` is [connection, deploy].</summary>
     public string[] Path => Name.Split(' ');
 
+    /// <summary>What a header says after the effect: the reads-and-writes code and the lane (`reads/writes: P⇒S  |  lane: deploy`).</summary>
+    public string Marks => $"reads/writes: {Disposition}" + (Lane.Length > 0 ? $"  |  lane: {Lane}" : "");
+
     /// <summary>The name as one token, for file names, tool names and schema keys (`connection_deploy`).</summary>
     public string Id => Name.Replace(' ', '_').Replace('-', '_');
 }
