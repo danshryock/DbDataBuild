@@ -105,7 +105,7 @@ public class MacroTests
     public void A_macro_expands_to_the_query_for_the_table_it_was_given_with_nothing_left_for_the_engine_to_decide()
     {
         var dir = Project();
-        var render = Cli("render", "--project", dir, "--write");
+        var render = Cli("project", "compile", "--project", dir);
         Assert.True(render.Exit == 0, render.Out + render.Err);
         var snap = Lowered(dir, "marts.snap_totals");
         Assert.Contains("SELECT snap_date AS as_of_date, status, sum(amount) AS total\nFROM src.orders_snap\nGROUP BY snap_date, status", snap);
@@ -127,10 +127,10 @@ public class MacroTests
         Assert.Contains("snapshot_at()", ctx.Graph.Ancestors("marts.live_totals").Keys);
         Assert.Contains("marts.live_totals", ctx.Graph.Descendants("snapshot_at()").Keys);
 
-        var graph = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "marts.snap_totals").Out)!["data"]!;
+        var graph = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "graph", "--project", dir, "--format", "json", "marts.snap_totals").Out)!["data"]!;
         Assert.Equal(["marts.snap_totals:model", "snapshot_at():macro", "src.orders_snap:source", "status_totals():macro"], graph["nodes"]!.AsArray().Select(n => $"{(string?)n!["name"]}:{(string?)n["kind"]}").Order(StringComparer.Ordinal));
 
-        var metadata = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json").Out)!["data"]!["models"]!.AsArray();
+        var metadata = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "metadata", "--project", dir, "--format", "json").Out)!["data"]!["models"]!.AsArray();
         var upstream = metadata.Single(m => (string?)m!["name"] == "marts.snap_totals")!["upstream"]!.AsArray().Select(u => $"{(string?)u!["name"]}:{(string?)u["kind"]}");
         Assert.Contains("status_totals():macro", upstream);
         Assert.Contains("src.orders_snap:source", upstream);
@@ -153,33 +153,33 @@ public class MacroTests
     public void A_macro_that_cannot_be_created_is_a_warning_and_only_a_model_that_reaches_it_fails()
     {
         var dir = Project(Snapshots + "\nCREATE MACRO broken(x) AS TABLE SELECT * FROM nowhere.orders WHERE a = x;");
-        var validate = Cli("validate", "--project", dir);
+        var validate = Cli("project", "compile", "--project", dir);
         Assert.Contains("`broken` could not be created", validate.Err);
         Assert.Contains("warning DDB-106", validate.Err);
         Assert.DoesNotContain("snap_totals cannot be lowered", validate.Err);            // the models that do not reach it are fine
         Write(dir, "models/marts/uses_broken.yml", "name: marts.uses_broken\nkind: {type: full}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         Write(dir, "models/marts/uses_broken.sql", "SELECT order_id FROM broken(1)\n");
-        Assert.Contains("uses_broken cannot be lowered", Cli("validate", "--project", dir).Err);
+        Assert.Contains("uses_broken cannot be lowered", Cli("project", "compile", "--project", dir).Err);
     }
 
     [Fact]
     public void A_macro_call_with_lowering_switched_off_is_refused_and_a_wrong_column_name_is_a_bind_error()
     {
         var off = Project(config: "defaults: {connections: [sqlserver]}\ntracking: none\nlowering: { enabled: false }\n");
-        Assert.Contains("a macro is expanded by DuckDB while the query is lowered, which is switched off", Cli("validate", "--project", off).Err);
+        Assert.Contains("a macro is expanded by DuckDB while the query is lowered, which is switched off", Cli("project", "compile", "--project", off).Err);
 
         var dir = Project();
         Write(dir, "models/marts/snap_totals.sql", "SELECT * FROM status_totals('src.orders_snap', 'nope')\n");
-        Assert.Contains("snap_totals cannot be lowered", Cli("validate", "--project", dir).Err);
+        Assert.Contains("snap_totals cannot be lowered", Cli("project", "compile", "--project", dir).Err);
     }
 
     [Fact]
     public void A_model_that_calls_a_macro_can_be_defined_sampled_and_tested()
     {
         var dir = Project();
-        var define = Cli("define", "--project", dir, "--check");
+        var define = Cli("project", "model", "update", "--project", dir, "--check");
         Assert.True(define.Exit == 0, define.Out + define.Err);
-        var sample = Cli("sample", "--project", dir, "--format", "json", "marts.snap_totals");
+        var sample = Cli("project", "sample", "--project", dir, "--format", "json", "marts.snap_totals");
         Assert.True(sample.Exit == 0, sample.Out + sample.Err);
         Assert.Contains("as_of_date", sample.Out);
     }
@@ -216,7 +216,7 @@ public class MacroTests
     public void A_name_given_by_a_connection_parameter_makes_each_connection_read_its_own_table()
     {
         var dir = NamedProject();
-        var render = Cli("render", "--project", dir, "--write");
+        var render = Cli("project", "compile", "--project", dir);
         Assert.True(render.Exit == 0, render.Out + render.Err);
         var live = File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.live.sql"));
         var snap = File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.snap.sql"));
@@ -225,8 +225,8 @@ public class MacroTests
         Assert.False(File.Exists(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.sql")));
         Assert.Contains("FROM src.orders_snap", File.ReadAllText(Path.Combine(dir, "rendered", "snap", "marts.totals", "load.default.sql")));
         Assert.DoesNotContain("snap_date", File.ReadAllText(Path.Combine(dir, "rendered", "live", "marts.totals", "load.default.sql")));
-        Assert.Equal(0, Cli("render", "--project", dir, "--check").Exit);
-        Assert.Equal(0, Cli("validate", "--project", dir).Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", dir, "--check").Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", dir).Exit);
     }
 
     [Fact]
@@ -246,21 +246,21 @@ public class MacroTests
     public void A_parameter_is_a_name_everywhere_or_nowhere_and_a_name_must_be_a_name()
     {
         var dir = NamedProject(TwoConnections.Replace("date_col: { type: NAME, value: snap_date }", "date_col: snap_date"));
-        var validate = Cli("validate", "--project", dir);
+        var validate = Cli("project", "compile", "--project", dir);
         Assert.Contains("a name on some of the model's connections and a VARCHAR on `snap`", validate.Err);
 
         var unknown = NamedProject(TwoConnections.Replace("table: { type: NAME, value: src.orders_snap }", "table: { type: NAME, value: \"x; DROP TABLE y\" }"));
-        Assert.Contains("is not a name", Cli("validate", "--project", unknown).Err);
+        Assert.Contains("is not a name", Cli("project", "compile", "--project", unknown).Err);
 
         var missing = NamedProject(TwoConnections.Replace("\n      date_col: { type: NAME, value: snap_date }", ""));
-        Assert.Contains("a name but has no value on the connection `snap`", Cli("validate", "--project", missing).Err);
+        Assert.Contains("a name but has no value on the connection `snap`", Cli("project", "compile", "--project", missing).Err);
     }
 
     [Fact]
     public void A_name_that_is_the_same_on_every_connection_gives_one_lowering()
     {
         var dir = NamedProject(TwoConnections.Replace("table: { type: NAME, value: src.orders_snap }", "table: { type: NAME, value: src.orders }").Replace("date_col: { type: NAME, value: snap_date }", "date_col: { type: NAME, value: \"\" }"));
-        Assert.Equal(0, Cli("render", "--project", dir, "--write").Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", dir).Exit);
         Assert.True(File.Exists(Path.Combine(dir, "rendered", "lowered", "marts.totals", "lowered.sql")));
         Assert.Single(ProjectContext.Load(dir).QueryVariants(ProjectContext.Load(dir).Project.Sources.Single(s => s.Definition.Name == "marts.totals")));
     }
@@ -271,13 +271,13 @@ public class MacroTests
         var dir = Project();
         string[] Upstream(string column)
         {
-            var doc = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "--column", column).Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
+            var doc = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "graph", "--project", dir, "--format", "json", "--column", column).Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
             return doc.Select(u => $"{(string?)u!["table"]}.{(string?)u["column"]}").Order(StringComparer.Ordinal).ToArray();
         }
         Assert.Equal(["src.orders_snap.amount"], Upstream("marts.snap_totals.total"));
         Assert.Equal(["src.orders_snap.snap_date"], Upstream("marts.snap_totals.as_of_date"));          // the column the caller named
         Assert.Equal(["src.orders.amount"], Upstream("marts.live_totals.total"));
-        var model = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json", "marts.snap_totals").Out)!["data"]!["models"]!.AsArray().Single()!;
+        var model = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "metadata", "--project", dir, "--format", "json", "marts.snap_totals").Out)!["data"]!["models"]!.AsArray().Single()!;
         var total = model["columns"]!.AsArray().Single(c => (string?)c!["name"] == "total")!;
         Assert.Equal("src.orders_snap", (string?)total["lineage"]!["upstream"]![0]!["table"]);
     }
@@ -309,7 +309,7 @@ public class MacroTests
     public void A_macro_with_default_parameters_is_called_with_arguments_omitted_or_named(string sql, string expected)
     {
         var dir = DefaultsProject(sql);
-        var render = Cli("render", "--project", dir, "--write");
+        var render = Cli("project", "compile", "--project", dir);
         Assert.True(render.Exit == 0, render.Out + render.Err);
         Assert.Contains(expected, Lowered(dir, "marts.snap_totals"));
         Assert.DoesNotContain("CASE", Lowered(dir, "marts.snap_totals"));
@@ -319,7 +319,7 @@ public class MacroTests
     public void A_default_that_is_overridden_by_name_reaches_the_query_and_a_changed_default_changes_the_models_hash()
     {
         var dir = DefaultsProject("SELECT as_of_date, status, sum(amount) AS total FROM snapshot_at(tbl := 'src.orders', lag_days := 2) GROUP BY as_of_date, status");
-        Assert.Equal(0, Cli("render", "--project", dir, "--write").Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", dir).Exit);
         Assert.Contains("CAST(2 AS INTEGER)", Lowered(dir, "marts.snap_totals"));
         var ctx = ProjectContext.Load(dir);
         var graph = ctx.Graph.Reads("marts.snap_totals");
@@ -336,9 +336,9 @@ public class MacroTests
     public void Column_lineage_define_and_sample_work_for_a_call_with_a_named_argument()
     {
         var dir = DefaultsProject("SELECT * FROM totals('src.orders_snap', col := 'snap_date')");
-        Assert.Equal(0, Cli("define", "--project", dir, "--check").Exit);
-        var lineage = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "--column", "marts.snap_totals.as_of_date").Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
+        Assert.Equal(0, Cli("project", "model", "update", "--project", dir, "--check").Exit);
+        var lineage = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "graph", "--project", dir, "--format", "json", "--column", "marts.snap_totals.as_of_date").Out)!["data"]!["column_lineage"]!["upstream"]!.AsArray();
         Assert.Equal("src.orders_snap.snap_date", $"{(string?)lineage[0]!["table"]}.{(string?)lineage[0]!["column"]}");
-        Assert.Equal(0, Cli("sample", "--project", dir, "--rows", "5", "marts.snap_totals").Exit);
+        Assert.Equal(0, Cli("project", "sample", "--project", dir, "--rows", "5", "marts.snap_totals").Exit);
     }
 }

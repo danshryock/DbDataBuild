@@ -2,7 +2,7 @@
 // A small stand-in for an MCP Apps host, to look at the dbdatabuild app in a browser without Claude Desktop or VS Code.
 //   node scripts/mcp-app-host.mjs <project dir> [--allow-apply] [--port 8799] [--exe path/to/dbdatabuild] [--inspectable]
 // --inspectable lets the host page reach into the frame (sandbox gains allow-same-origin) so a script can drive the app; a real host never does.
-// It starts `dbdatabuild mcp` for the project, serves a page on 127.0.0.1 that embeds the app (ui://dbdatabuild/app) in a sandboxed iframe, answers the app's ui/initialize, forwards its tools/call to the
+// It starts `dbdatabuild ui mcp` for the project, serves a page on 127.0.0.1 that embeds the app (ui://dbdatabuild/app) in a sandboxed iframe, answers the app's ui/initialize, forwards its tools/call to the
 // server (and refuses a tool whose _meta.ui.visibility lacks "app", as a host must), and has buttons that call a tool the way a model would and hand the result to the app.
 // It checks nothing about a real host's behavior: it is the specification's message flow, written once, so the app can be driven and looked at.
 import { spawn } from "node:child_process";
@@ -15,7 +15,7 @@ if (!project) { console.error("usage: mcp-app-host.mjs <project dir> [--allow-ap
 const opt = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const port = Number(opt("--port", 8799));
 const exe = opt("--exe", null);
-const serverArgs = ["mcp", "--project", project, ...(args.includes("--allow-apply") ? ["--allow-apply"] : [])];
+const serverArgs = ["ui", "mcp", "--project", project, ...(args.includes("--allow-apply") ? ["--allow-apply"] : [])];
 const child = exe ? spawn(exe, serverArgs, { stdio: ["pipe", "pipe", "inherit"] }) : spawn("dotnet", ["run", "--no-build", "--project", new URL("../src/DbDataBuild.Cli", import.meta.url).pathname, "--", ...serverArgs], { stdio: ["pipe", "pipe", "inherit"] });
 
 let nextId = 1;

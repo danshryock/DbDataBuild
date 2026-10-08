@@ -56,28 +56,28 @@ public class TemplateConformanceTests
             {
                 var o = new StringWriter();
                 var e = new StringWriter();
-                var exit = CliApp.Run([args[0], .. args.Skip(1), .. (args[0] == "new" ? [] : new[] { "--project", dir })], o, e, environment: Env);
+                var exit = CliApp.Run([.. args, .. (args[0] == "project" && args[1] == "create" ? [] : new[] { "--project", dir })], o, e, environment: Env);
                 return (exit, o.ToString(), e.ToString());
             }
             void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed ({r.Exit}):\n{r.Out}\n{r.Err}");
 
-            Ok(Cli("new", template, dir), "new");
+            Ok(Cli("project", "create", template, dir), "new");
             if (name == "postgres") File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), PostgresConfig);
             if (native) File.AppendAllText(Path.Combine(dir, "dbdatabuild.yml"), "\nrewrites:\n  fidelity: native\n");
 
-            Ok(Cli("load-seeds", "--apply"), "load-seeds");
-            Ok(Cli("render", "--write"), "render --write");
-            Ok(Cli("init", "--apply"), "init");
-            var plan = Cli("plan", "--accept-inferred");
+            Ok(Cli("connection", "seed", "--apply"), "load-seeds");
+            Ok(Cli("project", "compile"), "render --write");
+            Ok(Cli("connection", "init", "--apply"), "init");
+            var plan = Cli("connection", "deploy", "--write-plan", "--accept-inferred");
             Ok(plan, "plan");
             var planFile = Path.Combine(dir, System.Text.RegularExpressions.Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
-            Ok(Cli("apply", planFile), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", planFile), "apply");
 
             var marts = Directory.EnumerateFiles(Path.Combine(dir, "models", "marts"), "*.sql").Select(f => "marts." + Path.GetFileNameWithoutExtension(f)).OrderBy(m => m, StringComparer.Ordinal).ToList();
             Assert.NotEmpty(marts);
             foreach (var mart in marts)
             {
-                var sample = Cli("sample", mart, "--limit", "1000000", "--format", "json");
+                var sample = Cli("project", "sample", mart, "--limit", "1000000", "--format", "json");
                 Ok(sample, $"sample {mart}");
                 using var doc = JsonDocument.Parse(sample.Out);
                 var table = doc.RootElement.GetProperty("data").GetProperty("tables").EnumerateArray().Single(t => t.GetProperty("name").GetString() == mart);

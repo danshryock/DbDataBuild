@@ -18,9 +18,9 @@ public partial class ApplyConformanceTests
         using var http = new HttpClient();
         try
         {
-            Ok(run.Cli("init", "--apply"), "init");
-            Ok(run.Cli("render", "--write"), "render --write");
-            var plan = run.Cli("plan");
+            Ok(run.Cli("connection", "init", "--apply"), "init");
+            Ok(run.Cli("project", "compile"), "render --write");
+            var plan = run.Cli("connection", "deploy", "--write-plan");
             Ok(plan, "plan");
             var planFile = run.PlanFile(plan.Out);
             var relative = Path.GetRelativePath(run.Dir, planFile).Replace('\\', '/');
@@ -72,7 +72,7 @@ public partial class ApplyConformanceTests
             {
                 var arguments = new JsonObject { ["table"] = "staging.orders", ["against"] = "marts.fct_orders", ["key"] = new JsonArray("order_id") };
                 if (values) arguments["show_values"] = true;
-                var reply = await Post("/api/run", new JsonObject { ["command"] = "diff", ["arguments"] = arguments });
+                var reply = await Post("/api/run", new JsonObject { ["command"] = "connection_compare", ["arguments"] = arguments });
                 Assert.Equal(HttpStatusCode.OK, reply.Status);
                 return JsonNode.Parse(reply.Body)!["document"]!["data"]!;
             }

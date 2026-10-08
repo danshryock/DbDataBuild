@@ -97,18 +97,17 @@ public sealed class FormModel
         var args = Arguments().ToList();
         var project = Fields.FirstOrDefault(f => f.Label == "--project");
         if (project != null && !args.Contains("--project") && project.Value.Trim().Length > 0) { args.Add("--project"); args.Add(project.Value.Trim()); }
-        return [Command.Name, .. args];
+        return [.. Command.Name.Split(' '), .. args];
     }
 
     /// <summary>Whether running the form as it stands changes something (files, tracking tables, data, the target). The TUI asks before it does.</summary>
     public bool ChangesSomething()
     {
-        if (Command.Impact == Impact.None) return false;
-        var flag = Command.WriteFlag;
-        if (flag == null) return true;
-        var negate = flag.StartsWith('!');
-        var f = Fields.FirstOrDefault(x => x.Label == flag.TrimStart('!'));
-        return f != null && (negate ? !f.Checked : f.Checked);
+        return WriteRules.Changes(Command, label =>
+        {
+            var f = Fields.FirstOrDefault(x => x.Label == label);
+            return f != null && (f.Kind == OptionKind.Flag ? f.Checked : f.Value.Trim().Length > 0);
+        }, repoFiles: true);
     }
 
     /// <summary>The command a person could type to do the same thing.</summary>

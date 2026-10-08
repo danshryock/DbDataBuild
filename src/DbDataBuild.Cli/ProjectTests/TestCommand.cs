@@ -8,7 +8,7 @@ using DbDataBuild.Targets.DuckDb;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild test` (effect: offline only; DESIGN.md 9.8). Runs the project's tests: metadata rules (`tests/metadata/*.sql`, DuckDB SELECTs over the metadata views that return the violations) and
+/// `dbdatabuild project tests run` (effect: offline only; DESIGN.md 9.8). Runs the project's tests: metadata rules (`tests/metadata/*.sql`, DuckDB SELECTs over the metadata views that return the violations) and
 /// model tests (`tests/models/*.yml`, given rows and what the model's query must return). Everything runs in an in-memory DuckDB; no target is contacted and nothing is written. Tests are selected
 /// by name or path, by kind and by tag; an `error` test that fails (or cannot run) makes the run fail, a `warning` test only reports (unless `--strict`).
 /// </summary>
@@ -32,7 +32,7 @@ internal static class TestCommand
         foreach (var d in invalid) error.Diag(d);
         if (invalid.Count > 0)
         {
-            output.WriteLine($"No tests were run: {invalid.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} validate` shows them).");
+            output.WriteLine($"No tests were run: {invalid.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} project compile` shows them).");
             return CliApp.ExitFindings;
         }
 

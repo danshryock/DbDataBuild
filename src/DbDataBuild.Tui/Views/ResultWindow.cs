@@ -61,7 +61,7 @@ public sealed class ResultWindow : Ui.Modal
         sb.AppendLineLf().AppendLineLf(d.Found);
         if (d.Supported.Length > 0) sb.AppendLineLf().AppendLineLf("Supported: " + d.Supported);
         if (d.Fix.Length > 0) sb.AppendLineLf().AppendLineLf("Fix: " + d.Fix);
-        sb.AppendLineLf().AppendLineLf($"More: dbdatabuild explain {d.Code}");
+        sb.AppendLineLf().AppendLineLf($"More: dbdatabuild help code {d.Code}");
         return sb.ToString();
     }
 

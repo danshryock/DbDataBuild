@@ -122,17 +122,17 @@ public class RewriteTests
         var dir = Path.Combine(Path.GetTempPath(), "ddb-rewrite-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Assert.Equal(0, Run("new", "retail", dir).Exit);
-            Assert.Equal(0, Run("render", "--write", "--project", dir).Exit);
+            Assert.Equal(0, Run("project", "create", "retail", dir).Exit);
+            Assert.Equal(0, Run("project", "compile", "--project", dir).Exit);
             var exact = File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.fct_shipment_packages/load.default.sql"));
             var lowered = File.ReadAllText(Path.Combine(dir, "rendered/lowered/marts.agg_daily_sales/lowered.sql"));
             Assert.Contains("-- type rules:", lowered);
             Assert.DoesNotContain("rewrites off", exact);
 
             File.AppendAllText(Path.Combine(dir, "dbdatabuild.yml"), "\nrewrites:\n  fidelity: native\n");
-            var stale = Run("render", "--check", "--project", dir);
+            var stale = Run("project", "compile", "--check", "--project", dir);
             Assert.NotEqual(0, stale.Exit);                                          // the rendered files changed: the setting is part of what they say
-            Assert.Equal(0, Run("render", "--write", "--project", dir).Exit);
+            Assert.Equal(0, Run("project", "compile", "--project", dir).Exit);
             var native = File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.fct_shipment_packages/load.default.sql"));
             var nativeLowered = File.ReadAllText(Path.Combine(dir, "rendered/lowered/marts.agg_daily_sales/lowered.sql"));
             Assert.Contains("-- rewrites off:", native);
@@ -140,7 +140,7 @@ public class RewriteTests
             Assert.Contains("sum-widen", lowered);
             Assert.DoesNotContain(nativeLowered.Split('\n'), l => l.StartsWith("-- type rules:", StringComparison.Ordinal) && l.Contains("sum-widen"));      // it is listed on the line that says what is off, not as a rule that fired
             Assert.DoesNotContain("CAST(quantity AS BIGINT)", nativeLowered);
-            var (validateExit, validateOut, _) = Run("validate", "--project", dir);
+            var (validateExit, validateOut, _) = Run("project", "compile", "--project", dir);
             Assert.True(validateExit == 0, validateOut);
         }
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
@@ -152,9 +152,9 @@ public class RewriteTests
         var dir = Path.Combine(Path.GetTempPath(), "ddb-rewrite-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Assert.Equal(0, Run("new", "starter", dir).Exit);
+            Assert.Equal(0, Run("project", "create", "starter", dir).Exit);
             File.AppendAllText(Path.Combine(dir, "dbdatabuild.yml"), "\nrewrites:\n  disable: [concat-plus]\n");
-            var (exit, output, err) = Run("validate", "--project", dir);
+            var (exit, output, err) = Run("project", "compile", "--project", dir);
             Assert.NotEqual(0, exit);
             Assert.Contains("DDB-229", output + err);
         }

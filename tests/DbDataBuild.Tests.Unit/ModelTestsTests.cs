@@ -33,7 +33,7 @@ public class ModelTestsTests
     private static (int Exit, JsonNode Doc, string Err) Test(string dir, params string[] args)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["test", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
+        var exit = CliApp.Run(["project", "tests", "run", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
         var doc = JsonNode.Parse(o.ToString())!;
         var result = SchemaConformanceTests.LoadSchema("output").Evaluate(System.Text.Json.JsonSerializer.SerializeToNode(doc), new Json.Schema.EvaluationOptions { OutputFormat = Json.Schema.OutputFormat.List });
         Assert.True(result.IsValid, string.Join("\n", result.Details.Where(x => x.Errors != null).SelectMany(x => x.Errors!.Select(kv => $"{x.InstanceLocation}: {kv.Key} {kv.Value}"))) + "\n" + o);
@@ -198,7 +198,7 @@ public class ModelTestsTests
         Assert.Equal(["marts.fct_orders::a"], Names(Test(dir, "--tag", "orders").Doc));
         Assert.Equal(["marts.fct_orders::a"], Names(Test(dir, "tests/models/marts/fct_orders.yml").Doc));
         Assert.Equal(["marts.fct_orders::a"], Names(Test(dir, "marts.fct_orders").Doc));
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["test", "--project", dir, "--kind", "data"], new StringWriter(), new StringWriter(), environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "tests", "run", "--project", dir, "--kind", "data"], new StringWriter(), new StringWriter(), environment: _ => null));
         Assert.Equal(before, Snapshot(dir));
     }
 

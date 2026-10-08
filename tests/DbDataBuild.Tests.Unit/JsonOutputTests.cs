@@ -37,7 +37,7 @@ public class JsonOutputTests
         Assert.True(result.IsValid, $"{args[0]} output does not satisfy output.schema.json:\n{raw}");
         Assert.Equal(exit, doc["exit_code"]!.GetValue<int>());
         Assert.Equal(exit == 0, doc["ok"]!.GetValue<bool>());
-        Assert.Equal(args[0], doc["command"]!.GetValue<string>());
+        Assert.Equal(CommandSpecs.All.Select(c => c.Name).Where(n => (string.Join(' ', args) + " ").StartsWith(n + " ")).OrderByDescending(n => n.Length).FirstOrDefault() ?? args[0], doc["command"]!.GetValue<string>());
         return (exit, doc, raw, e.ToString());
     }
 
@@ -48,9 +48,9 @@ public class JsonOutputTests
         Directory.CreateDirectory(dir);
         try
         {
-            var (_, doc, _, _) = Run("agent-kit", "--project", dir, "--mcp");
+            var (_, doc, _, _) = Run("project", "agent-kit", "--project", dir, "--mcp");
             Assert.False(doc["data"]!["mcp"]!["up_to_date"]!.GetValue<bool>());
-            var (_, written, _, _) = Run("agent-kit", "--project", dir, "--mcp", "--write");
+            var (_, written, _, _) = Run("project", "agent-kit", "--project", dir, "--mcp", "--write");
             Assert.True(written["data"]!["mcp"]!["wrote"]!.GetValue<bool>());
         }
         finally { Directory.Delete(dir, true); }
@@ -60,7 +60,7 @@ public class JsonOutputTests
     public void Validate_reports_counts_and_the_full_metadata_of_every_model()
     {
         var dir = Project();
-        var (exit, doc, _, err) = Run("validate", "--project", dir);
+        var (exit, doc, _, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(0, exit);
         Assert.Equal("", err);                                              // diagnostics are in the document, not on standard error
         var data = doc["data"]!;
@@ -86,7 +86,7 @@ public class JsonOutputTests
     {
         var dir = Project();
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT o.order_id, [1, 2] AS l FROM staging.orders o\n");
-        var (exit, doc, _, err) = Run("validate", "--project", dir);
+        var (exit, doc, _, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(1, exit);
         Assert.Equal("", err);
         var d = doc["diagnostics"]!.AsArray().First(x => x!["severity"]!.GetValue<string>() == "error")!;
@@ -100,36 +100,36 @@ public class JsonOutputTests
     public void Matrix_explain_loads_render_init_and_metadata_each_carry_their_data()
     {
         var dir = Project();
-        var matrix = Run("matrix");
+        var matrix = Run("help", "matrix");
         Assert.True(matrix.Doc["data"]!["constructs"]!.AsArray().Count > 10);
         Assert.NotNull(matrix.Doc["data"]!["constructs"]![0]!["engines"]!["sqlserver"]!["status"]);
 
-        var explain = Run("explain", "DDB-430");
+        var explain = Run("help", "code", "DDB-430");
         Assert.Equal("DDB-430", explain.Doc["data"]!["code"]!["code"]!.GetValue<string>());
-        Assert.Equal(2, Run("explain", "DDB-999").Exit);                    // usage errors are JSON too
+        Assert.Equal(2, Run("help", "code", "DDB-999").Exit);                    // usage errors are JSON too
 
-        var loads = Run("loads", "--project", dir);
+        var loads = Run("project", "show", "loads", "--project", dir);
         Assert.Equal("delete_insert_by_key", loads.Doc["data"]!["operations"]![0]!["strategy"]!.GetValue<string>());
 
-        var render = Run("render", "--project", dir);
+        var render = Run("project", "compile", "--project", dir, "--content");
         Assert.Equal(0, render.Exit);
         Assert.Equal(["rendered/lowered/marts.fct_orders/lowered.sql", "rendered/sqlserver/marts.fct_orders/load.default.sql", "rendered/sqlserver/marts.fct_orders/manifest.yml"], render.Doc["data"]!["files"]!.AsArray().Select(f => f!["path"]!.GetValue<string>()));
-        var write = Run("render", "--project", dir, "--write");
+        var write = Run("project", "compile", "--project", dir);
         Assert.Equal(0, write.Exit);
         Assert.NotEmpty(write.Doc["data"]!["wrote"]!.AsArray());
-        var check = Run("render", "--project", dir, "--check");
+        var check = Run("project", "compile", "--project", dir, "--check");
         Assert.Empty(check.Doc["data"]!["out_of_date"]!.AsArray());
         File.AppendAllText(Path.Combine(dir, "rendered/sqlserver/marts.fct_orders/load.default.sql"), "-- edited\n");
-        var stale = Run("render", "--project", dir, "--check");
+        var stale = Run("project", "compile", "--project", dir, "--check");
         Assert.Equal(1, stale.Exit);
         Assert.Contains("DDB-424", stale.Doc["diagnostics"]!.AsArray().Select(x => x!["code"]!.GetValue<string>()));
 
-        var init = Run("init", "--project", dir);
+        var init = Run("connection", "init", "--project", dir);
         Assert.False(init.Doc["data"]!["applied"]!.GetValue<bool>());
         Assert.Equal(12, init.Doc["data"]!["statements"]!.AsArray().Count);        // schema, eight tables, two views, the version row
         Assert.Contains("CREATE TABLE", init.Doc["data"]!["statements"]![1]!["text"]!.GetValue<string>());
 
-        var meta = Run("metadata", "--project", dir);
+        var meta = Run("project", "show", "metadata", "--project", dir);
         Assert.Equal("marts.fct_orders", meta.Doc["data"]!["models"]![0]!["name"]!.GetValue<string>());
     }
 
@@ -137,11 +137,11 @@ public class JsonOutputTests
     public void Missing_logins_and_usage_errors_still_produce_one_valid_document()
     {
         var dir = Project();
-        var plan = Run("plan", "--project", dir);
+        var plan = Run("connection", "deploy", "--write-plan", "--project", dir);
         Assert.Equal(1, plan.Exit);
         Assert.Equal("DDB-501", plan.Doc["diagnostics"]![0]!["code"]!.GetValue<string>());
         Assert.DoesNotContain("password", plan.Raw, StringComparison.OrdinalIgnoreCase);
-        var ack = Run("ack", "banana", "x", "--reason", "r", "--project", dir);
+        var ack = Run("connection", "deploy", "--ack", "banana:x", "--reason", "r", "--project", dir);
         Assert.Equal(2, ack.Exit);
         Assert.Contains(ack.Doc["errors"]!.AsArray(), m => m!.GetValue<string>().Contains("Unknown acknowledgement"));
     }
@@ -150,17 +150,17 @@ public class JsonOutputTests
     public void The_default_format_is_unchanged_text()
     {
         var o = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["matrix"], o, new StringWriter()));
-        Assert.StartsWith("dbdatabuild matrix", o.ToString());
+        Assert.Equal(0, CliApp.Run(["help", "matrix"], o, new StringWriter()));
+        Assert.StartsWith("dbdatabuild help matrix", o.ToString());
         var bad = new StringWriter();
-        Assert.NotEqual(0, CliApp.Run(["matrix", "--format", "yaml"], new StringWriter(), bad));
+        Assert.NotEqual(0, CliApp.Run(["help", "matrix", "--format", "yaml"], new StringWriter(), bad));
     }
 
     [Fact]
     public void An_internal_failure_in_json_mode_is_a_document_not_a_stack_trace()
     {
         var o = new StringWriter();
-        var exit = CliApp.Guarded(["check", "--format", "json"], new StringWriter(), () => throw new InvalidOperationException("boom: secret-row-value"), o);
+        var exit = CliApp.Guarded(["connection", "status", "--format", "json"], new StringWriter(), () => throw new InvalidOperationException("boom: secret-row-value"), o);
         Assert.Equal(CliApp.ExitInternal, exit);
         var doc = JsonNode.Parse(o.ToString())!;
         Assert.Equal("DDB-900", doc["diagnostics"]![0]!["code"]!.GetValue<string>());
@@ -173,10 +173,10 @@ public class JsonOutputTests
     {
         var text = File.ReadAllText(Path.Combine(RepoRoot(), "schemas", "output.schema.json"));
         var declared = JsonNode.Parse(text)!["allOf"]!.AsArray().Select(x => (string)x!["if"]!["properties"]!["command"]!["const"]!).Order().ToList();
-        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("tui" or "mcp" or "web")).Select(c => c.Name).Order(), declared);       // a new command without a data schema fails here (`tui` is interactive and has no JSON form)
+        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("ui terminal" or "ui mcp" or "ui web")).Select(c => c.Name).Order(), declared);       // a new command without a data schema fails here (`tui` is interactive and has no JSON form)
 
         var dir = Project();
-        var (_, doc, _, _) = Run("loads", "--project", dir);
+        var (_, doc, _, _) = Run("project", "show", "loads", "--project", dir);
         bool Valid(JsonNode n) => Schema.Evaluate(JsonSerializer.SerializeToNode(n), new EvaluationOptions { OutputFormat = OutputFormat.List }).IsValid;
         Assert.True(Valid(doc));
         var renamed = JsonNode.Parse(doc.ToJsonString())!;
@@ -195,7 +195,7 @@ public class JsonOutputTests
     {
         var metadata = SchemaConformanceTests.LoadSchema("metadata");
         var dir = Project();
-        var (_, doc, _, _) = Run("metadata", "--project", dir);
+        var (_, doc, _, _) = Run("project", "show", "metadata", "--project", dir);
         bool Valid(JsonNode? n) => metadata.Evaluate(JsonSerializer.SerializeToNode(n), new EvaluationOptions { OutputFormat = OutputFormat.List }).IsValid;
         Assert.True(Valid(doc["data"]!["project"]));
         var model = doc["data"]!["models"]![0]!;
@@ -212,13 +212,13 @@ public class JsonOutputTests
     public void Define_reports_what_it_checked_wrote_and_still_needs_in_its_data()
     {
         var dir = Project();
-        var (exit, doc, _, _) = Run("define", "--check", "--project", dir);
+        var (exit, doc, _, _) = Run("project", "model", "update", "--check", "--project", dir);
         Assert.Equal("check", (string?)doc["data"]!["mode"]);
         Assert.Equal(1, (int)doc["data"]!["definitions"]!);
         Assert.Equal(exit == 0 ? 0 : 1, (int)doc["data"]!["differences"]! > 0 ? 1 : 0);
 
         File.Delete(Path.Combine(dir, "models/marts/fct_orders.yml"));
-        var (_, asked, _, _) = Run("define", "--write", "--project", dir, "--answers", WriteAnswers(dir, ""));
+        var (_, asked, _, _) = Run("project", "model", "update", "--write", "--project", dir, "--answers", WriteAnswers(dir, ""));
         Assert.True(asked["data"]!["models"] != null, asked.ToJsonString());
         var model = asked["data"]!["models"]![0]!;
         Assert.Equal("incomplete", (string?)model["status"]);
@@ -236,7 +236,7 @@ public class JsonOutputTests
     public void Sample_reports_its_tables_rows_and_errors_as_data()
     {
         var dir = Project();
-        var (exit, doc, _, _) = Run("sample", "--project", dir, "--rows", "12", "--limit", "3", "--sources");
+        var (exit, doc, _, _) = Run("project", "sample", "--project", dir, "--rows", "12", "--limit", "3", "--sources");
         Assert.Equal(0, exit);
         var tables = doc["data"]!["tables"]!.AsArray();
         var model = tables.Single(t => (string?)t!["kind"] == "model")!;
@@ -250,11 +250,11 @@ public class JsonOutputTests
     public void Agent_kit_lists_and_installs_its_files_as_data()
     {
         var dir = Project();
-        var (_, listed, _, _) = Run("agent-kit", "--project", dir);
+        var (_, listed, _, _) = Run("project", "agent-kit", "--project", dir);
         Assert.Equal(".claude/skills/dbdatabuild", (string?)listed["data"]!["directory"]);
         Assert.Contains(listed["data"]!["files"]!.AsArray(), f => ((string)f!["path"]!).EndsWith("/SKILL.md"));
         Assert.Empty(listed["data"]!["wrote"]!.AsArray());
-        var (_, written, _, _) = Run("agent-kit", "--project", dir, "--write");
+        var (_, written, _, _) = Run("project", "agent-kit", "--project", dir, "--write");
         Assert.Equal(written["data"]!["files"]!.AsArray().Count, written["data"]!["wrote"]!.AsArray().Count);
     }
 }

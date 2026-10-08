@@ -22,7 +22,7 @@ public class TrackingUpgradeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Ok((int Exit, string Out, string Err) r, string what) => Assert.True(r.Exit == 0, $"{what} failed:\n{r.Out}\n{r.Err}");
@@ -35,7 +35,7 @@ public class TrackingUpgradeConformanceTests
             File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), $"defaults: {{connections: [{name}]}}\ntracking: {{ connection: {name}, schema: {schema} }}\n" + (name == "postgres" ? "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n" : ""));
 
             // the layout as it was: this layout, less the column, with the keys as they were, the version recorded as 3
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
             foreach (var view in new[] { "metadata_columns", "metadata_current" }) await engine.ExecAsync($"DROP VIEW {Q(schema)}.{Q(view)}");
             foreach (var t in TrackingSchema.Tables.Where(t => t.Columns.Any(c => c.Name == "connection")))
             {
@@ -48,26 +48,26 @@ public class TrackingUpgradeConformanceTests
             await engine.ExecAsync($"INSERT INTO {Q(schema)}.{Q("migration_log")} ({Q("plan_id")}, {Q("plan_hash")}, {Q("plan_text")}, {Q("applied_by")}, {Q("applied_utc")}, {Q("status")}) VALUES ('old-plan', '{new string('a', 64)}', 'text', 'someone', '2026-01-01 00:00:00', 'completed')");
 
             // without the upgrade the tool says what to do
-            var refused = Cli("plan", "--connection", name);
+            var refused = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Assert.NotEqual(0, refused.Exit);
             Assert.Contains("init --upgrade", refused.Err + refused.Out);
 
             // the script is printed for review first
-            var review = Cli("init", "--connection", name, "--upgrade");
+            var review = Cli("connection", "init", "--connection", name, "--upgrade");
             Ok(review, "review");
             Assert.Contains("upgrade-01", review.Out);
             Assert.Contains("This is an upgrade", review.Out);
 
-            Ok(Cli("init", "--connection", name, "--upgrade", "--apply"), "upgrade");
+            Ok(Cli("connection", "init", "--connection", name, "--upgrade", "--apply"), "upgrade");
             Assert.Equal([name], await engine.RowsAsync($"SELECT {Q("connection")} FROM {Q(schema)}.{Q("migration_log")}"));        // the rows it had belong to the connection that was initialized
             Assert.Equal(["4"], await engine.RowsAsync($"SELECT CAST(MAX({Q("version")}) AS VARCHAR(10)) FROM {Q(schema)}.{Q("tracking_version")}"));
             // the key includes the connection now: another connection can have the same plan id
             await engine.ExecAsync($"INSERT INTO {Q(schema)}.{Q("migration_log")} ({Q("connection")}, {Q("plan_id")}, {Q("plan_hash")}, {Q("plan_text")}, {Q("applied_by")}, {Q("applied_utc")}, {Q("status")}) VALUES ('other', 'old-plan', '{new string('b', 64)}', 'text', 'someone', '2026-01-01 00:00:00', 'completed')");
             Assert.Equal(2, int.Parse((await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {Q(schema)}.{Q("migration_log")}")).Single()));
-            var report = Cli("report", "--connection", name);
+            var report = Cli("connection", "monitor", "--connection", name);
             Assert.Contains("old-plan", report.Out);                                                                          // the tool reads the upgraded tables
             Assert.DoesNotContain("DDB-505", report.Err + report.Out);
-            Ok(Cli("init", "--connection", name, "--upgrade", "--apply"), "a second upgrade changes nothing");              // safe to repeat
+            Ok(Cli("connection", "init", "--connection", name, "--upgrade", "--apply"), "a second upgrade changes nothing");              // safe to repeat
             Assert.Equal(2, int.Parse((await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {Q(schema)}.{Q("migration_log")}")).Single()));
         }
         finally

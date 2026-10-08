@@ -11,7 +11,7 @@ public class McpServerTests : IDisposable
 
     public McpServerTests()
     {
-        Assert.Equal(0, CliApp.Run(["new", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(0, CliApp.Run(["project", "create", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
     }
 
     public void Dispose() { try { Directory.Delete(dir, true); } catch (IOException) { } }
@@ -40,11 +40,17 @@ public class McpServerTests : IDisposable
     public void Commands_that_change_a_target_are_not_offered_unless_the_operator_allowed_them()
     {
         var names = Server().ToolNames;
-        foreach (var write in new[] { "apply", "run", "load-seeds", "init", "ack", "publish-metadata" }) Assert.DoesNotContain(write, names);
-        foreach (var read in new[] { "validate", "plan", "render", "graph", "metadata", "test", "explain", "diff" }) Assert.Contains(read, names);
-        Assert.DoesNotContain("tui", names);
-        Assert.DoesNotContain("mcp", names);
-        Assert.Contains("apply", Server(allowWrites: true).ToolNames);
+        foreach (var write in new[] { "connection_refresh", "connection_seed", "connection_init", "connection_publish" }) Assert.DoesNotContain(write, names);
+        foreach (var read in new[] { "project_compile", "connection_deploy", "project_show_graph", "project_show_metadata", "project_tests_run", "help_code", "connection_compare" }) Assert.Contains(read, names);
+        Assert.DoesNotContain("ui_terminal", names);
+        Assert.DoesNotContain("ui_mcp", names);
+        Assert.Contains("connection_refresh", Server(allowWrites: true).ToolNames);
+
+        // deploy is offered to plan; applying a plan and recording a decision are options only --allow-writes brings
+        string[] Inputs(McpServer s) => ((JsonObject)Result(s, "tools/list")["tools"]!.AsArray().Single(t => (string)t!["name"]! == "connection_deploy")!["inputSchema"]!["properties"]!).Select(p => p.Key).ToArray();
+        Assert.Contains("write_plan", Inputs(Server()));
+        foreach (var withheld in new[] { "apply_plan", "yes", "ack" }) Assert.DoesNotContain(withheld, Inputs(Server()));
+        foreach (var offered in new[] { "apply_plan", "yes", "ack" }) Assert.Contains(offered, Inputs(Server(allowWrites: true)));
     }
 
     [Fact]
@@ -56,19 +62,19 @@ public class McpServerTests : IDisposable
             var properties = ((JsonObject)tool!["inputSchema"]!["properties"]!).Select(p => p.Key).ToList();
             Assert.DoesNotContain("project", properties);
             Assert.DoesNotContain("show_values", properties);
-            if ((string)tool["name"]! == "sample") Assert.DoesNotContain("data", properties);
+            if ((string)tool["name"]! == "project_sample") Assert.DoesNotContain("data", properties);
         }
-        Assert.True((bool)tools.Single(t => (string)t!["name"]! == "validate")!["annotations"]!["readOnlyHint"]!);
-        Assert.False((bool)tools.Single(t => (string)t!["name"]! == "render")!["annotations"]!["readOnlyHint"]!);       // it writes with --write
+        Assert.True((bool)tools.Single(t => (string)t!["name"]! == "project_tests_run")!["annotations"]!["readOnlyHint"]!);
+        Assert.False((bool)tools.Single(t => (string)t!["name"]! == "project_compile")!["annotations"]!["readOnlyHint"]!);       // it writes the compiled files
     }
 
     [Fact]
     public void A_tool_returns_the_commands_own_document_and_a_finding_is_not_an_error_of_the_call()
     {
-        var r = Call(Server(), "validate");
+        var r = Call(Server(), "project_tests_run");
         Assert.False((bool)r["isError"]!);
-        Assert.Equal("validate", (string)r["structuredContent"]!["command"]!);
-        Assert.Equal("validate", (string)JsonNode.Parse((string)r["content"]![0]!["text"]!)!["command"]!);
+        Assert.Equal("project tests run", (string)r["structuredContent"]!["command"]!);
+        Assert.Equal("project tests run", (string)JsonNode.Parse((string)r["content"]![0]!["text"]!)!["command"]!);
     }
 
     [Fact]
@@ -83,18 +89,18 @@ public class McpServerTests : IDisposable
             new JsonObject { ["project"] = "/tmp" },
         })
         {
-            var r = Call(s, "render", arguments);
+            var r = Call(s, "project_compile", arguments);
             Assert.True((bool)r["isError"]!);
         }
-        Assert.True((bool)Call(s, "diff", new JsonObject { ["show_values"] = true })["isError"]!);
-        Assert.True((bool)Call(s, "define", new JsonObject { ["answers"] = "../../secrets.yml" })["isError"]!);
+        Assert.True((bool)Call(s, "connection_compare", new JsonObject { ["show_values"] = true })["isError"]!);
+        Assert.True((bool)Call(s, "project_model_update", new JsonObject { ["answers"] = "../../secrets.yml" })["isError"]!);
     }
 
     [Fact]
     public void An_unknown_tool_and_an_unknown_method_are_protocol_errors()
     {
         var s = Server();
-        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "apply" })).Single()["error"]!["code"]!);       // not offered
+        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "connection_refresh" })).Single()["error"]!["code"]!);       // not offered
         Assert.Equal(-32601, (int)s.Handle(Request("no/such")).Single()["error"]!["code"]!);
         Assert.Empty(s.Handle(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" }));      // a notification is not answered
     }
@@ -126,8 +132,8 @@ public class McpServerTests : IDisposable
             var args = new JsonObject();
             foreach (var a in prompt!["arguments"]!.AsArray()) args[(string)a!["name"]!] = "x.y";
             var body = (string)Result(s, "prompts/get", new JsonObject { ["name"] = (string)prompt["name"]!, ["arguments"] = args })["messages"]![0]!["content"]!["text"]!;
-            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(body, @"`([a-z-]+)`"))
-                if (CommandSpecs.All.Any(c => c.Name == m.Groups[1].Value)) Assert.Contains(m.Groups[1].Value, s.ToolNames);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(body, @"`((?:project|connection|help|ui)_[a-z_]+)`"))
+                Assert.Contains(m.Groups[1].Value, s.ToolNames);
         }
         Assert.Equal(-32602, (int)s.Handle(Request("prompts/get", new JsonObject { ["name"] = "add-model" })).Single()["error"]!["code"]!);       // a required argument is missing
         Assert.Equal(-32602, (int)s.Handle(Request("prompts/get", new JsonObject { ["name"] = "nope" })).Single()["error"]!["code"]!);
@@ -188,10 +194,10 @@ public class McpServerTests : IDisposable
         public readonly List<List<string>> Ran = [];
         public IReadOnlyList<DbDataBuild.Tui.Model.CommandInfo> Commands { get; } =
         [
-            new("apply", "Apply a plan", "Target writes", DbDataBuild.Tui.Model.Impact.Target,
-                [new("plan", "The plan", false, true, [])],
-                [new("--dry-run", "Check only", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--allow-risky", "Allow risky steps", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])], "!--dry-run"),
-            new("validate", "Validate", "Offline only", DbDataBuild.Tui.Model.Impact.None, [], [new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])]),
+            new("connection deploy", "Deploy", "Target writes", DbDataBuild.Tui.Model.Impact.Target,
+                [],
+                [new("--apply-plan", "The plan", DbDataBuild.Tui.Model.OptionKind.Path, null, []), new("--write-plan", "Plan only", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--dry-run", "Check only", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--allow-risky", "Allow risky steps", DbDataBuild.Tui.Model.OptionKind.Flag, null, []), new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])], "--apply-plan|--yes|--ack"),
+            new("project compile", "Compile", "Offline only", DbDataBuild.Tui.Model.Impact.None, [], [new("--project", "Project", DbDataBuild.Tui.Model.OptionKind.Path, null, [])]),
         ];
         public DbDataBuild.Tui.Model.CommandResult Run(IReadOnlyList<string> args, DbDataBuild.Tui.Model.RunHooks? hooks = null) { lock (Ran) Ran.Add([.. args]); return new(0, "{\"ok\":true}", ""); }
     }
@@ -220,9 +226,9 @@ public class McpServerTests : IDisposable
         var server = new McpServer(dir, true, feed, output, host) { AnswerTimeout = TimeSpan.FromSeconds(20) };
         var serving = Task.Run(server.Serve);
         feed.Send(Request("initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = clientAsks ? new JsonObject { ["elicitation"] = new JsonObject() } : new JsonObject() }, id: 1).ToJsonString());
-        var arguments = new JsonObject { ["plan"] = $"plans/postgres/{id}.plan.yml" };
+        var arguments = new JsonObject { ["apply_plan"] = $"plans/postgres/{id}.plan.yml" };
         if (dryRun) arguments["dry_run"] = true;
-        feed.Send(Request("tools/call", new JsonObject { ["name"] = "apply", ["arguments"] = arguments }, id: 2).ToJsonString());
+        feed.Send(Request("tools/call", new JsonObject { ["name"] = "connection_deploy", ["arguments"] = arguments }, id: 2).ToJsonString());
         if (answer != null)
         {
             var asked = JsonNode.Parse(WaitForLine(output, "elicitation/create"))!;
@@ -240,12 +246,12 @@ public class McpServerTests : IDisposable
     [Fact]
     public void A_command_that_changes_a_database_runs_only_when_the_person_approves_through_the_host()
     {
-        var (replies, host) = ApplySession(clientAsks: true, _ => Accept(true, "apply"));
+        var (replies, host) = ApplySession(clientAsks: true, _ => Accept(true, "connection deploy"));
         Assert.False((bool)replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!["isError"]!);
         var ran = Assert.Single(host.Ran);
-        Assert.Equal("apply", ran[0]);
-        Assert.EndsWith("eeee0005.plan.yml", ran[1]);
-        Assert.True(Path.IsPathRooted(ran[1]));          // the plan is found from the project, not from wherever the server was started
+        Assert.Equal(["connection", "deploy", "--apply-plan"], ran.Take(3));
+        Assert.EndsWith("eeee0005.plan.yml", ran[3]);
+        Assert.True(Path.IsPathRooted(ran[3]));          // the plan is found from the project, not from wherever the server was started
     }
 
     [Theory]
@@ -259,7 +265,7 @@ public class McpServerTests : IDisposable
         {
             "decline" => new JsonObject { ["action"] = "decline" },
             "cancel" => new JsonObject { ["action"] = "cancel" },
-            "not approved" => Accept(false, "apply"),
+            "not approved" => Accept(false, "connection deploy"),
             _ => Accept(true, "yes please"),
         });
         Assert.True((bool)replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!["isError"]!);
@@ -272,7 +278,7 @@ public class McpServerTests : IDisposable
         var (replies, host) = ApplySession(clientAsks: false, answer: null);
         var result = replies.Single(r => r["id"]?.ToJsonString() == "2")["result"]!;
         Assert.True((bool)result["isError"]!);
-        Assert.Contains("Run it yourself: dbdatabuild apply", (string)result["content"]![0]!["text"]!);
+        Assert.Contains("Run it yourself: dbdatabuild connection deploy --apply-plan", (string)result["content"]![0]!["text"]!);
         Assert.Empty(host.Ran);
     }
 
@@ -342,7 +348,7 @@ public class McpServerTests : IDisposable
         Assert.Contains("a link", (string)tools.Single(t => (string)t!["name"]! == "show")!["description"]!);         // `show` is there, as a link to the page in a browser
         Assert.All(tools, t => Assert.Null(t!["_meta"]));
         Assert.DoesNotContain("ui://dbdatabuild/app", Result(s, "resources/list")["resources"]!.AsArray().Select(r => (string)r!["uri"]!));
-        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "ui_run", ["arguments"] = new JsonObject { ["command"] = "validate" } })).Single()["error"]!["code"]!);
+        Assert.Equal(-32602, (int)s.Handle(Request("tools/call", new JsonObject { ["name"] = "ui_run", ["arguments"] = new JsonObject { ["command"] = "project_compile" } })).Single()["error"]!["code"]!);
         Assert.Equal(-32002, (int)s.Handle(Request("resources/read", new JsonObject { ["uri"] = "ui://dbdatabuild/app" })).Single()["error"]!["code"]!);
     }
 
@@ -353,9 +359,9 @@ public class McpServerTests : IDisposable
         var tools = Result(s, "tools/list")["tools"]!.AsArray();
         foreach (var name in new[] { "ui_run", "ui_file", "ui_capabilities", "ui_answers", "ui_apply", "ui_job", "ui_stop" })
             Assert.Equal(["app"], tools.Single(t => (string)t!["name"]! == name)!["_meta"]!["ui"]!["visibility"]!.AsArray().Select(v => (string)v!));      // not offered to the model
-        foreach (var name in new[] { "review", "plan", "graph", "diff", "sample", "show" })
+        foreach (var name in new[] { "project_show_plan", "connection_deploy", "project_show_graph", "connection_compare", "project_sample", "show" })
             Assert.Equal("ui://dbdatabuild/app", (string)tools.Single(t => (string)t!["name"]! == name)!["_meta"]!["ui"]!["resourceUri"]!);
-        Assert.Null(tools.Single(t => (string)t!["name"]! == "validate")!["_meta"]);          // the model's own checks do not open a window each time
+        Assert.Null(tools.Single(t => (string)t!["name"]! == "project_compile")!["_meta"]);          // the model's own checks do not open a window each time
         var resource = Result(s, "resources/read", new JsonObject { ["uri"] = "ui://dbdatabuild/app" })["contents"]![0]!;
         Assert.Equal("text/html;profile=mcp-app", (string)resource["mimeType"]!);
         var html = (string)resource["text"]!;
@@ -369,11 +375,11 @@ public class McpServerTests : IDisposable
     public void The_app_runs_what_the_page_runs_and_reads_what_the_page_reads_and_no_more()
     {
         var s = UiServer();
-        var validate = Call(s, "ui_run", new JsonObject { ["command"] = "validate" });
+        var validate = Call(s, "ui_run", new JsonObject { ["command"] = "project_compile" });
         Assert.False((bool)validate["isError"]!);
-        Assert.Equal("validate", (string)JsonNode.Parse(Text(validate))!["document"]!["command"]!);
-        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "apply" })["isError"]!);                       // not a command the page runs
-        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "render", ["arguments"] = new JsonObject { ["write"] = true } })["isError"]!);
+        Assert.Equal("project compile", (string)JsonNode.Parse(Text(validate))!["document"]!["command"]!);
+        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "connection_refresh" })["isError"]!);                       // not a command the page runs
+        Assert.True((bool)Call(s, "ui_run", new JsonObject { ["command"] = "project_compile", ["arguments"] = new JsonObject { ["write"] = true } })["isError"]!);
         File.WriteAllText(Path.Combine(dir, ".env"), "SECRET=1");
         Assert.True((bool)Call(s, "ui_file", new JsonObject { ["path"] = ".env" })["isError"]!);
         Assert.True((bool)Call(s, "ui_file", new JsonObject { ["path"] = "../x.sql" })["isError"]!);
@@ -417,10 +423,10 @@ public class McpServerTests : IDisposable
         Assert.False((bool)started["isError"]!);
         var job = (string)JsonNode.Parse(Text(started))!["job"]!;
         for (var i = 0; i < 400 && !(bool)JsonNode.Parse(Text(Call(on, "ui_job", new JsonObject { ["id"] = job })))!["done"]!; i++) Thread.Sleep(25);
-        Assert.Equal("apply", Assert.Single(host.Ran)[0]);
+        Assert.Equal(["connection", "deploy", "--apply-plan"], Assert.Single(host.Ran).Take(3));
 
         // and the model, which sees none of these tools, has no apply: it is a command only --allow-writes offers, and then only with the person's approval through the host
-        Assert.DoesNotContain("apply", on.ToolNames);
+        Assert.DoesNotContain("connection_refresh", on.ToolNames);
     }
 
     [Fact]
@@ -438,9 +444,9 @@ public class McpServerTests : IDisposable
     [Fact]
     public void The_command_refuses_a_json_format_and_a_missing_project()
     {
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["mcp", "--project", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "mcp", "--project", dir, "--format", "json"], new StringWriter(), new StringWriter()));
         var (o, e) = (new StringWriter(), new StringWriter());
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["mcp", "--project", Path.Combine(dir, "nope")], o, e));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "mcp", "--project", Path.Combine(dir, "nope")], o, e));
         Assert.Equal("", o.ToString());      // nothing but protocol ever goes to standard output
     }
 }

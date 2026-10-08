@@ -22,10 +22,11 @@ public class TuiModelTests
     public void Every_option_and_argument_of_every_command_is_in_the_catalog()
     {
         var root = Root();
-        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("tui" or "mcp" or "web")).Select(c => c.Name).Order(), Catalog.Select(c => c.Name).Order());
-        foreach (var cmd in root.Subcommands.Where(c => c.Name is not ("tui" or "mcp" or "web")))
+        Assert.Equal(CommandSpecs.All.Where(c => c.Name is not ("ui terminal" or "ui mcp" or "ui web")).Select(c => c.Name).Order(), Catalog.Select(c => c.Name).Order());
+        foreach (var spec in CommandSpecs.All.Where(c => c.Name is not ("ui terminal" or "ui mcp" or "ui web")))
         {
-            var info = Catalog.Single(c => c.Name == cmd.Name);
+            var cmd = CliApp.Find(root, spec.Name)!;
+            var info = Catalog.Single(c => c.Name == spec.Name);
             Assert.Equal(cmd.Options.Where(o => !NotOptions.Contains(o.Name)).Select(o => o.Name).Order(), info.Options.Select(o => o.Name).Order());
             Assert.Equal(cmd.Arguments.Select(a => a.Name), info.Arguments.Select(a => a.Name));
             Assert.All(info.Options, o => Assert.False(string.IsNullOrWhiteSpace(o.Description), $"{cmd.Name} {o.Name} has no description"));
@@ -62,12 +63,10 @@ public class TuiModelTests
     [Fact]
     public void The_form_reports_what_is_missing_or_malformed_before_anything_runs()
     {
-        var ack = new FormModel(Catalog.Single(c => c.Name == "ack"), ".");
-        Assert.Contains("kind is required.", ack.Problems());
-        Assert.Contains("name is required.", ack.Problems());
-        ack.Field("kind").Value = "nonsense";
-        Assert.Contains(ack.Problems(), p => p.StartsWith("kind must be one of: drift, definition, history"));
-        var sample = new FormModel(Catalog.Single(c => c.Name == "sample"), ".");
+        var apply = new FormModel(Catalog.Single(c => c.Name == "project tests run"), ".");
+        apply.Field("--limit").Value = "lots";
+        Assert.Contains("--limit must be a whole number.", apply.Problems());
+        var sample = new FormModel(Catalog.Single(c => c.Name == "project sample"), ".");
         sample.Field("--rows").Value = "many";
         Assert.Contains("--rows must be a whole number.", sample.Problems());
     }
@@ -75,39 +74,45 @@ public class TuiModelTests
     [Fact]
     public void The_command_line_shows_only_what_differs_from_the_defaults_and_quotes_like_a_shell()
     {
-        var plan = new FormModel(Catalog.Single(c => c.Name == "plan"), "/work/my project");
+        var plan = new FormModel(Catalog.Single(c => c.Name == "connection deploy"), "/work/my project");
         plan.Field("models").Value = "marts.a, marts.b";
         plan.Field("--op").Value = "marts.a=reload";
         plan.Field("--accept-inferred").Checked = true;
-        Assert.Equal("dbdatabuild plan marts.a marts.b --op marts.a=reload --project '/work/my project' --accept-inferred", plan.CommandLine());
+        Assert.Equal("dbdatabuild connection deploy marts.a marts.b --op marts.a=reload --project '/work/my project' --accept-inferred", plan.CommandLine());
         Assert.Equal("'it'\\''s'", FormModel.Quote("it's"));
     }
 
     [Theory]
-    [InlineData("render", false, "dbdatabuild render")]
-    [InlineData("render", true, "--write")]
-    [InlineData("init", false, "dbdatabuild init")]
-    [InlineData("init", true, "--apply")]
-    [InlineData("ack", false, "dbdatabuild ack")]
+    [InlineData("project model update", false, "dbdatabuild project model update")]
+    [InlineData("project model update", true, "--write")]
+    [InlineData("connection init", false, "dbdatabuild connection init")]
+    [InlineData("connection init", true, "--apply")]
+    [InlineData("connection publish", false, "dbdatabuild connection publish")]
     public void A_command_is_flagged_as_changing_something_only_when_it_would(string command, bool setWriteFlag, string expectInLine)
     {
         var form = new FormModel(Catalog.Single(c => c.Name == command), ".");
-        if (setWriteFlag) form.Field(command == "init" ? "--apply" : "--write").Checked = true;
-        Assert.Equal(setWriteFlag || command == "ack", form.ChangesSomething());
+        if (setWriteFlag) form.Field(command == "connection init" ? "--apply" : "--write").Checked = true;
+        Assert.Equal(setWriteFlag || command == "connection publish", form.ChangesSomething());
         Assert.Contains(expectInLine, form.CommandLine());
     }
 
     [Fact]
-    public void Apply_changes_things_unless_it_is_a_dry_run_and_read_commands_never_do()
+    public void Deploy_changes_things_only_when_it_applies_or_records_a_decision_and_read_commands_never_do()
     {
-        var apply = new FormModel(Catalog.Single(c => c.Name == "apply"), ".");
-        Assert.True(apply.ChangesSomething());
-        apply.Field("--dry-run").Checked = true;
-        Assert.False(apply.ChangesSomething());
-        foreach (var name in new[] { "validate", "metadata", "sample", "loads", "matrix", "explain", "check", "plan", "report" })
+        var deploy = new FormModel(Catalog.Single(c => c.Name == "connection deploy"), ".");
+        Assert.False(deploy.ChangesSomething());                       // it only plans (the terminal runs it without a person to ask)
+        deploy.Field("--apply-plan").Value = "plans/x/y.plan.yml";
+        Assert.True(deploy.ChangesSomething());
+        deploy.Field("--dry-run").Checked = true;
+        Assert.False(deploy.ChangesSomething());                       // a dry run executes nothing
+        deploy.Field("--apply-plan").Value = "";
+        deploy.Field("--dry-run").Checked = false;
+        deploy.Field("--ack").Value = "drift:marts.fct";
+        Assert.True(deploy.ChangesSomething());
+        foreach (var name in new[] { "project show metadata", "project sample", "project show loads", "help matrix", "help code", "connection status", "connection monitor" })
             Assert.False(new FormModel(Catalog.Single(c => c.Name == name), ".").ChangesSomething(), name);
-        Assert.True(new FormModel(Catalog.Single(c => c.Name == "run"), ".").ChangesSomething());
-        Assert.True(new FormModel(Catalog.Single(c => c.Name == "publish-metadata"), ".").ChangesSomething());
+        Assert.True(new FormModel(Catalog.Single(c => c.Name == "connection refresh"), ".").ChangesSomething());
+        Assert.True(new FormModel(Catalog.Single(c => c.Name == "connection publish"), ".").ChangesSomething());
     }
 
     // ---- results ----
@@ -237,10 +242,10 @@ public class TuiModelTests
     public void The_tui_command_refuses_json_and_a_missing_terminal_and_is_the_only_command_without_data()
     {
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["tui", "--format", "json"], o, e));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "terminal", "--format", "json"], o, e));
         Assert.Contains("no JSON form", o.ToString());               // in JSON mode even a refusal is a document
         var o2 = new StringWriter(); var e2 = new StringWriter();
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["tui", "--project", NewProjectDir()], o2, e2));          // standard input and output are redirected under the test runner
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "terminal", "--project", NewProjectDir()], o2, e2));          // standard input and output are redirected under the test runner
         Assert.Contains("needs a terminal", e2.ToString() + o2.ToString());
     }
 }

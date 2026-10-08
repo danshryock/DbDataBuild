@@ -9,7 +9,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild plan` and `dbdatabuild check` (DESIGN.md 9.1, 10.1, 11). Effect class: target read-only; `plan` also writes plan files under the project.
+/// `dbdatabuild connection deploy` and `dbdatabuild connection status` (DESIGN.md 9.1, 10.1, 11). Effect class: target read-only; `plan` also writes plan files under the project.
 /// Planning refuses a project that does not validate, asks every open question (interactively, or from `--answers`, never by default), and writes a plan
 /// only when nothing is open. Blocked models are reported, not planned, and everything downstream of them is skipped.
 /// </summary>
@@ -19,7 +19,7 @@ internal static class PlanCommand
     private const int MaxRounds = 12;
 
     public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir, string[] ops, string[] backfillArgs, string[] fullRefreshArgs, string[] paramArgs,
-        TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?> env)
+        TextWriter output, TextWriter error, TextReader input, bool interactive, Func<string, string?> env, Action<string>? written = null, bool hintApply = true)
     {
         // ---- answers file first: a bad file is a usage problem and must not need a database ----
         AnswerFile? file = null;
@@ -112,7 +112,8 @@ internal static class PlanCommand
         output.WriteLine($"  plan:   {Path.GetRelativePath(root, yamlPath)}");
         if (result.Blocks.Count + result.Skipped.Count > 0)
             output.WriteLine($"  NOT planned: {result.Blocks.Count} blocked, {result.Skipped.Count} skipped (see above and the report).");
-        output.WriteLine($"Review the report, then `{ProductInfo.Cli} apply {Path.GetRelativePath(root, yamlPath)}`.");
+        written?.Invoke(yamlPath);
+        if (hintApply) output.WriteLine($"Review the report, then `{ProductInfo.Cli} connection deploy --apply-plan {Path.GetRelativePath(root, yamlPath)}`.");
         return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 

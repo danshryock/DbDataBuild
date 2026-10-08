@@ -30,16 +30,16 @@ public partial class ApplyConformanceTests
             await engine.ExecAsync("CREATE TABLE staging.names (id BIGINT NOT NULL, s NVARCHAR(50) COLLATE Latin1_General_100_BIN2)");
             await engine.ExecAsync("INSERT INTO staging.names VALUES " + string.Join(", ", Names.Select((n, i) => $"({i + 1}, N'{n}')")) + ", (6, NULL)");
 
-            Ok(run.Cli("init", "--apply"), "init");
-            Ok(run.Cli("render", "--write"), "render --write");
+            Ok(run.Cli("connection", "init", "--apply"), "init");
+            Ok(run.Cli("project", "compile"), "render --write");
             var rendered = File.ReadAllText(Path.Combine(run.Dir, "rendered", "sqlserver", "marts.regex_probe", "load.default.sql"));
             Assert.Contains("REGEXP_SUBSTR(", rendered);
             Assert.Contains("REGEXP_REPLACE(", rendered);
             Assert.DoesNotContain("ddb_regexp", rendered, StringComparison.OrdinalIgnoreCase);
-            Ok(run.Cli("check"), "check");
-            var plan = run.Cli("plan");
+            Ok(run.Cli("connection", "status"), "check");
+            var plan = run.Cli("connection", "deploy", "--write-plan");
             Ok(plan, "plan");
-            Ok(run.Cli("apply", run.PlanFile(plan.Out)), "apply");
+            Ok(run.Cli("connection", "deploy", "--apply-plan", run.PlanFile(plan.Out)), "apply");
 
             // DuckDB's answer to the same query over the same rows
             using var duck = new DuckDBConnection("DataSource=:memory:");

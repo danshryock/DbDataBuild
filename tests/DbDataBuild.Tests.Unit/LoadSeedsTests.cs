@@ -19,7 +19,7 @@ public class LoadSeedsTests
     private static string NewStarter()
     {
         var dir = Path.Combine(Path.GetTempPath(), "ddb-load-" + Guid.NewGuid().ToString("N"));
-        Assert.Equal(0, Run(null, "new", "starter", dir).Exit);
+        Assert.Equal(0, Run(null, "project", "create", "starter", dir).Exit);
         return dir;
     }
 
@@ -78,7 +78,7 @@ public class LoadSeedsTests
         var dir = NewStarter();
         try
         {
-            var (exit, output, err) = Run(null, "load-seeds", "--project", dir);
+            var (exit, output, err) = Run(null, "connection", "seed", "--project", dir);
             Assert.True(exit == 0, output + err);
             Assert.Contains("login: none (not applying)", output);
             Assert.Contains("CREATE TABLE [raw].[customers]", output);
@@ -94,7 +94,7 @@ public class LoadSeedsTests
         var dir = NewStarter();
         try
         {
-            var (exit, _, err) = Run(v => v == "DBDATABUILD_SQLSERVER_READ" ? "Server=x" : null, "load-seeds", "--project", dir, "--apply");
+            var (exit, _, err) = Run(v => v == "DBDATABUILD_SQLSERVER_READ" ? "Server=x" : null, "connection", "seed", "--project", dir, "--apply");
             Assert.NotEqual(0, exit);
             Assert.Contains("DBDATABUILD_SQLSERVER_WRITE", err);
         }
@@ -107,9 +107,9 @@ public class LoadSeedsTests
         var dir = NewStarter();
         try
         {
-            var (_, output, _) = Run(null, "load-seeds", "--project", dir, "--replace");
+            var (_, output, _) = Run(null, "connection", "seed", "--project", dir, "--replace");
             Assert.Contains("DROP TABLE IF EXISTS [raw].[customers];", output);
-            var (_, without, _) = Run(null, "load-seeds", "--project", dir);
+            var (_, without, _) = Run(null, "connection", "seed", "--project", dir);
             Assert.DoesNotContain("DROP TABLE", without);
         }
         finally { Directory.Delete(dir, recursive: true); }

@@ -6,7 +6,7 @@ using DbDataBuild.Targets.Rendering;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild render` and `dbdatabuild loads` (DESIGN.md 6.6 and 9.1). Effect class: repo files only, no target connection.
+/// `dbdatabuild project compile` and `dbdatabuild project show loads` (DESIGN.md 6.6 and 9.1). Effect class: repo files only, no target connection.
 /// `render` prints by default; `--write` writes the committed `rendered/` tree; `--check` fails if the committed files differ from a fresh
 /// render and writes nothing. `loads` prints the model x target x operation table with each pair's matrix status.
 /// </summary>
@@ -14,9 +14,9 @@ internal static class RenderCommand
 {
     public const string RenderedDir = "rendered";
 
-    public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, bool content, TextWriter output, TextWriter error)
+    public static int Render(CommandSpec spec, string projectRoot, string[] models, string[] targets, bool write, bool check, bool content, TextWriter output, TextWriter error, bool header = true)
     {
-        output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
+        if (header) output.WriteLine($"{Core.ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  connection: none");
         if (content && (write || check))
         {
             error.WriteLine("--content only goes with a plain render: --write and --check have their own documents.");
@@ -170,7 +170,7 @@ internal static class RenderCommand
             output.WriteLine($"OK: {desired.Count} rendered file(s) match a fresh render.");
             return CliApp.ExitOk;
         }
-        output.WriteLine($"FAILED: {differences.Count} rendered file(s) out of date{(renderErrors > 0 ? $", {renderErrors} render error(s)" : "")}. Run `{Core.ProductInfo.Cli} render --write` and commit the result.");
+        output.WriteLine($"FAILED: {differences.Count} rendered file(s) out of date{(renderErrors > 0 ? $", {renderErrors} render error(s)" : "")}. Run `{Core.ProductInfo.Cli} project compile` and commit the result.");
         return CliApp.ExitFindings;
     }
 

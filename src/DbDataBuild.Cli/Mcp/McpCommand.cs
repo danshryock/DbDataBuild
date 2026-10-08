@@ -2,7 +2,7 @@ using DbDataBuild.Core;
 
 namespace DbDataBuild.Cli.Mcp;
 
-/// <summary>`dbdatabuild mcp`: the Model Context Protocol on standard input and output. It connects to nothing itself; each tool it offers is a command with its own effect class.</summary>
+/// <summary>`dbdatabuild ui mcp`: the Model Context Protocol on standard input and output. It connects to nothing itself; each tool it offers is a command with its own effect class.</summary>
 internal static class McpCommand
 {
     public static int Run(string projectRoot, bool allowWrites, bool allowApply, bool noShow, bool json, TextReader input, TextWriter output, TextWriter error, Func<string, string?> env)

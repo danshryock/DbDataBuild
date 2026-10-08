@@ -30,15 +30,15 @@ public class ByteOrderMarkTests
     }
 
     [Theory]
-    [InlineData("validate")]
-    [InlineData("define --check")]
-    [InlineData("render --check")]
+    [InlineData("project compile")]
+    [InlineData("project model update --check")]
+    [InlineData("project compile --check")]
     public void A_project_whose_files_start_with_a_byte_order_mark_is_read_like_the_same_project_without_one(string command)
     {
         var without = Project(bom: false);
-        Cli(without, "render", "--write");
+        Cli(without, "project", "compile");
         var withBom = Project(bom: true);
-        Cli(withBom, "render", "--write");
+        Cli(withBom, "project", "compile");
         var a = Cli(without, command.Split(' '));
         var b = Cli(withBom, command.Split(' '));
         Assert.True(a.Exit == 0, $"the project without a mark is not valid: {a.Out}{a.Err}");
@@ -52,7 +52,7 @@ public class ByteOrderMarkTests
     public void The_head_of_a_query_file_is_seen_when_the_file_has_a_mark()
     {
         var dir = Project(bom: true);
-        var r = Cli(dir, "define", "--check");
+        var r = Cli(dir, "project", "model", "update", "--check");
         Assert.Equal(0, r.Exit);
         Assert.Contains("definition(s) in sync", r.Out);
     }

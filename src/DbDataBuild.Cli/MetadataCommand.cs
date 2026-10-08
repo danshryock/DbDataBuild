@@ -3,7 +3,7 @@ using DbDataBuild.Core;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild metadata` (effect: offline only): everything the tool knows about the project, its source tables and its models, as data. `--format json` prints the documents; the text form
+/// `dbdatabuild project show metadata` (effect: offline only): everything the tool knows about the project, its source tables and its models, as data. `--format json` prints the documents; the text form
 /// is a summary table. The same documents can be stored in a target for introspection with `publish-metadata`.
 /// </summary>
 internal static class MetadataCommand
@@ -19,7 +19,7 @@ internal static class MetadataCommand
         foreach (var d in diags) error.Diag(d);
         if (diags.Count > 0)
         {
-            output.WriteLine($"No metadata was produced: {diags.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} validate` shows them).");
+            output.WriteLine($"No metadata was produced: {diags.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} project compile` shows them).");
             return CliApp.ExitFindings;
         }
 

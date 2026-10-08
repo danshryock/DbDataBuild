@@ -31,7 +31,7 @@ public class ProjectValidatorTests
 
         var orphans = result.Diagnostics.Where(d => d.Code == "DDB-108").ToList();
         Assert.Equal(2, orphans.Count);
-        Assert.Contains(orphans, d => d.Location.File == "models/marts/only_sql.sql" && d.Fix!.Contains("dbdatabuild define"));
+        Assert.Contains(orphans, d => d.Location.File == "models/marts/only_sql.sql" && d.Fix!.Contains("dbdatabuild project model update"));
         Assert.Contains(orphans, d => d.Location.File == "models/marts/only_yml.yml");
     }
 

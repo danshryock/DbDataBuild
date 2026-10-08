@@ -25,7 +25,7 @@ public class QueryHeadConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -49,11 +49,11 @@ public class QueryHeadConformanceTests
             Write("models/marts/inc.yml", cols);
             Write("models/marts/inc.sql", "CREATE TABLE marts.inc\nWITH (kind = 'incremental_by_unique_key', unique_key = (order_id))\nAS\nSELECT order_id, amount FROM src.orders\n");
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var first = Cli("plan", "--connection", name);
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var first = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(first, "plan");
-            Ok(Cli("apply", PlanOf(first.Out)), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(first.Out)), "apply");
             string Sql(string table) => $"SELECT CAST(order_id AS VARCHAR(10)) + '|' + CAST(amount AS VARCHAR(20)) FROM {table}".Replace(" + '|' + ", name == "postgres" ? " || '|' || " : " + '|' + ");
             Assert.Equal(["1|10.00", "2|20.00"], (await engine.RowsAsync(Sql("marts.plain") + " ORDER BY 1")));
             Assert.Equal(["2|20.00"], await engine.RowsAsync(Sql("marts.big")));
@@ -62,9 +62,9 @@ public class QueryHeadConformanceTests
             // the source changes: the plain table is replaced, the incremental one merges by the key the head gave
             await engine.ExecAsync("UPDATE src.orders SET amount = 25.00 WHERE order_id = 1");
             await engine.ExecAsync("INSERT INTO src.orders VALUES (3, 30.00)");
-            var second = Cli("plan", "--connection", name);
+            var second = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(second, "second plan");
-            Ok(Cli("apply", PlanOf(second.Out)), "second apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(second.Out)), "second apply");
             Assert.Equal(["1|25.00", "2|20.00", "3|30.00"], (await engine.RowsAsync(Sql("marts.plain") + " ORDER BY 1")));
             Assert.Equal(["1|25.00", "2|20.00", "3|30.00"], (await engine.RowsAsync(Sql("marts.inc") + " ORDER BY 1")));
             Assert.Equal(["1|25.00", "2|20.00", "3|30.00"], await engine.RowsAsync(Sql("marts.big") + " ORDER BY 1"));                  // the view reads the source as it is now

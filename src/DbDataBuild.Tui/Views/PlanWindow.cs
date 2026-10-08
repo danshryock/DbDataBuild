@@ -62,11 +62,11 @@ public sealed class PlanWindow : Ui.Modal
 
     private void Apply(TuiSession s, bool dryRun)
     {
-        var info = s.Host.Commands.First(c => c.Name == "apply");
+        var info = s.Host.Commands.First(c => c.Name == "connection deploy");
         // the plan, the project, and the flags this plan needs are filled in; the person can still change any of them
         var form = new FormWindow(s, info, f =>
         {
-            f.Field("plan").Value = plan.Path;
+            f.Field("--apply-plan").Value = plan.Path;
             f.Field("--dry-run").Checked = dryRun;
             if (plan.Risky > 0 || plan.Destructive > 0) f.Field("--allow-risky").Checked = !dryRun;
             if (plan.DestructiveObjects.Count > 0) f.Field("--allow-destructive").Value = string.Join(",", plan.DestructiveObjects);

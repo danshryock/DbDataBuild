@@ -43,7 +43,7 @@ public partial class CopyConformanceTests
         public (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
 
@@ -111,21 +111,21 @@ public partial class CopyConformanceTests
         await using var toEngine = pair.Destination;
         try
         {
-            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render --write");
-            Ok(pair.Cli("check", "--connection", destination), "check");
-            var plan = pair.Cli("plan", "--connection", destination);
+            Ok(pair.Cli("connection", "init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render --write");
+            Ok(pair.Cli("connection", "status", "--connection", destination), "check");
+            var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination);
             Ok(plan, "plan");
             var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
             var text = File.ReadAllText(planFile);
             Assert.Contains("type: transfer", text);
             Assert.Contains($"origin: \"{origin}\"", text);
 
-            var dry = pair.Cli("apply", planFile, "--dry-run");
+            var dry = pair.Cli("connection", "deploy", "--apply-plan", planFile, "--dry-run");
             Ok(dry, "apply --dry-run");
             Assert.Empty(await toEngine.RowsAsync($"SELECT 1 FROM information_schema.tables WHERE table_schema = 'dst'"));        // nothing was created
 
-            Ok(pair.Cli("apply", planFile), "apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", planFile), "apply");
             var expected = await ComparableAsync(fromEngine, "src.items");
             var copied = await ComparableAsync(toEngine, "dst.items");
             Assert.Equal(string.Join("\n", expected), string.Join("\n", copied));
@@ -133,12 +133,12 @@ public partial class CopyConformanceTests
             Assert.Empty(await toEngine.RowsAsync($"SELECT 1 FROM information_schema.tables WHERE table_name LIKE 'stg_dst%'"));    // the staging table is gone
 
             // the next plan has nothing to change in the structure and loads again: a copy is a full replace
-            var again = pair.Cli("plan", "--connection", destination);
+            var again = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination);
             Ok(again, "second plan");
             var second = File.ReadAllText(Path.Combine(pair.Dir, Regex.Match(again.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value));
             Assert.DoesNotContain("create table", second);
             await fromEngine.ExecAsync("INSERT INTO src.items (id) VALUES (5)");
-            Ok(pair.Cli("apply", Path.Combine(pair.Dir, Regex.Match(again.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value)), "second apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", Path.Combine(pair.Dir, Regex.Match(again.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value)), "second apply");
             Assert.Equal(5, (await ComparableAsync(toEngine, "dst.items")).Count);
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }
@@ -152,15 +152,15 @@ public partial class CopyConformanceTests
         await using var toEngine = pair.Destination;
         try
         {
-            Ok(pair.Cli("init", "--connection", "sqlserver", "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render --write");
-            var plan = pair.Cli("plan", "--connection", "sqlserver");
+            Ok(pair.Cli("connection", "init", "--connection", "sqlserver", "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render --write");
+            var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
 
             // no login for the origin: nothing is executed
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run(["apply", planFile, "--project", pair.Dir], o, e, environment: v => v == LoginSettings.VariableName("sqlserver", Login.Read) || v == LoginSettings.VariableName("sqlserver", Login.Write) ? toEngine.ConnectionString : null);
+            var exit = CliApp.Run(["connection", "deploy", "--apply-plan", planFile, "--project", pair.Dir], o, e, environment: v => v == LoginSettings.VariableName("sqlserver", Login.Read) || v == LoginSettings.VariableName("sqlserver", Login.Write) ? toEngine.ConnectionString : null);
             Assert.NotEqual(0, exit);
             Assert.Contains("DBDATABUILD_POSTGRES_READ", e.ToString() + o.ToString());
             Assert.Empty(await toEngine.RowsAsync("SELECT 1 FROM information_schema.tables WHERE table_schema = 'dst'"));
@@ -169,7 +169,7 @@ public partial class CopyConformanceTests
             await fromEngine.ExecAsync("DELETE FROM src.items; INSERT INTO src.items (id, big) VALUES (1, 1)");
             await fromEngine.ExecAsync("ALTER TABLE src.items ALTER COLUMN big TYPE NUMERIC(38, 6)");
             await fromEngine.ExecAsync("UPDATE src.items SET big = 99999999999999999999999999999999.123456");
-            var failed = pair.Cli("apply", planFile);
+            var failed = pair.Cli("connection", "deploy", "--apply-plan", planFile);
             Assert.NotEqual(0, failed.Exit);
             Assert.Empty(await toEngine.RowsAsync("SELECT 1 FROM dst.items"));
         }
@@ -189,13 +189,13 @@ public partial class CopyConformanceTests
             await fromEngine.ExecAsync(origin == "postgres"
                 ? $"INSERT INTO src.items (id, n, price, code, notes, seen) SELECT g, g % 1000, g / 7.0, 'code-' || g, repeat('x', 100), TIMESTAMP '2024-01-01' + g * INTERVAL '1 second' FROM generate_series(1, {Rows}) g"
                 : $"INSERT INTO src.items (id, n, price, code, notes, seen) SELECT TOP ({Rows}) n, n % 1000, n / 7.0, 'code-' + CAST(n AS NVARCHAR(20)), REPLICATE(N'x', 100), DATEADD(SECOND, n, '2024-01-01') FROM (SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b) t");
-            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render --write");
-            var plan = pair.Cli("plan", "--connection", destination);
+            Ok(pair.Cli("connection", "init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render --write");
+            var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination);
             Ok(plan, "plan");
             var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            Ok(pair.Cli("apply", planFile), "apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", planFile), "apply");
             clock.Stop();
             Assert.Equal(Rows.ToString(), (await toEngine.RowsAsync("SELECT COUNT(*) FROM dst.items")).Single());
             Assert.Equal((await fromEngine.RowsAsync("SELECT SUM(n) FROM src.items")).Single(), (await toEngine.RowsAsync("SELECT SUM(n) FROM dst.items")).Single());
@@ -220,7 +220,7 @@ public partial class CopyConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var path = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, text); }
@@ -237,26 +237,26 @@ public partial class CopyConformanceTests
             Write("models/pos/orders.yml", "name: pos.orders\nkind: {type: mapped}\nconnections=: [store_17, store_18]\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n  - {name: total, type: \"DECIMAL(10, 2)\"}\n");
             Write("models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
 
-            Ok(Cli("init", "--connection", "sqlserver", "--apply"), "init");
-            Ok(Cli("render", "--write"), "render --write");
-            var plan = Cli("plan", "--connection", "sqlserver");
+            Ok(Cli("connection", "init", "--connection", "sqlserver", "--apply"), "init");
+            Ok(Cli("project", "compile"), "render --write");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             var text = File.ReadAllText(PlanOf(plan.Out));
             Assert.Equal(2, Regex.Matches(text, "type: transfer").Count);                                         // one transfer per origin
-            Ok(Cli("apply", PlanOf(plan.Out)), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(plan.Out)), "apply");
             Assert.Equal(["1|017|10.00", "1|018|11.00", "2|017|20.00", "3|018|33.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
 
             // a row that belongs to no origin of this copy is not touched by a run, and each origin's run replaces only its own rows
             await warehouse.ExecAsync("INSERT INTO warehouse.orders (order_id, total, store_id) VALUES (9, 90.00, '999')");
             await store17.ExecAsync("DELETE FROM pos.orders WHERE order_id = 1; INSERT INTO pos.orders VALUES (4, 40.00)");
-            var again = Cli("plan", "--connection", "sqlserver");
+            var again = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(again, "second plan");
-            Ok(Cli("apply", PlanOf(again.Out)), "second apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(again.Out)), "second apply");
             Assert.Equal(["1|018|11.00", "2|017|20.00", "3|018|33.00", "4|017|40.00", "9|999|90.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
 
             // version skew: store 18 lost a column. The plan names the origin and stops, and says nothing else about the others
             await store18.ExecAsync("ALTER TABLE pos.orders DROP COLUMN total");
-            var skew = Cli("plan", "--connection", "sqlserver");
+            var skew = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Assert.NotEqual(0, skew.Exit);
             Assert.Contains("DDB-230", skew.Err);
             Assert.Contains("`pos.orders` on `store_18` differs from its declaration: column `total` is gone", skew.Err);
@@ -264,13 +264,13 @@ public partial class CopyConformanceTests
 
             // with on_mismatch: skip the other origin still loads, and the skipped one's rows stay as they were
             Write("models/warehouse/orders.yml", "name: warehouse.orders\nkind:\n  type: copy\n  from: pos.orders\n  on_mismatch: skip\n  slice: {column: store_id, value: \"${origin.store_id}\", type: \"VARCHAR(10)\"}\n");
-            Ok(Cli("render", "--write"), "render --write");
+            Ok(Cli("project", "compile"), "render --write");
             await store17.ExecAsync("INSERT INTO pos.orders VALUES (5, 50.00)");
-            var skipped = Cli("plan", "--connection", "sqlserver");
+            var skipped = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(skipped, "plan with a skipped origin");
             Assert.Contains("left out of the plan", skipped.Err);
             Assert.Single(Regex.Matches(File.ReadAllText(PlanOf(skipped.Out)), "type: transfer"));
-            Ok(Cli("apply", PlanOf(skipped.Out)), "apply with a skipped origin");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(skipped.Out)), "apply with a skipped origin");
             Assert.Equal(["1|018|11.00", "2|017|20.00", "3|018|33.00", "4|017|40.00", "5|017|50.00", "9|999|90.00"], await warehouse.RowsAsync("SELECT CAST(order_id AS VARCHAR(10)) + '|' + store_id + '|' + CAST(total AS VARCHAR(20)) FROM warehouse.orders"));
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
@@ -294,15 +294,15 @@ public partial class CopyConformanceTests
             await from.ExecAsync($"CREATE TABLE src.events ({q("id")} BIGINT NOT NULL, {q("note")} {from.ColumnType("VARCHAR(40)")}, {q("updated_at")} {from.ColumnType("TIMESTAMP")} NOT NULL)");
             await from.ExecAsync("INSERT INTO src.events VALUES (1, N'one', '2024-01-01 10:00:00'), (2, N'two', '2024-01-01 11:00:00'), (3, N'three', '2024-01-01 12:00:00')".Replace("N'", origin == "postgres" ? "'" : "N'"));
 
-            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render");
+            Ok(pair.Cli("connection", "init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render");
             async Task<string> Applied(string what)
             {
-                var plan = pair.Cli("plan", "--connection", destination);
+                var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination);
                 Ok(plan, what + " plan");
                 var file = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
                 var text = File.ReadAllText(file);
-                Ok(pair.Cli("apply", file), what + " apply");
+                Ok(pair.Cli("connection", "deploy", "--apply-plan", file), what + " apply");
                 return text;
             }
             async Task<List<string>> Dest() => await to.RowsAsync($"SELECT CAST({to.QuoteIdent("id")} AS VARCHAR(10)) + '|' + {to.QuoteIdent("note")} FROM dst.events".Replace(" + '|' + ", destination == "postgres" ? " || '|' || " : " + '|' + ").Replace("VARCHAR(10)", destination == "postgres" ? "VARCHAR(10)" : "NVARCHAR(10)"));
@@ -321,16 +321,16 @@ public partial class CopyConformanceTests
             Assert.Equal(["1|one", "2|two", "3|three, edited", "4|four"], await Dest());                     // read: 2 (11:00 is at the bound), 3, 4. Not read: 1
 
             // a full refresh reads the origin from the start: row 1, whose updated_at never moved, comes through now
-            var refreshed = pair.Cli("plan", "--connection", destination, "--full-refresh", "dst.events");
+            var refreshed = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination, "--full-refresh", "dst.events");
             Ok(refreshed, "full-refresh plan");
             var refreshFile = Path.Combine(pair.Dir, Regex.Match(refreshed.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
             Assert.DoesNotContain("@watermark", File.ReadAllText(refreshFile));
-            Ok(pair.Cli("apply", refreshFile), "full-refresh apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", refreshFile), "full-refresh apply");
             Assert.Equal(["1|one, edited", "2|two", "3|three, edited", "4|four"], await Dest());
-            Assert.NotEqual(0, pair.Cli("plan", "--connection", destination, "--full-refresh", "no.such_model").Exit);    // not a model of the project
+            Assert.NotEqual(0, pair.Cli("connection", "deploy", "--write-plan", "--connection", destination, "--full-refresh", "no.such_model").Exit);    // not a model of the project
 
             // `report` says which origin copied well last
-            var report = pair.Cli("report", "--connection", destination);
+            var report = pair.Cli("connection", "monitor", "--connection", destination);
             Ok(report, "report");
             Assert.Contains("Copy origins", report.Out);
             Assert.Matches($@"dst\.events\s+{origin}\s+\d{{4}}-\d\d-\d\d", report.Out);
@@ -352,7 +352,7 @@ public partial class CopyConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -382,26 +382,26 @@ public partial class CopyConformanceTests
             Write("models/marts/fct.yml", "name: marts.fct\nkind: {type: full}\nconnections=: [origin]\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: name, type: \"VARCHAR(20)\", nullable: false}\n");
             Write("models/marts/fct.sql", "SELECT id, name FROM src.base_t\n");
             Write("models/dst/fct.yml", "name: dst.fct\nkind:\n  type: copy\n  from: marts.fct\n");
-            Ok(Cli("render", "--write"), "render");
+            Ok(Cli("project", "compile"), "render");
 
             // the model is not built on its connection yet: the copy is planned, with a note that the origin was not checked
-            var first = Cli("plan", "--connection", "wh");
+            var first = Cli("connection", "deploy", "--write-plan", "--connection", "wh");
             Ok(first, "first plan");
             Assert.Contains("is not built on `origin` yet", first.Err + first.Out);
 
-            var build = Cli("plan", "--connection", "origin");
+            var build = Cli("connection", "deploy", "--write-plan", "--connection", "origin");
             Ok(build, "plan of the origin");
-            Ok(Cli("apply", PlanOf(build.Out)), "apply on the origin");
-            var second = Cli("plan", "--connection", "wh");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(build.Out)), "apply on the origin");
+            var second = Cli("connection", "deploy", "--write-plan", "--connection", "wh");
             Ok(second, "second plan");
             Assert.DoesNotContain("is not built on", second.Err + second.Out);
             Assert.DoesNotContain("DDB-230", second.Err + second.Out);
-            Ok(Cli("apply", PlanOf(second.Out)), "apply the copy");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(second.Out)), "apply the copy");
             Assert.Equal(["1|a", "2|b"], await Rows(warehouse, "SELECT CAST(id AS VARCHAR(10)) + '|' + name FROM dst.fct ORDER BY 1"));
 
             // the table on the origin is changed outside the tool: the copy is stopped before it reads a table that no longer has what the model declares
             await server.ExecAsync("ALTER TABLE marts.fct DROP COLUMN name");
-            var third = Cli("plan", "--connection", "wh");
+            var third = Cli("connection", "deploy", "--write-plan", "--connection", "wh");
             Assert.NotEqual(0, third.Exit);
             Assert.Contains("DDB-230", third.Err + third.Out);
             Assert.Contains("column `name` is gone", third.Err + third.Out);
@@ -438,14 +438,14 @@ public partial class CopyConformanceTests
             await from.ExecAsync(pg
                 ? "INSERT INTO src.typed VALUES (1, '\\x00ff10'::bytea, '0e984725-c51c-4bf4-9960-e1c80e27aba0', '13:14:15.123456', '2024-03-10 08:30:00.123456+02'), (2, ''::bytea, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00:00:00', '2024-01-01 00:00:00+00'), (3, NULL, NULL, NULL, NULL), (4, decode(repeat('ab', 100000), 'hex'), '00000000-0000-0000-0000-000000000000', '23:59:59.999999', '9999-12-31 23:59:59.999999+00')"
                 : "INSERT INTO src.typed VALUES (1, 0x00FF10, '0e984725-c51c-4bf4-9960-e1c80e27aba0', '13:14:15.123456', '2024-03-10 08:30:00.123456 +02:00'), (2, 0x, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00:00:00', '2024-01-01 00:00:00 +00:00'), (3, NULL, NULL, NULL, NULL), (4, CAST(REPLICATE(CAST('AB' AS VARCHAR(MAX)), 100000) AS VARBINARY(MAX)), '00000000-0000-0000-0000-000000000000', '23:59:59.999999', '9999-12-31 23:59:59.999999 +00:00')");
-            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render");
-            var plan = pair.Cli("plan", "--connection", destination); Ok(plan, "plan");
+            Ok(pair.Cli("connection", "init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render");
+            var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination); Ok(plan, "plan");
             var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
-            Ok(pair.Cli("apply", planFile), "apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", planFile), "apply");
             Assert.Equal("4", (await to.RowsAsync("SELECT COUNT(*) FROM dst.typed")).Single());
             // the same table on the two connections: src.typed on the origin, dst.typed on the destination
-            var diff = pair.Cli("diff", "src.typed", "--connection", origin, "--against-connection", destination, "--against", "dst.typed", "--key", "id");
+            var diff = pair.Cli("connection", "compare", "src.typed", "--connection", origin, "--against-connection", destination, "--against", "dst.typed", "--key", "id");
             Assert.True(diff.Exit == 0, diff.Out + diff.Err);
             Assert.Contains("The tables are identical", diff.Out);
         }
@@ -487,13 +487,13 @@ public partial class CopyConformanceTests
             string Literal(string v) => (pg ? "'" : "N'") + v.Replace("'", "''") + "'";
             var rows = values.Select((v, k) => $"({k + 1}, {Literal(v)}, {Literal(v)})").Append("(100, NULL, NULL)");
             await from.ExecAsync("INSERT INTO src.words VALUES " + string.Join(", ", rows));
-            Ok(pair.Cli("init", "--connection", destination, "--apply"), "init");
-            Ok(pair.Cli("render", "--write"), "render");
-            var plan = pair.Cli("plan", "--connection", destination); Ok(plan, "plan");
+            Ok(pair.Cli("connection", "init", "--connection", destination, "--apply"), "init");
+            Ok(pair.Cli("project", "compile"), "render");
+            var plan = pair.Cli("connection", "deploy", "--write-plan", "--connection", destination); Ok(plan, "plan");
             var planFile = Path.Combine(pair.Dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
-            Ok(pair.Cli("apply", planFile), "apply");
+            Ok(pair.Cli("connection", "deploy", "--apply-plan", planFile), "apply");
             Assert.Equal((values.Length + 1).ToString(), (await to.RowsAsync("SELECT COUNT(*) FROM dst.words")).Single());
-            var diff = pair.Cli("diff", "src.words", "--connection", origin, "--against-connection", destination, "--against", "dst.words", "--key", "id");
+            var diff = pair.Cli("connection", "compare", "src.words", "--connection", origin, "--against-connection", destination, "--against", "dst.words", "--key", "id");
             Assert.True(diff.Exit == 0, diff.Out + diff.Err);
         }
         finally { try { Directory.Delete(pair.Dir, true); } catch (IOException) { } }

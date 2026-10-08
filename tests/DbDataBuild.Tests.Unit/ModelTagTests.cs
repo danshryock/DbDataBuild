@@ -36,7 +36,7 @@ public class ModelTagTests
 
     private static string[] Chosen(string dir, params string[] selectors)
     {
-        var r = Cli(["metadata", .. selectors, "--project", dir, "--format", "json"]);
+        var r = Cli(["project", "show", "metadata", .. selectors, "--project", dir, "--format", "json"]);
         Assert.Equal(0, r.Exit);
         return JsonNode.Parse(r.Out)!["data"]!["models"]!.AsArray().Select(m => (string)m!["name"]!).Order().ToArray();
     }
@@ -57,7 +57,7 @@ public class ModelTagTests
     public void The_metadata_document_lists_the_tags_and_a_model_without_any_has_none()
     {
         var dir = Project();
-        var r = Cli("metadata", "finance.revenue", "ops.queue", "--project", dir, "--format", "json");
+        var r = Cli("project", "show", "metadata", "finance.revenue", "ops.queue", "--project", dir, "--format", "json");
         var models = JsonNode.Parse(r.Out)!["data"]!["models"]!.AsArray();
         Assert.Equal(["critical", "everywhere", "finance"], models.Single(m => (string?)m!["name"] == "finance.revenue")!["tags"]!.AsArray().Select(t => (string)t!));
         Assert.Equal(["everywhere"], models.Single(m => (string?)m!["name"] == "ops.queue")!["tags"]!.AsArray().Select(t => (string)t!));
@@ -67,10 +67,10 @@ public class ModelTagTests
     public void A_tag_nobody_carries_is_a_usage_error_and_a_malformed_tag_is_a_diagnostic()
     {
         var dir = Project();
-        var none = Cli("metadata", "tag:nothing", "--project", dir);
+        var none = Cli("project", "show", "metadata", "tag:nothing", "--project", dir);
         Assert.Equal(CliApp.ExitUsage, none.Exit);
         Assert.Contains("no model has the tag `nothing`", none.Err);
         File.WriteAllText(Path.Combine(dir, "models/ops/queue.yml"), "name: ops.queue\nkind: {type: view}\ntags: [\"bad tag\"]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
-        Assert.Contains("`bad tag` is not a tag", Cli("validate", "--project", dir).Err);
+        Assert.Contains("`bad tag` is not a tag", Cli("project", "compile", "--project", dir).Err);
     }
 }

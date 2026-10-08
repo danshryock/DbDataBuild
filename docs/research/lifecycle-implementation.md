@@ -18,8 +18,8 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 1.1 | Event ids; the "applied once" rule per event | scheduled `refresh`/`run` with unchanged content works every time; ids `dep-…`/`ref-…` in `plan_id` columns, plan hash in `plan_hash` | | report shows ids | **run lane done** (entry 132); deploy lane keeps its content id until phase 3 |
 | 1.2 | `rows_loaded` | the rows inserted by a load, not the sum of every statement's count | | report numbers change | **done** (entry 133) |
 | 1.3 | Plan noise | one DDB-424 per cause; each note once; no "not interactive" note without a question | | text only | **done** (entry 134) |
-| 2 | The command tree | `project`, `connection`, `ui`, `help` nouns; old verbs removed; JSON `command`, schemas, TUI catalog, MCP tool names, generated docs | 1 | **yes** | planned |
-| 3 | `deploy` as one flow | `status` read-only; `deploy` interactive; `--write-plan`, `--apply-plan`, `--ack`, `--reason`; continuing an incomplete event; no `--resume` | 2 | yes | planned |
+| 2 | The command tree | `project`, `connection`, `ui`, `help` nouns; old verbs removed; JSON `command`, schemas, TUI catalog, MCP tool names, generated docs | 1 | **yes** | **done** (entry 135), except the positional `<c>` (the option `--connection` stays for now) and the commands marked *later* |
+| 3 | `deploy` as one flow | `status` read-only; `deploy` interactive; `--write-plan`, `--apply-plan`, `--ack`, `--reason`; continuing an incomplete event; no `--resume` | 2 | yes | **done** (entry 135); the deploy lane still keys a plan by its content id (event ids for deploy come with layout 5) |
 | 4 | Refresh from a compiled plan | `project compile` writes `refresh.plan.yml` with `requires`; `connection refresh` runs it; check levels `none`, `project`, `objects`, `live`; `--on-fail` | 2, 5 for `project` | yes | planned |
 | 5 | Plan policy, events, layout 5 | `plans.*.keep/audit`, `event_log`, `plan_store`, statement log without tracking writes, `retention.statement_logs_days`; `init --upgrade` from 4 | 1 | tracking layout | planned |
 | 6 | `status` and `monitor` views | structure/data/attention; the event timeline and drill-down | 5 | | planned |
@@ -98,3 +98,4 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 2026-10-07 | 1.1 | `run` gives each run an id `ref-<utc>-<4 hex>`: repeated runs of unchanged content no longer fail with DDB-438; verified on SQL Server 2022 and PostgreSQL 17 |
 | 2026-10-07 | 1.2 | `rows_affected` of a load is the rows inserted; verified on both engines |
 | 2026-10-07 | 1.3 | `plan` reports stale rendered files as one DDB-424 naming the first three and the fix; the not-interactive note appears only when a question is open |
+| 2026-10-07 | 2, 3 | the command tree, `connection deploy` as one flow, `--resume` gone (a stopped plan continues); unit suite and all conformance groups pass on SQL Server 2022 and PostgreSQL 17 |

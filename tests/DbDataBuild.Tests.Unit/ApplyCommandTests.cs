@@ -41,7 +41,7 @@ public class ApplyCommandTests
     [Fact]
     public void A_missing_plan_file_is_a_usage_error()
     {
-        var (exit, _, err) = Cli(null, "apply", Path.Combine(NewProjectDir(), "none.plan.yml"));
+        var (exit, _, err) = Cli(null, "connection", "deploy", "--apply-plan", Path.Combine(NewProjectDir(), "none.plan.yml"));
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("does not exist", err);
     }
@@ -51,7 +51,7 @@ public class ApplyCommandTests
     {
         var path = Write(PlanWith(Step("1", RiskClass.Safe)));
         File.WriteAllText(path, File.ReadAllText(path).Replace("ALTER TABLE x1", "DROP TABLE x1"));
-        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "apply", path, "--project", Path.GetDirectoryName(path)!);
+        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", Path.GetDirectoryName(path)!);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-435", err);
         Assert.DoesNotContain("effect:", output);                      // the header (which names logins) is never reached
@@ -62,7 +62,7 @@ public class ApplyCommandTests
     {
         var path = Write(PlanWith(Step("1", RiskClass.Risky), Step("2", RiskClass.Destructive, "marts.a"), Step("3", RiskClass.Destructive, "marts.b")));
         var dir = Path.GetDirectoryName(path)!;
-        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "apply", path, "--project", dir);
+        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Equal(3, err.Split("error DDB-436").Length - 1);              // risky, and one per destructive object
         Assert.Contains("--allow-risky", err);
@@ -73,7 +73,7 @@ public class ApplyCommandTests
         Assert.False(Directory.Exists(Path.Combine(dir, ".dbdatabuild")));   // not even a statement log
 
         // one allowance does not stand in for another, and none implies "all"
-        var (_, _, partial) = Cli(BothLogins.GetValueOrDefault, "apply", path, "--project", dir, "--allow-risky", "--allow-destructive", "marts.a");
+        var (_, _, partial) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", dir, "--allow-risky", "--allow-destructive", "marts.a");
         Assert.Equal(1, partial.Split("error DDB-436").Length - 1);
         Assert.Contains("marts.b", partial);
     }
@@ -84,12 +84,12 @@ public class ApplyCommandTests
         var path = Write(PlanWith(Step("1", RiskClass.Safe)));
         var dir = Path.GetDirectoryName(path)!;
         var readOnly = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = BothLogins["DBDATABUILD_SQLSERVER_READ"] };
-        var (exit, _, err) = Cli(readOnly.GetValueOrDefault, "apply", path, "--project", dir);
+        var (exit, _, err) = Cli(readOnly.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-501", err);
         Assert.Contains("DBDATABUILD_SQLSERVER_WRITE", err);
 
-        var none = Cli(null, "apply", path, "--project", dir, "--dry-run");
+        var none = Cli(null, "connection", "deploy", "--apply-plan", path, "--project", dir, "--dry-run");
         Assert.Contains("DBDATABUILD_SQLSERVER_READ", none.Err);        // even a dry run needs the read login: it verifies against the live target
         Assert.DoesNotContain("WRITE", none.Err);
     }
@@ -99,9 +99,9 @@ public class ApplyCommandTests
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
-        foreach (var command in new[] { "plan", "check" })
+        foreach (var command in new[] { new[] { "connection", "deploy", "--write-plan" }, new[] { "connection", "status" } })
         {
-            var (exit, _, err) = Cli(null, command, "--project", dir);
+            var (exit, _, err) = Cli(null, [.. command, "--project", dir]);
             Assert.Equal(CliApp.ExitFindings, exit);
             Assert.Contains("DDB-501", err);
             Assert.Contains("DBDATABUILD_SQLSERVER_READ", err);
@@ -116,7 +116,7 @@ public class ApplyCommandTests
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
         var answers = Path.Combine(dir, "answers.yml");
         File.WriteAllText(answers, "answers:\n  - id: not-a-question-id\n    choice: x\n");
-        var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "plan", "--project", dir, "--answers", answers);
+        var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--write-plan", "--project", dir, "--answers", answers);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-106", err);
     }
@@ -126,8 +126,8 @@ public class ApplyCommandTests
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n");
-        Assert.Equal(CliApp.ExitUsage, Cli(BothLogins.GetValueOrDefault, "ack", "drift", "marts.fct", "--project", dir).Exit);
-        var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "ack", "banana", "marts.fct", "--reason", "x", "--project", dir);
+        Assert.Equal(CliApp.ExitUsage, Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--ack", "drift:marts.fct", "--project", dir).Exit);
+        var (exit, _, err) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--ack", "banana:marts.fct", "--reason", "x", "--project", dir);
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("Unknown acknowledgement", err);
     }
@@ -136,7 +136,7 @@ public class ApplyCommandTests
     public void Allowance_checks_are_exact_per_object()
     {
         var plan = PlanWith(Step("1", RiskClass.Destructive, "marts.a"), Step("2", RiskClass.Safe, "marts.b"));
-        ApplyOptions Opts(params string[] allowed) => new(false, false, allowed.ToHashSet(), false, null, false, "me");
+        ApplyOptions Opts(params string[] allowed) => new(false, false, allowed.ToHashSet(), null, false, "me");
         Assert.Single(ApplyEngine.CheckAllowances(plan, Opts()));
         Assert.Single(ApplyEngine.CheckAllowances(plan, Opts("marts.b")));
         Assert.Empty(ApplyEngine.CheckAllowances(plan, Opts("marts.a")));
@@ -176,13 +176,13 @@ public class ApplyCommandTests
         File.WriteAllText(Path.Combine(dir, "uncommitted.txt"), "x");
         var path = Write(PlanWith(Step("1", RiskClass.Safe)), dir);
 
-        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "apply", path, "--project", dir);
+        var (exit, output, err) = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-442", err);
         Assert.Contains("Nothing was executed.", output);
 
         // the dry run proceeds past the warning (and then fails to reach the unreachable test server, which is not what is under test)
-        var dry = Cli(BothLogins.GetValueOrDefault, "apply", path, "--project", dir, "--dry-run");
+        var dry = Cli(BothLogins.GetValueOrDefault, "connection", "deploy", "--apply-plan", path, "--project", dir, "--dry-run");
         Assert.Contains("warning DDB-442", dry.Err);
     }
 }

@@ -141,7 +141,7 @@ public class ParametersTests
     public void A_parameter_in_a_query_renders_as_a_placeholder_on_every_engine_and_the_value_is_never_in_the_text()
     {
         var dir = QueryProject();
-        var (exit, _, err) = Cli("render", "--write", "--project", dir);
+        var (exit, _, err) = RenderFiles("--write", "--project", dir);
         Assert.True(exit == 0, err);
         foreach (var connection in new[] { "sqlserver", "postgres" })
         {
@@ -163,11 +163,11 @@ public class ParametersTests
     public void A_value_change_changes_no_rendered_file_and_a_reference_change_does()
     {
         var dir = QueryProject();
-        Assert.Equal(0, Cli("render", "--write", "--project", dir).Exit);
+        Assert.Equal(0, RenderFiles("--write", "--project", dir).Exit);
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Typed.Replace("region: eu", "region: us").Replace("value: 5", "value: 50"));
-        Assert.Equal(0, Cli("render", "--check", "--project", dir).Exit);                                    // the values are bound at run time, not rendered
+        Assert.Equal(0, RenderFiles("--check", "--project", dir).Exit);                                    // the values are bound at run time, not rendered
         File.WriteAllText(Path.Combine(dir, "models/marts/m.sql"), Query.Replace("${project.region}", "${project.limit}").Replace("region = ", "id = "));
-        Assert.NotEqual(0, Cli("render", "--check", "--project", dir).Exit);
+        Assert.NotEqual(0, RenderFiles("--check", "--project", dir).Exit);
     }
 
     [Theory]
@@ -180,7 +180,7 @@ public class ParametersTests
     public void A_reference_that_cannot_be_bound_says_why(string sql, string expected)
     {
         var dir = QueryProject(sql, Typed);
-        var (exit, _, err) = Cli("validate", "--project", dir);
+        var (exit, _, err) = Cli("project", "compile", "--project", dir);
         Assert.NotEqual(0, exit);
         Assert.Contains(expected, err);
     }
@@ -190,11 +190,11 @@ public class ParametersTests
     {
         var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${project.region}\n", OnSqlServer);
         File.WriteAllText(Path.Combine(dir, "models/marts/m.yml"), Marts.Replace("kind: {type: full}", "kind: {type: view}"));
-        var (exit, _, err) = Cli("validate", "--project", dir);
+        var (exit, _, err) = Cli("project", "compile", "--project", dir);
         Assert.NotEqual(0, exit);
         Assert.Contains("a view's query cannot use parameters", err);
         File.WriteAllText(Path.Combine(dir, "models/marts/m.yml"), Marts);
-        Assert.Equal(0, Cli("validate", "--project", dir).Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", dir).Exit);
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public class ParametersTests
     {
         var cfg = Typed + "connections:\n  sqlserver: { parameters: { site: a } }\n  postgres: { parameters: { site: b } }\n";
         var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${connection.site} AND n = ${model.n}\n", cfg, "parameters:\n  n: { type: INTEGER, value: 4 }\n");
-        var (exit, _, err) = Cli("render", "--write", "--project", dir);
+        var (exit, _, err) = RenderFiles("--write", "--project", dir);
         Assert.True(exit == 0, err);
         Assert.Contains("@p_connection_site", File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.m/load.default.sql")));
         Assert.Contains("@p_model_n (INTEGER, parameter)", File.ReadAllText(Path.Combine(dir, "rendered/postgres/marts.m/load.default.sql")));
@@ -212,7 +212,7 @@ public class ParametersTests
     public void Sample_runs_the_query_with_the_values_filled_in()
     {
         var dir = QueryProject("SELECT id, region FROM staging.t WHERE region = ${project.region}\n");
-        var (exit, output, err) = Cli("sample", "marts.m", "--project", dir, "--rows", "20", "--format", "json");
+        var (exit, output, err) = Cli("project", "sample", "marts.m", "--project", dir, "--rows", "20", "--format", "json");
         Assert.True(exit == 0, output + err);                                                              // DuckDB ran the real query: the literal is a string, so it binds
     }
 }

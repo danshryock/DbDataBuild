@@ -151,7 +151,7 @@ public class SampleTests
     {
         var dir = Project();
         var before = Snapshot(dir);
-        var (exit, output, err) = Cli("sample", "--project", dir, "--rows", "40", "--limit", "5");
+        var (exit, output, err) = Cli("project", "sample", "--project", dir, "--rows", "40", "--limit", "5");
         Assert.Equal(0, exit);
         Assert.Contains("effect: Offline only", output);
         Assert.Contains("marts.by_customer  (model, ", output);
@@ -161,17 +161,17 @@ public class SampleTests
         Assert.Equal("", err);
         Assert.Equal(before, Snapshot(dir));
         Assert.DoesNotContain("staging.orders  (source", output);
-        Assert.Contains("staging.orders  (source", Cli("sample", "--project", dir, "--sources").Out);
+        Assert.Contains("staging.orders  (source", Cli("project", "sample", "--project", dir, "--sources").Out);
     }
 
     [Fact]
     public void The_sample_command_refuses_nonsense_options_and_unknown_models()
     {
         var dir = Project();
-        Assert.Equal(CliApp.ExitUsage, Cli("sample", "--project", dir, "--rows", "0").Exit);
-        Assert.Equal(CliApp.ExitUsage, Cli("sample", "--project", dir, "--limit", "-1").Exit);
-        Assert.Equal(CliApp.ExitUsage, Cli("sample", "--project", dir, "--data", Path.Combine(dir, "nope")).Exit);
-        Assert.Equal(CliApp.ExitUsage, Cli("sample", "nothing.here", "--project", dir).Exit);
+        Assert.Equal(CliApp.ExitUsage, Cli("project", "sample", "--project", dir, "--rows", "0").Exit);
+        Assert.Equal(CliApp.ExitUsage, Cli("project", "sample", "--project", dir, "--limit", "-1").Exit);
+        Assert.Equal(CliApp.ExitUsage, Cli("project", "sample", "--project", dir, "--data", Path.Combine(dir, "nope")).Exit);
+        Assert.Equal(CliApp.ExitUsage, Cli("project", "sample", "nothing.here", "--project", dir).Exit);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class SampleTests
     {
         var dir = Project();
         File.WriteAllText(Path.Combine(dir, "models/marts/by_customer.sql"), "SELECT CAST(customer AS INTEGER) AS customer, COUNT(*) AS n FROM staging.orders WHERE customer <> '' GROUP BY 1\n");
-        var (exit, output, err) = Cli("sample", "--project", dir);
+        var (exit, output, err) = Cli("project", "sample", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("failed", output);
         Assert.Contains("marts.by_customer failed on sample data", err);

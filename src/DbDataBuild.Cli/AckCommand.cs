@@ -8,7 +8,7 @@ using DbDataBuild.Targets.Ddl;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild ack drift &lt;object&gt;` and `ack definition &lt;model&gt;` (DESIGN.md 9.1, 11). Effect class: tracking tables only. A person's decision is recorded with the exact hash it
+/// `dbdatabuild connection deploy --ack drift:&lt;object&gt; --reason &lt;why&gt;` (also `definition:&lt;model&gt;` and `history:&lt;model.column&gt;`; DESIGN.md 9.1, 11). Effect class: tracking tables only. A person's decision is recorded with the exact hash it
 /// is about, so it clears exactly that block and a later, different change blocks again. It changes no user data.
 /// </summary>
 internal static class AckCommand

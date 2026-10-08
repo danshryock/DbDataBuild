@@ -38,7 +38,7 @@ public class DefineCommandTests
         return (exit, o.ToString(), e.ToString());
     }
 
-    private static (int Exit, string Out, string Err) Define(string dir, params string[] more) => Run(null, false, ["define", "--project", dir, .. more]);
+    private static (int Exit, string Out, string Err) Define(string dir, params string[] more) => Run(null, false, ["project", "model", "update", "--project", dir, .. more]);
 
     private static string Answers(string dir, string yaml)
     {
@@ -290,7 +290,7 @@ public class DefineCommandTests
     {
         var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
-        var (exit, output, err) = Run(Script(InteractiveForSmallModel), true, "define", "--project", dir);
+        var (exit, output, err) = Run(Script(InteractiveForSmallModel), true, "project", "model", "update", "--project", dir);
         Assert.Equal((CliApp.ExitOk, ""), (exit, err));
         Assert.Contains("Q-define-marts.dim_customer-kind", output);
         Assert.Contains("Write 1 definition file(s)? [y/N]", output);
@@ -305,7 +305,7 @@ public class DefineCommandTests
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var lines = InteractiveForSmallModel.SkipLast(1).Append("n").ToArray();
         var before = Snapshot(dir);
-        var (exit, output, _) = Run(Script(lines), true, "define", "--project", dir);
+        var (exit, output, _) = Run(Script(lines), true, "project", "model", "update", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("Nothing was written.", output);
         Assert.Equal(before, Snapshot(dir));
@@ -317,7 +317,7 @@ public class DefineCommandTests
         var dir = Project("defaults: {connections: [sqlserver]}\n");
         Model(dir, "marts.dim_customer", "SELECT c.customer_id, c.name FROM staging.customers c");
         var before = Snapshot(dir);
-        var (exit, output, err) = Run(Script("a", ""), true, "define", "--project", dir);
+        var (exit, output, err) = Run(Script("a", ""), true, "project", "model", "update", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("Nothing was written", output);
         Assert.Contains("DDB-414", err);
@@ -334,7 +334,7 @@ public class DefineCommandTests
         var reader = new TriggerReader(Script(InteractiveForSmallModel.SkipLast(1).ToArray()), "y", () => File.WriteAllText(yml, "someone: else\n"));
         var o = new StringWriter();
         var e = new StringWriter();
-        var exit = CliApp.Run(["define", "--project", dir], o, e, reader, interactive: true);
+        var exit = CliApp.Run(["project", "model", "update", "--project", dir], o, e, reader, interactive: true);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-421", e.ToString());
         Assert.Equal("someone: else\n", File.ReadAllText(yml));
@@ -356,7 +356,7 @@ public class DefineCommandTests
     [Fact]
     public void Define_is_declared_repo_files_only_and_never_references_a_database_driver()
     {
-        var spec = CommandSpecs.All.Single(c => c.Name == "define");
+        var spec = CommandSpecs.All.Single(c => c.Name == "project model update");
         Assert.Equal(EffectClass.RepoFilesOnly, spec.Effect);
         Assert.True(spec.Implemented);
 
@@ -370,7 +370,7 @@ public class DefineCommandTests
     [Fact]
     public void Help_describes_define_with_its_effect_class()
     {
-        var (exit, help, _) = Run(null, false, "define", "--help");
+        var (exit, help, _) = Run(null, false, "project", "model", "update", "--help");
         Assert.Equal(0, exit);
         Assert.Contains("Repo files only", help);
         Assert.Contains("--check", help);

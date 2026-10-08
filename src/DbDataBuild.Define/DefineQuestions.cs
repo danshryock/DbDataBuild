@@ -101,7 +101,7 @@ internal static class DefineQuestions
         $"The loads of `{model}` would use these indexes. Declare them under `indexes:`?",
         [.. advice.Select(a => $"{IndexAdvisor.Yaml(a)}   ({(a.Reason == IndexReason.MergeKey ? "key of a load" : "column a load reads")}; {string.Join(", ", a.Targets)})"),
          "The tool creates only indexes you declare, and never infers one from unique_key. Declaring `unique: true` makes the engine reject duplicate keys; leave it off to merge on a key without enforcing it."],
-        [new("add_suggested", "Declare the suggested indexes", "`plan` will create them"), new("no_indexes", "Declare none", "the advice stays as a lint note on `validate` and `plan`")],
+        [new("add_suggested", "Declare the suggested indexes", "the next plan will create them"), new("no_indexes", "Declare none", "the advice stays as a lint note on `project compile` and `connection deploy`")],
         new Proposal("add_suggested", null, ProposalCertainty.Normal, [$"{advice.Count} access path(s) without an index"]));
 
     public static Question Rename(string model, RenameCandidate c, IReadOnlyList<string> references)

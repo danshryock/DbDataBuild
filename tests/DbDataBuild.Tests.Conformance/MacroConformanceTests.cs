@@ -37,7 +37,7 @@ public class MacroConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -62,17 +62,17 @@ public class MacroConformanceTests
             Write("models/marts/snap_totals.yml", "name: marts.snap_totals\nkind: {type: full}\n" + Cols);
             Write("models/marts/snap_totals.sql", "SELECT * FROM status_totals('src.orders_snap', 'snap_date')\n");
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
             // what each engine is given is the query for the table: no choice left in the text
             var snapScript = File.ReadAllText(Path.Combine(dir, "rendered", name, "marts.snap_totals", "load.default.sql"));
             var liveScript = File.ReadAllText(Path.Combine(dir, "rendered", name, "marts.live_totals", "load.default.sql"));
             Assert.Contains("orders_snap", snapScript); Assert.DoesNotContain("CASE", snapScript); Assert.DoesNotContain("UNION", snapScript);
             Assert.DoesNotContain("orders_snap", liveScript); Assert.DoesNotContain("snap_date", liveScript); Assert.DoesNotContain("UNION", liveScript);
-            var plan = Cli("plan", "--connection", name);
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(plan, "plan");
-            Ok(Cli("apply", PlanOf(plan.Out)), "apply");
-            var refresh = Cli("plan", "--connection", name, "--full-refresh", "marts.snap_totals");           // a model every load of which rebuilds it in full: nothing to refresh, and no reason to refuse
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(plan.Out)), "apply");
+            var refresh = Cli("connection", "deploy", "--write-plan", "--connection", name, "--full-refresh", "marts.snap_totals");           // a model every load of which rebuilds it in full: nothing to refresh, and no reason to refuse
             Ok(refresh, "plan --full-refresh of a full model");
             Assert.Contains("rebuilt in full by every load", refresh.Out);
 
@@ -101,7 +101,7 @@ public class MacroConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -151,16 +151,16 @@ public class MacroConformanceTests
             Write("models/marts/totals.yml", "name: marts.totals\nkind: {type: full}\n" + Cols);
             Write("models/marts/totals.sql", "SELECT * FROM status_totals(${connection.table}, ${connection.date_col})\n");
 
-            Ok(Cli("validate"), "validate");                                                                         // neither connection is told it reads a table that is on the other
-            Ok(Cli("render", "--write"), "render");
+            Ok(Cli("project", "compile"), "validate");                                                                         // neither connection is told it reads a table that is on the other
+            Ok(Cli("project", "compile"), "render");
             Assert.Contains("orders_snap", File.ReadAllText(Path.Combine(dir, "rendered", "snap", "marts.totals", "load.default.sql")));
             Assert.DoesNotContain("snap_date", File.ReadAllText(Path.Combine(dir, "rendered", "live", "marts.totals", "load.default.sql")));
-            Ok(Cli("render", "--check"), "render --check");
+            Ok(Cli("project", "compile", "--check"), "render --check");
             foreach (var connection in new[] { "live", "snap" })
             {
-                var plan = Cli("plan", "--connection", connection);
+                var plan = Cli("connection", "deploy", "--write-plan", "--connection", connection);
                 Ok(plan, $"plan {connection}");
-                Ok(Cli("apply", PlanOf(plan.Out)), $"apply {connection}");
+                Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(plan.Out)), $"apply {connection}");
             }
             var sql = "SELECT CONCAT(CONVERT(VARCHAR(10), as_of_date, 23), '|', status, '|', CAST(total AS VARCHAR(20))) FROM marts.totals ORDER BY 1";
             var today = (await Rows(server.ConnectionString, "SELECT CONVERT(VARCHAR(10), CAST(GETDATE() AS DATE), 23)")).Single();

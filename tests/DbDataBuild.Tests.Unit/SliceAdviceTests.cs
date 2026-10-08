@@ -73,7 +73,7 @@ public class SliceAdviceTests
     [Fact]
     public void A_watermark_on_an_aggregate_is_a_warning_that_names_the_column_the_aggregate_and_the_way_out()
     {
-        var (exit, output, err) = Cli("validate", "--project", Project(Daily, WatermarkOnMax));
+        var (exit, output, err) = Cli("project", "compile", "--project", Project(Daily, WatermarkOnMax));
         Assert.Equal(CliApp.ExitOk, exit);                                                   // advice never fails validation
         Assert.Contains("warning DDB-225  models/marts/fct_daily.yml", err);
         Assert.Contains("marts.fct_daily / daily loads rows at or after its watermark by `modified_at`", err);
@@ -85,9 +85,9 @@ public class SliceAdviceTests
     [Fact]
     public void The_default_time_range_load_slices_by_a_group_key_and_is_quiet()
     {
-        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily)).Err);                      // the implicit load watermarks order_date, which is the GROUP BY key
+        Assert.DoesNotContain("DDB-225", Cli("project", "compile", "--project", Project(Daily)).Err);                      // the implicit load watermarks order_date, which is the GROUP BY key
         const string byTotal = "SELECT order_date, MAX(modified_at) AS modified_at, SUM(amount) AS total FROM staging.orders GROUP BY order_date";
-        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(byTotal)).Err);
+        Assert.DoesNotContain("DDB-225", Cli("project", "compile", "--project", Project(byTotal)).Err);
     }
 
     [Fact]
@@ -95,18 +95,18 @@ public class SliceAdviceTests
     {
         const string reload = "loads:\n  reload:\n    strategy: delete_insert_by_range\n    params: {start: DATE, end: DATE}\n    max_span: 400 days\n";
         var windowed = "SELECT order_date, modified_at, row_number() OVER (PARTITION BY modified_at ORDER BY order_id) AS total FROM staging.orders";
-        Assert.Contains("not partitioned by `order_date`", Cli("validate", "--project", Project(windowed, reload)).Err);
+        Assert.Contains("not partitioned by `order_date`", Cli("project", "compile", "--project", Project(windowed, reload)).Err);
         var limited = "SELECT order_date, modified_at, amount AS total FROM staging.orders ORDER BY order_date LIMIT 100";
-        Assert.Contains("the query has a LIMIT", Cli("validate", "--project", Project(limited, reload)).Err);
+        Assert.Contains("the query has a LIMIT", Cli("project", "compile", "--project", Project(limited, reload)).Err);
     }
 
     [Fact]
     public void An_operator_can_silence_the_advice_for_a_model_or_the_project_and_an_unknown_code_is_an_error()
     {
-        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-225]\n")).Err);
-        Assert.DoesNotContain("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n  slices: false\n")).Err);
-        Assert.Contains("DDB-225", Cli("validate", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-223]\n")).Err);
-        Assert.Contains("must be true or false", Cli("validate", "--project", Project(Daily, WatermarkOnMax, config: "defaults: {connections: [sqlserver]}\nlint:\n  slices: sometimes\n")).Err);
+        Assert.DoesNotContain("DDB-225", Cli("project", "compile", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-225]\n")).Err);
+        Assert.DoesNotContain("DDB-225", Cli("project", "compile", "--project", Project(Daily, WatermarkOnMax, config: "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n  slices: false\n")).Err);
+        Assert.Contains("DDB-225", Cli("project", "compile", "--project", Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-223]\n")).Err);
+        Assert.Contains("must be true or false", Cli("project", "compile", "--project", Project(Daily, WatermarkOnMax, config: "defaults: {connections: [sqlserver]}\nlint:\n  slices: sometimes\n")).Err);
     }
 
     [Fact]
@@ -114,8 +114,8 @@ public class SliceAdviceTests
     {
         var with = Project(Daily, WatermarkOnMax);
         var without = Project(Daily, WatermarkOnMax, "lint_ignore: [DDB-225]\n");
-        Assert.Equal(0, Cli("render", "--write", "--project", with).Exit);
-        Assert.Equal(0, Cli("render", "--write", "--project", without).Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", with).Exit);
+        Assert.Equal(0, Cli("project", "compile", "--project", without).Exit);
         var file = "rendered/sqlserver/marts.fct_daily/load.daily.sql";
         Assert.Equal(File.ReadAllText(Path.Combine(without, file)), File.ReadAllText(Path.Combine(with, file)));
     }
@@ -127,7 +127,7 @@ public class SliceAdviceTests
     [Fact]
     public void A_slice_read_from_a_source_column_that_no_declared_index_leads_is_a_warning_naming_the_source_column()
     {
-        var (exit, _, err) = Cli("validate", "--project", Project(Simple));
+        var (exit, _, err) = Cli("project", "compile", "--project", Project(Simple));
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-239  models/marts/fct_daily.yml", err);
         Assert.Contains("which the query reads from `staging.orders.order_date`", err);
@@ -139,23 +139,23 @@ public class SliceAdviceTests
     {
         var withIndex = Project(Simple);
         File.AppendAllText(Path.Combine(withIndex, "models/staging/orders.yml"), "indexes:\n  - {name: ix_orders_date, columns: [order_date, order_id]}\n");
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", withIndex).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", withIndex).Err);
 
         var byGrain = Project(Simple);
         File.WriteAllText(Path.Combine(byGrain, "models/staging/orders.yml"), File.ReadAllText(Path.Combine(byGrain, "models/staging/orders.yml")).Replace("grain: [order_id]", "grain: [order_date, order_id]"));
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", byGrain).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", byGrain).Err);
 
         var nothing = Project(Simple);
         File.WriteAllText(Path.Combine(nothing, "models/staging/orders.yml"), File.ReadAllText(Path.Combine(nothing, "models/staging/orders.yml")).Replace("grain: [order_id]\n", ""));
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", nothing).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", nothing).Err);
     }
 
     [Fact]
     public void A_computed_slice_column_is_not_traced_and_the_advice_can_be_silenced()
     {
         const string computed = "SELECT order_id, CAST(order_date AS DATE) + 1 AS order_date, modified_at, amount AS total FROM staging.orders";
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(computed)).Err);
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(Simple, extra: "lint_ignore: [DDB-239]\n")).Err);
-        Assert.DoesNotContain("DDB-239", Cli("validate", "--project", Project(Simple, config: "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n  slices: false\n")).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", Project(computed)).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", Project(Simple, extra: "lint_ignore: [DDB-239]\n")).Err);
+        Assert.DoesNotContain("DDB-239", Cli("project", "compile", "--project", Project(Simple, config: "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n  slices: false\n")).Err);
     }
 }

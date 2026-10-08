@@ -11,7 +11,7 @@ using DbDataBuild.Tui.Model;
 namespace DbDataBuild.Cli.Web;
 
 /// <summary>
-/// `dbdatabuild web`: a second client of the JSON surface, for a person reading a project (docs/research/web-and-mcp-interface.md). One page, served from the executable, and two endpoints: run a
+/// `dbdatabuild ui web`: a second client of the JSON surface, for a person reading a project (docs/research/web-and-mcp-interface.md). One page, served from the executable, and two endpoints: run a
 /// read-only command and get its document, and read a file of the project. It has no logic of its own and no way to a database; the commands it can run only read.
 /// It listens on the loopback address only, and a request needs the random token this process printed (in the address, then in a header), the right Host and, when the browser sends one, the right Origin:
 /// that is what keeps a web page on another site from calling it (DNS rebinding, cross-site requests). There is no CORS header.
@@ -158,7 +158,7 @@ internal sealed class WebServer : IDisposable
         var path = request.Url!.AbsolutePath;
         if (oneTimeLinks && request.HttpMethod == "GET" && path == "/") return OpenWithLink(request);
         if (request.HttpMethod == "GET" && path == "/")
-            return TokenMatches(request.QueryString["token"]) ? (200, "text/html; charset=utf-8", page) : Refuse(403, "Open the address `dbdatabuild web` printed: it carries the token.");
+            return TokenMatches(request.QueryString["token"]) ? (200, "text/html; charset=utf-8", page) : Refuse(403, "Open the address `dbdatabuild ui web` printed: it carries the token.");
 
         if (oneTimeLinks ? !IsSession(request.Headers["X-DDB-Token"]) : !TokenMatches(request.Headers["X-DDB-Token"])) return Refuse(403, "Missing or wrong token.");
         if (request.HttpMethod == "POST" && path == "/api/run") return WithJsonBody(request, backend.RunCommand);

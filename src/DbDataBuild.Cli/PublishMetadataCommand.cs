@@ -4,7 +4,7 @@ using DbDataBuild.Execution;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild publish-metadata` (effect: tracking tables only): stores the project and model metadata documents (the ones `metadata` prints) as JSON in the target's tracking
+/// `dbdatabuild connection publish` (effect: tracking tables only): stores the project and model metadata documents (the ones `metadata` prints) as JSON in the target's tracking
 /// schema name, so they can be queried with SQL (`metadata_current`, `metadata_columns`). Only documents that changed are written; no user data is touched.
 /// </summary>
 internal static class PublishMetadataCommand
@@ -26,7 +26,7 @@ internal static class PublishMetadataCommand
         foreach (var d in invalid) error.Diag(d);
         if (invalid.Count > 0)
         {
-            output.WriteLine($"Nothing was stored: {invalid.Count} error(s) in the project (`{ProductInfo.Cli} validate` shows them).");
+            output.WriteLine($"Nothing was stored: {invalid.Count} error(s) in the project (`{ProductInfo.Cli} project compile` shows them).");
             return CliApp.ExitFindings;
         }
 

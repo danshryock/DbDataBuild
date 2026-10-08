@@ -21,7 +21,7 @@ public class NameLengthTests
     private static string Validate(string dir)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        CliApp.Run(["validate", "--project", dir], o, e);
+        CliApp.Run(["project", "compile", "--project", dir], o, e);
         return e.ToString();
     }
 

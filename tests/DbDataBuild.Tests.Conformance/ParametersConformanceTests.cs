@@ -28,7 +28,7 @@ public partial class ParametersConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -53,21 +53,21 @@ public partial class ParametersConformanceTests
             Write("models/marts/m.yml", "name: marts.m\nkind: {type: full}\nparameters:\n  note: skip\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n  - {name: region, type: \"VARCHAR(20)\"}\n");
             Write("models/marts/m.sql", Query);
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var plan = Cli("plan", "--connection", name);
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(plan, "plan");
             var text = File.ReadAllText(PlanOf(plan.Out));
             Assert.Contains("source: \"parameter\"", text);
-            Ok(Cli("apply", PlanOf(plan.Out)), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(plan.Out)), "apply");
             Assert.Equal(["1"], await engine.RowsAsync("SELECT CAST(id AS VARCHAR(10)) FROM marts.m"));            // only row 1 meets every bound: each value was bound with its own type
 
             // a new value is a new plan with new rows, and the rendered files did not change
             Write("dbdatabuild.yml", Config(name, "eu", "20"));
-            Ok(Cli("render", "--check"), "render --check after the value changed");
-            var again = Cli("plan", "--connection", name);
+            Ok(Cli("project", "compile", "--check"), "render --check after the value changed");
+            var again = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(again, "second plan");
-            Ok(Cli("apply", PlanOf(again.Out)), "second apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(again.Out)), "second apply");
             Assert.Equal(["1", "9"], await engine.RowsAsync("SELECT CAST(id AS VARCHAR(10)) FROM marts.m"));
             var parameters = await engine.RowsAsync($"SELECT {q("parameters")} FROM {q("dbdatabuild")}.{q("run_log")} WHERE {q("parameters")} IS NOT NULL");
             Assert.Contains(parameters, p => p.Contains("p_project_limit") && p.Contains("20"));                      // the values of a run are in the run log

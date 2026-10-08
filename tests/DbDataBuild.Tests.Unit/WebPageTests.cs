@@ -31,7 +31,7 @@ public sealed class WebPageTests : IDisposable
 
     public WebPageTests()
     {
-        Assert.Equal(0, CliApp.Run(["new", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(0, CliApp.Run(["project", "create", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
         server = new WebServer(dir, new TuiCommand.CliHost(_ => null));
         server.StartAsync();
     }

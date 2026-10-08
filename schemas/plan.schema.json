@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan.schema.json",
   "title": "DbDataBuild plan file",
-  "description": "A plan written by `dbdatabuild plan` (plans/<connection>/<id>.plan.yml). It is for reading and for editors only: plans are never edited by hand. `apply` refuses any file that is not byte for byte what `plan` wrote, checked by the content hash in `plan.hash`, which this schema cannot verify.",
+  "description": "A plan written by `dbdatabuild connection deploy` (plans/<connection>/<id>.plan.yml). It is for reading and for editors only: plans are never edited by hand. `apply` refuses any file that is not byte for byte what `plan` wrote, checked by the content hash in `plan.hash`, which this schema cannot verify.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -6,7 +6,7 @@ using DbDataBuild.Tui.Model;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild review` (DESIGN.md 9.7). Effect class: offline. Reads plan files the way `apply` does (a plan carries a hash of its own content, and an edited one does not parse) and shows them: with no
+/// `dbdatabuild project show plan` (DESIGN.md 9.7). Effect class: offline. Reads plan files the way `apply` does (a plan carries a hash of its own content, and an edited one does not parse) and shows them: with no
 /// argument the plans of the project, newest first; with a plan file its steps with risk, reasons, parameters and exact statements, the report, and what applying it would need to be allowed.
 /// It connects to nothing and changes nothing: it is how a terminal, a page or an agent looks at a plan before a person decides. It never applies one.
 /// </summary>
@@ -32,7 +32,7 @@ internal static class ReviewCommand
             output.WriteLine(browser != null ? $"{relative}  {browser.Summary}" : $"{relative}  NOT INTACT: {problems.FirstOrDefault()?.Found}");
         }
         output.Payload("plans", rows);
-        if (rows.Count == 0) output.WriteLine("No plans under plans/. `dbdatabuild plan` writes one.");
+        if (rows.Count == 0) output.WriteLine("No plans under plans/. `dbdatabuild connection deploy` writes one.");
         return CliApp.ExitOk;
     }
 
@@ -46,7 +46,7 @@ internal static class ReviewCommand
             foreach (var d in problems) error.Diag(d);
             output.Payload("path", Path.GetRelativePath(projectRoot, path).Replace('\\', '/'));
             output.Payload("intact", false);
-            output.WriteLine("This plan does not parse or its hash does not match: it was edited or damaged, and `apply` would refuse it. Make a new plan.");
+            output.WriteLine("This plan does not parse or its hash does not match: it was edited or damaged, and applying it would be refused. Make a new plan.");
             return CliApp.ExitFindings;
         }
         var plan = browser.Plan;

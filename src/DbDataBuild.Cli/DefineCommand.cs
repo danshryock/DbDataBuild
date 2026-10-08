@@ -8,7 +8,7 @@ using DbDataBuild.Sql.Matrix;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild define` (DESIGN.md 6.5). Effect class: repo files only. It reads models, sources and the config, asks DuckDB to describe
+/// `dbdatabuild project model update` (DESIGN.md 6.5). Effect class: repo files only. It reads models, sources and the config, asks DuckDB to describe
 /// queries, and writes definition (.yml) files only, never a .sql, and never connects to a target. Nothing is written before the diff is
 /// shown and (interactively) confirmed, and nothing is written at all if any model still needs attention.
 /// </summary>
@@ -95,7 +95,7 @@ internal static class DefineCommand
                 {
                     // the definition does not say its name and kind: the project's own reading of it (with the head) is what exists
                     existing = project.Sources.FirstOrDefault(s => s.DefinitionFile == ymlRel)?.Definition;
-                    if (existing == null) existingProblems.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, new(ymlRel, 0, 0), $"`{ymlRel}` does not load together with the head of `{sqlRel}`; `{Core.ProductInfo.Cli} validate` says why."));
+                    if (existing == null) existingProblems.Add(new Diagnostic(DiagnosticCatalog.QueryHeadInvalid, new(ymlRel, 0, 0), $"`{ymlRel}` does not load together with the head of `{sqlRel}`; `{Core.ProductInfo.Cli} project compile` says why."));
                 }
                 else existing = ModelDefinitionLoader.Load(existingText, ymlRel, config.Layout == ModelLayout.Folder ? name : null, existingProblems, config.Connections.Keys.ToHashSet(StringComparer.Ordinal));
                 if (existing != null) name = existing.Name;
@@ -130,7 +130,7 @@ internal static class DefineCommand
             output.Payload("differences", errors);
             output.WriteLine(errors == 0
                 ? $"OK: {targets.Count} definition(s) in sync with their queries."
-                : $"FAILED: {errors} difference(s) between definitions and queries. Run `{Core.ProductInfo.Cli} define` to update them.");
+                : $"FAILED: {errors} difference(s) between definitions and queries. Run `{Core.ProductInfo.Cli} project model update` to update them.");
             return errors == 0 ? CliApp.ExitOk : CliApp.ExitFindings;
         }
 

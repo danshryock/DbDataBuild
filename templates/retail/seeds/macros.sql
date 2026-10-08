@@ -1,5 +1,5 @@
 -- Helpers every seed shares. A seed is a SELECT that returns the rows of one source; `seed` and `scale` are
--- variables: `dbdatabuild seed --seed 7 --scale 600` sets them, and the same two numbers always give the same rows.
+-- variables: `dbdatabuild project seed --seed 7 --scale 600` sets them, and the same two numbers always give the same rows.
 SET VARIABLE scale = coalesce(getvariable('scale'), 300);       -- how many customers; orders, lines, shipments and returns follow from them
 
 -- A number in [0, 1) that depends only on the row, a salt (to make different columns independent) and the seed.

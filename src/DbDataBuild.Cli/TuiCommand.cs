@@ -6,7 +6,7 @@ using DbDataBuild.Tui.Model;
 
 namespace DbDataBuild.Cli;
 
-/// <summary>`dbdatabuild tui`: the terminal user interface. It connects to nothing itself; each action it runs is a command with its own effect class.</summary>
+/// <summary>`dbdatabuild ui terminal`: the terminal user interface. It connects to nothing itself; each action it runs is a command with its own effect class.</summary>
 internal static class TuiCommand
 {
     public static int Run(CommandSpec spec, string projectRoot, string? target, bool json, TextWriter output, TextWriter error, Func<string, string?> env)
@@ -38,14 +38,13 @@ internal static class TuiCommand
         internal static IReadOnlyList<CommandInfo> Catalog()
         {
             var root = CliApp.Build(new StringWriter(), new StringWriter(), TextReader.Null, interactive: false);
-            var specs = CommandSpecs.All.ToDictionary(s => s.Name);
             var result = new List<CommandInfo>();
-            foreach (var cmd in root.Subcommands.Where(c => c.Name is not ("tui" or "mcp" or "web")))
+            foreach (var spec in CommandSpecs.All.Where(s => s.Name is not ("ui terminal" or "ui mcp" or "ui web")))
             {
-                var spec = specs[cmd.Name];
-                var args = cmd.Arguments.Select(a => new ArgumentInfo(a.Name, a.Description ?? "", a.Arity.MaximumNumberOfValues > 1, a.Arity.MinimumNumberOfValues > 0, ArgumentChoices(cmd.Name, a.Name))).ToList();
+                var cmd = CliApp.Find(root, spec.Name)!;
+                var args = cmd.Arguments.Select(a => new ArgumentInfo(a.Name, a.Description ?? "", a.Arity.MaximumNumberOfValues > 1, a.Arity.MinimumNumberOfValues > 0, ArgumentChoices(spec.Name, a.Name))).ToList();
                 var options = cmd.Options.Where(o => !Hidden.Contains(o.Name)).Select(o => Describe(o)).ToList();
-                result.Add(new CommandInfo(cmd.Name, spec.Purpose, spec.Effect.Describe(), ImpactOf(spec.Effect), args, options, WriteFlagOf(cmd.Name)));
+                result.Add(new CommandInfo(spec.Name, spec.Purpose, spec.Effect.Describe(), ImpactOf(spec.Effect), args, options, WriteFlagOf(spec.Name)));
             }
             return result;
         }
@@ -63,16 +62,16 @@ internal static class TuiCommand
 
         private static IReadOnlyList<string> ArgumentChoices(string command, string name) => (command, name) switch
         {
-            ("ack", "kind") => ["drift", "definition", "history"],
             _ => [],
         };
 
-        /// <summary>Commands that only change something when a flag says so (render prints unless --write; apply changes unless --dry-run).</summary>
+        /// <summary>Commands that only change something when a flag says so (`--write`), unless a flag says not to (`!--check`), or with any of several (`--apply-plan|--yes|--ack`).</summary>
         private static string? WriteFlagOf(string command) => command switch
         {
-            "render" or "define" => "--write",
-            "init" => "--apply",
-            "apply" => "!--dry-run",
+            "project compile" => "!--check",
+            "project model update" => "--write",
+            "connection init" or "connection seed" => "--apply",
+            "connection deploy" => "--apply-plan|--yes|--ack",
             _ => null,
         };
 

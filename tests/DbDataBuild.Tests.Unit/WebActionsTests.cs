@@ -23,12 +23,12 @@ public sealed class WebActionsTests : IDisposable
         public CommandResult Run(IReadOnlyList<string> args, RunHooks? hooks = null)
         {
             lock (Calls) Calls.Add([.. args]);
-            if (args[0] != "apply") return new(0, "{\"command\":\"" + args[0] + "\"}", "");
+            if (!args.Contains("--apply-plan")) return new(0, "{\"command\":\"" + string.Join(' ', args.TakeWhile(a => !a.StartsWith('-'))) + "\"}", "");
             hooks?.Progress?.Invoke("step 1 of 2");
             Started.Set();
             if (WaitForStop) { var until = DateTime.UtcNow.AddSeconds(20); while (DateTime.UtcNow < until && hooks?.StopRequested?.Invoke() != true) Thread.Sleep(10); SawStop = hooks?.StopRequested?.Invoke() == true; }
             hooks?.Progress?.Invoke("step 2 of 2");
-            return new(0, "{\"command\":\"apply\",\"ok\":true,\"exit_code\":0}", "");
+            return new(0, "{\"command\":\"connection deploy\",\"ok\":true,\"exit_code\":0}", "");
         }
     }
 
@@ -134,7 +134,7 @@ public sealed class WebActionsTests : IDisposable
         Assert.Equal(["step 1 of 2", "step 2 of 2"], done["lines"]!.AsArray().Select(l => (string)l!));
         Assert.True((bool)done["document"]!["ok"]!);
         var call = Assert.Single(host.Calls);
-        Assert.Equal(["apply", Path.GetFullPath(Path.Combine(dir, plan)), "--project", Path.GetFullPath(dir), "--allow-risky", "--allow-destructive", "marts.fct"], call);
+        Assert.Equal(["connection", "deploy", "--apply-plan", Path.GetFullPath(Path.Combine(dir, plan)), "--project", Path.GetFullPath(dir), "--allow-risky", "--allow-destructive", "marts.fct"], call);
     }
 
     [Fact]
@@ -185,8 +185,8 @@ public sealed class WebActionsTests : IDisposable
     public async Task Plan_can_be_run_from_the_page_but_without_accepting_the_proposals_for_the_person()
     {
         var s = Start(allowApply: false);
-        Assert.Equal(HttpStatusCode.OK, (await Post(s, "/api/run", new { command = "plan", arguments = new { answers = ".dbdatabuild/web-answers.yml" } })).Status);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Post(s, "/api/run", new { command = "plan", arguments = new { accept_inferred = true } })).Status);
-        Assert.Equal(HttpStatusCode.NotFound, (await Post(s, "/api/run", new { command = "apply", arguments = new { } })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Post(s, "/api/run", new { command = "connection_deploy", arguments = new { answers = ".dbdatabuild/web-answers.yml", write_plan = true } })).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(s, "/api/run", new { command = "connection_deploy", arguments = new { accept_inferred = true } })).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await Post(s, "/api/run", new { command = "connection_refresh", arguments = new { } })).Status);
     }
 }

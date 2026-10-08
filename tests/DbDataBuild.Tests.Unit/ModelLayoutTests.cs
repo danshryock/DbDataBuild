@@ -89,12 +89,12 @@ public class ModelLayoutTests
     {
         var dir = Project("none", ("anywhere/at/all", "marts.fct"));
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["define", "--project", dir, "--check"], o, e, environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "model", "update", "--project", dir, "--check"], o, e, environment: _ => null));
 
         var objectDir = Project("object");
         File.WriteAllText(Path.Combine(objectDir, "models", "fresh.sql"), "SELECT 1 AS n\n");
         var o2 = new StringWriter(); var e2 = new StringWriter();
-        CliApp.Run(["define", "--project", objectDir, "--check"], o2, e2, environment: _ => null);
+        CliApp.Run(["project", "model", "update", "--project", objectDir, "--check"], o2, e2, environment: _ => null);
         Assert.Contains("its file name does not say the schema", e2.ToString() + o2.ToString());
     }
 }

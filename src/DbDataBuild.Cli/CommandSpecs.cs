@@ -27,40 +27,63 @@ public static class EffectClasses
     };
 }
 
-public sealed record CommandSpec(string Name, EffectClass Effect, string Purpose, bool Implemented);
+/// <summary>
+/// One command. <paramref name="Name"/> is its whole path (`connection deploy`); <paramref name="Lane"/> is where it belongs in the life of a deployment (`inspect`, `deploy`, `refresh`, or empty for authoring and reference);
+/// <paramref name="Disposition"/> says what it reads and writes in one code (see docs/concepts.md): P is the project, C a connection, T its tracking tables, S its structure, D its data, `→` reads, `⇒` writes.
+/// </summary>
+public sealed record CommandSpec(string Name, EffectClass Effect, string Purpose, bool Implemented, string Lane = "", string Disposition = "")
+{
+    /// <summary>The words of the path: `connection deploy` is [connection, deploy].</summary>
+    public string[] Path => Name.Split(' ');
+
+    /// <summary>The name as one token, for file names, tool names and schema keys (`connection_deploy`).</summary>
+    public string Id => Name.Replace(' ', '_').Replace('-', '_');
+}
+
+/// <summary>The groups the commands sit under, with what each is for.</summary>
+public static class CommandGroups
+{
+    public static readonly IReadOnlyDictionary<string, string> Descriptions = new Dictionary<string, string>
+    {
+        ["project"] = "Work on the project: its files, never a database",
+        ["project model"] = "Create and update models",
+        ["project show"] = "Read-only views of the project",
+        ["project tests"] = "The project's tests",
+        ["connection"] = "Work on a database the project is built on",
+        ["ui"] = "Interfaces: the terminal screens, the web page, the server for AI agents",
+        ["help"] = "Reference: explain a diagnostic code, the support matrix",
+    };
+}
 
 /// <summary>The full command surface as data. A test asserts every command declares an effect class.</summary>
 public static class CommandSpecs
 {
     public static readonly IReadOnlyList<CommandSpec> All =
     [
-        new("validate", EffectClass.OfflineOnly, "Validate config and models (offline)", true),
-        new("render", EffectClass.RepoFilesOnly, "Render load operations and resolvers per target", true),
-        new("loads", EffectClass.OfflineOnly, "Print the model x target x operation pairing table", true),
-        new("matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true),
-        new("explain", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true),
-        new("agent-kit", EffectClass.RepoFilesOnly, "Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write)", true),
-        new("tui", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true),
-        new("mcp", EffectClass.OfflineOnly, "Model Context Protocol server on standard input and output: the commands as tools for an AI agent, the agent kit as resources (each tool it offers declares its own effect; commands that change a target are offered only with --allow-writes)", true),
-        new("web", EffectClass.OfflineOnly, "Read-only web interface on this machine's loopback address: project health, lineage, models and their rendered scripts, tests, the support matrix (it runs only commands that read the project)", true),
-        new("new", EffectClass.RepoFilesOnly, "List the project templates built in, or create a ready-to-run project from one", true),
-        new("seed", EffectClass.RepoFilesOnly, "Run the seeds (DuckDB queries that generate the source data) into a DuckDB file", true),
-        new("load-seeds", EffectClass.TargetWrites, "Create the seeded source tables on a target and fill them from the seeds (prints what it would do unless --apply)", true),
-        new("sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true),
-        new("metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true),
-        new("define", EffectClass.RepoFilesOnly, "Generate or update model definition files", true),
-        new("diff", EffectClass.TargetReadOnly, "Compare the data of two tables, of one connection or across connections and engines (by digests): schemas, row counts and a key-based row diff (values are read only with --show-values)", true),
-        new("graph", EffectClass.OfflineOnly, "Show the dependency graph (which table each model reads), column lineage, or a diagram of it; selectors pick the part to show", true),
-        new("import", EffectClass.TargetReadOnly, "Export tables and views from the target as mapped models (models/), so models over them bind offline (writes files only with --write)", true),
-        new("test", EffectClass.OfflineOnly, "Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/", true),
-        new("check", EffectClass.TargetReadOnly, "Preflight findings: drift, blocks, what a plan would do", true),
-        new("plan", EffectClass.TargetReadOnly, "Guided planning (writes plan files locally)", true),
-        new("review", EffectClass.OfflineOnly, "Read plan files (offline, nothing applied): list a project's plans, or show one with its steps, risk, exact statements, report and what applying it would need to be allowed", true),
-        new("publish-metadata", EffectClass.TrackingTablesOnly, "Store the project and model metadata as JSON in the target for introspection", true),
-        new("report", EffectClass.TargetReadOnly, "Applied plans, DDL and load history, recorded shapes, and what needs attention", true),
-        new("apply", EffectClass.TargetWrites, "Execute exactly the plan's recorded statements", true),
-        new("run", EffectClass.TargetDataWrites, "Plan + apply for routine loads only (refuses anything else)", true),
-        new("ack", EffectClass.TrackingTablesOnly, "Record a human decision (drift, definition change)", true),
-        new("init", EffectClass.TrackingTablesOnly, "Create the tracking tables and their schema name (prints the script; --apply runs it)", true),
+        new("project create", EffectClass.RepoFilesOnly, "List the project templates built in, or create a ready-to-run project from one", true, "", "P⇒P"),
+        new("project model update", EffectClass.RepoFilesOnly, "Generate or update model definition files", true, "", "P⇒P"),
+        new("project compile", EffectClass.RepoFilesOnly, "Validate the project and write what is compiled from it (rendered/): the lowered queries and the load scripts per connection", true, "", "P⇒P"),
+        new("project tests run", EffectClass.OfflineOnly, "Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/", true, "", "P→"),
+        new("project sample", EffectClass.OfflineOnly, "Run models on generated or supplied sample data, offline", true, "", "P→"),
+        new("project seed", EffectClass.RepoFilesOnly, "Run the seeds (DuckDB queries that generate the source data) into a DuckDB file", true, "", "P⇒P"),
+        new("project import", EffectClass.TargetReadOnly, "Export tables and views from a connection as mapped models (models/), so models over them bind offline (writes files only with --write)", true, "", "C→P"),
+        new("project show loads", EffectClass.OfflineOnly, "Print the model x connection x operation pairing table", true, "", "P→"),
+        new("project show graph", EffectClass.OfflineOnly, "Show the dependency graph (which table each model reads), column lineage, or a diagram of it; selectors pick the part to show", true, "", "P→"),
+        new("project show metadata", EffectClass.OfflineOnly, "Print everything the tool knows about the project and its models (use --format json)", true, "", "P→"),
+        new("project show plan", EffectClass.OfflineOnly, "Read plan files (offline, nothing applied): list a project's plans, or show one with its steps, risk, exact statements, report and what applying it would need to be allowed", true, "", "P→"),
+        new("project agent-kit", EffectClass.RepoFilesOnly, "Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write)", true, "", "P⇒P"),
+        new("connection init", EffectClass.TrackingTablesOnly, "Create the tracking tables and their schema name (prints the script; --apply runs it)", true, "", "P⇒T"),
+        new("connection status", EffectClass.TargetReadOnly, "Where a connection stands: drift, blocks, what a deploy would do", true, "inspect", "C→"),
+        new("connection deploy", EffectClass.TargetWrites, "Change a connection's structure to match the models: plan with questions, show the plan, apply it (--write-plan stops after writing the plan; --apply-plan applies a written one; --ack records a decision)", true, "deploy", "P⇒S"),
+        new("connection refresh", EffectClass.TargetDataWrites, "Run the routine loads (refuses anything that is not one)", true, "refresh", "P⇒D"),
+        new("connection monitor", EffectClass.TargetReadOnly, "Applied plans, DDL and load history, recorded shapes, and what needs attention", true, "inspect", "C→"),
+        new("connection compare", EffectClass.TargetReadOnly, "Compare the data of two tables, of one connection or across connections and engines (by digests): schemas, row counts and a key-based row diff (values are read only with --show-values)", true, "inspect", "C→"),
+        new("connection seed", EffectClass.TargetWrites, "Create the seeded source tables on a connection and fill them from the seeds (prints what it would do unless --apply)", true, "", "P⇒S"),
+        new("connection publish", EffectClass.TrackingTablesOnly, "Store the project and model metadata as JSON in the connection for introspection", true, "", "P⇒T"),
+        new("ui terminal", EffectClass.OfflineOnly, "Interactive terminal interface: choose, plan and run operations (each action it runs declares its own effect)", true, "", "—"),
+        new("ui web", EffectClass.OfflineOnly, "Web interface on this machine's loopback address: project health, lineage, models and their rendered scripts, tests, the support matrix (it runs only commands that read, unless started with --allow-apply)", true, "", "—"),
+        new("ui mcp", EffectClass.OfflineOnly, "Model Context Protocol server on standard input and output: the commands as tools for an AI agent, the agent kit as resources (each tool it offers declares its own effect; commands that change a connection are offered only with --allow-writes)", true, "", "—"),
+        new("help code", EffectClass.OfflineOnly, "Long-form explanation of a diagnostic code", true, "", "—"),
+        new("help matrix", EffectClass.OfflineOnly, "Print the support matrix and portability report", true, "", "—"),
     ];
 }

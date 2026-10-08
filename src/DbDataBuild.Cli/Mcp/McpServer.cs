@@ -23,6 +23,9 @@ internal sealed class McpServer
     internal const int MaxDocumentCharacters = 120_000;
 
     private readonly string projectRoot;
+    /// <summary>Planning is the part of `connection deploy` a read-only server offers: its write flags (apply a plan, apply without asking, record a decision) are withheld unless the operator allowed writes.</summary>
+    private const string DeployCommandName = "connection deploy";
+
     private readonly bool allowWrites;
     private readonly TextReader input;
     private readonly TextWriter output;
@@ -46,7 +49,7 @@ internal sealed class McpServer
         this.input = input;
         this.output = output;
         this.host = host;
-        surface = new ToolSurface(projectRoot, host.Commands.Where(c => c.Name is not ("tui" or "mcp" or "web") && (allowWrites || c.Impact is Impact.None or Impact.RepoFiles)));
+        surface = new ToolSurface(projectRoot, host.Commands.Where(c => c.Name is not ("ui terminal" or "ui mcp" or "ui web") && (allowWrites || c.Impact is Impact.None or Impact.RepoFiles || c.Name == DeployCommandName)), withholdWriteFlagsFor: allowWrites ? null : [DeployCommandName]);
     }
 
     public IReadOnlyCollection<string> ToolNames => tools.Keys.ToList();
@@ -135,7 +138,7 @@ internal sealed class McpServer
     private static readonly string[] AppOnlyTools = ["ui_run", "ui_file", "ui_capabilities", "ui_answers", "ui_apply", "ui_job", "ui_stop"];
     private static readonly string[] Screens = ["health", "lineage", "models", "plans", "sample", "diff", "tests", "matrix"];
     /// <summary>Tools whose result the person is better served by seeing in the app.</summary>
-    private static readonly string[] ToolsWithApp = ["review", "plan", "graph", "diff", "sample"];
+    private static readonly string[] ToolsWithApp = ["project_show_plan", "connection_deploy", "project_show_graph", "connection_compare", "project_sample"];
 
     private WebBackend Backend => backend ??= new WebBackend(projectRoot, host0, allowAppApply);
 
@@ -150,7 +153,7 @@ internal sealed class McpServer
         foreach (var t in tools.Values.OrderBy(t => t.Name, StringComparer.Ordinal))
         {
             var d = surface.Describe(t);
-            if (clientHasUi && ToolsWithApp.Contains(t.Name)) d["_meta"] = UiMeta(false);
+            if (clientHasUi && ToolsWithApp.Contains(ToolSurface.ToolName(t))) d["_meta"] = UiMeta(false);
             yield return d;
         }
         if (!noShow) yield return new JsonObject
@@ -215,7 +218,7 @@ internal sealed class McpServer
         }
         catch (Exception ex) when (ex is System.Net.HttpListenerException or InvalidOperationException)
         {
-            return Failure("The page could not be started on this machine. The person can run `dbdatabuild web --project <project>` in a terminal instead.");
+            return Failure("The page could not be started on this machine. The person can run `dbdatabuild ui web --project <project>` in a terminal instead.");
         }
         var url = pageServer.NewLink(screen);
         var text = $"Give the person this link, once, and say it works once, for ten minutes, in a browser on the machine this server runs on: {url}\nDo not open it yourself (it would become your session, not theirs). It shows the {screen} screen; the other screens are in the page's menu. For another link, call `show` again.";
@@ -252,7 +255,7 @@ internal sealed class McpServer
         clientHasUi = p?["capabilities"]?["extensions"]?[UiExtension] != null;
         // standard error is where a host keeps a server's log: say what this host can do, because a host that does not advertise MCP Apps silently gets no app
         var client = p?["clientInfo"];
-        Console.Error.WriteLine($"dbdatabuild mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered, and `show` gives the person a one-time link to the page in a browser")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}{(noShow ? "; `show` is switched off (--no-show)" : "")}.");
+        Console.Error.WriteLine($"dbdatabuild ui mcp: client {client?["name"]?.GetValue<string>() ?? "unknown"} {client?["version"]?.GetValue<string>()}; MCP Apps {(clientHasUi ? "advertised: the app is offered" : "not advertised: the app is not offered, and `show` gives the person a one-time link to the page in a browser")}; confirmations (elicitation) {(clientCanAsk ? "supported" : "not supported")}{(noShow ? "; `show` is switched off (--no-show)" : "")}.");
         return new JsonObject
         {
             ["protocolVersion"] = protocol,
@@ -297,10 +300,7 @@ internal sealed class McpServer
     /// <summary>A command that changes a target or its tracking tables, as this call asks for it: those with a flag that decides (`init --apply`, `apply` unless `--dry-run`) by the flag, the others always.</summary>
     internal static bool ChangesSomething(CommandInfo command, IReadOnlyList<string> argv)
     {
-        if (command.Impact is Impact.None or Impact.RepoFiles) return false;
-        var flag = command.Name == "load-seeds" ? "--apply" : command.WriteFlag;
-        if (flag == null) return true;
-        return flag.StartsWith('!') ? !argv.Contains(flag[1..]) : argv.Contains(flag);
+        return WriteRules.Changes(command, argv.Contains, repoFiles: false);
     }
 
     /// <summary>
@@ -311,7 +311,7 @@ internal sealed class McpServer
     {
         var shown = $"dbdatabuild {string.Join(' ', argv.Where((a, i) => a != "--project" && (i == 0 || argv[i - 1] != "--project")).Select(a => a.StartsWith(projectRoot, StringComparison.Ordinal) ? Path.GetRelativePath(projectRoot, a).Replace('\\', '/') : a))}";
         if (!clientCanAsk) return $"`{command.Name}` changes a database, and this host cannot ask you to confirm it, so it is not run on an agent's say-so. Run it yourself: {shown}";
-        var summary = command.Name == "apply" ? PlanSummary(argv) : "";
+        var summary = command.Name == "connection deploy" ? PlanSummary(argv) : "";
         var id = "ddb-elicit-" + Interlocked.Increment(ref askCounter);
         var answer = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         awaiting[id] = answer;

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "answers.schema.json",
   "title": "DbDataBuild answers file",
-  "description": "Answers to the questions that `dbdatabuild define` and `dbdatabuild plan` ask. Question ids are deterministic, so a file can be reused. Every answer is explicit: a `choice` (with a `value` for options that take one), or `accept: inferred` to accept the question's inferred proposal. Nothing is answered by default. This schema is for editors; the tool applies the same rules and also checks the choices against each question's options (DDB-411, DDB-412, DDB-413).",
+  "description": "Answers to the questions that `dbdatabuild project model update` and `dbdatabuild connection deploy` ask. Question ids are deterministic, so a file can be reused. Every answer is explicit: a `choice` (with a `value` for options that take one), or `accept: inferred` to accept the question's inferred proposal. Nothing is answered by default. This schema is for editors; the tool applies the same rules and also checks the choices against each question's options (DDB-411, DDB-412, DDB-413).",
   "type": "object",
   "additionalProperties": false,
   "required": ["answers"],

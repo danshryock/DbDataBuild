@@ -31,7 +31,7 @@ public partial class CentralTrackingConformanceTests
         public (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
 
@@ -71,16 +71,16 @@ public partial class CentralTrackingConformanceTests
         await using var data = s.Data; await using var records = s.Tracking;
         try
         {
-            Ok(s.Cli("render", "--write"), "render");
+            Ok(s.Cli("project", "compile"), "render");
             // the tracking tables go to the tracking connection, and the data connection gets none
-            Ok(s.Cli("init", "--connection", "postgres", "--apply"), "init on the tracking connection");
-            Assert.Contains("keeps no records of its own", s.Cli("init", "--connection", "sqlserver").Err);
+            Ok(s.Cli("connection", "init", "--connection", "postgres", "--apply"), "init on the tracking connection");
+            Assert.Contains("keeps no records of its own", s.Cli("connection", "init", "--connection", "sqlserver").Err);
             Assert.Empty(await data.RowsAsync("SELECT 1 FROM sys.schemas WHERE name = 'dbdatabuild'"));
 
-            var plan = s.Cli("plan", "--connection", "sqlserver");
+            var plan = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             Assert.DoesNotContain("Nothing is tracked", plan.Err);
-            Ok(s.Cli("apply", s.PlanFile(plan.Out)), "apply");
+            Ok(s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(plan.Out)), "apply");
             Assert.Equal(2, int.Parse((await data.RowsAsync("SELECT COUNT(*) FROM marts.fct_orders")).Single()));
             Assert.Empty(await data.RowsAsync("SELECT 1 FROM sys.schemas WHERE name = 'dbdatabuild'"));                    // still none: the data connection never held a record
 
@@ -91,24 +91,24 @@ public partial class CentralTrackingConformanceTests
             Assert.Contains("completed", await records.RowsAsync("SELECT status FROM dbdatabuild.migration_log"));
 
             // the baseline is read from the records on the other connection: nothing left to build, and an outside change is seen
-            var again = s.Cli("plan", "--connection", "sqlserver");
+            var again = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(again, "second plan");
             Assert.DoesNotContain("create table", File.ReadAllText(s.PlanFile(again.Out)));
             await data.ExecAsync("ALTER TABLE marts.fct_orders ADD [sneaky] INT NULL");
-            var drift = s.Cli("plan", "--connection", "sqlserver");
+            var drift = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Assert.NotEqual(0, drift.Exit);
             Assert.Contains("DDB-430", drift.Err);
 
             // ack writes the acknowledgement to the records, and report reads them
-            Ok(s.Cli("ack", "drift", "marts.fct_orders", "--connection", "sqlserver", "--reason", "known"), "ack");
+            Ok(s.Cli("connection", "deploy", "--ack", "drift:marts.fct_orders", "--connection", "sqlserver", "--reason", "known"), "ack");
             Assert.Equal(["sqlserver"], await records.RowsAsync("SELECT DISTINCT \"connection\" FROM dbdatabuild.block_log"));
-            var report = s.Cli("report", "--connection", "sqlserver");
+            var report = s.Cli("connection", "monitor", "--connection", "sqlserver");
             Ok(report, "report");
             Assert.Contains("completed", report.Out);
             Assert.Contains("records on postgres", report.Out);
 
             // a plan applied twice, or by another connection's name, finds its own records: plan ids are per plan, rows per connection
-            var second = s.Cli("apply", s.PlanFile(again.Out));
+            var second = s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(again.Out));
             Assert.True(second.Exit == 0 || second.Err.Contains("DDB"), second.Out + second.Err);
         }
         finally { try { Directory.Delete(s.Dir, true); } catch (IOException) { } }
@@ -121,41 +121,41 @@ public partial class CentralTrackingConformanceTests
         await using var data = s.Data; await using var records = s.Tracking;
         try
         {
-            Ok(s.Cli("render", "--write"), "render");
-            var plan = s.Cli("plan", "--connection", "sqlserver");
+            Ok(s.Cli("project", "compile"), "render");
+            var plan = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             Assert.DoesNotContain("DDB-232", plan.Err);                                                                // `none` is a choice: no warning
-            Ok(s.Cli("apply", s.PlanFile(plan.Out)), "apply");
+            Ok(s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(plan.Out)), "apply");
             Assert.Equal(2, int.Parse((await data.RowsAsync("SELECT COUNT(*) FROM marts.fct_orders")).Single()));
             Assert.Empty(await data.RowsAsync("SELECT 1 FROM sys.schemas WHERE name = 'dbdatabuild'"));
             Assert.Empty(await records.RowsAsync("SELECT 1 FROM information_schema.tables WHERE table_schema = 'dbdatabuild'"));      // nothing was recorded anywhere
 
             // an object that exists is not adopted, drifted or blocked: it is judged against the declaration
-            var again = s.Cli("plan", "--connection", "sqlserver");
+            var again = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(again, "second plan");
             Assert.DoesNotContain("create table", File.ReadAllText(s.PlanFile(again.Out)));
 
             // a change to it is risky, because nothing says it is safe
             s.Write("models/marts/fct_orders.yml", Fct.Replace("  - {name: amount, type: \"DECIMAL(14, 2)\"}\n", "  - {name: amount, type: \"DECIMAL(14, 2)\"}\n  - {name: note, type: \"VARCHAR(20)\"}\n"));
             s.Write("models/marts/fct_orders.sql", "SELECT order_id, amount, CAST(NULL AS VARCHAR(20)) AS note FROM staging.orders\n");
-            Ok(s.Cli("render", "--write"), "render after the change");
+            Ok(s.Cli("project", "compile"), "render after the change");
             s.Write("answers.yml", "answers:\n  - {id: Q-history-marts.fct_orders.note, choice: not_backfilled, note: \"no history\"}\n");
-            var changed = s.Cli("plan", "--connection", "sqlserver", "--answers", Path.Combine(s.Dir, "answers.yml"));
+            var changed = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver", "--answers", Path.Combine(s.Dir, "answers.yml"));
             if (changed.Exit == 0)
             {
                 var text = File.ReadAllText(s.PlanFile(changed.Out));
                 Assert.Contains("risk: risky", text);
                 Assert.Contains("untracked: no record says what the tool built", text);
-                var refused = s.Cli("apply", s.PlanFile(changed.Out));
+                var refused = s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(changed.Out));
                 Assert.NotEqual(0, refused.Exit);                                                                       // risky needs the person's allowance
                 Assert.Contains("--allow-risky", refused.Err);
-                Ok(s.Cli("apply", s.PlanFile(changed.Out), "--allow-risky"), "apply with the allowance");
+                Ok(s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(changed.Out), "--allow-risky"), "apply with the allowance");
                 Assert.Equal(["amount", "note", "order_id"], await data.RowsAsync("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'marts' AND TABLE_NAME = 'fct_orders' ORDER BY ORDINAL_POSITION"));
             }
             else Assert.Fail("the plan for a new column should be a plan, with questions answered or not needed:\n" + changed.Out + changed.Err);
 
             // the commands that work on the records say there are none
-            var report = s.Cli("report", "--connection", "sqlserver");
+            var report = s.Cli("connection", "monitor", "--connection", "sqlserver");
             Assert.NotEqual(0, report.Exit);
             Assert.Contains("is not tracked", report.Err);
         }
@@ -169,11 +169,11 @@ public partial class CentralTrackingConformanceTests
         await using var data = s.Data; await using var records = s.Tracking;
         try
         {
-            Ok(s.Cli("render", "--write"), "render");
-            var plan = s.Cli("plan", "--connection", "sqlserver");
+            Ok(s.Cli("project", "compile"), "render");
+            var plan = s.Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             Assert.Contains("DDB-232", plan.Err);
-            var applied = s.Cli("apply", s.PlanFile(plan.Out));
+            var applied = s.Cli("connection", "deploy", "--apply-plan", s.PlanFile(plan.Out));
             Ok(applied, "apply");
             Assert.Contains("DDB-232", applied.Err);
             Assert.Equal(2, int.Parse((await data.RowsAsync("SELECT COUNT(*) FROM marts.fct_orders")).Single()));

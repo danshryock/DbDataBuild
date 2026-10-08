@@ -5,6 +5,28 @@ namespace DbDataBuild.Tests.Unit;
 
 internal static class TestSupport
 {
+    /// <summary>
+    /// The rendering half of `project compile`, called directly with the arguments the old `render` took (`--project <dir>`, `--write`, `--check`, `--connection <c>`, model names; nothing at all prints). For tests of what is
+    /// rendered, written and compared, with fixtures that are not meant to pass the project's other checks, which `project compile` runs too and fails on.
+    /// </summary>
+    public static (int Exit, string Out, string Err) RenderFiles(params string[] args)
+    {
+        var o = new StringWriter();
+        var e = new StringWriter();
+        var dir = ".";
+        var models = new List<string>();
+        var connections = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == "--project") dir = args[++i];
+            else if (args[i] == "--connection") connections.Add(args[++i]);
+            else if (!args[i].StartsWith("--", StringComparison.Ordinal)) models.Add(args[i]);
+        var write = args.Contains("--write");
+        var check = args.Contains("--check");
+        var spec = DbDataBuild.Cli.CommandSpecs.All.First(c => c.Name == "project compile");
+        var exit = DbDataBuild.Cli.RenderCommand.Render(spec, dir, [.. models], [.. connections], write, check, content: !write && !check, o, e);
+        return (exit, o.ToString(), e.ToString());
+    }
+
     public const string ValidModel = """
         name: marts.fct_orders
         kind:

@@ -3,7 +3,7 @@ using DbDataBuild.Core;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild new` (effect: repo files only; DESIGN.md 15.7). Without a template name it lists the project templates built into the executable. With one it writes that project into a directory (default: a
+/// `dbdatabuild project create` (effect: repo files only; DESIGN.md 15.7). Without a template name it lists the project templates built into the executable. With one it writes that project into a directory (default: a
 /// directory named after the template): models, sources, seeds that generate the source data, tests and a README, ready to `validate`, `seed`, `sample` and `test` with nothing else installed. It never overwrites a file.
 /// </summary>
 internal static class NewCommand
@@ -19,7 +19,7 @@ internal static class NewCommand
             output.WriteLine();
             output.WriteLine("Project templates:");
             foreach (var t in TemplateStore.All) output.WriteLine($"  {t.Name,-10} {t.Description}  ({t.Files.Count} files)");
-            output.WriteLine($"\nCreate one with `{ProductInfo.Cli} new <template> [directory]`.");
+            output.WriteLine($"\nCreate one with `{ProductInfo.Cli} project create <template> [directory]`.");
             return CliApp.ExitOk;
         }
         if (TemplateStore.Find(template) is not { } found)
@@ -45,7 +45,7 @@ internal static class NewCommand
         output.Payload("written", found.Files.Select(f => f.Path).ToList());
         output.WriteLine();
         output.WriteLine($"Wrote {found.Files.Count} file(s) of the `{found.Name}` project to {target}.");
-        output.WriteLine($"\nNext, in that directory:\n  {ProductInfo.Cli} validate\n  {ProductInfo.Cli} seed\n  {ProductInfo.Cli} sample --limit 5\n  {ProductInfo.Cli} test\nand read README.md.");
+        output.WriteLine($"\nNext, in that directory:\n  {ProductInfo.Cli} project compile\n  {ProductInfo.Cli} project seed\n  {ProductInfo.Cli} project sample --limit 5\n  {ProductInfo.Cli} project tests run\nand read README.md.");
         return CliApp.ExitOk;
     }
 }

@@ -5,7 +5,7 @@ using DbDataBuild.Sample;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild seed` (effect: repo files only; DESIGN.md 15.6). Runs the project's seeds (`seeds/`: DuckDB queries that generate the data of the sources, deterministically from a seed and a scale) and
+/// `dbdatabuild project seed` (effect: repo files only; DESIGN.md 15.6). Runs the project's seeds (`seeds/`: DuckDB queries that generate the data of the sources, deterministically from a seed and a scale) and
 /// writes the result as a DuckDB database file (default `.dbdatabuild/seed.duckdb`), one table per source, so the data can be inspected with any DuckDB tool and is the starting point for loading a
 /// target. It connects to no target. The same seeds fill the sources in `sample`.
 /// </summary>

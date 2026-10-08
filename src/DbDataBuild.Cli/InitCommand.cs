@@ -6,7 +6,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild init` (DESIGN.md 9.1, 12). Effect class: tracking tables only. By default it prints the idempotent init script for review and connects to
+/// `dbdatabuild connection init` (DESIGN.md 9.1, 12). Effect class: tracking tables only. By default it prints the idempotent init script for review and connects to
 /// nothing; `--apply` runs exactly that script on the write login, through the mutation gate, so every statement is in the statement log.
 /// </summary>
 internal static class InitCommand

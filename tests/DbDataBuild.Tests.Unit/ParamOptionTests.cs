@@ -48,7 +48,7 @@ public class ParamOptionTests
     public void The_plan_command_lists_the_option_with_its_description()
     {
         var o = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["plan", "--help"], o, new StringWriter()));
+        Assert.Equal(0, CliApp.Run(["connection", "deploy", "--write-plan", "--help"], o, new StringWriter()));
         Assert.Contains("--param", o.ToString());
         Assert.Contains("model.operation.parameter=value", o.ToString());
     }

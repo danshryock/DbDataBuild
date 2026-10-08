@@ -8,7 +8,7 @@ using DbDataBuild.Planning;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild apply &lt;plan&gt;` (DESIGN.md 10.3). Effect class: target writes, exactly what the plan states. It refuses a plan that was edited, a stale plan, a plan that needs
+/// `dbdatabuild connection deploy --apply-plan &lt;plan&gt;` (DESIGN.md 10.3). Effect class: target writes, exactly what the plan states. It refuses a plan that was edited, a stale plan, a plan that needs
 /// an allowance it was not given, and a dirty working tree. `--dry-run` runs the same checks and the same code path and executes nothing.
 /// </summary>
 internal static class ApplyCommand
@@ -21,7 +21,7 @@ internal static class ApplyCommand
             var ctx = ProjectContext.Load(root);
             if (ctx.Diagnostics.Any(d => d.Severity == Severity.Error && d.Code != DiagnosticCatalog.OrphanFile.Code))
             {
-                output.WriteLine("note: metadata was not stored: the project has errors now (`validate` shows them).");
+                output.WriteLine("note: metadata was not stored: the project has errors now (`project compile` shows them).");
                 return;
             }
             var touched = plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal).ToList();
@@ -54,7 +54,7 @@ internal static class ApplyCommand
         }
     }
 
-    public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool resume, bool allowDirty,
+    public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty,
         TextWriter output, TextWriter error, Func<string, string?> env)
     {
         if (!File.Exists(planPath)) { error.WriteLine($"Plan file `{planPath}` does not exist."); return CliApp.ExitUsage; }
@@ -130,12 +130,12 @@ internal static class ApplyCommand
             {
                 if (asked) return;                                  // the second one is the default: the process ends
                 asked = true; e.Cancel = true;
-                output.WriteLine("Interrupt received: the apply stops after the step that is running (press Ctrl-C again to end it now; `apply --resume` continues a plan that stopped).");
+                output.WriteLine("Interrupt received: the apply stops after the step that is running (press Ctrl-C again to end it now; running the same plan again continues it).");
             };
             Console.CancelKeyPress += onInterrupt;
             stopRequested = () => asked;
         }
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), resume, commit, dirty, write?.User ?? Environment.UserName, stopRequested,
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), commit, dirty, write?.User ?? Environment.UserName, stopRequested,
             (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"));
 
         // refusals that need no connection come first

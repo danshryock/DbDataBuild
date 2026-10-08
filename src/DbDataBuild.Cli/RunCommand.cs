@@ -4,7 +4,7 @@ using DbDataBuild.Planning;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild run` (DESIGN.md 9.1): plan and apply in one command, allowed only when the plan is routine loads. It refuses, and points to `plan`, when anything else
+/// `dbdatabuild connection refresh` (DESIGN.md 9.1): plan and apply in one command, allowed only when the plan is routine loads. It refuses, and points to `plan`, when anything else
 /// is in the picture: an open question, a block, a skip, or any step that is not a safe load (DDL, a track step, a risky or destructive step). The plan is written like
 /// any other plan before it is applied, so the tracking tables and the plan files show exactly what ran.
 /// </summary>
@@ -28,7 +28,7 @@ internal static class RunCommand
         {
             foreach (var d in result.Blocks.Concat(result.Skipped)) error.Diag(d);
             output.WriteLine($"`{ProductInfo.Cli} {spec.Name}` only runs routine loads, and this is not one: {string.Join("; ", reasons)}.");
-            output.WriteLine($"Nothing was executed. Use `{ProductInfo.Cli} plan` to review and decide, then `{ProductInfo.Cli} apply`.");
+            output.WriteLine($"Nothing was executed. Use `{ProductInfo.Cli} connection deploy` to review and decide.");
             return CliApp.ExitFindings;
         }
         if (result.Steps.Count == 0)
@@ -47,7 +47,6 @@ internal static class RunCommand
         PlanCommand.WriteAtomic(Path.Combine(dir, plan.Id + ".plan.md"), PlanReport.Markdown(plan));
         output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} routine load(s), written to {Path.GetRelativePath(root, path)}.");
 
-        var apply = CommandSpecs.All.First(c => c.Name == "apply");
-        return ApplyCommand.Run(apply with { Effect = spec.Effect }, path, root, dryRun: false, allowRisky: false, allowDestructive: [], resume: false, allowDirty, output, error, env);
+        return ApplyCommand.Run(spec, path, root, dryRun: false, allowRisky: false, allowDestructive: [], allowDirty, output, error, env);
     }
 }

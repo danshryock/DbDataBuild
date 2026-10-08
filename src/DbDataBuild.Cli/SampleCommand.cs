@@ -6,7 +6,7 @@ using DbDataBuild.Sql.Analysis;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild sample` (DESIGN.md 15.2). Effect class: offline only. Runs models on generated or supplied sample data in an in-memory DuckDB and shows what they return.
+/// `dbdatabuild project sample` (DESIGN.md 15.2). Effect class: offline only. Runs models on generated or supplied sample data in an in-memory DuckDB and shows what they return.
 /// Models they read from run first, so a downstream model sees its upstream model's output. Nothing is connected to or written.
 /// </summary>
 internal static class SampleCommand

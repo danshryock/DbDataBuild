@@ -107,7 +107,7 @@ public class ConnectionsTests
     {
         var dir = Project("defaults: {connections: [wh_sql]}\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n  wh_sql_two: { engine: sqlserver }\n",
             ("marts.orders", "wh_sql, wh_pg, wh_sql_two", "SELECT order_id, upper(note) AS label FROM staging.orders\n"));
-        var (exit, _, err) = Run("render", "--write", "--project", dir);
+        var (exit, _, err) = RenderFiles("--write", "--project", dir);
         Assert.True(exit == 0, err);
         string Script(string connection) => File.ReadAllText(Path.Combine(dir, "rendered", connection, "marts.orders", "load.default.sql"));
         Assert.Contains("-- connection:      wh_sql\n", Script("wh_sql"));                                      // the header names the connection
@@ -116,8 +116,8 @@ public class ConnectionsTests
         Assert.DoesNotContain("XACT_ABORT", Script("wh_pg"));
         Assert.Contains("BEGIN", Script("wh_pg"));
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered", "sqlserver")));                           // nothing for a connection the project did not use
-        Assert.Equal(0, Run("render", "--check", "--project", dir).Exit);
-        Assert.Equal(CliApp.ExitUsage, Run("render", "--project", dir, "--connection", "nowhere").Exit);
+        Assert.Equal(0, RenderFiles("--check", "--project", dir).Exit);
+        Assert.Equal(CliApp.ExitUsage, RenderFiles("--project", dir, "--connection", "nowhere", "--content").Exit);
     }
 
     [Fact]
@@ -125,12 +125,12 @@ public class ConnectionsTests
     {
         const string Sql = "SELECT order_id, regexp_extract(note, 'a(b)', 1) AS label FROM staging.orders\n";
         var dir = Project("defaults: {connections: [wh_new]}\nconnections:\n  wh_old: { engine: sqlserver, version: 16 }\n  wh_new: { engine: sqlserver, version: 17 }\n", ("marts.orders", "wh_old, wh_new", Sql));
-        var (exit, output, err) = Run("validate", "--project", dir);
+        var (exit, output, err) = Run("project", "compile", "--project", dir);
         var all = output + err;
         Assert.Contains("needs wh_old version 17 or later, but the project configures version 16", all);       // the old server is refused with the reason
         Assert.DoesNotContain("needs wh_new version", all);                                                    // the new one is not
         Assert.NotEqual(0, exit);
-        var rendered = Run("render", "--project", dir, "--connection", "wh_new");
+        var rendered = RenderFiles("--project", dir, "--connection", "wh_new", "--content");
         Assert.Contains("REGEXP_SUBSTR(", rendered.Out);                                                       // and version 17 gets the regular expression written for it
     }
 
@@ -138,11 +138,11 @@ public class ConnectionsTests
     public void A_command_that_needs_one_connection_names_it_in_its_header_and_asks_for_that_connections_login()
     {
         var dir = Project("defaults: {connections: [wh_sql]}\ntracking: { connection: wh_pg }\nconnections:\n  wh_sql: { engine: sqlserver }\n  wh_pg: { engine: postgres }\n");
-        var (exit, output, err) = Run("init", "--project", dir, "--connection", "wh_pg", "--apply");
+        var (exit, output, err) = Run("connection", "init", "--project", dir, "--connection", "wh_pg", "--apply");
         Assert.NotEqual(0, exit);
         Assert.Contains("connection: wh_pg", output);
         Assert.Contains("DBDATABUILD_WH_PG_WRITE", err + output);                                             // not DBDATABUILD_POSTGRES_WRITE
-        var script = Run("init", "--project", dir, "--connection", "wh_pg");
+        var script = Run("connection", "init", "--project", dir, "--connection", "wh_pg");
         Assert.Contains("CREATE SCHEMA", script.Out);
         Assert.DoesNotContain("[", script.Out.Split('\n').Where(l => l.StartsWith("CREATE", StringComparison.Ordinal)).FirstOrDefault() ?? "");      // PostgreSQL quoting, not SQL Server's
     }

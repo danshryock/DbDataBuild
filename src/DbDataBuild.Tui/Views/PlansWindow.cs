@@ -11,7 +11,7 @@ public sealed class PlansWindow : Ui.Modal
     public static void Open(TuiSession s)
     {
         var files = PlanBrowser.Find(s.ProjectRoot, s.Target);
-        if (files.Count == 0) { Ui.Message(s.App, "No plans yet", $"There are no plan files under {Path.Combine(s.ProjectRoot, "plans")}{(s.Target != null ? " for target " + s.Target : "")}.\nRun `plan` first."); return; }
+        if (files.Count == 0) { Ui.Message(s.App, "No plans yet", $"There are no plan files under {Path.Combine(s.ProjectRoot, "plans")}{(s.Target != null ? " for target " + s.Target : "")}.\nRun `connection deploy` first."); return; }
         s.App.Run(new PlansWindow(s, files));
     }
 

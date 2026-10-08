@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:dbdatabuild:schemas:output",
   "title": "DbDataBuild command output (--format json)",
-  "description": "The one JSON document a command writes to standard output with `--format json`. `data` holds what the command found or did, and its shape is checked per command below (`$defs.data_<command>`): keys are present when the command got far enough to produce them (a command refused early has few or none), and null values are omitted rather than written as null. `diagnostics` are the structured form of what text mode prints on standard error; `messages` and `errors` keep the human text so nothing is lost. Exit codes are the same as in text mode: 0 ok, 1 findings, 2 usage, 3 not implemented, 70 internal error. Metadata documents (`validate`, `metadata`) are defined in metadata.schema.json (id urn:dbdatabuild:schemas:metadata).",
+  "description": "The one JSON document a command writes to standard output with `--format json`. `data` holds what the command found or did, and its shape is checked per command below (`$defs.data_<command>`): keys are present when the command got far enough to produce them (a command refused early has few or none), and null values are omitted rather than written as null. `diagnostics` are the structured form of what text mode prints on standard error; `messages` and `errors` keep the human text so nothing is lost. Exit codes are the same as in text mode: 0 ok, 1 findings, 2 usage, 3 not implemented, 70 internal error. Metadata documents (`project compile`, `project show metadata`) are defined in metadata.schema.json (id urn:dbdatabuild:schemas:metadata).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -122,7 +122,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "validate"
+            "const": "project compile"
           }
         },
         "required": [
@@ -132,7 +132,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_validate"
+            "$ref": "#/$defs/data_project_compile"
           }
         }
       }
@@ -141,7 +141,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "metadata"
+            "const": "project show metadata"
           }
         },
         "required": [
@@ -151,7 +151,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_metadata"
+            "$ref": "#/$defs/data_project_show_metadata"
           }
         }
       }
@@ -160,7 +160,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "matrix"
+            "const": "help matrix"
           }
         },
         "required": [
@@ -170,7 +170,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_matrix"
+            "$ref": "#/$defs/data_help_matrix"
           }
         }
       }
@@ -179,7 +179,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "explain"
+            "const": "help code"
           }
         },
         "required": [
@@ -189,7 +189,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_explain"
+            "$ref": "#/$defs/data_help_code"
           }
         }
       }
@@ -198,7 +198,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "render"
+            "const": "project show loads"
           }
         },
         "required": [
@@ -208,7 +208,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_render"
+            "$ref": "#/$defs/data_project_show_loads"
           }
         }
       }
@@ -217,7 +217,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "loads"
+            "const": "project model update"
           }
         },
         "required": [
@@ -227,7 +227,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_loads"
+            "$ref": "#/$defs/data_project_model_update"
           }
         }
       }
@@ -236,7 +236,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "review"
+            "const": "connection init"
           }
         },
         "required": [
@@ -246,7 +246,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_review"
+            "$ref": "#/$defs/data_connection_init"
           }
         }
       }
@@ -255,7 +255,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "define"
+            "const": "connection status"
           }
         },
         "required": [
@@ -265,7 +265,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_define"
+            "$ref": "#/$defs/data_connection_status"
           }
         }
       }
@@ -274,7 +274,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "init"
+            "const": "connection deploy"
           }
         },
         "required": [
@@ -284,7 +284,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_init"
+            "$ref": "#/$defs/data_connection_deploy"
           }
         }
       }
@@ -293,7 +293,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "check"
+            "const": "connection refresh"
           }
         },
         "required": [
@@ -303,7 +303,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_check"
+            "$ref": "#/$defs/data_connection_refresh"
           }
         }
       }
@@ -312,7 +312,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "plan"
+            "const": "connection monitor"
           }
         },
         "required": [
@@ -322,7 +322,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_plan"
+            "$ref": "#/$defs/data_connection_monitor"
           }
         }
       }
@@ -331,7 +331,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "apply"
+            "const": "project sample"
           }
         },
         "required": [
@@ -341,7 +341,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_apply"
+            "$ref": "#/$defs/data_project_sample"
           }
         }
       }
@@ -350,7 +350,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "run"
+            "const": "project agent-kit"
           }
         },
         "required": [
@@ -360,7 +360,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_run"
+            "$ref": "#/$defs/data_project_agent_kit"
           }
         }
       }
@@ -369,7 +369,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "report"
+            "const": "connection publish"
           }
         },
         "required": [
@@ -379,7 +379,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_report"
+            "$ref": "#/$defs/data_connection_publish"
           }
         }
       }
@@ -388,7 +388,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "sample"
+            "const": "project import"
           }
         },
         "required": [
@@ -398,7 +398,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_sample"
+            "$ref": "#/$defs/data_project_import"
           }
         }
       }
@@ -407,7 +407,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "agent-kit"
+            "const": "project tests run"
           }
         },
         "required": [
@@ -417,7 +417,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_agent_kit"
+            "$ref": "#/$defs/data_project_tests_run"
           }
         }
       }
@@ -426,7 +426,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "ack"
+            "const": "project show graph"
           }
         },
         "required": [
@@ -436,7 +436,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_ack"
+            "$ref": "#/$defs/data_project_show_graph"
           }
         }
       }
@@ -445,7 +445,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "publish-metadata"
+            "const": "connection compare"
           }
         },
         "required": [
@@ -455,7 +455,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_publish_metadata"
+            "$ref": "#/$defs/data_connection_compare"
           }
         }
       }
@@ -464,7 +464,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "import"
+            "const": "project seed"
           }
         },
         "required": [
@@ -474,7 +474,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_import"
+            "$ref": "#/$defs/data_project_seed"
           }
         }
       }
@@ -483,7 +483,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "test"
+            "const": "project create"
           }
         },
         "required": [
@@ -493,7 +493,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_test"
+            "$ref": "#/$defs/data_project_create"
           }
         }
       }
@@ -502,7 +502,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "graph"
+            "const": "connection seed"
           }
         },
         "required": [
@@ -512,7 +512,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_graph"
+            "$ref": "#/$defs/data_connection_seed"
           }
         }
       }
@@ -521,7 +521,7 @@
       "if": {
         "properties": {
           "command": {
-            "const": "diff"
+            "const": "project show plan"
           }
         },
         "required": [
@@ -531,64 +531,7 @@
       "then": {
         "properties": {
           "data": {
-            "$ref": "#/$defs/data_diff"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "seed"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "data": {
-            "$ref": "#/$defs/data_seed"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "load-seeds"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "data": {
-            "$ref": "#/$defs/data_load_seeds"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "command": {
-            "const": "new"
-          }
-        },
-        "required": [
-          "command"
-        ]
-      },
-      "then": {
-        "properties": {
-          "data": {
-            "$ref": "#/$defs/data_new"
+            "$ref": "#/$defs/data_project_show_plan"
           }
         }
       }
@@ -994,67 +937,282 @@
         ]
       }
     },
-    "data_validate": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "counts": {
+    "data_project_compile": {
+      "description": "validation (counts, config, and the metadata when it is clean), then what the compile did: --content: files (with text) and operations; default: files, wrote, removed; --check: files, out_of_date. A project that does not validate stops there.",
+      "anyOf": [
+        {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "models": {
+                  "type": "integer"
+                },
+                "errors": {
+                  "type": "integer"
+                },
+                "warnings": {
+                  "type": "integer"
+                },
+                "notes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "models",
+                "errors",
+                "warnings",
+                "notes"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "effective": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effective"
+              ]
+            },
+            "project": {
+              "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+              }
+            },
             "models": {
-              "type": "integer"
-            },
-            "errors": {
-              "type": "integer"
-            },
-            "warnings": {
-              "type": "integer"
-            },
-            "notes": {
-              "type": "integer"
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+              }
             }
-          },
-          "required": [
-            "models",
-            "errors",
-            "warnings",
-            "notes"
-          ]
+          }
         },
-        "config": {
+        {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "file": {
-              "type": "string"
+            "counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "models": {
+                  "type": "integer"
+                },
+                "errors": {
+                  "type": "integer"
+                },
+                "warnings": {
+                  "type": "integer"
+                },
+                "notes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "models",
+                "errors",
+                "warnings",
+                "notes"
+              ]
             },
-            "effective": {
-              "type": "string"
+            "config": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "effective": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effective"
+              ]
+            },
+            "project": {
+              "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+              }
+            },
+            "models": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+              }
+            },
+            "files": {
+              "$ref": "#/$defs/filesHashedWithContent"
+            },
+            "operations": {
+              "type": "integer"
             }
-          },
-          "required": [
-            "effective"
-          ]
-        },
-        "project": {
-          "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
-        },
-        "sources": {
-          "type": "array",
-          "items": {
-            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
           }
         },
-        "models": {
-          "type": "array",
-          "items": {
-            "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "models": {
+                  "type": "integer"
+                },
+                "errors": {
+                  "type": "integer"
+                },
+                "warnings": {
+                  "type": "integer"
+                },
+                "notes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "models",
+                "errors",
+                "warnings",
+                "notes"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "effective": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effective"
+              ]
+            },
+            "project": {
+              "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+              }
+            },
+            "models": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+              }
+            },
+            "files": {
+              "$ref": "#/$defs/filesHashed"
+            },
+            "wrote": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "removed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "models": {
+                  "type": "integer"
+                },
+                "errors": {
+                  "type": "integer"
+                },
+                "warnings": {
+                  "type": "integer"
+                },
+                "notes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "models",
+                "errors",
+                "warnings",
+                "notes"
+              ]
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "effective": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effective"
+              ]
+            },
+            "project": {
+              "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/project"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/source"
+              }
+            },
+            "models": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:dbdatabuild:schemas:metadata#/$defs/model"
+              }
+            },
+            "files": {
+              "$ref": "#/$defs/filesHashed"
+            },
+            "out_of_date": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
-      }
+      ]
     },
-    "data_metadata": {
+    "data_project_show_metadata": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1075,7 +1233,7 @@
         }
       }
     },
-    "data_matrix": {
+    "data_help_matrix": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1176,7 +1334,7 @@
         }
       }
     },
-    "data_explain": {
+    "data_help_code": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1218,60 +1376,7 @@
         }
       }
     },
-    "data_render": {
-      "description": "print: files (with their text under --content) and operations; --write: files, wrote, removed; --check: files, out_of_date.",
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "files": {
-              "$ref": "#/$defs/filesHashedWithContent"
-            },
-            "operations": {
-              "type": "integer"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "files": {
-              "$ref": "#/$defs/filesHashed"
-            },
-            "wrote": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "removed": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "files": {
-              "$ref": "#/$defs/filesHashed"
-            },
-            "out_of_date": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
-    },
-    "data_loads": {
+    "data_project_show_loads": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1283,7 +1388,7 @@
         }
       }
     },
-    "data_define": {
+    "data_project_model_update": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1353,7 +1458,7 @@
         }
       }
     },
-    "data_init": {
+    "data_connection_init": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1397,7 +1502,7 @@
         }
       }
     },
-    "data_check": {
+    "data_connection_status": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1492,7 +1597,222 @@
         }
       }
     },
-    "data_plan": {
+    "data_connection_deploy": {
+      "description": "the plan (questions, plan, files), or the apply of one (outcomes, statements), or an acknowledgement, by the option given.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "effect": {
+              "type": "string"
+            },
+            "login": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "open_questions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/question"
+              }
+            },
+            "connection": {
+              "type": "string"
+            },
+            "questions_asked": {
+              "type": "integer"
+            },
+            "answers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/answer"
+              }
+            },
+            "noticed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "blocked": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "skipped": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "plan": {
+              "$ref": "#/$defs/plan"
+            },
+            "files": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "plan": {
+                  "type": "string"
+                },
+                "report": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "plan",
+                "report"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "effect": {
+              "type": "string"
+            },
+            "connection": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean"
+            },
+            "plan_id": {
+              "type": "string"
+            },
+            "outcomes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "step",
+                  "description",
+                  "status"
+                ]
+              }
+            },
+            "statement_log": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "success": {
+              "type": "boolean"
+            },
+            "statements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "ddl",
+                      "load",
+                      "backfill",
+                      "hook",
+                      "track"
+                    ]
+                  },
+                  "risk": {
+                    "enum": [
+                      "safe",
+                      "risky",
+                      "destructive"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/param"
+                    }
+                  }
+                },
+                "required": [
+                  "step",
+                  "type",
+                  "risk",
+                  "text",
+                  "parameters"
+                ]
+              }
+            },
+            "metadata_stored": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/docRow"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "acknowledged": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "subject",
+                  "key",
+                  "by",
+                  "reason"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "data_connection_refresh": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1559,18 +1879,6 @@
             "plan",
             "report"
           ]
-        }
-      }
-    },
-    "data_apply": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "effect": {
-          "type": "string"
-        },
-        "connection": {
-          "type": "string"
         },
         "dry_run": {
           "type": "boolean"
@@ -1665,168 +1973,7 @@
         }
       }
     },
-    "data_run": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "effect": {
-          "type": "string"
-        },
-        "login": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "open_questions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/question"
-          }
-        },
-        "connection": {
-          "type": "string"
-        },
-        "questions_asked": {
-          "type": "integer"
-        },
-        "answers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/answer"
-          }
-        },
-        "noticed": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "blocked": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "skipped": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "plan": {
-          "$ref": "#/$defs/plan"
-        },
-        "files": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "plan": {
-              "type": "string"
-            },
-            "report": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "plan",
-            "report"
-          ]
-        },
-        "dry_run": {
-          "type": "boolean"
-        },
-        "plan_id": {
-          "type": "string"
-        },
-        "outcomes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "step": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string"
-              },
-              "detail": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "step",
-              "description",
-              "status"
-            ]
-          }
-        },
-        "statement_log": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "success": {
-          "type": "boolean"
-        },
-        "statements": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "step": {
-                "type": "string"
-              },
-              "type": {
-                "enum": [
-                  "ddl",
-                  "load",
-                  "backfill",
-                  "hook",
-                  "track"
-                ]
-              },
-              "risk": {
-                "enum": [
-                  "safe",
-                  "risky",
-                  "destructive"
-                ]
-              },
-              "text": {
-                "type": "string"
-              },
-              "parameters": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/param"
-                }
-              }
-            },
-            "required": [
-              "step",
-              "type",
-              "risk",
-              "text",
-              "parameters"
-            ]
-          }
-        },
-        "metadata_stored": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/docRow"
-          }
-        }
-      }
-    },
-    "data_report": {
+    "data_connection_monitor": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2040,7 +2187,7 @@
         }
       }
     },
-    "data_sample": {
+    "data_project_sample": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2133,7 +2280,7 @@
         }
       }
     },
-    "data_agent_kit": {
+    "data_project_agent_kit": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2178,44 +2325,7 @@
         }
       }
     },
-    "data_ack": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "acknowledged": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "subject": {
-                "type": "string"
-              },
-              "key": {
-                "type": "string"
-              },
-              "by": {
-                "type": "string"
-              },
-              "reason": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "subject",
-              "key",
-              "by",
-              "reason"
-            ]
-          }
-        }
-      }
-    },
-    "data_publish_metadata": {
+    "data_connection_publish": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2236,7 +2346,7 @@
         }
       }
     },
-    "data_import": {
+    "data_project_import": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2490,7 +2600,7 @@
         }
       }
     },
-    "data_test": {
+    "data_project_tests_run": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2616,7 +2726,7 @@
         }
       }
     },
-    "data_graph": {
+    "data_project_show_graph": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -2796,7 +2906,7 @@
         }
       }
     },
-    "data_diff": {
+    "data_connection_compare": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -3204,7 +3314,7 @@
         }
       }
     },
-    "data_seed": {
+    "data_project_seed": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -3251,7 +3361,7 @@
         }
       }
     },
-    "data_new": {
+    "data_project_create": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -3292,7 +3402,7 @@
         }
       }
     },
-    "data_load_seeds": {
+    "data_connection_seed": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -3339,7 +3449,7 @@
         }
       }
     },
-    "data_review": {
+    "data_project_show_plan": {
       "description": "no plan: plans; a plan file: path, intact, plan, report, risky, destructive, apply_needs (a plan that does not parse: path and intact false).",
       "type": "object",
       "additionalProperties": false,

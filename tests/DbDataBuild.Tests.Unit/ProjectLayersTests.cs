@@ -125,13 +125,13 @@ public class ProjectLayersTests
         Model(dir, "crm.a", "");
         Model(dir, "marts.own", "kind: {type: view}\nconnections=: [wh_sql]\n");
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["validate", "--project", dir], o, e, environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null));
         var text = o.ToString();
         Assert.Contains("Inherited by crm.a: connections[0] = wh_sql (dbdatabuild.yml:2), kind.type = full (models/crm/_dbdatabuild.yml:2)", text);
         Assert.DoesNotContain("Inherited by marts.own", text);                           // it says everything itself
 
         var j = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["metadata", "--project", dir, "--format", "json"], j, new StringWriter(), environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "show", "metadata", "--project", dir, "--format", "json"], j, new StringWriter(), environment: _ => null));
         var model = JsonNode.Parse(j.ToString())!["data"]!["models"]!.AsArray().Single(m => (string?)m!["name"] == "crm.a")!;
         Assert.Equal(["connections[0]|dbdatabuild.yml|2", "kind.type|models/crm/_dbdatabuild.yml|2"],
             model["inherited"]!.AsArray().Select(i => $"{i!["path"]}|{i["file"]}|{i["line"]}"));
@@ -144,7 +144,7 @@ public class ProjectLayersTests
         Write(dir, "models/lake/_dbdatabuild.yml", "defaults:\n  connections=: [wh_pg]\n  kind: {type: full}\n");
         Model(dir, "lake.events", "");
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.True(CliApp.Run(["render", "--write", "--project", dir], o, e, environment: _ => null) == 0, e.ToString());
+        Assert.True(RenderFiles("--write", "--project", dir).Exit == 0);
         Assert.True(File.Exists(Path.Combine(dir, "rendered/wh_pg/lake.events/load.default.sql")));
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered/wh_sql")));
     }

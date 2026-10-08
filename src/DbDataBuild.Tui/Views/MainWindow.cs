@@ -13,10 +13,10 @@ public sealed class MainWindow : Window
 
     private static readonly (string Group, string[] Commands)[] Groups =
     [
-        ("Look at the project", ["validate", "metadata", "sample", "loads", "render", "matrix", "explain"]),
-        ("Define", ["define", "agent-kit"]),
-        ("Plan and run", ["check", "plan", "apply", "run"]),
-        ("Record and report", ["report", "ack", "init", "publish-metadata"]),
+        ("Look at the project", ["project compile", "project show metadata", "project sample", "project show loads", "project show graph", "project tests run", "help matrix", "help code"]),
+        ("Define", ["project model update", "project agent-kit"]),
+        ("Deploy and refresh", ["connection status", "connection deploy", "connection refresh"]),
+        ("Record and report", ["connection monitor", "connection init", "connection publish"]),
     ];
 
     private readonly TuiSession session;

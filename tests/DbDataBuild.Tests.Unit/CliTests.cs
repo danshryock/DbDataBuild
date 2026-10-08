@@ -19,7 +19,7 @@ public class CliTests
         Assert.Equal(CommandSpecs.All.Count, CommandSpecs.All.Select(c => c.Name).Distinct().Count());
         foreach (var spec in CommandSpecs.All)
         {
-            var (exit, help, _) = Run(spec.Name, "--help");
+            var (exit, help, _) = Run([.. spec.Name.Split(' '), "--help"]);
             Assert.Equal(0, exit);
             Assert.Contains(spec.Effect.Describe(), help);
         }
@@ -28,7 +28,7 @@ public class CliTests
     [Fact]
     public void Command_surface_matches_the_design_document()
     {
-        string[] expected = ["validate", "agent-kit", "tui", "mcp", "web", "sample", "metadata", "publish-metadata", "render", "loads", "matrix", "explain", "define", "diff", "graph", "new", "seed", "load-seeds", "import", "test", "check", "plan", "report", "review", "apply", "run", "ack", "init"];
+        string[] expected = ["project create", "project model update", "project compile", "project tests run", "project sample", "project seed", "project import", "project show loads", "project show graph", "project show metadata", "project show plan", "project agent-kit", "connection init", "connection status", "connection deploy", "connection refresh", "connection monitor", "connection compare", "connection seed", "connection publish", "ui terminal", "ui web", "ui mcp", "help code", "help matrix"];
         Assert.Equal(expected.OrderBy(x => x), CommandSpecs.All.Select(c => c.Name).OrderBy(x => x));
     }
 
@@ -37,7 +37,7 @@ public class CliTests
     {
         foreach (var spec in CommandSpecs.All.Where(c => !c.Implemented))
         {
-            var (exit, _, err) = Run(spec.Name);
+            var (exit, _, err) = Run(spec.Name.Split(' '));
             Assert.Equal(CliApp.ExitNotImplemented, exit);
             Assert.Contains("not implemented yet", err);
         }
@@ -50,9 +50,9 @@ public class CliTests
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("connections: [sqlserver, fabric]", "connections: [sqlserver]"));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT 1");
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n");
-        var (exit, output, err) = Run("validate", "--project", dir);
+        var (exit, output, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(0, exit);
-        Assert.Contains("effect: Offline only", output);
+        Assert.Contains("effect: Repo files only", output);
         Assert.Contains("Config: dbdatabuild.yml", output);
         Assert.Contains("OK: 1 model(s) valid.", output);
         Assert.Equal("", err);
@@ -64,7 +64,7 @@ public class CliTests
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("  unique_key: [order_id]\n", ""));
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.sql"), "SELECT 1");
-        var (exit, _, err) = Run("validate", "--project", dir);
+        var (exit, _, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(1, exit);
         Assert.Contains("error DDB-214  models/marts/fct_orders.yml:3", err);
     }
@@ -85,7 +85,7 @@ public class CliTests
     {
         var dir = ProjectWith("SELECT a FROM staging.t WHERE REGEXP_MATCHES(s, 'a')", config: "connections:\n  sqlserver: { version: 16 }\n");
         var before = Snapshot(dir);
-        var (exit, output, err) = Run("validate", "--project", dir);
+        var (exit, output, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("error DDB-301  rendered/lowered/marts.fct_orders/lowered.sql:", err);   // findings point at the lowered query that is checked
         Assert.Contains("sqlserver version 17 or later", err);
@@ -99,7 +99,7 @@ public class CliTests
     public void Validate_passes_with_warnings_and_notes_when_nothing_is_unsupported()
     {
         var dir = ProjectWith("SELECT a / b AS x FROM staging.t ORDER BY a", "[sqlserver]", "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n");
-        var (exit, output, err) = Run("validate", "--project", dir);
+        var (exit, output, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-302", err);
         Assert.Contains("note DDB-303", err);
@@ -109,7 +109,7 @@ public class CliTests
     [Fact]
     public void Validate_without_a_config_file_warns_and_prints_the_built_in_defaults()
     {
-        var (exit, output, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", config: null));
+        var (exit, output, err) = Run("project", "compile", "--project", ProjectWith("SELECT 1 AS order_id", config: null));
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-109", err);
         Assert.Contains("Config: built-in defaults", output);
@@ -123,19 +123,19 @@ public class CliTests
         const string postgresConfig = "defaults: {connections: [postgres]}\nstring_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: en_US.utf8 }\n";
         var dir = ProjectWith(regexpSql, config: postgresConfig);
         File.WriteAllText(Path.Combine(dir, "models/marts/fct_orders.yml"), ValidModel.Replace("connections: [sqlserver, fabric]\n", ""));
-        var (exit, output, err) = Run("validate", "--project", dir);
+        var (exit, output, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(CliApp.ExitOk, exit);                     // REGEXP_MATCHES is native on postgres
         Assert.Contains("default connections: postgres", output);
         Assert.DoesNotContain("DDB-301", err);
 
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\nconnections:\n  sqlserver: { version: 16 }\n");
-        Assert.Equal(CliApp.ExitFindings, Run("validate", "--project", dir).Exit);
+        Assert.Equal(CliApp.ExitFindings, Run("project", "compile", "--project", dir).Exit);
     }
 
     [Fact]
     public void Validate_reports_config_errors_with_file_and_position()
     {
-        var (exit, _, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", config: "defaults: {connections: [oracle]}\n"));
+        var (exit, _, err) = Run("project", "compile", "--project", ProjectWith("SELECT 1 AS order_id", config: "defaults: {connections: [oracle]}\n"));
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("error DDB-106  dbdatabuild.yml:1", err);
     }
@@ -144,15 +144,15 @@ public class CliTests
     public void Configured_target_version_resolves_min_version_rows()
     {
         const string regexp = "SELECT s FROM staging.t WHERE REGEXP_MATCHES(s, 'a')";
-        var warn = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "defaults: {connections: [sqlserver]}\n"));
+        var warn = Run("project", "compile", "--project", ProjectWith(regexp, "[sqlserver]", "defaults: {connections: [sqlserver]}\n"));
         Assert.Equal(CliApp.ExitOk, warn.Exit);
         Assert.Contains("no version is configured", warn.Err);
 
-        var old = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 16 }\n"));
+        var old = Run("project", "compile", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 16 }\n"));
         Assert.Equal(CliApp.ExitFindings, old.Exit);
         Assert.Contains("needs sqlserver version 17 or later, but the project configures version 16", old.Err);
 
-        var current = Run("validate", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 17 }\n"));
+        var current = Run("project", "compile", "--project", ProjectWith(regexp, "[sqlserver]", "connections:\n  sqlserver: { version: 17 }\n"));
         Assert.Equal(CliApp.ExitOk, current.Exit);
         Assert.DoesNotContain("DDB-308", current.Err);
         Assert.DoesNotContain("DDB-301", current.Err);
@@ -162,15 +162,15 @@ public class CliTests
     public void Policy_severity_can_turn_a_warning_into_a_failure_but_not_hide_a_finding()
     {
         const string sql = "SELECT a / b AS x FROM staging.t";
-        var plain = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "defaults: {connections: [sqlserver]}\n"));
+        var plain = Run("project", "compile", "--project", ProjectWith(sql, "[sqlserver]", "defaults: {connections: [sqlserver]}\n"));
         Assert.Equal(CliApp.ExitOk, plain.Exit);
         Assert.Contains("warning DDB-302", plain.Err);
 
-        var strict = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: error\n"));
+        var strict = Run("project", "compile", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: error\n"));
         Assert.Equal(CliApp.ExitFindings, strict.Exit);
         Assert.Contains("error DDB-302", strict.Err);
 
-        var relaxed = Run("validate", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: note\n"));
+        var relaxed = Run("project", "compile", "--project", ProjectWith(sql, "[sqlserver]", "policy:\n  severity:\n    approximated: note\n"));
         Assert.Equal(CliApp.ExitOk, relaxed.Exit);
         Assert.Contains("note DDB-302", relaxed.Err);                // still shown
     }
@@ -179,7 +179,7 @@ public class CliTests
     public void Validate_fails_when_a_configured_collation_contradicts_the_string_profile()
     {
         var cfg = "string_semantics:\n  collations:\n    default:\n      duckdb: NOCASE\n      sqlserver: Latin1_General_100_CS_AS\n";
-        var (exit, output, err) = Run("validate", "--project", ProjectWith("SELECT 1 AS order_id", "[sqlserver]", cfg));
+        var (exit, output, err) = Run("project", "compile", "--project", ProjectWith("SELECT 1 AS order_id", "[sqlserver]", cfg));
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("error DDB-310  dbdatabuild.yml:5", err);
         Assert.Contains("case is sensitive but the profile requires insensitive", err);
@@ -189,7 +189,7 @@ public class CliTests
     [Fact]
     public void Validate_reports_unparseable_sql()
     {
-        var (exit, _, err) = Run("validate", "--project", ProjectWith("SELEC FROM FROM ("));
+        var (exit, _, err) = Run("project", "compile", "--project", ProjectWith("SELEC FROM FROM ("));
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-306", err);
     }
@@ -197,7 +197,7 @@ public class CliTests
     [Fact]
     public void Matrix_command_prints_every_row_with_notes_and_the_coverage_rule()
     {
-        var (exit, output, _) = Run("matrix");
+        var (exit, output, _) = Run("help", "matrix");
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("effect: Offline only", output);
         Assert.Contains("syntax.group_by_ordinal", output);
@@ -210,11 +210,11 @@ public class CliTests
     [Fact]
     public void Explain_prints_long_form_and_rejects_unknown_codes()
     {
-        var (exit, output, _) = Run("explain", "ddb-214");
+        var (exit, output, _) = Run("help", "code", "ddb-214");
         Assert.Equal(0, exit);
         Assert.Contains("Missing unique_key", output);
 
-        var (exit2, _, err) = Run("explain", "DDB-000");
+        var (exit2, _, err) = Run("help", "code", "DDB-000");
         Assert.Equal(CliApp.ExitUsage, exit2);
         Assert.Contains("Unknown diagnostic code", err);
     }
@@ -223,7 +223,7 @@ public class CliTests
     public void Internal_failures_are_reported_as_tool_bugs_without_stack_traces()
     {
         var err = new StringWriter();
-        var exit = CliApp.Guarded(["validate"], err, () => throw new InvalidOperationException("boom: secret-row-value"));
+        var exit = CliApp.Guarded(["project", "compile"], err, () => throw new InvalidOperationException("boom: secret-row-value"));
         Assert.Equal(CliApp.ExitInternal, exit);
         Assert.Contains("DDB-900", err.ToString());
         Assert.Contains("InvalidOperationException", err.ToString());

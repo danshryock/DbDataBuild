@@ -2,7 +2,7 @@
 # An MCP bundle (.mcpb: a zip with a manifest and the executable) for hosts that install servers with one click.
 #   scripts/pack-mcpb.sh [rid] [dir with the published executable] [outdir]
 # rid defaults to linux-x64 (win-x64 gives a bundle for Windows); the executable comes from scripts/publish.sh (default dir publish/<rid>); VERSION=1.2.3 stamps the manifest (default 0.0.0-dev).
-# The bundle is read-only: it starts `dbdatabuild mcp` without --allow-writes and --allow-apply, and asks for the project folder. `npx @anthropic-ai/mcpb validate` checks the manifest.
+# The bundle is read-only: it starts `dbdatabuild ui mcp` without --allow-writes and --allow-apply, and asks for the project folder. `npx @anthropic-ai/mcpb validate` checks the manifest.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 RID="${1:-linux-x64}"

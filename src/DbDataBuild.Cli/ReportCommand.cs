@@ -9,7 +9,7 @@ using DbDataBuild.Targets.Ddl;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild report` (DESIGN.md 9.1, 12.3). Effect class: target read-only. Shows what the tracking tables say happened: applied plans, DDL, loads, each object's
+/// `dbdatabuild connection monitor` (DESIGN.md 9.1, 12.3). Effect class: target read-only. Shows what the tracking tables say happened: applied plans, DDL, loads, each object's
 /// recorded shapes, anything that started and never finished, and objects whose live shape no longer matches the last recorded one. The per-column history
 /// consistency report of DESIGN.md 12.3 is part of it (HistoryReader).
 /// </summary>
@@ -103,18 +103,18 @@ internal static class ReportCommand
             foreach (var h in history) output.WriteLine($"  - {h.Text}");
 
             var open = new List<string>();
-            foreach (var h in history.Where(h => h.NeedsAttention)) open.Add($"{h.Model}.{h.Column}: a backfill was requested and none is recorded (`{ProductInfo.Cli} plan --backfill {h.Model}=<operation>`, or `{ProductInfo.Cli} ack history {h.Model}.{h.Column} --reason ...` to accept it)");
+            foreach (var h in history.Where(h => h.NeedsAttention)) open.Add($"{h.Model}.{h.Column}: a backfill was requested and none is recorded (`{ProductInfo.Cli} connection deploy --backfill {h.Model}=<operation>`, or `{ProductInfo.Cli} connection deploy --ack history:{h.Model}.{h.Column} --reason <why>` to accept it)");
             foreach (var id in unreadable) open.Add($"the plan text recorded for {id} cannot be read back (edited or damaged); its decisions are not in this report");
             foreach (var r in await trackRead.QueryAsync($"SELECT {C("plan_id")}, MAX({C("applied_utc")}) FROM {T("migration_log")} WHERE {C("connection")} = @connection GROUP BY {C("plan_id")} HAVING SUM(CASE WHEN {C("status")} = 'completed' THEN 1 ELSE 0 END) = 0", byConnection))
-                open.Add($"plan {Cell(r[0])} never completed (last record {Cell(r[1])} UTC): resume it with `{ProductInfo.Cli} apply --resume`, or plan again");
+                open.Add($"plan {Cell(r[0])} never completed (last record {Cell(r[1])} UTC): resume it with `{ProductInfo.Cli} connection deploy --apply-plan --resume`, or plan again");
             // a step that did not finish ok is left out when the same step of the same plan was run again, and finished, later (a resume after a failure or a lost connection)
             foreach (var r in await trackRead.QueryAsync($"SELECT d.{C("object_name")}, d.{C("plan_id")} FROM {T("ddl_log")} d WHERE d.{C("connection")} = @connection AND d.{C("status")} <> 'ok' AND NOT EXISTS (SELECT 1 FROM {T("ddl_log")} later WHERE later.{C("connection")} = d.{C("connection")} AND later.{C("plan_id")} = d.{C("plan_id")} AND later.{C("object_name")} = d.{C("object_name")} AND later.{C("statement_hash")} = d.{C("statement_hash")} AND later.{C("status")} = 'ok' AND later.{C("executed_utc")} >= d.{C("executed_utc")})", byConnection))
                 open.Add($"DDL on {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
             foreach (var r in await trackRead.QueryAsync($"SELECT r.{C("model")}, r.{C("plan_id")} FROM {T("run_log")} r WHERE r.{C("connection")} = @connection AND r.{C("status")} <> 'ok' AND NOT EXISTS (SELECT 1 FROM {T("run_log")} later WHERE later.{C("connection")} = r.{C("connection")} AND later.{C("plan_id")} = r.{C("plan_id")} AND later.{C("step_id")} = r.{C("step_id")} AND later.{C("status")} = 'ok' AND later.{C("started_utc")} >= r.{C("started_utc")})", byConnection))
                 open.Add($"load of {Cell(r[0])} in plan {Cell(r[1])} did not finish ok");
             foreach (var o in origins.Where(o => Cell(o.Latest[2]) != "ok"))
-                open.Add($"{o.Model}: {(o.Origin.Length > 0 ? $"the origin `{o.Origin}`" : "an origin")} {(o.Good == null ? "has never copied well" : $"last copied well at {Cell(o.Good[3])} UTC")}, and its latest attempt ended `{Cell(o.Latest[2])}` (`{ProductInfo.Cli} plan` and `apply`, or `apply --resume`)");
-            foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} ack drift {d} --reason ...`, or restore it)");
+                open.Add($"{o.Model}: {(o.Origin.Length > 0 ? $"the origin `{o.Origin}`" : "an origin")} {(o.Good == null ? "has never copied well" : $"last copied well at {Cell(o.Good[3])} UTC")}, and its latest attempt ended `{Cell(o.Latest[2])}` (`{ProductInfo.Cli} connection deploy` and `apply`, or `apply --resume`)");
+            foreach (var d in drifted) open.Add($"{d} changed outside the tool (`{ProductInfo.Cli} connection deploy --ack drift:{d} --reason <why>`, or restore it)");
             output.WriteLine();
             output.Payload("needs_attention", open);
             output.Payload("connection", target);

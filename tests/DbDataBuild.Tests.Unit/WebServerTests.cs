@@ -16,7 +16,7 @@ public sealed class WebServerTests : IDisposable
 
     public WebServerTests()
     {
-        Assert.Equal(0, CliApp.Run(["new", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(0, CliApp.Run(["project", "create", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
         Directory.CreateDirectory(Path.Combine(dir, "plans"));
         File.WriteAllText(Path.Combine(dir, "plans", "p.plan.yml"), "secret: statements\n");
         File.WriteAllText(Path.Combine(dir, ".env"), "DBDATABUILD_SQLSERVER_WRITE=secret\n");
@@ -58,53 +58,53 @@ public sealed class WebServerTests : IDisposable
     [Fact]
     public async Task A_read_only_command_gives_its_document_and_everything_else_is_refused()
     {
-        var ok = await Run("validate");
+        var ok = await Run("project_compile");
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         var reply = JsonNode.Parse(await ok.Content.ReadAsStringAsync())!;
-        Assert.Equal("validate", (string)reply["document"]!["command"]!);
+        Assert.Equal("project compile", (string)reply["document"]!["command"]!);
 
-        foreach (var command in new[] { "apply", "run", "init", "load-seeds", "seed", "new", "define", "tui", "mcp", "web" })
+        foreach (var command in new[] { "connection_refresh", "connection_init", "connection_seed", "project_seed", "project_create", "project_model_update", "ui_terminal", "ui_mcp", "ui_web" })
             Assert.Equal(HttpStatusCode.NotFound, (await Run(command)).StatusCode);
         // render can be run, but not with --write; a path outside the project and the project option are not inputs
-        Assert.Equal(HttpStatusCode.OK, (await Run("render", "{\"check\":true}")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Run("render", "{\"write\":true}")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Run("render", "{\"project\":\"/\"}")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Run("render", "{\"models\":[\"../x\"]}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Run("project_compile", "{\"check\":true}")).StatusCode);       // held to --check already: it is not an input
+        Assert.Equal(HttpStatusCode.BadRequest, (await Run("project_compile", "{\"write\":true}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Run("project_compile", "{\"project\":\"/\"}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Run("project_compile", "{\"models\":[\"../x\"]}")).StatusCode);
     }
 
     [Fact]
     public async Task The_lowered_and_rendered_text_comes_from_render_content_and_nothing_is_written()
     {
-        var reply = JsonNode.Parse(await (await Run("render", "{\"content\":true}")).Content.ReadAsStringAsync())!;
+        var reply = JsonNode.Parse(await (await Run("project_compile", "{\"content\":true}")).Content.ReadAsStringAsync())!;
         var files = reply["document"]!["data"]!["files"]!.AsArray();
         Assert.NotEmpty(files);
         Assert.All(files, f => Assert.False(string.IsNullOrWhiteSpace((string?)f!["content"])));
         Assert.Contains(files, f => ((string)f!["path"]!).StartsWith("rendered/lowered/"));
         Assert.False(Directory.Exists(Path.Combine(dir, "rendered")));       // the page can see the scripts without `render --write`
-        var plain = JsonNode.Parse(await (await Run("render")).Content.ReadAsStringAsync())!;
+        var plain = JsonNode.Parse(await (await Run("project_compile")).Content.ReadAsStringAsync())!;
         Assert.Null(plain["document"]!["data"]!["files"]![0]!["content"]);
     }
 
     [Fact]
     public async Task Sample_and_diff_can_be_run_and_a_person_may_ask_for_values_which_a_model_never_may()
     {
-        var sample = JsonNode.Parse(await (await Run("sample", "{\"models\":[\"marts.customers\"],\"limit\":3}")).Content.ReadAsStringAsync())!;
+        var sample = JsonNode.Parse(await (await Run("project_sample", "{\"models\":[\"marts.customers\"],\"limit\":3}")).Content.ReadAsStringAsync())!;
         Assert.Equal(0, (int)sample["exit"]!);
         Assert.Contains(sample["document"]!["data"]!["tables"]!.AsArray(), t => (string)t!["name"]! == "marts.customers");
         // diff reads a target: here there is no login, and the answer is the command's own finding, not a refusal of the page
-        var diff = await Run("diff", "{\"table\":\"marts.customers\",\"against_schema\":\"dev\",\"show_values\":true}");
+        var diff = await Run("connection_compare", "{\"table\":\"marts.customers\",\"against_schema\":\"dev\",\"show_values\":true}");
         Assert.Equal(HttpStatusCode.OK, diff.StatusCode);
-        Assert.Equal("diff", (string)JsonNode.Parse(await diff.Content.ReadAsStringAsync())!["document"]!["command"]!);
+        Assert.Equal("connection compare", (string)JsonNode.Parse(await diff.Content.ReadAsStringAsync())!["document"]!["command"]!);
     }
 
     [Fact]
     public async Task A_request_without_the_token_for_another_host_or_from_another_origin_is_refused()
     {
-        Assert.Equal(HttpStatusCode.Forbidden, (await Run("validate", token: false)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Run("project_compile", token: false)).StatusCode);
         // DNS rebinding: the name differs, the address is ours. The listener itself answers 404 for a Host that matches none of its prefixes; the check in the router (421) is the second line
-        Assert.Contains((await Run("validate", host: "evil.example")).StatusCode, new[] { HttpStatusCode.NotFound, (HttpStatusCode)421 });
-        Assert.Equal(HttpStatusCode.Forbidden, (await Run("validate", origin: "https://evil.example")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Run("validate", origin: $"http://127.0.0.1:{server.Port}")).StatusCode);
+        Assert.Contains((await Run("project_compile", host: "evil.example")).StatusCode, new[] { HttpStatusCode.NotFound, (HttpStatusCode)421 });
+        Assert.Equal(HttpStatusCode.Forbidden, (await Run("project_compile", origin: "https://evil.example")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Run("project_compile", origin: $"http://127.0.0.1:{server.Port}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Get, "/api/file?path=dbdatabuild.yml", token: false)).StatusCode);
         var wrongType = new HttpRequestMessage(HttpMethod.Post, Url("/api/run")) { Content = new StringContent("{}", Encoding.UTF8, "text/plain") };
         wrongType.Headers.Add("X-DDB-Token", server.Token);
@@ -147,17 +147,17 @@ public sealed class WebServerTests : IDisposable
     [Fact]
     public async Task Only_one_command_runs_at_a_time_and_each_gets_its_own_answer()
     {
-        var answers = await Task.WhenAll(Run("validate"), Run("loads"), Run("test"), Run("matrix"));
+        var answers = await Task.WhenAll(Run("project_compile"), Run("project_show_loads"), Run("project_tests_run"), Run("help_matrix"));
         var names = new List<string>();
         foreach (var a in answers) { Assert.Equal(HttpStatusCode.OK, a.StatusCode); names.Add((string)JsonNode.Parse(await a.Content.ReadAsStringAsync())!["document"]!["command"]!); }
-        Assert.Equal(["validate", "loads", "test", "matrix"], names);
+        Assert.Equal(["project compile", "project show loads", "project tests run", "help matrix"], names);
     }
 
     [Fact]
     public void The_command_refuses_a_json_format_a_missing_project_and_a_bad_port()
     {
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["web", "--project", dir, "--format", "json"], new StringWriter(), new StringWriter()));
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["web", "--project", Path.Combine(dir, "nope")], new StringWriter(), new StringWriter()));
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["web", "--project", dir, "--port", "70000"], new StringWriter(), new StringWriter()));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "web", "--project", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "web", "--project", Path.Combine(dir, "nope")], new StringWriter(), new StringWriter()));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["ui", "web", "--project", dir, "--port", "70000"], new StringWriter(), new StringWriter()));
     }
 }

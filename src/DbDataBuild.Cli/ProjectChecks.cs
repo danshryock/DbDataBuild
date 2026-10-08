@@ -197,7 +197,7 @@ internal static class ProjectChecks
                 foreach (var (table, sourceColumn) in lowering.SourceColumnsWithoutLeadingIndex(body, column))
                     yield return new Diagnostic(DiagnosticCatalog.LoadSliceSourceNotIndexed, new(source.DefinitionFile, 0, 0),
                         $"{def.Name} / {op.Name} {what} by `{column}`, which the query reads from `{table}.{sourceColumn}`, and no index declared for `{table}` leads with that column, so each load scans the source to find the slice.",
-                        Fix: $"If `{table}` has an index that leads with `{sourceColumn}`, add it under `indexes:` in its declaration (`dbdatabuild import {table} --write` exports it); otherwise ask its owner for one. Silence this with `lint_ignore: [DDB-239]` if the cost is acceptable.");
+                        Fix: $"If `{table}` has an index that leads with `{sourceColumn}`, add it under `indexes:` in its declaration (`dbdatabuild project import {table} --write` exports it); otherwise ask its owner for one. Silence this with `lint_ignore: [DDB-239]` if the cost is acceptable.");
             }
     }
 

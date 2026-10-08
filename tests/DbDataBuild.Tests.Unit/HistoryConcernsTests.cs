@@ -42,7 +42,7 @@ public class HistoryConcernsTests
         Assert.Contains("marts.fct is built from a column whose history is inconsistent (`double_amount` comes from stg.orders.amount)", f.Found);
         var chained = Assert.Single(HistoryConcerns.Check(ctx, ["marts.chain"], [Open("stg.orders", "amount")]));
         Assert.Contains("(`x` comes from stg.orders.amount > marts.fct.double_amount)", chained.Found);
-        Assert.Contains("ack history stg.orders.amount", f.Fix);
+        Assert.Contains("--ack history:stg.orders.amount", f.Fix);
     }
 
     [Fact]

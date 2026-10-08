@@ -18,7 +18,7 @@ public class UnhandledDriverErrorTests
         File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         var env = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=secret-host.invalid,1;User Id=r;Password=hunter2;Connect Timeout=1" };
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["diff", "staging.orders", "--against-schema", "dev", "--project", dir], o, e, environment: v => env.GetValueOrDefault(v));
+        var exit = CliApp.Run(["connection", "compare", "staging.orders", "--against-schema", "dev", "--project", dir], o, e, environment: v => env.GetValueOrDefault(v));
         var all = o.ToString() + e.ToString();
         Assert.Equal(CliApp.ExitFindings, exit);                                  // the database, not the tool, is what failed
         Assert.Contains("DDB-242", all);
@@ -38,7 +38,7 @@ public class UnhandledDriverErrorTests
         File.WriteAllText(Path.Combine(dir, "models/staging/orders.yml"), "name: staging.orders\nkind:\n  type: mapped\ngrain: [order_id]\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         var env = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=secret-host.invalid,1;User Id=r;Password=hunter2;Connect Timeout=1" };
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["diff", "staging.orders", "--against-schema", "dev", "--project", dir, "--format", "json"], o, e, environment: v => env.GetValueOrDefault(v));
+        var exit = CliApp.Run(["connection", "compare", "staging.orders", "--against-schema", "dev", "--project", dir, "--format", "json"], o, e, environment: v => env.GetValueOrDefault(v));
         var doc = System.Text.Json.Nodes.JsonNode.Parse(o.ToString())!;
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Equal("DDB-242", (string?)doc["diagnostics"]![0]!["code"]);

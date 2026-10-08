@@ -6,7 +6,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild diff` (effect: target read-only; DESIGN.md 9.10). Compares the data of two tables or views of one target, for example a model's table against a copy under a development schema name: the columns and types, the row
+/// `dbdatabuild connection compare` (effect: target read-only; DESIGN.md 9.10). Compares the data of two tables or views of one target, for example a model's table against a copy under a development schema name: the columns and types, the row
 /// counts, and a full outer join on a key inside the engine that counts the rows on one side only and the rows whose values differ, column by column. By default no value is read back (counts only), so an operator can
 /// work without seeing real data; `--show-values` asks for the smallest and largest value of each column and up to --limit sample rows of each kind of difference, which then appear in the output you asked for
 /// and nowhere else (not in the statement log, not in a plan).

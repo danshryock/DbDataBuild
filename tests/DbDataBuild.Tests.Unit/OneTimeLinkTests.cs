@@ -16,7 +16,7 @@ public sealed class OneTimeLinkTests : IDisposable
 
     public OneTimeLinkTests()
     {
-        Assert.Equal(0, CliApp.Run(["new", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
+        Assert.Equal(0, CliApp.Run(["project", "create", "starter", dir, "--format", "json"], new StringWriter(), new StringWriter()));
         server = new WebServer(dir, new TuiCommand.CliHost(_ => null), 0, false, oneTimeLinks: true);
         server.StartAsync();
         browser = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies, UseCookies = true });

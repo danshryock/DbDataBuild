@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "config.schema.json",
   "title": "DbDataBuild project configuration",
-  "description": "dbdatabuild.yml at the project root. Offline settings only: credentials are never stored here, they come from the runtime environment. Every key is optional; an absent key takes the built-in default, which every command prints in its header. This schema is for editors; `dbdatabuild validate` applies the same rules with diagnostic codes.",
+  "description": "dbdatabuild.yml at the project root. Offline settings only: credentials are never stored here, they come from the runtime environment. Every key is optional; an absent key takes the built-in default, which every command prints in its header. This schema is for editors; `dbdatabuild project compile` applies the same rules with diagnostic codes.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -441,7 +441,7 @@
       }
     },
     "rewrites": {
-      "description": "Which rewrites make the engines give DuckDB's answers (`dbdatabuild matrix --rewrites` lists them). The default is `fidelity: exact`: all of them. `fidelity: native` turns off every rewrite the targets can do without, for shorter queries and simpler plans, at the price of each engine's own behavior (a trailing space not counted, an integer cut instead of rounded, a week counted another way); `disable` and `enable` change single rewrites. A rewrite a target cannot do without (SQL Server has no LPAD, PostgreSQL's round takes no double) cannot be turned off (DDB-229). A model's section is applied on top of the project's.",
+      "description": "Which rewrites make the engines give DuckDB's answers (`dbdatabuild help matrix --rewrites` lists them). The default is `fidelity: exact`: all of them. `fidelity: native` turns off every rewrite the targets can do without, for shorter queries and simpler plans, at the price of each engine's own behavior (a trailing space not counted, an integer cut instead of rounded, a week counted another way); `disable` and `enable` change single rewrites. A rewrite a target cannot do without (SQL Server has no LPAD, PostgreSQL's round takes no double) cannot be turned off (DDB-229). A model's section is applied on top of the project's.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

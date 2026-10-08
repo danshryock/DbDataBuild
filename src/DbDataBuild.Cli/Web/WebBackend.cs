@@ -12,8 +12,8 @@ namespace DbDataBuild.Cli.Web;
 /// </summary>
 internal sealed class WebBackend
 {
-    /// <summary>The commands a person's interface may run. None changes a database (render loses its write flag); `plan` and `diff` read a target with the read login, `plan` writes plan files into the project.</summary>
-    internal static readonly string[] ReadOnlyCommands = ["validate", "graph", "metadata", "test", "loads", "matrix", "explain", "render", "review", "plan", "sample", "diff"];
+    /// <summary>The commands a person's interface may run. None changes a database (compile is held to --check, deploy loses --apply-plan, --yes and --ack); `deploy` and `compare` read a target with the read login, `deploy` writes plan files into the project.</summary>
+    internal static readonly string[] ReadOnlyCommands = ["project compile", "project show graph", "project show metadata", "project tests run", "project show loads", "help matrix", "help code", "project show plan", "connection deploy", "project sample", "connection compare"];
 
     /// <summary>The parts of a project a person may read: what the project is made of, not the plans, the state or the environment.</summary>
     private static readonly string[] ReadableDirectories = ["models", "seeds", "tests", "rendered", "hooks"];
@@ -31,7 +31,7 @@ internal sealed class WebBackend
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.host = host;
         // plan writes plan files in the project and reads the target with the read login; the person answers each question themselves, so `plan --accept-inferred` is not offered
-        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["plan --accept-inferred"], personReads: true);
+        surface = new ToolSurface(this.projectRoot, host.Commands.Where(c => ReadOnlyCommands.Contains(c.Name)), withholdWriteFlags: true, alsoWithheld: ["connection deploy --accept-inferred"], personReads: true);
         actions = new WebActions(this.projectRoot, host, oneCommandAtATime, allowApply);
     }
 
@@ -48,7 +48,7 @@ internal sealed class WebBackend
     public (int, string, string) RunCommand(JsonObject? body)
     {
         var name = body?["command"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
-        if (name == null || !surface.Tools.TryGetValue(name, out var command)) return Refuse(404, $"`{name}` is not a command this page can run. It can run: {string.Join(", ", ReadOnlyCommands)}.");
+        if (name == null || !surface.Tools.TryGetValue(name, out var command)) return Refuse(404, $"`{name}` is not a command this page can run. It can run: {string.Join(", ", surface.Tools.Keys)}.");
         if (!surface.TryBuildArguments(command, body!["arguments"] as JsonObject ?? new JsonObject(), out var argv, out var problem)) return Refuse(400, problem!);
 
         CommandResult result;

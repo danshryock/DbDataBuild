@@ -373,7 +373,7 @@ public sealed class DefineEngine(ModelGraph graph, ProjectConfig config, MatrixL
             foreach (var d in remaining.Removed)
             {
                 if (byId[QuestionIds.Define(t.ModelName, $"columns.{d.Name}.remove")].Choice == "remove_column") edits.Add(new RemoveColumn(d.Name));
-                else { keptRemovals++; notes.Add($"Kept the declaration of `{d.Name}`, which the query no longer returns: `define --check` will still report it."); }
+                else { keptRemovals++; notes.Add($"Kept the declaration of `{d.Name}`, which the query no longer returns: `project model update --check` will still report it."); }
             }
             foreach (var c in remaining.Added)
             {

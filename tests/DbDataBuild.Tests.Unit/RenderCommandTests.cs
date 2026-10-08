@@ -36,7 +36,25 @@ public class RenderCommandTests
         return (CliApp.Run(args, o, e), o.ToString(), e.ToString());
     }
 
-    private static (int Exit, string Out, string Err) Render(string dir, params string[] more) => Run(["render", "--project", dir, .. more]);
+    /// <summary>
+    /// The rendering half of `project compile`, called directly: these tests are about what is rendered, written and compared, with fixtures that are not meant to pass the project's other checks
+    /// (`project compile` runs those too and fails on them). `--write` writes, `--check` compares, `--content` or nothing prints.
+    /// </summary>
+    private static (int Exit, string Out, string Err) Render(string dir, params string[] more)
+    {
+        var o = new StringWriter();
+        var e = new StringWriter();
+        var models = new List<string>();
+        var connections = new List<string>();
+        for (var i = 0; i < more.Length; i++)
+            if (more[i] == "--connection") connections.Add(more[++i]);
+            else if (!more[i].StartsWith("--", StringComparison.Ordinal)) models.Add(more[i]);
+        var write = more.Contains("--write");
+        var check = more.Contains("--check");
+        var spec = CommandSpecs.All.First(c => c.Name == "project compile");
+        var exit = RenderCommand.Render(spec, dir, [.. models], [.. connections], write, check, content: !write && !check, o, e);
+        return (exit, o.ToString(), e.ToString());
+    }
 
     private static string RenderedTree(string dir)
     {
@@ -169,12 +187,6 @@ public class RenderCommandTests
         Assert.Equal(before, Snapshot(dir));
     }
 
-    [Fact]
-    public void Write_and_check_cannot_be_combined()
-    {
-        Assert.Equal(CliApp.ExitUsage, Render(Project(), "--write", "--check").Exit);
-    }
-
     // ---------------- --check ----------------
 
     [Fact]
@@ -250,7 +262,7 @@ public class RenderCommandTests
         var dir = Project();
         Model(dir, "marts.fct_orders", FctYaml + "loads:\n  merge:\n    default: true\n    strategy: merge_by_key\n  rebuild:\n    strategy: full_replace\n    connections: [postgres]\n", FctSql);
         Model(dir, "marts.v_orders", "name: marts.v_orders\nkind: {type: view}\nconnections: [sqlserver]\ncolumns:\n  - {name: order_id, type: BIGINT}\n", "SELECT o.order_id FROM staging.orders o");
-        var (exit, output, err) = Run("loads", "--project", dir);
+        var (exit, output, err) = Run("project", "show", "loads", "--project", dir);
         Assert.Equal((CliApp.ExitOk, ""), (exit, err));
         Assert.Contains("effect: Offline only", output);
         Assert.Matches(@"marts\.fct_orders\s+postgres\s+merge\s+merge_by_key\s+default\s+supported", output);
@@ -266,7 +278,7 @@ public class RenderCommandTests
     {
         var dir = Project("defaults: {connections: [sqlserver]}\nconnections:\n  sqlserver: { version: 16 }\n");
         Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\nconnections: [sqlserver, postgres]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
-        var (exit, output, err) = Run("loads", "--project", dir);
+        var (exit, output, err) = Run("project", "show", "loads", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Matches(@"marts\.bad\s+sqlserver\s+default\s+full_replace\s+default\s+unsupported", output);
         Assert.Matches(@"marts\.bad\s+postgres\s+default\s+full_replace\s+default\s+supported", output);
@@ -279,7 +291,7 @@ public class RenderCommandTests
     {
         var dir = Project();
         Model(dir, "marts.fct_orders", FctYaml.Replace("[sqlserver, postgres]", "[fabric]"), FctSql);
-        Assert.Matches(@"marts\.fct_orders\s+fabric\s+default\s+delete_insert_by_key\s+default\s+unverified", Run("loads", "--project", dir).Out);
+        Assert.Matches(@"marts\.fct_orders\s+fabric\s+default\s+delete_insert_by_key\s+default\s+unverified", Run("project", "show", "loads", "--project", dir).Out);
     }
 
     // ---------------- validate and the T-SQL grammar ----------------
@@ -289,7 +301,7 @@ public class RenderCommandTests
     {
         var dir = Project("defaults: {connections: [sqlserver]}\nconnections:\n  sqlserver: { version: 16 }\n");
         Model(dir, "marts.bad", "name: marts.bad\nkind: {type: full}\nconnections: [sqlserver]\ncolumns:\n  - {name: a, type: BIGINT}\n", "SELECT o.order_id AS a FROM staging.orders o WHERE REGEXP_MATCHES(CAST(o.order_id AS VARCHAR), '1')");
-        var (exit, _, err) = Run("validate", "--project", dir);
+        var (exit, _, err) = Run("project", "compile", "--project", dir);
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("DDB-317", err);
         Assert.Contains("marts.bad x sqlserver x default", err);
@@ -318,8 +330,8 @@ public class RenderCommandTests
     [Fact]
     public void Render_and_loads_never_reference_a_database_driver_and_declare_their_effect_classes()
     {
-        Assert.Equal(EffectClass.RepoFilesOnly, CommandSpecs.All.Single(c => c.Name == "render").Effect);
-        Assert.Equal(EffectClass.OfflineOnly, CommandSpecs.All.Single(c => c.Name == "loads").Effect);
+        Assert.Equal(EffectClass.RepoFilesOnly, CommandSpecs.All.Single(c => c.Name == "project compile").Effect);
+        Assert.Equal(EffectClass.OfflineOnly, CommandSpecs.All.Single(c => c.Name == "project show loads").Effect);
         var forbidden = new[] { "Microsoft.Data.SqlClient", "System.Data.SqlClient", "Npgsql" };
         Assert.DoesNotContain(typeof(TargetRegistry).Assembly.GetReferencedAssemblies(), r => forbidden.Contains(r.Name));
     }

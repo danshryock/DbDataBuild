@@ -78,12 +78,12 @@ public class FuzzTests
 
     private static void RunAll(string dir, string what)
     {
-        foreach (var args in new[] { new[] { "validate" }, new[] { "render", "--check" }, new[] { "loads" }, new[] { "define", "--check" }, new[] { "metadata" } })
+        foreach (var args in new[] { new[] { "project", "compile" }, new[] { "project", "compile", "--check" }, new[] { "project", "show", "loads" }, new[] { "project", "model", "update", "--check" }, new[] { "project", "show", "metadata" } })
         {
             var o = new StringWriter(); var e = new StringWriter();
             var exit = CliApp.Run([.. args, "--project", dir, "--format", "json"], o, e);
             Assert.True(exit != CliApp.ExitInternal && !o.ToString().Contains("DDB-900") && !e.ToString().Contains("DDB-900"), $"`{string.Join(' ', args)}` failed internally on {what}:\n{o}\n{e}");
-            if (args[0] == "validate" || args[0] == "render") System.Text.Json.JsonDocument.Parse(o.ToString());      // the JSON document stays well formed whatever the input
+            if (args[1] == "compile") System.Text.Json.JsonDocument.Parse(o.ToString());      // the JSON document stays well formed whatever the input
         }
     }
 
@@ -94,7 +94,7 @@ public class FuzzTests
         try
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run(["validate", "--project", dir], o, e);
+            var exit = CliApp.Run(["project", "compile", "--project", dir], o, e);
             Assert.True(exit is CliApp.ExitOk or CliApp.ExitFindings, o + "\n" + e);
             Assert.DoesNotContain("error DDB-1", e.ToString());      // no config, definition or YAML error in the base files
         }
@@ -150,7 +150,7 @@ public class FuzzTests
                 var full = Path.Combine(dir, path);
                 Directory.CreateDirectory(Path.GetDirectoryName(full)!);
                 File.WriteAllText(full, mutated);
-                foreach (var args in new[] { new[] { "validate" }, new[] { "test" }, new[] { "loads" }, new[] { "metadata" }, new[] { "define", "--check" } })
+                foreach (var args in new[] { new[] { "project", "compile" }, new[] { "project", "tests", "run" }, new[] { "project", "show", "loads" }, new[] { "project", "show", "metadata" }, new[] { "project", "model", "update", "--check" } })
                 {
                     var o = new StringWriter(); var e = new StringWriter();
                     var exit = CliApp.Run([.. args, "--project", dir, "--format", "json"], o, e);
@@ -174,7 +174,7 @@ public class FuzzTests
             try
             {
                 var o = new StringWriter(); var e = new StringWriter();
-                var exit = CliApp.Run(["define", "--check", "--answers", Path.Combine(dir, "answers.yml"), "--project", dir], o, e);
+                var exit = CliApp.Run(["project", "model", "update", "--check", "--answers", Path.Combine(dir, "answers.yml"), "--project", dir], o, e);
                 Assert.True(exit != CliApp.ExitInternal, $"answers mutation {n++} failed internally: {mutated.Replace("\n", "\\n")}\n{e}");
             }
             finally { Directory.Delete(dir, true); }

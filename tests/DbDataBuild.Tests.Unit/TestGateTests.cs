@@ -17,7 +17,7 @@ public class TestGateTests
         File.WriteAllText(Path.Combine(dir, "models/marts/o.yml"), "name: marts.o\nkind: {type: view}\ncolumns:\n  - {name: order_id, type: BIGINT, nullable: false}\n");
         File.WriteAllText(Path.Combine(dir, "models/marts/o.sql"), "SELECT order_id FROM staging.orders\n");
         File.WriteAllText(Path.Combine(dir, "tests/metadata/critical_rule.sql"), ruleBody);
-        Assert.Equal(0, Cli(dir, "render", "--write").Exit);
+        Assert.Equal(0, Cli(dir, "project", "compile").Exit);
         return dir;
     }
 
@@ -25,7 +25,7 @@ public class TestGateTests
     {
         var o = new StringWriter(); var e = new StringWriter();
         var env = new Dictionary<string, string?> { ["DBDATABUILD_SQLSERVER_READ"] = "Server=127.0.0.1,1;User Id=r;Password=x;Connect Timeout=1" };
-        var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: v => env.GetValueOrDefault(v));
+        var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: v => env.GetValueOrDefault(v));
         return (exit, o.ToString(), e.ToString());
     }
 
@@ -36,18 +36,18 @@ public class TestGateTests
     [Fact]
     public void A_failing_gated_test_refuses_the_plan_before_the_target_is_read()
     {
-        var (exit, output, err) = Cli(Project(Gate, Failing), "plan");
+        var (exit, output, err) = Cli(Project(Gate, Failing), "connection", "deploy", "--write-plan");
         Assert.Equal(CliApp.ExitFindings, exit);
         Assert.Contains("Nothing was planned: a test tagged critical", output);
         Assert.Contains("FAIL  critical_rule", output);
         Assert.DoesNotContain("could not connect", err + output, StringComparison.OrdinalIgnoreCase);     // the login points nowhere: the gate stopped first
-        Assert.Equal(CliApp.ExitFindings, Cli(Project(Gate, Failing), "check").Exit);
+        Assert.Equal(CliApp.ExitFindings, Cli(Project(Gate, Failing), "connection", "status").Exit);
     }
 
     [Fact]
     public void A_passing_gate_is_reported_and_planning_goes_on_to_the_target()
     {
-        var (_, output, _) = Cli(Project(Gate, Passing), "plan");
+        var (_, output, _) = Cli(Project(Gate, Passing), "connection", "deploy", "--write-plan");
         Assert.Contains("Test gate (tags critical): 1 test(s): 1 passed", output);
     }
 
@@ -55,8 +55,8 @@ public class TestGateTests
     public void A_test_with_another_tag_does_not_gate_and_no_gate_means_no_tests_are_run()
     {
         var other = Failing.Replace("critical", "naming");
-        Assert.DoesNotContain("Nothing was planned: a test tagged", Cli(Project(Gate, other), "plan").Out);
-        Assert.DoesNotContain("Test gate", Cli(Project("", Failing), "plan").Out);
+        Assert.DoesNotContain("Nothing was planned: a test tagged", Cli(Project(Gate, other), "connection", "deploy", "--write-plan").Out);
+        Assert.DoesNotContain("Test gate", Cli(Project("", Failing), "connection", "deploy", "--write-plan").Out);
     }
 
     [Theory]
@@ -69,6 +69,6 @@ public class TestGateTests
     {
         var dir = NewProjectDir();
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), "defaults: {connections: [sqlserver]}\n" + gate);
-        Assert.Contains(message, Cli(dir, "validate").Err);
+        Assert.Contains(message, Cli(dir, "project", "compile").Err);
     }
 }

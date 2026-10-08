@@ -9,7 +9,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild agent-kit` (DESIGN.md 9.7). Effect class: repo files only. The knowledge an AI coding agent needs to work in a project as someone who knows the tool: a skill
+/// `dbdatabuild project agent-kit` (DESIGN.md 9.7). Effect class: repo files only. The knowledge an AI coding agent needs to work in a project as someone who knows the tool: a skill
 /// (SKILL.md: the rules, the loop, how to write models, how to read plans) and the JSON Schemas of every file and of every command's output. The files are embedded in the
 /// executable, so the kit always matches the version of the tool that writes it. By default nothing is written: the files are listed. `--write` installs them (default
 /// `.claude/skills/dbdatabuild/` in the project), `--check` fails if an installed copy differs from this version's.
@@ -78,7 +78,7 @@ internal static class AgentKitCommand
             output.Payload("mcp", new { file = McpConfig.FileName, up_to_date = upToDate, wrote = wroteMcp });
             if (wroteMcp) output.WriteLine($"wrote {McpConfig.FileName} (the dbdatabuild server; Claude Code asks before it first uses a project server)");
             else if (check && !upToDate) { error.Diag(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, new(McpConfig.FileName, 0, 0), $"`{McpConfig.FileName}` is missing the dbdatabuild server or differs from this version's.")); stale.Add(McpConfig.FileName); }
-            else if (!write && !check) output.WriteLine(upToDate ? $"{McpConfig.FileName}: the dbdatabuild server is already there." : $"{McpConfig.FileName}: --write would add the dbdatabuild server (`{ProductInfo.Cli} mcp --project .`).");
+            else if (!write && !check) output.WriteLine(upToDate ? $"{McpConfig.FileName}: the dbdatabuild server is already there." : $"{McpConfig.FileName}: --write would add the dbdatabuild server (`{ProductInfo.Cli} ui mcp --project .`).");
         }
 
         if (write)
@@ -107,14 +107,14 @@ internal static class McpConfig
     public const string ServerName = "dbdatabuild";
 
     /// <summary>
-    /// The server Claude Code starts from the project folder: `dbdatabuild mcp --project .`, read-only (no --allow-writes, no --allow-apply). Only the READ logins are passed on, by name: a value comes from the
+    /// The server Claude Code starts from the project folder: `dbdatabuild ui mcp --project .`, read-only (no --allow-writes, no --allow-apply). Only the READ logins are passed on, by name: a value comes from the
     /// environment Claude Code runs in, never from this file, and the write login is never here (a person who wants applying from a host sets that up by hand: docs/interfaces.md).
     /// </summary>
     public static JsonObject Entry(IEnumerable<string>? connections = null) => new()
     {
         ["type"] = "stdio",
         ["command"] = ProductInfo.Cli,
-        ["args"] = new JsonArray("mcp", "--project", "."),
+        ["args"] = new JsonArray("ui", "mcp", "--project", "."),
         ["env"] = new JsonObject((connections ?? TargetNames.All).Select(t => new KeyValuePair<string, JsonNode?>(LoginName(t), "${" + LoginName(t) + ":-}"))),
     };
 

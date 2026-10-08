@@ -36,7 +36,7 @@ public class ProjectTestsTests
     private static (int Exit, JsonNode Doc, string Err) Test(string dir, params string[] args)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["test", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
+        var exit = CliApp.Run(["project", "tests", "run", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
         var doc = JsonNode.Parse(o.ToString())!;
         var schema = SchemaConformanceTests.LoadSchema("output");
         var result = schema.Evaluate(System.Text.Json.JsonSerializer.SerializeToNode(doc), new Json.Schema.EvaluationOptions { OutputFormat = Json.Schema.OutputFormat.List });
@@ -168,7 +168,7 @@ public class ProjectTestsTests
         Assert.Equal(["a", "b.c"], Test(dir, "--tag", "critical", "naming").Doc["data"]!["tests"]!.AsArray().Select(t => (string)t!["name"]!));
 
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["test", "nope", "--project", dir], o, e, environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "tests", "run", "nope", "--project", dir], o, e, environment: _ => null));
         Assert.Contains("No test named `nope`", e.ToString());
     }
 

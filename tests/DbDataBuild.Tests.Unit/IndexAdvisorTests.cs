@@ -132,7 +132,7 @@ public class IndexAdvisorTests
     [Fact]
     public void Validate_shows_the_advice_with_the_exact_index_and_does_not_fail()
     {
-        var (exit, output, err) = Cli("validate", "--project", Project(KeyModel));
+        var (exit, output, err) = Cli("project", "compile", "--project", Project(KeyModel));
         Assert.Equal(CliApp.ExitOk, exit);
         Assert.Contains("warning DDB-223  models/marts/fct_orders.yml", err);
         Assert.Contains("loads by key (order_id)", err);
@@ -143,19 +143,19 @@ public class IndexAdvisorTests
     [Fact]
     public void An_operator_can_silence_one_code_for_a_model_or_all_index_advice_for_the_project()
     {
-        Assert.DoesNotContain("DDB-223", Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-223]\n")).Err);
-        Assert.DoesNotContain("DDB-223", Cli("validate", "--project", Project(KeyModel, "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n")).Err);
+        Assert.DoesNotContain("DDB-223", Cli("project", "compile", "--project", Project(KeyModel + "lint_ignore: [DDB-223]\n")).Err);
+        Assert.DoesNotContain("DDB-223", Cli("project", "compile", "--project", Project(KeyModel, "defaults: {connections: [sqlserver]}\nlint:\n  indexes: false\n")).Err);
         // silencing 224 does not silence 223
-        Assert.Contains("DDB-223", Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-224]\n")).Err);
+        Assert.Contains("DDB-223", Cli("project", "compile", "--project", Project(KeyModel + "lint_ignore: [DDB-224]\n")).Err);
     }
 
     [Fact]
     public void An_unknown_lint_code_or_lint_setting_is_an_error()
     {
-        var model = Cli("validate", "--project", Project(KeyModel + "lint_ignore: [DDB-999]\n"));
+        var model = Cli("project", "compile", "--project", Project(KeyModel + "lint_ignore: [DDB-999]\n"));
         Assert.Equal(CliApp.ExitFindings, model.Exit);
         Assert.Contains("`DDB-999` is not an advisory lint code", model.Err);
-        var cfg = Cli("validate", "--project", Project(KeyModel, "defaults: {connections: [sqlserver]}\nlint:\n  indexes: maybe\n"));
+        var cfg = Cli("project", "compile", "--project", Project(KeyModel, "defaults: {connections: [sqlserver]}\nlint:\n  indexes: maybe\n"));
         Assert.Equal(CliApp.ExitFindings, cfg.Exit);
         Assert.Contains("`lint.indexes` must be true or false", cfg.Err);
     }

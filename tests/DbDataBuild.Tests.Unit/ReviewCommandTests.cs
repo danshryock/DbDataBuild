@@ -29,7 +29,7 @@ public class ReviewCommandTests : IDisposable
     private static (int Exit, JsonNode Doc) Review(params string[] args)
     {
         var o = new StringWriter();
-        var exit = CliApp.Run(["review", .. args, "--format", "json"], o, new StringWriter());
+        var exit = CliApp.Run(["project", "show", "plan", .. args, "--format", "json"], o, new StringWriter());
         return (exit, JsonNode.Parse(o.ToString())!);
     }
 

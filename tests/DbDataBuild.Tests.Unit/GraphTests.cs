@@ -97,7 +97,7 @@ public class GraphTests
     private static (int Exit, JsonNode Doc, string Err) Graph(string dir, params string[] args)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["graph", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
+        var exit = CliApp.Run(["project", "show", "graph", "--project", dir, .. args, "--format", "json"], o, e, environment: _ => null);
         var doc = JsonNode.Parse(o.ToString())!;
         var result = SchemaConformanceTests.LoadSchema("output").Evaluate(JsonSerializer.SerializeToNode(doc), new Json.Schema.EvaluationOptions { OutputFormat = Json.Schema.OutputFormat.List });
         Assert.True(result.IsValid, string.Join("\n", result.Details.Where(x => x.Errors != null).SelectMany(x => x.Errors!.Select(kv => $"{x.InstanceLocation}: {kv.Key} {kv.Value}"))) + "\n" + o);
@@ -143,7 +143,7 @@ public class GraphTests
         // the graph also shows the tables a chosen model reads; the chosen ones are those the selector named, so compare through metadata, which prints exactly the selection
         var o = new StringWriter();
         var dir = Project();
-        Assert.Equal(0, CliApp.Run(["metadata", .. selectors.Split(' '), "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "show", "metadata", .. selectors.Split(' '), "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
         Assert.Equal(expected.Split(','), JsonNode.Parse(o.ToString())!["data"]!["models"]!.AsArray().Select(m => (string)m!["name"]!).Order());
         Assert.NotEmpty(chosen);
     }
@@ -158,7 +158,7 @@ public class GraphTests
     {
         var o = new StringWriter(); var e = new StringWriter();
         var dir = Project();
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["metadata", selector, "--project", dir], o, e, environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "show", "metadata", selector, "--project", dir], o, e, environment: _ => null));
         Assert.NotEqual("", e.ToString());
     }
 
@@ -179,10 +179,10 @@ public class GraphTests
         Assert.Equal(["stg.customers.name@1", "staging.customers.name@2"], up["upstream"]!.AsArray().Select(c => $"{(string)c!["table"]!}.{(string)c["column"]!}@{(int)c["distance"]!}"));
 
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["graph", "--column", "marts.fct_orders.ghost", "--project", dir], o, e, environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "show", "graph", "--column", "marts.fct_orders.ghost", "--project", dir], o, e, environment: _ => null));
         Assert.Contains("no column `ghost`", e.ToString());
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["graph", "--column", "nodot", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
-        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["graph", "--diagram", "svg", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "show", "graph", "--column", "nodot", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
+        Assert.Equal(CliApp.ExitUsage, CliApp.Run(["project", "show", "graph", "--diagram", "svg", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public class GraphTests
         string[] Chosen(params string[] selectors)
         {
             var o = new StringWriter();
-            Assert.Equal(0, CliApp.Run(["metadata", .. selectors, "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
+            Assert.Equal(0, CliApp.Run(["project", "show", "metadata", .. selectors, "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
             return JsonNode.Parse(o.ToString())!["data"]!["models"]!.AsArray().Select(m => (string)m!["name"]!).Order().ToArray();
         }
         Assert.Empty(Chosen("changed:HEAD"));                                                         // nothing changed is a valid, empty selection
@@ -269,7 +269,7 @@ public class GraphTests
         string[] Chosen()
         {
             var o = new StringWriter(); var e = new StringWriter();
-            Assert.Equal(0, CliApp.Run(["metadata", "changed:HEAD", "--project", dir, "--format", "json"], o, e, environment: _ => null));
+            Assert.Equal(0, CliApp.Run(["project", "show", "metadata", "changed:HEAD", "--project", dir, "--format", "json"], o, e, environment: _ => null));
             return JsonNode.Parse(o.ToString())!["data"]!["models"]!.AsArray().Select(m => (string)m!["name"]!).Order().ToArray();
         }
         Assert.Empty(Chosen());

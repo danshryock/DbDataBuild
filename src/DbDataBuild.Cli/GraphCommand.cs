@@ -5,7 +5,7 @@ using DbDataBuild.Core;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild graph` (effect: offline only; DESIGN.md 9.9). The dependency graph of the project, or the part of it a selector names: which table each model reads, as a leveled list, a Graphviz or Mermaid diagram, or JSON.
+/// `dbdatabuild project show graph` (effect: offline only; DESIGN.md 9.9). The dependency graph of the project, or the part of it a selector names: which table each model reads, as a leveled list, a Graphviz or Mermaid diagram, or JSON.
 /// With --columns it adds which column of which table every output column comes from; with --column it follows one column through the models, up to the source columns it comes from and down to every
 /// column built from it. Nothing is connected to and nothing is written.
 /// </summary>
@@ -22,7 +22,7 @@ internal static class GraphCommand
         foreach (var d in invalid) error.Diag(d);
         if (invalid.Count > 0)
         {
-            output.WriteLine($"No graph: {invalid.Count} error(s) in the project (`{ProductInfo.Cli} validate` shows them).");
+            output.WriteLine($"No graph: {invalid.Count} error(s) in the project (`{ProductInfo.Cli} project compile` shows them).");
             return CliApp.ExitFindings;
         }
 

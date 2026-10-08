@@ -6,12 +6,11 @@ aggregates and a report. The data is made up by SQL in `seeds/` (about 300 custo
 runs on your own machine.
 
 ```
-dbdatabuild validate                       # config, models, sources and how each query lowers (SQL Server 2022 or later is assumed)
-dbdatabuild graph --columns                # what reads what, and where each column comes from
-dbdatabuild seed --scale 1000              # generate the source data into .dbdatabuild/seed.duckdb
-dbdatabuild sample marts.fct_sales_lines   # run a model on that data and look at the rows
-dbdatabuild test                           # metadata rules and model tests
-dbdatabuild render --write                 # the load scripts for SQL Server (rendered/)
+dbdatabuild project compile                         # check config, models and sources, see how each query lowers, and write the load scripts (rendered/) to read and commit
+dbdatabuild project show graph --columns                # what reads what, and where each column comes from
+dbdatabuild project seed --scale 1000              # generate the source data into .dbdatabuild/seed.duckdb
+dbdatabuild project sample marts.fct_sales_lines   # run a model on that data and look at the rows
+dbdatabuild project tests run                           # metadata rules and model tests
 ```
 
 ## The transforms worth reading
@@ -34,12 +33,12 @@ dbdatabuild render --write                 # the load scripts for SQL Server (re
 
 `tests/metadata/` holds rules over what the project is (every model has a grain, staging reads only sources, marts never read sources).
 `tests/models/` holds cases for the logic that is easy to get wrong: allocations that must add up exactly, the shipment split, the name split, the status mapping.
-Try breaking one: change `ELSE order_discount_cents - ...` in `fct_sales_lines.sql` and run `dbdatabuild test`.
+Try breaking one: change `ELSE order_discount_cents - ...` in `fct_sales_lines.sql` and run `dbdatabuild project tests run`.
 
 ## Things to try
 
-- `dbdatabuild graph --column marts.agg_daily_sales.net_amount` follows a number back to the source columns.
-- `dbdatabuild graph +marts.rpt_budget_vs_actual` and `dbdatabuild plan` with a selector (`--select marts.fct_sales_lines+`) to see what a change touches.
+- `dbdatabuild project show graph --column marts.agg_daily_sales.net_amount` follows a number back to the source columns.
+- `dbdatabuild project show graph +marts.rpt_budget_vs_actual` and `dbdatabuild connection deploy --write-plan marts.fct_sales_lines+` (a selector) to see what a change touches.
 - Add a mart (revenue per product category per month) and a test for it.
 
 ## Trying it on a sandbox database
@@ -48,15 +47,15 @@ The source tables are what `seeds/` generates, and `load-seeds` can put them in 
 (`DBDATABUILD_SQLSERVER_WRITE` for what writes, `DBDATABUILD_SQLSERVER_READ` for what reads; see the main documentation):
 
 ```
-dbdatabuild load-seeds                 # shows what it would create and fill; connects to nothing
-dbdatabuild load-seeds --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
-dbdatabuild init --apply               # the tracking tables
-dbdatabuild render --write             # the rendered files are checked in against the models
-dbdatabuild plan --accept-inferred     # reads the database, writes a plan you can read
-dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
+dbdatabuild connection seed                 # shows what it would create and fill; connects to nothing
+dbdatabuild connection seed --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
+dbdatabuild connection init --apply               # the tracking tables
+dbdatabuild project compile --check     # the rendered files are checked in against the models
+dbdatabuild connection deploy --write-plan --accept-inferred   # reads the database, writes a plan you can read
+dbdatabuild connection deploy --apply-plan plans/sqlserver/<the plan>.plan.yml
 ```
 
-Then compare: `dbdatabuild sample <model> --limit 5` shows what DuckDB computes for the same seeds, and the tables in the database hold the same rows.
+Then compare: `dbdatabuild project sample <model> --limit 5` shows what DuckDB computes for the same seeds, and the tables in the database hold the same rows.
 
 ## PostgreSQL
 

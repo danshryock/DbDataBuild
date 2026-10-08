@@ -62,12 +62,12 @@ public class CopyModelTests
         var dir = Project();
         Copy(dir, "warehouse.customers", "crm.customers", "connections=: [wh]\n");
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.True(CliApp.Run(["render", "--write", "--project", dir], o, e, environment: _ => null) == 0, o + "\n" + e);
+        Assert.True(CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null) == 0, o + "\n" + e);
         var script = File.ReadAllText(Path.Combine(dir, "rendered/wh/warehouse.customers/load.default.sql"));
         Assert.Contains("FROM dbdatabuild.stg_warehouse__customers", script);                          // reads the staging table, in the destination's dialect
         Assert.Contains("-- model:           warehouse.customers", script);
         Assert.Empty(Directory.GetDirectories(Path.Combine(dir, "rendered")).Where(d => !d.EndsWith("wh") && !d.EndsWith("lowered")));
-        Assert.Equal(0, CliApp.Run(["render", "--check", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "compile", "--check", "--project", dir], new StringWriter(), new StringWriter(), environment: _ => null));
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public class CopyModelTests
     private static (int Exit, string Text) CliValidate(string dir)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["validate", "--project", dir], o, e, environment: _ => null);
+        var exit = CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null);
         return (exit, o + "\n" + e);
     }
 
@@ -302,7 +302,7 @@ public class CopyModelTests
         var dir = Project(Config + "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C, sqlserver: Latin1_General_100_BIN2 }\n");
         Copy(dir, "crm.snapshot", "crm.customers", "connections=: [crm]\n");
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.True(CliApp.Run(["render", "--write", "--project", dir], o, e, environment: _ => null) == 0, o + "\n" + e);
+        Assert.True(CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null) == 0, o + "\n" + e);
         var script = File.ReadAllText(Path.Combine(dir, "rendered/crm/crm.snapshot/load.default.sql"));
         Assert.Contains("FROM crm.customers", script);
     }

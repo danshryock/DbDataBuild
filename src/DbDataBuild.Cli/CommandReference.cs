@@ -18,19 +18,19 @@ public static class CommandReference
         sb.AppendLineLf();
         sb.AppendLineLf($"Generated from the command tree of `{ProductInfo.Cli}` (`UPDATE_GOLDEN=1 dotnet test tests/DbDataBuild.Tests.Unit` rewrites it; a test fails when it is out of date). Every command takes `--format json` to give one JSON document on standard output (see `schemas/output.schema.json`). The effect class says what a command may touch: offline only, repository files only, a target read-only, the tracking tables only, or a target's data or definitions (DESIGN.md section 9.1).");
         sb.AppendLineLf();
-        sb.AppendLineLf("| Command | Effect | Purpose |");
-        sb.AppendLineLf("|---|---|---|");
-        foreach (var spec in CommandSpecs.All) sb.AppendLineLf($"| [`{spec.Name}`](#{spec.Name}) | {spec.Effect.Describe()} | {Cell(spec.Purpose)} |");
+        sb.AppendLineLf("| Command | Reads and writes | Effect | Purpose |");
+        sb.AppendLineLf("|---|---|---|---|");
+        foreach (var spec in CommandSpecs.All) sb.AppendLineLf($"| [`{spec.Name}`](#{Anchor(spec.Name)}) | `{spec.Disposition}` | {spec.Effect.Describe()} | {Cell(spec.Purpose)} |");
         foreach (var spec in CommandSpecs.All)
         {
-            var command = root.Subcommands.FirstOrDefault(c => c.Name == spec.Name);
+            var command = CliApp.Find(root, spec.Name);
             if (command == null) continue;
             sb.AppendLineLf();
             sb.AppendLineLf($"## {spec.Name}");
             sb.AppendLineLf();
             sb.AppendLineLf($"{spec.Purpose}.".Replace("..", "."));
             sb.AppendLineLf();
-            sb.AppendLineLf($"Effect: {spec.Effect.Describe()}.");
+            sb.AppendLineLf($"Effect: {spec.Effect.Describe()}. Reads and writes: `{spec.Disposition}`{(spec.Lane.Length > 0 ? $". Lane: {spec.Lane}" : "")}.");
             if (command.Arguments.Count > 0)
             {
                 sb.AppendLineLf();
@@ -48,6 +48,8 @@ public static class CommandReference
         }
         return sb.ToString();
     }
+
+    private static string Anchor(string name) => name.Replace(' ', '-');
 
     private static string Cell(string? text) => (text ?? "").Replace("|", "\\|").Replace("\n", " ");
 }

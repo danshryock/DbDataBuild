@@ -11,7 +11,7 @@ using DbDataBuild.Targets.Ddl;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild load-seeds` (effect: target writes; DESIGN.md 15.6). Runs the project's seeds in DuckDB, then creates each seeded source table on a target and fills it. It is how a sandbox database gets the
+/// `dbdatabuild connection seed` (effect: target writes; DESIGN.md 15.6). Runs the project's seeds in DuckDB, then creates each seeded source table on a target and fills it. It is how a sandbox database gets the
 /// data of a template (or of any project that keeps its source data as DuckDB queries). Without `--apply` it prints what it would do and connects to nothing. It writes only the tables the sources describe, and
 /// stops at the first table that already exists unless `--replace` says to drop and recreate it, so it cannot touch a table the project does not name. Rows travel as bound parameters in batches through the mutation gate;
 /// the statement log has the statements and the number of values, not the values.

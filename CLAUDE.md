@@ -1,6 +1,6 @@
 # Working on the dbdatabuild code base
 
-dbdatabuild is a .NET 10 CLI that builds analytics tables and views on SQL Server, PostgreSQL and Fabric from DuckDB-dialect SQL. `DESIGN.md` is the design (sections marked "as built" describe what exists); `docs/progress/` is the log (`state-and-apply.md` entries, `REVIEW.md` for the owner, `OPEN-ITEMS.md` for what is unfinished). Read the section of DESIGN.md for the area you touch before changing it. If you are writing models or plans *with* the tool rather than changing the tool, you want the skill instead: `dbdatabuild agent-kit`.
+dbdatabuild is a .NET 10 CLI that builds analytics tables and views on SQL Server, PostgreSQL and Fabric from DuckDB-dialect SQL. `DESIGN.md` is the design (sections marked "as built" describe what exists); `docs/progress/` is the log (`state-and-apply.md` entries, `REVIEW.md` for the owner, `OPEN-ITEMS.md` for what is unfinished). Read the section of DESIGN.md for the area you touch before changing it. If you are writing models or plans *with* the tool rather than changing the tool, you want the skill instead: `dbdatabuild project agent-kit`.
 
 ## Build and test
 

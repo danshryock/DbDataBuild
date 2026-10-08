@@ -8,7 +8,7 @@ using DbDataBuild.State;
 namespace DbDataBuild.Cli;
 
 /// <summary>
-/// `dbdatabuild import` (effect: target read-only; with --write it also writes mapped models under `models/`). Reads the columns, types, nullability and primary key of tables and views in the
+/// `dbdatabuild project import` (effect: target read-only; with --write it also writes mapped models under `models/`). Reads the columns, types, nullability and primary key of tables and views in the
 /// target through the read login and exports them as source descriptors (DESIGN.md 6.5.1), so models over those tables bind offline against what the tables really are. It never
 /// runs a query against the data and never changes the target. Without arguments it refreshes the descriptors the project already has.
 /// The live table wins for columns, types and nullability; a committed grain and a column the catalog cannot type are kept (SourceImport).
@@ -159,7 +159,7 @@ internal static class ImportSourcesCommand
             else { output.WriteLine($"wrote {r.File}"); written.Add(r.File!); }
         }
         output.Payload("written", written);
-        output.WriteLine($"Wrote {written.Count} descriptor(s). Run `{ProductInfo.Cli} validate` and `{ProductInfo.Cli} define --check` to see what they change for the models.");
+        output.WriteLine($"Wrote {written.Count} descriptor(s). Run `{ProductInfo.Cli} project compile` and `{ProductInfo.Cli} project model update --check` to see what they change for the models.");
         return failed ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 
@@ -171,7 +171,7 @@ internal static class ImportSourcesCommand
         if (exists && committed == null)
         {
             // a file is there that did not load: a damaged descriptor is never overwritten unseen
-            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(live.File!, 0, 0), $"`{live.File}` exists but is not a valid mapped model, so it was left alone.", Fix: $"Fix it (`{ProductInfo.Cli} validate` shows what is wrong), or delete it and import again."));
+            diags.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new(live.File!, 0, 0), $"`{live.File}` exists but is not a valid mapped model, so it was left alone.", Fix: $"Fix it (`{ProductInfo.Cli} project compile` shows what is wrong), or delete it and import again."));
             return new Row(live.QualifiedName, kind, live.File, "invalid", [], live, null, null, null, null);
         }
         foreach (var c in live.Columns.Where(c => c.LogicalType == null))

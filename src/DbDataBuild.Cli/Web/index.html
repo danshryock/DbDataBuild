@@ -187,9 +187,9 @@ function routeFromResult(result) {
   const doc = result?.structuredContent;
   const data = doc?.data;
   if (doc?.command === "show" && views[doc.screen]) { go(doc.screen); return; }
-  const where = { validate: "health", test: "tests", graph: "lineage", metadata: "models", matrix: "matrix", sample: "sample", diff: "diff", plan: "plans", review: "plans" }[doc?.command];
+  const where = { "project compile": "health", "project tests run": "tests", "project show graph": "lineage", "project show metadata": "models", "help matrix": "matrix", "project sample": "sample", "connection compare": "diff", "connection deploy": "plans", "project show plan": "plans" }[doc?.command];
   if (!where) return;
-  if (doc.command === "review" && data?.path) go("plans", data.path);
+  if (doc.command === "project show plan" && data?.path) go("plans", data.path);
   else go(where);
 }
 
@@ -246,7 +246,7 @@ async function openExplain(code) {
   body.replaceChildren(h("div", { class: "spin" }, "Loading…"));
   $("dlg").showModal();
   try {
-    const d = (await run("explain", { code })).data.code;
+    const d = (await run("help_code", { code })).data.code;
     body.replaceChildren(h("h3", null, d.title), h("p", null, d.explanation), h("p", null, h("b", null, "Supported: "), d.supported), h("p", null, h("b", null, "Fix: "), d.fix));
   } catch (e) { body.replaceChildren(h("div", { class: "err" }, e.message)); }
 }
@@ -262,7 +262,7 @@ function failure(e) { return h("div", { class: "panel" }, h("div", { class: "err
 // ---- health ---------------------------------------------------------------------------------------------------------------------------------------------
 
 async function healthView() {
-  const [v, t] = await Promise.all([run("validate"), run("test")]);
+  const [v, t] = await Promise.all([run("project_compile"), run("project_tests_run")]);
   const counts = v.data.counts, tc = t.data.counts;
   const filters = { error: true, warning: true, note: counts.errors + counts.warnings === 0 };
   const cards = h("div", { class: "cards" },
@@ -274,7 +274,7 @@ async function healthView() {
   function draw() {
     const shown = v.diagnostics.filter((d) => filters[d.severity]);
     if (!shown.length) { holder.replaceChildren(h("div", { class: "empty" }, v.diagnostics.length ? "Nothing at the selected severities." : "No findings.")); return; }
-    // a finding in a lowered query belongs to its model: that file only exists once `render --write` has run
+    // a finding in a lowered query belongs to its model: that file only exists once `project compile` has run
     const place = (d) => { const m = /^rendered\/lowered\/([^/]+)\//.exec(d.location.file || ""); return m ? m[1] : d.location.file || "(project)"; };
     const byFile = Map.groupBy(shown, place);
     holder.replaceChildren(...[...byFile].sort((a, b) => a[0].localeCompare(b[0])).map(([file, ds]) => h("div", { class: "panel" },
@@ -293,7 +293,7 @@ function card(value, label, cls) { return h("div", { class: "card" }, h("b", { c
 // ---- lineage --------------------------------------------------------------------------------------------------------------------------------------------
 
 async function lineageView(selected) {
-  const g = (await run("graph", { columns: true })).data;
+  const g = (await run("project_show_graph", { columns: true })).data;
   const nodes = g.nodes, byName = new Map(nodes.map((n) => [n.name, n]));
   const up = new Map(), down = new Map();
   for (const e of g.edges) { (down.get(e.from) ?? down.set(e.from, []).get(e.from)).push(e.to); (up.get(e.to) ?? up.set(e.to, []).get(e.to)).push(e.from); }
@@ -367,7 +367,7 @@ async function lineageView(selected) {
 // ---- models ---------------------------------------------------------------------------------------------------------------------------------------------
 
 async function modelsView(name, tab) {
-  const meta = (await run("metadata")).data;
+  const meta = (await run("project_show_metadata")).data;
   const models = meta.models, sources = meta.sources;
   const filter = h("input", { type: "search", placeholder: "Filter…", "aria-label": "Filter models and sources", oninput: () => drawList() });
   const list = h("div", { class: "list" });
@@ -416,10 +416,10 @@ async function modelDetail(root, m, tab) {
   }
 }
 
-// The lowered and rendered scripts come from `render --content`: made now from the current models, not read from rendered/ (which may be out of date or not written).
+// The lowered and rendered scripts come from `project compile --content`: made now from the current models, not read from rendered/ (which may be out of date or not written).
 async function showRendered(body, model, pick) {
   try {
-    const doc = await run("render", { models: [model], content: true });
+    const doc = await run("project_compile", { models: [model], content: true });
     const files = (doc.data.files || []).filter(pick);
     if (!files.length) { body.append(h("div", { class: "muted" }, "Nothing renders for this model here" + (doc.diagnostics?.length ? ": " + doc.diagnostics[0].found : "."))); return; }
     for (const f of files) body.append(h("div", { class: "muted" }, f.path), codeBlock(f.content ?? ""));
@@ -457,7 +457,7 @@ function testsTable(tests) {
 }
 
 async function testsView() {
-  const t = (await run("test")).data;
+  const t = (await run("project_tests_run")).data;
   return h("div", null, h("div", { class: "cards" }, card(t.counts.total, "tests"), card(t.counts.passed, "passed", "ok"), card(t.counts.failed, "failed", t.counts.failed ? "bad" : ""), card(t.counts.warned, "warned", t.counts.warned ? "warn" : ""), card(t.counts.errored, "errored", t.counts.errored ? "bad" : "")),
     h("div", { class: "panel" }, testsTable(t.tests)));
 }
@@ -465,7 +465,7 @@ async function testsView() {
 // ---- support matrix --------------------------------------------------------------------------------------------------------------------------------------
 
 async function matrixView() {
-  const m = (await run("matrix")).data;
+  const m = (await run("help_matrix")).data;
   const targets = ["sqlserver", "fabric", "postgres"];
   const tone = { supported: "ok", approximated: "warn", unsupported: "bad", unverified: "muted" };
   const filter = h("input", { type: "search", placeholder: "Filter constructs…", "aria-label": "Filter constructs", oninput: () => draw() });
@@ -494,7 +494,7 @@ let capabilities = null;
 
 async function plansView(file) {
   capabilities ??= await api("/api/capabilities");
-  const list = (await run("review", {}, true)).data.plans;
+  const list = (await run("project_show_plan", {}, true)).data.plans;
   const side = h("div", { class: "list" },
     h("div", { class: !file ? "on" : null, onclick: () => go("plans") }, "+ New plan"),
     list.length ? list.map((p) => h("div", { class: p.path === file ? "on" : null, title: p.path, onclick: () => go("plans", p.path) }, (p.intact ? "" : "⚠ ") + p.id + "  ·  " + p.connection)) : h("div", { class: "muted" }, "No plans yet."));
@@ -505,7 +505,7 @@ async function plansView(file) {
 }
 
 // ---- making a plan, and answering what it asks ----------------------------------------------------------------------------------------------------------
-// `plan` reads the target (the read login of the server's environment) and writes plan files into the project. When it cannot decide something by itself it asks; the person answers each question
+// `connection deploy --write-plan` reads the connection (the read login of the server's environment) and writes plan files into the project. When it cannot decide something by itself it asks; the person answers each question
 // here (nothing is answered for them), the answers are written as the answers file the command reads, and the plan is made again.
 
 const planState = { answers: new Map() };
@@ -521,7 +521,7 @@ async function newPlanPanel() {
       if (target.value) args.connection = target.value;
       if (models.value.trim()) args.models = models.value.trim().split(/\s+/);
       if (planState.answers.size) { const saved = await api("/api/answers", { answers: [...planState.answers.values()] }); args.answers = saved.path; }
-      const doc = await run("plan", args, true);
+      const doc = await run("connection_deploy", { ...args, write_plan: true }, true);
       const questions = doc.data?.open_questions || [];
       if (questions.length) { out.replaceChildren(questionsForm(questions, make)); return; }
       if (doc.data?.files?.plan) { planState.answers.clear(); cache.delete("review{}"); go("plans", doc.data.files.plan); return; }
@@ -564,7 +564,7 @@ function questionsForm(questions, again) {
 }
 
 async function planDetail(root, file) {
-  const doc = await run("review", { plan: file });
+  const doc = await run("project_show_plan", { plan: file });
   const d = doc.data;
   if (!d.intact) { root.append(h("div", { class: "panel" }, h("h2", null, file, " ", badge("not intact", "bad")), h("div", null, "This plan does not parse or its hash does not match: it was edited or damaged, and `apply` would refuse it. Make a new plan."), (doc.diagnostics || []).map((x) => h("div", { class: "muted" }, x.found)))); return; }
   const plan = d.plan;
@@ -573,7 +573,7 @@ async function planDetail(root, file) {
     h("div", { class: "cards" }, card(plan.steps.length, "steps"), card(d.risky, "risky", d.risky ? "warn" : ""), card(d.destructive, "destructive", d.destructive ? "bad" : ""), card(plan.connection, "target")),
     h("div", { class: "panel" }, h("h2", null, plan.id, " ", badge("intact", "ok")),
       h("div", { class: "muted" }, `tool ${plan.tool_version}` + (plan.git_commit ? `, commit ${plan.git_commit}${plan.git_dirty ? " (working tree was dirty)" : ""}` : "")),
-      h("div", null, h("span", { class: "muted" }, "a person applies it with "), h("code", null, `dbdatabuild apply ${file}` + (needs.length ? " " + needs.join(" ") : ""))),
+      h("div", null, h("span", { class: "muted" }, "a person applies it with "), h("code", null, `dbdatabuild connection deploy --apply-plan ${file}` + (needs.length ? " " + needs.join(" ") : ""))),
       null),
     applyPanel(file, plan, d, needs),
     h("div", { class: "panel" }, h("h2", null, "Steps"), stepsTable(plan.steps)),
@@ -601,7 +601,7 @@ function stepsTable(steps) {
 // Only when the server was started with --allow-apply. The person reads the plan above, names each allowance, and types the target; the server checks all of it against the plan file again.
 
 function applyPanel(file, plan, d) {
-  if (!capabilities?.apply) return h("div", { class: "panel" }, h("h2", null, "Apply"), h("div", { class: "muted" }, "This page was not started with --allow-apply, so it cannot apply plans. Apply at a terminal with the command above, or restart with `dbdatabuild web --allow-apply`."));
+  if (!capabilities?.apply) return h("div", { class: "panel" }, h("h2", null, "Apply"), h("div", { class: "muted" }, "This page was not started with --allow-apply, so it cannot apply plans. Apply at a terminal with the command above, or restart with `dbdatabuild ui web --allow-apply`."));
   const out = h("div");
   const risky = h("input", { type: "checkbox", "aria-label": "Allow the risky steps", onchange: () => update() });
   const destructive = d.apply_needs.allow_destructive.map((o) => ({ o, box: h("input", { type: "checkbox", "aria-label": "Allow destructive steps on " + o, onchange: () => update() }) }));
@@ -641,7 +641,7 @@ async function follow(out, job, dryRun) {
       out.append(h("div", { class: "panel" }, h("h2", null, badge(st.exit === 0 ? (dryRun ? "dry run passed" : "applied") : "exit " + st.exit, st.exit === 0 ? "ok" : "bad")),
         (doc?.messages || [st.text]).filter(Boolean).map((m) => h("div", null, m)),
         (doc?.diagnostics || []).map((x) => h("div", { class: sevClass[x.severity] }, `${x.code}: ${x.found}`)),
-        h("div", { class: "muted", style: "margin-top:8px" }, dryRun ? "Nothing was changed." : "See `dbdatabuild report` for what was recorded. A plan that stopped part-way can be continued with `apply --resume` at a terminal.")));
+        h("div", { class: "muted", style: "margin-top:8px" }, dryRun ? "Nothing was changed." : "See `dbdatabuild connection monitor` for what was recorded. A plan that stopped part-way continues when the same plan is applied again at a terminal.")));
       cache.clear();
       return;
     }
@@ -650,7 +650,7 @@ async function follow(out, job, dryRun) {
 }
 
 // ---- table diff -----------------------------------------------------------------------------------------------------------------------------------------
-// `diff` compares two tables of one target inside the engine, with the read login of the server's environment. By default only counts are read; values come only when the person ticks the box.
+// `connection compare` compares two tables of one target inside the engine, with the read login of the server's environment. By default only counts are read; values come only when the person ticks the box.
 
 async function diffView() {
   const out = h("div");
@@ -669,7 +669,7 @@ async function diffView() {
       if (key.value.trim()) args.key = key.value.split(",").map((x) => x.trim()).filter(Boolean);
       if (target.value) args.connection = target.value;
       if (values.checked) args.show_values = true;
-      const doc = await run("diff", args, true);
+      const doc = await run("connection_compare", args, true);
       out.replaceChildren(doc.data?.left ? diffResult(doc.data) : outcome(doc));
     } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
   }
@@ -716,7 +716,7 @@ function samplesPanel(d) {
 // `sample` runs models in DuckDB on generated rows (the project's seeds, or its own sample data) and shows what they give. Offline: no target is read.
 
 async function sampleView() {
-  const meta = (await run("metadata")).data;
+  const meta = (await run("project_show_metadata")).data;
   const out = h("div");
   const list = h("datalist", { id: "sample-models" }, meta.models.map((m) => h("option", { value: m.name })));
   const models = h("input", { type: "text", list: "sample-models", placeholder: "model names or selectors (default: every model)", "aria-label": "Models", style: "min-width:360px" });
@@ -730,7 +730,7 @@ async function sampleView() {
       if (models.value.trim()) args.models = models.value.trim().split(/\s+/);
       for (const [name, el] of [["rows", rows], ["seed", seed], ["limit", limit], ["scale", scale]]) if (el.value.trim() !== "") { const n = Number(el.value); if (!Number.isInteger(n) || n < +el.dataset.min) throw new Error(`${name} must be a whole number from ${el.dataset.min}`); args[name] = n; }
       if (sources.checked) args.sources = true;
-      const doc = await run("sample", args, true);
+      const doc = await run("project_sample", args, true);
       out.replaceChildren(doc.data?.tables ? sampleResult(doc.data) : outcome(doc));
     } catch (e) { out.replaceChildren(h("div", { class: "err" }, e.message)); }
   }

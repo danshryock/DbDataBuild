@@ -12,7 +12,9 @@ public static class Flow
 
     public static void Command(TuiSession s, CommandInfo info, Action<FormModel>? prefill = null)
     {
-        var form = new FormWindow(s, info, prefill);
+        // the terminal interface asks its questions itself, so a deploy from here plans and stops: applying is its own, confirmed, step (the plan window)
+        void Prefill(FormModel f) { if (info.Name == "connection deploy") f.Field("--write-plan").Checked = true; prefill?.Invoke(f); }
+        var form = new FormWindow(s, info, Prefill);
         s.App.Run(form);
         if (!form.Confirmed) return;
         Execute(s, info, form.Form.FullArguments(), form.Form.ChangesSomething(), form.Form.CommandLine());

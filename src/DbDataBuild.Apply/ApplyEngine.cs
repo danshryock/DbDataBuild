@@ -14,7 +14,7 @@ public sealed record ApplyTracking(LoginSettings Read, LoginSettings? Write, str
 
 /// <param name="OpenOrigin">Opens the read session of the connection a `transfer` step reads from (by name). A plan with a transfer step cannot be applied for real without it.</param>
 /// <param name="AllowDestructive">Object names (`marts.fct`) whose destructive steps are allowed. Never "all".</param>
-public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, bool Resume, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null, Func<string, CancellationToken, Task<ReadSession>>? OpenOrigin = null);
+public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null, Func<string, CancellationToken, Task<ReadSession>>? OpenOrigin = null);
 
 /// <param name="Status">ok, dry-run, skipped (done in an earlier attempt), stopped (the operator stopped before it) or failed.</param>
 public sealed record StepOutcome(string StepId, string Description, string Status, string? Detail = null);
@@ -26,7 +26,7 @@ public sealed record ApplyResult(IReadOnlyList<StepOutcome> Outcomes, IReadOnlyL
 
 /// <summary>
 /// `apply` (DESIGN.md 10.3). Verifies the plan against the live engine, takes the application lock, and executes exactly the plan's recorded statements through
-/// the mutation gate, one step at a time, recording each in the tracking tables. Anything unexpected stops the run; nothing resumes automatically.
+/// the mutation gate, one step at a time, recording each in the tracking tables. Anything unexpected stops the run. Running a plan that stopped part-way continues it; running a completed one is refused.
 /// </summary>
 public static class ApplyEngine
 {
@@ -53,8 +53,6 @@ public static class ApplyEngine
         if (!o.DryRun && write == null) throw new ArgumentException("A real apply needs the write login.", nameof(write));
         var planHash = PlanDocument.ContentHash(plan);
 
-        if (o.Resume && tracking == null)
-            return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.PlanAlreadyStarted, new($"plan:{plan.Id}", 0, 0), "--resume needs the records of what the plan already did, and this connection is not tracked.")]);
 
         await using var reader = await ReadSession.OpenAsync(read, ct);
         // the tracking connection: the data connection itself (its session and gate are shared), or another one with its own read and write sessions
@@ -114,10 +112,7 @@ public static class ApplyEngine
         var done = new HashSet<string>(StringComparer.Ordinal);
         if (progressInfo.MigrationStatuses.Contains("completed"))
             return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.PlanAlreadyStarted, new($"plan:{plan.Id}", 0, 0), $"Plan {plan.Id} was already applied to this target. A plan is applied once.")]);
-        if (progressInfo.MigrationStatuses.Count > 0 && !o.Resume)
-            return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.PlanAlreadyStarted, new($"plan:{plan.Id}", 0, 0), $"Plan {plan.Id} was started before and did not finish (recorded: {string.Join(", ", progressInfo.MigrationStatuses)}).")]);
-        if (o.Resume && progressInfo.MigrationStatuses.Count == 0)
-            return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.PlanAlreadyStarted, new($"plan:{plan.Id}", 0, 0), $"--resume was given, but plan {plan.Id} was never started on this target.")]);
+        // a plan that was started and did not finish is continued by running it again: the steps that finished are skipped (after the check below)
 
         foreach (var s in plan.Steps)
             if (IsDone(s, progressInfo)) done.Add(s.Id);

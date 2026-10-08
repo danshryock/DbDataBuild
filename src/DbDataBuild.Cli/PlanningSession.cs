@@ -160,7 +160,7 @@ internal sealed class PlanningSession
         if (stale.Count > 1)
         {
             findings.RemoveAll(d => d.Code == DiagnosticCatalog.RenderedFileOutOfDate.Code);
-            findings.Add(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, stale[0].Location, $"{stale.Count} rendered files are missing or differ from a fresh render (for example {string.Join(", ", stale.Take(3).Select(d => $"`{d.Location.File}`"))}); run `{ProductInfo.Cli} render --write`."));
+            findings.Add(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, stale[0].Location, $"{stale.Count} rendered files are missing or differ from a fresh render (for example {string.Join(", ", stale.Take(3).Select(d => $"`{d.Location.File}`"))}); run `{ProductInfo.Cli} project compile`."));
         }
         var distinct = findings.DistinctBy(d => (d.Code, d.Location, d.Found)).ToList();
         foreach (var d in distinct.Where(d => d.Severity != Severity.Error)) error.Diag(d);
@@ -168,7 +168,7 @@ internal sealed class PlanningSession
         if (errors.Count > 0)
         {
             foreach (var d in errors) error.Diag(d);
-            output.WriteLine($"Nothing was planned: {errors.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} validate`, `{ProductInfo.Cli} define --check`, `{ProductInfo.Cli} render --check` show them).");
+            output.WriteLine($"Nothing was planned: {errors.Count} error(s) in the project. Fix them (`{ProductInfo.Cli} project compile`, `{ProductInfo.Cli} project model update --check`, `{ProductInfo.Cli} project compile --check` show them).");
             return (null, CliApp.ExitFindings);
         }
 
@@ -176,13 +176,13 @@ internal sealed class PlanningSession
         if (ctx.Config.TestGateTags.Count > 0)
         {
             var gateOut = new StringWriter(); var gateErr = new StringWriter();
-            var gateExit = TestCommand.Run(CommandSpecs.All.First(s => s.Name == "test"), root, [], [.. ctx.Config.TestGateTags], null, 5, false, gateOut, gateErr);
+            var gateExit = TestCommand.Run(CommandSpecs.All.First(s => s.Name == "project tests run"), root, [], [.. ctx.Config.TestGateTags], null, 5, false, gateOut, gateErr);
             var summary = gateOut.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault(l => l.Contains("test(s):") || l.StartsWith("No tests", StringComparison.Ordinal)) ?? "";
             if (gateExit != CliApp.ExitOk)
             {
                 error.Write(gateErr.ToString());
                 output.Write(gateOut.ToString());
-                output.WriteLine($"Nothing was planned: a test tagged {string.Join(", ", ctx.Config.TestGateTags)} (`tests.gate` in {ProductInfo.ConfigFile}) did not pass. Fix it, or run `{ProductInfo.Cli} test --tag {ctx.Config.TestGateTags[0]}` to see it alone.");
+                output.WriteLine($"Nothing was planned: a test tagged {string.Join(", ", ctx.Config.TestGateTags)} (`tests.gate` in {ProductInfo.ConfigFile}) did not pass. Fix it, or run `{ProductInfo.Cli} project tests run --tag {ctx.Config.TestGateTags[0]}` to see it alone.");
                 return (null, CliApp.ExitFindings);
             }
             output.WriteLine($"Test gate (tags {string.Join(", ", ctx.Config.TestGateTags)}): {summary.Trim()}");

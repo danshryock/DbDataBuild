@@ -188,7 +188,7 @@ public class TrackingConformanceTests
             {
                 var o = new StringWriter();
                 var e = new StringWriter();
-                Assert.Equal(0, DbDataBuild.Cli.CliApp.Run(["init", "--project", dir, "--apply"], o, e, environment: env));
+                Assert.Equal(0, DbDataBuild.Cli.CliApp.Run(["connection", "init", "--project", dir, "--apply"], o, e, environment: env));
                 Assert.Equal("", e.ToString());
                 Assert.Contains("The tracking tables are ready.", o.ToString());
             }

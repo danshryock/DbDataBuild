@@ -39,7 +39,7 @@ public sealed class ModelsWindow : Ui.Modal
         var close = Ui.Button("Close", () => Close(s.App), isDefault: true);
         close.X = 0; close.Y = Pos.AnchorEnd(1);
         View previous = close;
-        foreach (var (text, command) in new[] { ("Sample data…", "sample"), ("Render…", "render"), ("Plan…", "plan"), ("Check…", "check") })
+        foreach (var (text, command) in new[] { ("Sample data…", "project sample"), ("Compile…", "project compile"), ("Deploy…", "connection deploy"), ("Status…", "connection status") })
         {
             var b = Ui.Button(text, () => Run(command));
             b.X = Pos.Right(previous) + 2; b.Y = Pos.AnchorEnd(1);

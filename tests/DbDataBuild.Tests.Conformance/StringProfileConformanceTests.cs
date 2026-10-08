@@ -22,7 +22,7 @@ public class StringProfileConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -37,8 +37,8 @@ public class StringProfileConformanceTests
             Write("models/marts/m.yml", "name: marts.m\nkind: {type: full}\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n");
             Write("models/marts/m.sql", "SELECT id FROM src.codes\n");
 
-            Assert.Equal(0, Cli("render", "--write").Exit);
-            var broken = Cli("check", "--connection", name);
+            Assert.Equal(0, Cli("project", "compile").Exit);
+            var broken = Cli("connection", "status", "--connection", name);
             Assert.NotEqual(0, broken.Exit);
             Assert.Contains("DDB-237", broken.Err + broken.Out);
             Assert.Contains("`src.codes.code` is declared `trimmed: true`", broken.Err + broken.Out);
@@ -46,7 +46,7 @@ public class StringProfileConformanceTests
             Assert.DoesNotContain("'b '", broken.Err + broken.Out);                                                    // a count, never a value
 
             await engine.ExecAsync(name == "postgres" ? "UPDATE src.codes SET code = rtrim(code)" : "UPDATE src.codes SET code = RTRIM(code)");
-            var fixedUp = Cli("check", "--connection", name);
+            var fixedUp = Cli("connection", "status", "--connection", name);
             Assert.DoesNotContain("DDB-237", fixedUp.Err + fixedUp.Out);
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }

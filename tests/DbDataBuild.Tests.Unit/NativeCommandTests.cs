@@ -75,7 +75,7 @@ public class NativeCommandTests
         Write(dir, "models/marts/m.yml", "name: marts.m\nkind: {type: full}\n" + Cols);
         Write(dir, "models/marts/m.sql", "SELECT n FROM erp.nums\n");
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.NotEqual(0, CliApp.Run(["validate", "--project", dir], o, e, environment: _ => null));
+        Assert.NotEqual(0, CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null));
         Assert.Contains("a command can only be run, never read inside a query", e.ToString());
         Assert.Contains("Copy it", e.ToString());
     }

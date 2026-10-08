@@ -98,7 +98,7 @@ public class QueryHeadTests
         Assert.Equal(("marts.fct", ModelKinds.IncrementalByUniqueKey, "order_id"), (source.Definition.Name, source.Definition.KindType, string.Join(",", source.Definition.UniqueKey)));
         Assert.Equal("SELECT order_id, amount FROM staging.orders\n", source.ReadQuery(dir, ProjectConfigLoader.LoadFromProject(dir, new List<Diagnostic>())));    // the query, without the head
         var render = new StringWriter(); var err = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["render", "--project", dir, "--write"], render, err, environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "compile", "--project", dir], render, err, environment: _ => null));
         Assert.Contains("FROM staging.orders", File.ReadAllText(Path.Combine(dir, "rendered", "lowered", "marts.fct", "lowered.sql")));
         var script = File.ReadAllText(Path.Combine(dir, "rendered", "sqlserver", "marts.fct", "load.default.sql"));
         Assert.Contains("order_id", script);                                                     // the load is by the unique key the head gave

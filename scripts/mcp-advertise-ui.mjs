@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Wraps an MCP server started over stdio and adds the MCP Apps extension to the client capabilities of the `initialize` request.
-//   node scripts/mcp-advertise-ui.mjs -- dbdatabuild mcp --project <dir>
+//   node scripts/mcp-advertise-ui.mjs -- dbdatabuild ui mcp --project <dir>
 // For trying the app with a host that supports it but does not say so in `initialize` (the reference basic-host of the ext-apps repository is one). The server shows the app and its
 // app-only tools only to a client that advertises the extension, because a host that does not know it would show those tools to the model. Do not put this in front of a real agent host.
 import { spawn } from "node:child_process";

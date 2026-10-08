@@ -46,7 +46,7 @@ public class StringEmulationTests
     private static (int Exit, string Text) Test(string dir)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        var exit = CliApp.Run(["test", "--project", dir], o, e, environment: _ => null);
+        var exit = CliApp.Run(["project", "tests", "run", "--project", dir], o, e, environment: _ => null);
         return (exit, o + "\n" + e);
     }
 
@@ -75,7 +75,7 @@ public class StringEmulationTests
     {
         var dir = Project("insensitive", "ignored", 1, 9);
         var o = new StringWriter(); var e = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["sample", "--project", dir, "--rows", "5", "marts.groups"], o, e, environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "sample", "--project", dir, "--rows", "5", "marts.groups"], o, e, environment: _ => null));
         Assert.Contains("strings compare as on `sqlserver` (case=insensitive, accent=sensitive, trailing_space=ignored): collation NOCASE; trailing spaces ignored (rtrim in comparisons", o.ToString() + e.ToString());
     }
 }

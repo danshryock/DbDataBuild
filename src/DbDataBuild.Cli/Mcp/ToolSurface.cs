@@ -12,30 +12,38 @@ internal sealed class ToolSurface
     /// <summary>Per command, the options a client cannot use: the ones that show values or read data the project's operator supplied.</summary>
     private static readonly Dictionary<string, string[]> WithheldOptions = new()
     {
-        ["diff"] = ["--show-values"],
-        ["sample"] = ["--data"],
+        ["connection compare"] = ["--show-values"],
+        ["project sample"] = ["--data"],
     };
 
     private readonly string projectRoot;
     private readonly bool withholdWriteFlags;
+    private readonly IReadOnlySet<string> withholdFor;
     private readonly IReadOnlySet<string> alsoWithheld;
     private readonly bool personReads;
 
     /// <param name="withholdWriteFlags">Also withhold the flag that makes a command change something (`render --write`), so every offered call only reads.</param>
+    /// <param name="withholdWriteFlagsFor">Commands whose write flags are withheld although the surface as a whole offers them (a read-only server offers `connection deploy` to plan, not to apply).</param>
     /// <param name="alsoWithheld">More options to withhold, as `command --option` (the web page withholds `plan --accept-inferred`: a person answers each question).</param>
     /// <param name="personReads">The client is a person's page, not a model: the options that show values are offered (the page asks for them explicitly; they are never on by default).</param>
-    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false, IEnumerable<string>? alsoWithheld = null, bool personReads = false)
+    public ToolSurface(string projectRoot, IEnumerable<CommandInfo> offered, bool withholdWriteFlags = false, IEnumerable<string>? alsoWithheld = null, bool personReads = false, IEnumerable<string>? withholdWriteFlagsFor = null)
     {
+        withholdFor = (withholdWriteFlagsFor ?? []).ToHashSet();
         this.personReads = personReads;
         this.alsoWithheld = (alsoWithheld ?? []).ToHashSet();
         this.projectRoot = Path.GetFullPath(projectRoot);
         this.withholdWriteFlags = withholdWriteFlags;
-        Tools = offered.ToDictionary(c => c.Name);
+        Tools = offered.ToDictionary(ToolName);
     }
 
     public IReadOnlyDictionary<string, CommandInfo> Tools { get; }
 
-    private bool IsWriteFlag(CommandInfo c, OptionInfo o) => withholdWriteFlags && c.WriteFlag != null && c.WriteFlag.TrimStart('!') == o.Name;
+    /// <summary>The name a tool is offered and called by: the command's path as one token (`connection deploy` is `connection_deploy`).</summary>
+    public static string ToolName(CommandInfo c) => c.Name.Replace(' ', '_').Replace('-', '_');
+
+    private bool Withholds(CommandInfo c) => withholdWriteFlags || withholdFor.Contains(c.Name);
+
+    private bool IsWriteFlag(CommandInfo c, OptionInfo o) => Withholds(c) && c.WriteFlag != null && c.WriteFlag.TrimStart('!').Split('|').Contains(o.Name);
 
     private IEnumerable<OptionInfo> Offered(CommandInfo c) =>
         c.Options.Where(o => o.Name != "--project" && !IsWriteFlag(c, o) && !alsoWithheld.Contains(c.Name + " " + o.Name) && !(!personReads && WithheldOptions.TryGetValue(c.Name, out var w) && w.Contains(o.Name)));
@@ -66,10 +74,10 @@ internal sealed class ToolSurface
             if (o.Choices.Count > 0) schema["enum"] = Strings(o.Choices);
             properties[PropertyName(o.Name)] = schema;
         }
-        var readOnly = c.Impact is Impact.None && (c.WriteFlag == null || withholdWriteFlags);
+        var readOnly = c.Impact is Impact.None && (c.WriteFlag == null || Withholds(c));
         return new JsonObject
         {
-            ["name"] = c.Name,
+            ["name"] = ToolName(c),
             ["title"] = c.Name,
             ["description"] = $"{c.Purpose}. Effect: {c.Effect}.",
             ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = properties, ["required"] = required, ["additionalProperties"] = false },
@@ -89,7 +97,7 @@ internal sealed class ToolSurface
     /// <summary>The command line for a call: the project root, positional values, then the options. A path outside the project, an option the tool does not offer, and a wrong type are refused.</summary>
     internal bool TryBuildArguments(CommandInfo command, JsonObject arguments, out List<string> argv, out string? problem)
     {
-        argv = [command.Name]; problem = null;
+        argv = [.. command.Name.Split(' ')]; problem = null;
         var offered = Offered(command).ToDictionary(o => PropertyName(o.Name));
         var known = command.Arguments.Select(a => a.Name).Concat(offered.Keys).ToHashSet();
         foreach (var key in arguments.Select(k => k.Key))
@@ -102,8 +110,7 @@ internal sealed class ToolSurface
             {
                 if (item == null || !item.TryGetValue<string>(out var s)) { problem = $"`{a.Name}` must be {(a.Repeatable ? "a list of strings" : "a string")}."; return false; }
                 if (!InsideProject(s, out problem, a.Name)) return false;
-                // `apply` opens its plan relative to the working directory of the process, which is not the project: say where it is
-                argv.Add(command.Name == "apply" && a.Name == "plan" ? Path.GetFullPath(Path.Combine(projectRoot, s)) : s);
+                argv.Add(s);
             }
         }
         foreach (var (name, o) in offered)
@@ -134,6 +141,8 @@ internal sealed class ToolSurface
                     break;
             }
         }
+        // a command that changes things unless a flag says not to (`project compile --check`) is held to the flag when write flags are withheld
+        if (Withholds(command) && command.WriteFlag is { } held && held.StartsWith('!')) argv.Add(held[1..]);
         if (command.Options.Any(o => o.Name == "--project")) { argv.Add("--project"); argv.Add(projectRoot); }
         return true;
     }

@@ -49,7 +49,7 @@ internal static class HistoryConcerns
             var origins = string.Join(", ", hits.Select(h => $"{h.Value.Entry.Model}.{h.Value.Entry.Column}").Distinct(StringComparer.Ordinal));
             findings.Add(new Diagnostic(DiagnosticCatalog.ReadsInconsistentHistory, new(ctx.Project.Sources.FirstOrDefault(s => s.Definition.Name == model)?.DefinitionFile ?? model, 0, 0),
                 $"{model} is built from a column whose history is inconsistent ({shown}{more}): a backfill was requested for {origins} and none is recorded, so rows loaded before it hold NULL there.",
-                Fix: $"Backfill it (`{ProductInfo.Cli} plan --backfill <model>=<operation>`), or accept it: `{ProductInfo.Cli} ack history {hits[0].Value.Entry.Model}.{hits[0].Value.Entry.Column} --reason ...`.") with { SeverityOverride = severity });
+                Fix: $"Backfill it (`{ProductInfo.Cli} connection deploy --backfill <model>=<operation>`), or accept it: `{ProductInfo.Cli} connection deploy --ack history:{hits[0].Value.Entry.Model}.{hits[0].Value.Entry.Column} --reason <why>`.") with { SeverityOverride = severity });
         }
         return findings;
     }

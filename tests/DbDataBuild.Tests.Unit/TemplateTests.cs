@@ -36,14 +36,14 @@ public class TemplateTests
         var dir = Path.Combine(Path.GetTempPath(), "ddb-template-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var (newExit, _, newErr) = Run("new", name, dir);
+            var (newExit, _, newErr) = Run("project", "create", name, dir);
             Assert.True(newExit == 0, newErr);
 
-            var (validateExit, validateOut, _) = Run("validate", "--project", dir);
+            var (validateExit, validateOut, _) = Run("project", "compile", "--project", dir);
             Assert.True(validateExit == 0, validateOut);
             Assert.Contains(" 0 warning(s)", validateOut);
 
-            var (seedExit, seedOut, seedErr) = Run("seed", "--project", dir);
+            var (seedExit, seedOut, seedErr) = Run("project", "seed", "--project", dir);
             Assert.True(seedExit == 0, seedOut + seedErr);
 
             var models = Directory.EnumerateFiles(Path.Combine(dir, "models"), "*.sql", SearchOption.AllDirectories)
@@ -55,15 +55,15 @@ public class TemplateTests
             Assert.NotEmpty(models);
             foreach (var model in models)
             {
-                var (sampleExit, sampleOut, sampleErr) = Run("sample", model, "--project", dir, "--limit", "3");
+                var (sampleExit, sampleOut, sampleErr) = Run("project", "sample", model, "--project", dir, "--limit", "3");
                 Assert.True(sampleExit == 0, $"{model}: {sampleOut}{sampleErr}");
             }
 
-            var (testExit, testOut, _) = Run("test", "--project", dir);
+            var (testExit, testOut, _) = Run("project", "tests", "run", "--project", dir);
             Assert.True(testExit == 0, testOut);
             Assert.Contains(" 0 failed", testOut);
 
-            var (renderExit, renderOut, renderErr) = Run("render", "--project", dir);
+            var (renderExit, renderOut, renderErr) = Run("project", "compile", "--project", dir, "--content");
             Assert.True(renderExit == 0, renderOut + renderErr);
         }
         finally

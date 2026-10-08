@@ -1,6 +1,6 @@
 namespace DbDataBuild.Cli.Web;
 
-/// <summary>`dbdatabuild web`: the read-only web interface on the loopback address. It connects to nothing itself; the commands it runs only read the project.</summary>
+/// <summary>`dbdatabuild ui web`: the read-only web interface on the loopback address. It connects to nothing itself; the commands it runs only read the project.</summary>
 internal static class WebCommand
 {
     public static int Run(string projectRoot, int port, bool allowApply, bool json, TextWriter output, TextWriter error, Func<string, string?> env)

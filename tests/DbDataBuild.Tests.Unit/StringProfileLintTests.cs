@@ -43,7 +43,7 @@ public class StringProfileLintTests
     private static string Validate(string dir)
     {
         var o = new StringWriter(); var e = new StringWriter();
-        CliApp.Run(["validate", "--project", dir], o, e, environment: _ => null);
+        CliApp.Run(["project", "compile", "--project", dir], o, e, environment: _ => null);
         return o.ToString() + e.ToString();
     }
 

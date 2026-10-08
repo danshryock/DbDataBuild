@@ -25,8 +25,8 @@ def run(project, steps, wait=1.2, start_wait=4):
         os.chdir(REPO)
         exe = os.environ.get("TUI_EXE")
         if exe:
-            os.execvpe(exe, [exe, "tui", "--project", project], env)
-        os.execvpe("dotnet", ["dotnet", "src/DbDataBuild.Cli/bin/Debug/net10.0/dbdatabuild.dll", "tui", "--project", project], env)
+            os.execvpe(exe, [exe, "ui", "terminal", "--project", project], env)
+        os.execvpe("dotnet", ["dotnet", "src/DbDataBuild.Cli/bin/Debug/net10.0/dbdatabuild.dll", "ui", "terminal", "--project", project], env)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     screen = pyte.Screen(COLS, ROWS)
     stream = pyte.ByteStream(screen)

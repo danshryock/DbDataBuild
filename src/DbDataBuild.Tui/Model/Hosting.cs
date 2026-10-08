@@ -18,6 +18,21 @@ public sealed record ArgumentInfo(string Name, string Description, bool Repeatab
 /// <param name="WriteFlag">When the command only changes something with a flag: `--write` (render, define), `--apply` (init), or `!--dry-run` (apply, which changes things unless the flag is given). Null: always, if <paramref name="Impact"/> is not None.</param>
 public sealed record CommandInfo(string Name, string Purpose, string Effect, Impact Impact, IReadOnlyList<ArgumentInfo> Arguments, IReadOnlyList<OptionInfo> Options, string? WriteFlag = null);
 
+/// <summary>Whether a call changes something, from the command's write flag(s): `--write` changes only with it; `!--dry-run` changes unless it is given; `--a|--b` changes with either.</summary>
+public static class WriteRules
+{
+    /// <param name="repoFiles">Whether writing the project's own files counts (the terminal asks before it; a server for an agent does not).</param>
+    public static bool Changes(CommandInfo command, Func<string, bool> given, bool repoFiles)
+    {
+        if (command.Impact == Impact.None || (command.Impact == Impact.RepoFiles && !repoFiles)) return false;
+        var flag = command.WriteFlag;
+        if (flag == null) return true;
+        if (given("--dry-run") && !given("--ack")) return false;          // a dry run executes nothing
+        if (flag.StartsWith('!')) return !given(flag[1..]);
+        return flag.Split('|').Any(given);
+    }
+}
+
 /// <summary>What a command printed. The TUI always asks for `--format json`, so <see cref="Out"/> is one document.</summary>
 public sealed record CommandResult(int Exit, string Out, string Err);
 

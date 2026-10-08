@@ -34,7 +34,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -52,15 +52,15 @@ public partial class NativeConformanceTests
             Write("models/marts/v.sql", "SELECT n FROM src.fixed\n");
             Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.nums\n");                           // a local copy: the native select, landed on its own connection
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
             var script = File.ReadAllText(Path.Combine(dir, "rendered", name, "marts.big", "load.default.sql"));
             Assert.Contains("@p_native_src_nums__project_list", script);                                         // the native's own placeholder, bound at run time
             Assert.DoesNotContain("1,2,3,4", script);
-            var plan = Cli("plan", "--connection", name);
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(plan, "plan");
             Assert.DoesNotContain("type: transfer", File.ReadAllText(PlanOf(plan.Out)));                         // a local copy moves nothing across connections
-            Ok(Cli("apply", PlanOf(plan.Out)), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(plan.Out)), "apply");
             Assert.Equal(["2", "3", "4"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.big"));
             Assert.Equal(["1", "2"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.v"));      // a view over a native select: its text is in the view
             Assert.Equal(["1", "2", "3", "4"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
@@ -68,10 +68,10 @@ public partial class NativeConformanceTests
 
             // a different value is a new plan, the same rendered files
             Write("dbdatabuild.yml", Config(name).Replace("1,2,3,4", "5,6"));
-            Ok(Cli("render", "--check"), "render --check");
-            var again = Cli("plan", "--connection", name);
+            Ok(Cli("project", "compile", "--check"), "render --check");
+            var again = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(again, "second plan");
-            Ok(Cli("apply", PlanOf(again.Out)), "second apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(again.Out)), "second apply");
             Assert.Equal(["5", "6"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.big"));
             Assert.Equal(["5", "6"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
         }
@@ -90,7 +90,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -100,16 +100,16 @@ public partial class NativeConformanceTests
             Write("dbdatabuild.yml", "defaults: {connections: [sqlserver]}\ntracking: { connection: sqlserver }\nparameters:\n  list: \"7,8,9\"\n");
             Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: " + NumsText("postgres").Replace("${project.list}", "${project.list}") + "\nconnections=: [postgres]\n" + Cols);
             Write("models/dst/nums.yml", "name: dst.nums\nkind:\n  type: copy\n  from: src.nums\n");
-            Ok(Cli("init", "--connection", "sqlserver", "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var plan = Cli("plan", "--connection", "sqlserver");
+            Ok(Cli("connection", "init", "--connection", "sqlserver", "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Ok(plan, "plan");
             var file = Path.Combine(dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
             var text = File.ReadAllText(file);
             Assert.Contains("type: transfer", text);
             Assert.Contains("p_native_src_nums__project_list", text);                                            // the native's parameter travels in the transfer step, bound on the origin
             Assert.DoesNotContain("7,8,9", text.Replace("value: \"7,8,9\"", ""));                                // never in the read text
-            Ok(Cli("apply", file), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", file), "apply");
             Assert.Equal(["7", "8", "9"], await destination.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM dst.nums"));
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
@@ -132,7 +132,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -153,14 +153,14 @@ public partial class NativeConformanceTests
             Write("models/marts/reader.yml", "name: marts.reader\nkind: {type: full}\n" + Cols);
             Write("models/marts/reader.sql", "SELECT n FROM src.nums\n");
 
-            var broken = Cli("validate");
+            var broken = Cli("project", "compile");
             Assert.NotEqual(0, broken.Exit);
             Assert.Contains("a command can only be run, never read inside a query", broken.Err);                                       // nothing may read it
             File.Delete(Path.Combine(dir, "models", "marts", "reader.yml")); File.Delete(Path.Combine(dir, "models", "marts", "reader.sql"));
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var plan = Cli("plan", "--connection", name);
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(plan, "plan");
             var file = PlanOf(plan.Out);
             var text = File.ReadAllText(file);
@@ -168,23 +168,23 @@ public partial class NativeConformanceTests
             Assert.Contains("command: true", text);
             Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // planning never calls it
 
-            var dry = Cli("apply", file, "--dry-run", "--allow-risky");
+            var dry = Cli("connection", "deploy", "--apply-plan", file, "--dry-run", "--allow-risky");
             Ok(dry, "dry run");
             Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());
 
-            var refused = Cli("apply", file);
+            var refused = Cli("connection", "deploy", "--apply-plan", file);
             Assert.NotEqual(0, refused.Exit);
             Assert.Contains("--allow-risky", refused.Err);                                                                           // running a procedure is a risky step
-            Ok(Cli("apply", file, "--allow-risky"), "apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", file, "--allow-risky"), "apply");
             Assert.Equal(["1", "2", "3", "4"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
             Assert.Equal("0", (await engine.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // the call ran in a transaction that was rolled back
             if (name == "postgres")
             {
                 // the read login's session is read-only: a function that writes is stopped by the engine
                 await engine.ExecAsync("CREATE OR REPLACE FUNCTION public.usp_nums(list text) RETURNS TABLE(n integer) LANGUAGE plpgsql AS $$ BEGIN INSERT INTO public.side_effect VALUES (1); RETURN QUERY SELECT 1; END $$");
-                var writing = Cli("plan", "--connection", name);
+                var writing = Cli("connection", "deploy", "--write-plan", "--connection", name);
                 Ok(writing, "plan");
-                Assert.NotEqual(0, Cli("apply", PlanOf(writing.Out), "--allow-risky").Exit);
+                Assert.NotEqual(0, Cli("connection", "deploy", "--apply-plan", PlanOf(writing.Out), "--allow-risky").Exit);
                 Assert.Equal("0", (await engine.RowsAsync("SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM public.side_effect")).Single());
             }
         }
@@ -206,7 +206,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -224,17 +224,17 @@ public partial class NativeConformanceTests
                 (destinationName == "postgres" ? "string_semantics:\n  case: sensitive\n  trailing_space: significant\n  collations:\n    default: { duckdb: NFC, postgres: C }\n" : ""));
             Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  access: command\n  query: " + call + $"\nconnections=: [{originName}]\n" + Cols);
             Write("models/dst/nums.yml", "name: dst.nums\nkind:\n  type: copy\n  from: src.nums\n");
-            Ok(Cli("init", "--connection", destinationName, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var plan = Cli("plan", "--connection", destinationName);
+            Ok(Cli("connection", "init", "--connection", destinationName, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", destinationName);
             Ok(plan, "plan");
             var file = Path.Combine(dir, Regex.Match(plan.Out, @"plan:\s+(\S+\.plan\.yml)").Groups[1].Value);
             var text = File.ReadAllText(file);
             Assert.Contains("type: transfer", text);
             Assert.Contains("command: true", text);
             Assert.Equal("0", (await origin.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // planning never calls it
-            Assert.NotEqual(0, Cli("apply", file).Exit);                                                                                        // running a procedure is a risky step
-            Ok(Cli("apply", file, "--allow-risky"), "apply");
+            Assert.NotEqual(0, Cli("connection", "deploy", "--apply-plan", file).Exit);                                                                                        // running a procedure is a risky step
+            Ok(Cli("connection", "deploy", "--apply-plan", file, "--allow-risky"), "apply");
             Assert.Equal(["7", "8", "9"], await destination.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM dst.nums ORDER BY n"));
             Assert.Equal("0", (await origin.RowsAsync($"SELECT CAST(COUNT(*) AS VARCHAR(10)) FROM {schema}.side_effect")).Single());          // rolled back on the origin
         }
@@ -255,7 +255,7 @@ public partial class NativeConformanceTests
             File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Config("sqlserver"));
             File.WriteAllText(Path.Combine(dir, "models", "src", "nums.yml"), "name: src.nums\nkind:\n  type: native\n  access: command\n  query: EXEC dbo.usp_nums @list = 'a'\n" + Cols);
             var o = new StringWriter(); var e = new StringWriter();
-            Assert.NotEqual(0, CliApp.Run(["validate", "--project", dir], o, e, environment: Env));
+            Assert.NotEqual(0, CliApp.Run(["project", "compile", "--project", dir], o, e, environment: Env));
             Assert.Contains("allow_native_commands", e.ToString() + o.ToString());
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
@@ -272,7 +272,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -282,20 +282,20 @@ public partial class NativeConformanceTests
             Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: |\n    " + NumsText(name) + "\n" + Cols);
             Write("models/marts/big.yml", "name: marts.big\nkind: {type: full}\n" + Cols);
             Write("models/marts/big.sql", "SELECT n FROM src.nums\n");
-            Assert.Equal(0, Cli("init", "--connection", name, "--apply").Exit);
-            Assert.Equal(0, Cli("render", "--write").Exit);
-            var fine = Cli("plan", "--connection", name);
+            Assert.Equal(0, Cli("connection", "init", "--connection", name, "--apply").Exit);
+            Assert.Equal(0, Cli("project", "compile").Exit);
+            var fine = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Assert.True(fine.Exit == 0, fine.Out + fine.Err);                                                     // the declaration agrees with the engine
 
             // the text now returns a string and a column of another name
             Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT 'x' AS n, 1 AS extra, 2 AS gone\n" + Cols.Replace("columns:\n", "columns:\n  - {name: gone, type: INTEGER, nullable: false}\n").Replace("grain: [n]", "grain: [n]"));
-            var drift = Cli("plan", "--connection", name);
+            var drift = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Assert.NotEqual(0, drift.Exit);
             Assert.Contains("returns something other than it declares", drift.Err + drift.Out);
             Assert.Contains("column `n` is returned as another type", drift.Err + drift.Out);
 
             Write("models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT 1 AS m\n" + Cols);
-            var missing = Cli("plan", "--connection", name);
+            var missing = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Assert.NotEqual(0, missing.Exit);
             Assert.Contains("column `n` is not returned", missing.Err + missing.Out);
         }
@@ -313,7 +313,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -331,35 +331,35 @@ public partial class NativeConformanceTests
             Write("models/src/tracked.yml", $"name: src.tracked\ntrack_definition: [{routine}, {schema}.fn_missing]\nkind:\n  type: native\n  query: SELECT n FROM {routine}(2)\n" + Cols);
             Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.tracked\n");
 
-            Ok(Cli("init", "--connection", name, "--apply"), "init");
-            Ok(Cli("render", "--write"), "render");
-            var first = Cli("plan", "--connection", name);
+            Ok(Cli("connection", "init", "--connection", name, "--apply"), "init");
+            Ok(Cli("project", "compile"), "render");
+            var first = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(first, "first plan");
             Assert.DoesNotContain("DDB-234", first.Err + first.Out);                                              // nothing recorded yet, nothing to compare with
             Assert.Contains("fn_missing", first.Err + first.Out);                                                 // a routine the engine has no definition for is not checked (DDB-235)
             Assert.Contains("DDB-235", first.Err + first.Out);
-            Ok(Cli("apply", PlanOf(first.Out)), "first apply");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(first.Out)), "first apply");
             Assert.Equal(["3", "4", "5"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
 
-            var same = Cli("plan", "--connection", name);
+            var same = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(same, "plan after apply");
             Assert.DoesNotContain("DDB-234", same.Err + same.Out);                                                // the record matches
 
             await engine.ExecAsync(Function(">="));                                                               // someone changes the function; no file changes
-            var changed = Cli("plan", "--connection", name);
+            var changed = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(changed, "plan after a change");                                                                   // a warning, not a stop
             Assert.Contains("DDB-234", changed.Err + changed.Out);
             Assert.Contains($"the definition of `{routine}` changed since the last apply", changed.Err + changed.Out);
 
             Write("dbdatabuild.yml", Config(name) + "policy:\n  severity:\n    native_definition_changed: error\n");
-            var refused = Cli("plan", "--connection", name);
+            var refused = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Assert.NotEqual(0, refused.Exit);
             Assert.Contains("DDB-234", refused.Err + refused.Out);
             Write("dbdatabuild.yml", Config(name));
 
-            Ok(Cli("apply", PlanOf(changed.Out)), "apply after the change");
+            Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(changed.Out)), "apply after the change");
             Assert.Equal(["2", "3", "4", "5"], await engine.RowsAsync("SELECT CAST(n AS VARCHAR(10)) FROM marts.snapshot"));
-            var settled = Cli("plan", "--connection", name);
+            var settled = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(settled, "plan after the second apply");
             Assert.DoesNotContain("DDB-234", settled.Err + settled.Out);                                          // the new definition is the record now
         }
@@ -379,7 +379,7 @@ public partial class NativeConformanceTests
         (int Exit, string Out, string Err) Cli(params string[] args)
         {
             var o = new StringWriter(); var e = new StringWriter();
-            var exit = CliApp.Run([args[0], "--project", dir, .. args.Skip(1)], o, e, environment: Env);
+            var exit = CliApp.Run([.. args, "--project", dir], o, e, environment: Env);
             return (exit, o.ToString(), e.ToString());
         }
         void Write(string rel, string text) { var p = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, text); }
@@ -390,18 +390,18 @@ public partial class NativeConformanceTests
             Write("dbdatabuild.yml", Config("sqlserver"));
             Write("models/src/tracked.yml", "name: src.tracked\ntrack_definition: [dbo.fn_tracked]\nkind:\n  type: native\n  query: SELECT n FROM dbo.fn_tracked(2)\n" + Cols);
             Write("models/marts/snapshot.yml", "name: marts.snapshot\nkind:\n  type: copy\n  from: src.tracked\n");
-            Assert.Equal(0, Cli("init", "--connection", "sqlserver", "--apply").Exit);
-            Assert.Equal(0, Cli("render", "--write").Exit);
-            var first = Cli("plan", "--connection", "sqlserver");
+            Assert.Equal(0, Cli("connection", "init", "--connection", "sqlserver", "--apply").Exit);
+            Assert.Equal(0, Cli("project", "compile").Exit);
+            var first = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Assert.True(first.Exit == 0, first.Out + first.Err);
-            Assert.True(Cli("apply", PlanOf(first.Out)).Exit == 0);                                              // the definition is recorded (read by sa)
+            Assert.True(Cli("connection", "deploy", "--apply-plan", PlanOf(first.Out)).Exit == 0);                                              // the definition is recorded (read by sa)
 
             // a login that can read the data and the tracking tables, but may not see definitions
             await engine.ExecAsync("IF SUSER_ID('ddb_lowpriv') IS NULL CREATE LOGIN ddb_lowpriv WITH PASSWORD = 'Low_Priv_1234!', CHECK_POLICY = OFF");
             await engine.ExecAsync("IF USER_ID('ddb_lowpriv') IS NULL CREATE USER ddb_lowpriv FOR LOGIN ddb_lowpriv");
             foreach (var schema in new[] { "dbo", "marts", "dbdatabuild" }) await engine.ExecAsync($"GRANT SELECT, EXECUTE ON SCHEMA::{schema} TO ddb_lowpriv");
             useLow = true;
-            var plan = Cli("plan", "--connection", "sqlserver");
+            var plan = Cli("connection", "deploy", "--write-plan", "--connection", "sqlserver");
             Assert.DoesNotContain("DDB-234", plan.Err + plan.Out);                                               // not "changed": it could not be read
             Assert.Contains("DDB-235", plan.Err + plan.Out);                                                     // not checked, and said so
         }

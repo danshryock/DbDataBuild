@@ -73,7 +73,7 @@ public static class DiagnosticCatalog
         "The explicit name and the path convention must agree.");
     public static readonly DiagnosticDescriptor OrphanFile = E("108", "Orphan model file",
         "Every .sql has a .yml with the same base name, and vice versa.",
-        "Run `dbdatabuild define <path>` to create the missing definition, or remove the orphan.",
+        "Run `dbdatabuild project model update <path>` to create the missing definition, or remove the orphan.",
         "A model is a pair of files. One without the other cannot be built.");
 
     public static readonly DiagnosticDescriptor ConfigNotFound = W("109", "Project configuration file not found",
@@ -106,7 +106,7 @@ public static class DiagnosticCatalog
     public static readonly DiagnosticDescriptor QueryNotDescribable = E("219", "DuckDB cannot describe the model query",
         "A query DuckDB can bind against the declared upstream columns.",
         "Fix the query, or the declared columns of the upstream tables it uses.",
-        "`define` asks DuckDB to describe the query (it is never run) to learn its output columns and types.");
+        "`project model update` asks DuckDB to describe the query (it is never run) to learn its output columns and types.");
     public static readonly DiagnosticDescriptor OutputColumnUnusable = E("220", "Output column cannot be declared",
         "Every output column has a name (an alias for expressions) that no other column shares.",
         "Add an alias to the expression, or rename the duplicate.",
@@ -131,15 +131,15 @@ public static class DiagnosticCatalog
         "`watermark_append` and `delete_insert_by_range` select from the finished query where the slice column is at or after the start: SELECT ... FROM (<your query>) WHERE slice_column >= @watermark. That is always correct, and it is cheap when the engine can apply the filter before the expensive part of the query. It cannot when the column is the result of an aggregate or a window function, when a window is not partitioned by it, or when the query has a LIMIT or DISTINCT ON (applying it early would change the rows), so every load does the work for the whole history and keeps a few rows. The tool does not rewrite your query to avoid this; it tells you, so you can pick a different column or strategy, or accept the cost.");
     public static readonly DiagnosticDescriptor SourceColumnNoLogicalType = W("226", "A source column has no logical type",
         "a column whose native type maps to a logical type: integers, DECIMAL(p, s), DOUBLE and FLOAT, BOOLEAN, DATE, TIME, TIMESTAMP, TIMESTAMP WITH TIME ZONE, UUID, BLOB, text (VARCHAR(n), or a bare VARCHAR for unlimited text), and xml and json read as text",
-        "Declare the column by hand in the source descriptor with the type a model should see (`VARCHAR` for text), and `import` keeps it. Or leave it out if no model reads it.",
+        "Declare the column by hand in the source descriptor with the type a model should see (`VARCHAR` for text), and `project import` keeps it. Or leave it out if no model reads it.",
         "A source descriptor describes a table to DuckDB so models over it can be bound offline. A column whose native type has no representation as a logical type (geography, intervals, arrays, user types) is left out of the generated descriptor rather than guessed at: a wrong type would flow into every model that selects it. Unlimited text is not one of them: it is a bare VARCHAR. A column you declared yourself in the descriptor is kept as written.");
     public static readonly DiagnosticDescriptor SourceOutOfSync = W("227", "A source descriptor differs from the table it describes",
         "a committed mapped model `models/<schema name>/<table>.yml` with the columns, types and nullability the table has now",
-        $"Run `{ProductInfo.Cli} import --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} define --check` to see which models are affected.",
-        "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `import --check` makes the difference a finding for CI; it needs the read login.");
+        $"Run `{ProductInfo.Cli} project import --write` to refresh the descriptors, review the diff, and run `{ProductInfo.Cli} project model update --check` to see which models are affected.",
+        "Descriptors are exports of the tables the models read. When a table changes (a column added, a type widened, a NOT NULL added) the descriptor is stale until it is refreshed, and models are defined against the stale shape. `project import --check` makes the difference a finding for CI; it needs the read login.");
     public static readonly DiagnosticDescriptor RewriteNotOptional = E("229", "A rewrite cannot be turned off",
         "`rewrites.disable` names only rewrites that reproduce DuckDB's behavior; a rewrite a target cannot do without is not one of them",
-        "Remove the name from `disable`, or take the target out of the model's `targets`. `dbdatabuild matrix --rewrites` lists every rewrite and where each is required.",
+        "Remove the name from `disable`, or take the target out of the model's `targets`. `dbdatabuild help matrix --rewrites` lists every rewrite and where each is required.",
         "Some rewrites are what makes a query valid on an engine (SQL Server has no LPAD, PostgreSQL's round takes no double). Turning one off would send the engine a statement it rejects, so the tool refuses before it renders. The rewrites that only keep an engine's answer equal to DuckDB's (a trailing space counted, a week counted) can be turned off.");
     public static readonly DiagnosticDescriptor SourceNotImportable = W("228", "A table cannot be imported as a source",
         "a table or view whose schema name and table name can be a path (`models/<schema name>/<table>.yml`), or a descriptor whose table exists",
@@ -147,8 +147,8 @@ public static class DiagnosticCatalog
         "A descriptor's name is its path under `models/` with `/` replaced by `.`, so a dot, slash or backslash in a schema name or table name cannot be represented. A committed descriptor whose table is not found under its schema name is reported and left alone: the tool never deletes a file you may still need.");
     public static readonly DiagnosticDescriptor CopyOriginDiffers = E("230", "A copy's origin differs from its declaration",
         "an origin whose table still has the columns and types the mapped model declares (an added column is fine)",
-        "Bring the origin's table back to the declaration, update the mapped model (`dbdatabuild import`), or set `on_mismatch: skip` on the copy to leave that origin out until it is fixed.",
-        "A copy reads each origin with the declared columns. When one system of an application is on another version, its table may have lost a column or changed a type, and reading it would fail or load the wrong thing. `plan` compares each origin's live table with the declaration and names every origin that differs; `on_mismatch` says whether that stops the plan (`fail`) or leaves that origin out (`skip`). An origin whose login is not in the environment is reported as not checked.");
+        "Bring the origin's table back to the declaration, update the mapped model (`dbdatabuild project import`), or set `on_mismatch: skip` on the copy to leave that origin out until it is fixed.",
+        "A copy reads each origin with the declared columns. When one system of an application is on another version, its table may have lost a column or changed a type, and reading it would fail or load the wrong thing. `connection deploy` compares each origin's live table with the declaration and names every origin that differs; `on_mismatch` says whether that stops the plan (`fail`) or leaves that origin out (`skip`). An origin whose login is not in the environment is reported as not checked.");
     public static readonly DiagnosticDescriptor ModelReadsAnotherConnection = E("231", "A model reads a table that is not on its connection",
         "every table a query reads exists on the connection the model is built on: a mapped model or a model built there, or a copy of the table to that connection",
         "Copy the table to the model's connection (`kind: {type: copy, from: ...}`) and read the copy, or build the model on the connection where the table is.",
@@ -156,7 +156,7 @@ public static class DiagnosticCatalog
     public static readonly DiagnosticDescriptor NativeReadsNotDeclared = N("233", "A native model does not say what it reads",
         "a `reads:` list on the native model naming the tables its text reads (`reads: [dbo.orders, dbo.customers]`)",
         "Add `reads:` to the model's definition, listing the models or mapped tables the native text reads. It is not checked against the text; it only places the model in the graph.",
-        "The text of a native model is the engine's own and the tool does not parse it, so without `reads:` the model has no ancestors: `graph` and `--column` impact stop at it, a selector such as `+model` does not reach what it is made from, and a model that reads it is not ordered after those tables.");
+        "The text of a native model is the engine's own and the tool does not parse it, so without `reads:` the model has no ancestors: `project show graph` and `--column` impact stop at it, a selector such as `+model` does not reach what it is made from, and a model that reads it is not ordered after those tables.");
     public static readonly DiagnosticDescriptor NativeDefinitionChanged = W("234", "A routine a native model uses has changed",
         "the definition of every routine a native model lists under `track_definition` is the one recorded at the last apply",
         "Look at the change (the routine is named, with the recorded and the current hash). If it is intended, apply: the new definition is recorded and the warning goes. `policy.severity.native_definition_changed: error` makes it stop the plan.",
@@ -167,23 +167,23 @@ public static class DiagnosticCatalog
         "`track_definition` compares a routine's live definition with the one recorded at the last apply. Without tracking there is nowhere to keep the record; without permission, or with a name that matches no routine (or several), the engine returns no definition. The routine is then not checked, and nothing is recorded for it.");
     public static readonly DiagnosticDescriptor StringsCompareDifferently = W("236", "A model compares strings on connections that compare them differently",
         "a model whose connections agree on how strings compare (the project's `string_semantics`, or a connection's own), or whose string comparisons are on columns declared `trimmed: true` when only trailing spaces differ",
-        "Make the connections' `string_semantics` agree for what this model compares, declare the columns it compares `trimmed: true` when they never end in a space (`check` counts the rows that break it), or silence this with `lint_ignore: [DDB-236]` on the model.",
+        "Make the connections' `string_semantics` agree for what this model compares, declare the columns it compares `trimmed: true` when they never end in a space (`connection status` counts the rows that break it), or silence this with `lint_ignore: [DDB-236]` on the model.",
         "SQL Server ignores trailing spaces in a comparison and PostgreSQL keeps them, and a collation can ignore case or accents on one connection and not on another. A model that compares, joins, groups, partitions or deduplicates strings, and is built on connections that disagree, can return different rows on each with no error. Only what the model does to string columns is looked at (the lowered query's column uses and their declared types); a comparison inside an expression is seen as a use of the columns it names.");
     public static readonly DiagnosticDescriptor TrimmedColumnHasTrailingSpaces = E("237", "A column declared trimmed has values that end in a space",
         "every value of a column declared `trimmed: true` ends in a non-space",
         "Trim the values (at the source, or in the model that builds the column), or remove `trimmed: true` and let the connections' string semantics decide.",
-        "`trimmed: true` is the declaration that makes trailing spaces, the difference SQL Server and PostgreSQL disagree on, irrelevant for a column. `check` counts the rows whose value ends in a space (no value is read or shown); one is enough to make the declaration untrue.");
+        "`trimmed: true` is the declaration that makes trailing spaces, the difference SQL Server and PostgreSQL disagree on, irrelevant for a column. `connection status` counts the rows whose value ends in a space (no value is read or shown); one is enough to make the declaration untrue.");
     public static readonly DiagnosticDescriptor QueryHeadInvalid = E("238", "A model's query file has a head that cannot be read",
         "a head of the form `CREATE TABLE schema_name.object_name [WITH (kind = '...', unique_key = (...), time_column = ..., lookback = '...')] AS` (or `CREATE VIEW schema_name.object_name AS`) followed by the query, naming the same model as the definition file and not repeating its kind",
         "Correct the head at the reported line and column, or remove it and keep `name:` and `kind:` in the definition file.",
         "A query file may start with a head that says what it builds: a table or a view, its name, and the reload options of its kind. The head is read by the tool itself (it is not SQL that DuckDB or an engine runs); the query after `AS` is passed on as written. The name must be the definition file's `name:` when that says one, and the kind must be said in one place: the head or the definition file, not both.");
     public static readonly DiagnosticDescriptor LoadSliceSourceNotIndexed = W("239", "A load's slice column is read from a source column that no index leads",
         "a slice column (a watermark, time or range column) that comes from a source column an index of the source leads with, or from a source the project declares no indexes or grain for",
-        "If the source table has an index that leads with the column, add it to the source's declaration (`dbdatabuild import` exports it); otherwise ask the table's owner for one, or silence the advice with `lint_ignore: [DDB-239]` in the model (or `lint: { slices: false }` in dbdatabuild.yml).",
+        "If the source table has an index that leads with the column, add it to the source's declaration (`dbdatabuild project import` exports it); otherwise ask the table's owner for one, or silence the advice with `lint_ignore: [DDB-239]` in the model (or `lint: { slices: false }` in dbdatabuild.yml).",
         "A load that reads only the rows after its watermark, or in its range, is cheap when the engine can seek to them, which needs an index on the source whose first column is the one the slice filters. The advice follows the slice column through the query to the source column it is read from (by lineage) and looks at what the project declares for that source: its `indexes:` and its `grain` (the primary key's index leads with the first grain column). A source with neither declared is not judged, because nothing is known about it. A column that is computed (an expression, an aggregate) is not traced. Advice only; the tool never creates an index on a source.");
     public static readonly DiagnosticDescriptor ReadsInconsistentHistory = W("240", "A model reads a column whose history is inconsistent",
         "a model whose upstream columns have recorded history that agrees with the decisions made when they were added, or whose inconsistency an operator has acknowledged",
-        "Run the backfill that was requested (`plan --backfill <model>=<operation>`), or accept the inconsistency with `ack history <model>.<column> --reason ...`. `policy.severity.history_inconsistency: error` makes this refuse the plan; `warning` (the default) reports it.",
+        "Run the backfill that was requested (`connection deploy --backfill <model>=<operation>`), or accept the inconsistency with `connection deploy --ack history:<model>.<column> --reason <why>`. `policy.severity.history_inconsistency: error` makes this refuse the plan; `warning` (the default) reports it.",
         "When a column is added to a model, the plan asks what to do about the rows already loaded, and the answer is recorded (DDB-443 when a backfill was chosen for later and none has been recorded since). A model built from such a column, directly or through other models, carries the NULLs of the missing history into its own rows. The plan follows column lineage from each unacknowledged inconsistency to the models it is about to load, so the concern is raised where the numbers are made, not only where the column was added.");
     public static readonly DiagnosticDescriptor NameTooLongForEngine = E("241", "A name is longer than an engine allows",
         "schema names, object names, column names and index names of at most 128 characters on SQL Server and Fabric and 63 bytes on PostgreSQL (the lengths of the connections the model is built on)",
@@ -195,11 +195,11 @@ public static class DiagnosticCatalog
         "A database exception that no command handled itself. The tool shows its type and its error number and never the driver's message, because a message can quote a server name, a login or a value from the data (DESIGN.md 14.2). It is not a defect of the tool: the command stopped because the database did not do what was asked, and everything that had been sent is in the statement log.");
     public static readonly DiagnosticDescriptor TrackingNotConfigured = W("232", "Nothing is tracked for a connection",
         "a `tracking:` section naming the connection that keeps the records (`tracking: { connection: audit }`), or `tracking: none` to choose not to track",
-        "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
-        "Without tracking the tool keeps no records: a change made outside it is indistinguishable from a model change (plans are made from the declared shape against the live one, and every change to an existing object is marked risky), an incremental model is not blocked when its query changes, `ack`, the column history, `report` and `publish-metadata` have nothing to work with, and an interrupted apply cannot be resumed. Planning and applying still work. `tracking: none` is the explicit choice and does not warn.");
+        "Add `tracking: { connection: <name> }` to dbdatabuild.yml (a connection of the project; `dbdatabuild connection init --connection <name> --apply` creates the tables there), or `tracking: none` if the connection is not to be tracked. A connection can say its own under `connections.<name>.tracking`.",
+        "Without tracking the tool keeps no records: a change made outside it is indistinguishable from a model change (plans are made from the declared shape against the live one, and every change to an existing object is marked risky), an incremental model is not blocked when its query changes, `--ack`, the column history, `connection monitor` and `connection publish` have nothing to work with, and an interrupted apply cannot be resumed. Planning and applying still work. `tracking: none` is the explicit choice and does not warn.");
     public static readonly DiagnosticDescriptor ResolverResultInvalid = E("222", "Resolver returned an unusable result",
         "A resolver that returns exactly one row and one column, of the parameter's type.",
-        "Fix the committed resolver query in the model's `loads:` block, then run `render --write`.",
+        "Fix the committed resolver query in the model's `loads:` block, then run `project compile`.",
         "A resolver supplies a load parameter from the target (DESIGN.md 6.6). Any other shape of result stops that load: the tool never guesses a value.");
 
     // 3xx: matrix / portability
@@ -267,7 +267,7 @@ public static class DiagnosticCatalog
 
     public static readonly DiagnosticDescriptor TypeNotMappable = E("321", "Column type has no native mapping on a target",
         "A logical type from the mapping table (BIGINT, INTEGER, SMALLINT, TINYINT, DOUBLE, FLOAT, BOOLEAN, DATE, TIMESTAMP, TIME, TIMESTAMP WITH TIME ZONE, DECIMAL(p, s), VARCHAR(n), UUID, BLOB).",
-        "Declare a supported type for the column (a cast in the query, then `define`), or remove the target from the model.",
+        "Declare a supported type for the column (a cast in the query, then `project model update`), or remove the target from the model.",
         "DDL needs an exact native type for every declared column. Types without a faithful equivalent (unsigned integers, HUGEINT, structs, lists) are refused rather than guessed. A bare VARCHAR is unlimited text: nvarchar(max) on SQL Server, varchar(max) on Fabric, text on PostgreSQL.");
 
     public static readonly DiagnosticDescriptor IndexNotSupported = E("322", "Index not supported on a target",
@@ -309,28 +309,28 @@ public static class DiagnosticCatalog
 
     public static readonly DiagnosticDescriptor DefinitionOutOfSync = E("420", "Definition is out of sync with its query",
         "Declared columns that match the columns the query returns (name, type, nullability).",
-        $"Run `{ProductInfo.Cli} define <model>` to update the definition.",
+        $"Run `{ProductInfo.Cli} project model update <model>` to update the definition.",
         "A model's declared columns are the output schema that drives DDL and hashing. Planning never proceeds from a stale declared schema.");
     public static readonly DiagnosticDescriptor RenderedFileOutOfDate = E("424", "Committed rendered file is out of date",
         "Files under rendered/ identical to a fresh render of the current models.",
-        $"Run `{ProductInfo.Cli} render --write` and commit the result.",
+        $"Run `{ProductInfo.Cli} project compile` and commit the result.",
         "The rendered load operations are committed and executed exactly as written, so they must match what the current models render to. Planning is blocked for a model whose files differ.");
     public static readonly DiagnosticDescriptor DefinitionFileChanged = E("421", "Definition file changed while define was running",
         "The definition file unchanged between being read and being written.",
-        $"Run `{ProductInfo.Cli} define` again.",
-        "`define` checks the file's hash before writing and refuses if anything else touched it, so concurrent edits are never overwritten.");
+        $"Run `{ProductInfo.Cli} project model update` again.",
+        "`project model update` checks the file's hash before writing and refuses if anything else touched it, so concurrent edits are never overwritten.");
     public static readonly DiagnosticDescriptor DefinitionNotEditable = E("422", "Definition cannot be edited automatically",
         "A `columns:` list written in block style.",
         "Rewrite the part named in the message in block style, or edit the definition by hand.",
-        "`define` edits definitions by minimal text splices located with the YAML parser's positions, which needs block style for the lists it changes.");
+        "`project model update` edits definitions by minimal text splices located with the YAML parser's positions, which needs block style for the lists it changes.");
 
     public static readonly DiagnosticDescriptor ObjectChangedOutsideTool = E("430", "Object changed outside the tool",
         "A live shape equal to the last shape the tool recorded for the object.",
-        $"Review the change, then run `{ProductInfo.Cli} ack drift <object>` to accept the live shape as the new baseline, or restore the object.",
+        $"Review the change, then run `{ProductInfo.Cli} connection deploy --ack drift:<object> --reason <why>` to accept the live shape as the new baseline, or restore the object.",
         "The target's catalog hash for this object differs from the last recorded one (DESIGN.md 12.2). Planning for the model and everything downstream of it is blocked until a person decides.");
     public static readonly DiagnosticDescriptor LoadDefinitionChanged = E("431", "Incremental model changed since its last load",
         "An incremental model whose query is unchanged since the last load, or a change that a person has acknowledged.",
-        $"Review the difference, then run `{ProductInfo.Cli} ack definition <model>`, or request a backfill.",
+        $"Review the difference, then run `{ProductInfo.Cli} connection deploy --ack definition:<model> --reason <why>`, or request a backfill.",
         "Rows already loaded were produced by the old query. Loading more rows with a changed query would mix two definitions in one table, so planning is blocked until a person decides (DESIGN.md 11).");
     public static readonly DiagnosticDescriptor AdoptionDeclined = E("432", "Existing object was not adopted",
         "An answer of `adopt` for objects that exist on the target but have no tool record.",
@@ -346,9 +346,9 @@ public static class DiagnosticCatalog
         "Planning for this model stopped; the message says why.");
 
     public static readonly DiagnosticDescriptor PlanFileInvalid = E("435", "Plan file is invalid or was edited",
-        "A plan file exactly as `plan` wrote it: every key known, its content hash matching.",
-        $"Generate a new plan with `{ProductInfo.Cli} plan`. A plan is never edited by hand.",
-        "A plan records the exact statements `apply` will run, and a content hash over all of it (DESIGN.md 10.3). A hand-edited or damaged plan is refused rather than applied.");
+        "A plan file exactly as `connection deploy` wrote it: every key known, its content hash matching.",
+        $"Generate a new plan with `{ProductInfo.Cli} connection deploy`. A plan is never edited by hand.",
+        "A plan records the exact statements applying it will run, and a content hash over all of it (DESIGN.md 10.3). A hand-edited or damaged plan is refused rather than applied.");
 
     public static readonly DiagnosticDescriptor StepNeedsAllowance = E("436", "Plan step needs an explicit allowance",
         "Risky steps with `--allow-risky`; destructive steps with `--allow-destructive <object>` naming each object they change.",
@@ -356,11 +356,11 @@ public static class DiagnosticCatalog
         "Risk classes are decided at plan time and enforced at apply time (DESIGN.md 10.4). No flag is implied by another, and destructive allowances name objects, never `all`.");
     public static readonly DiagnosticDescriptor PlanIsStale = E("437", "Plan is stale",
         $"A live target whose hashes and resolver results equal the ones the plan recorded.",
-        $"Generate a new plan with `{ProductInfo.Cli} plan`. A stale plan is never applied or adjusted.",
+        $"Generate a new plan with `{ProductInfo.Cli} connection deploy`. A stale plan is never applied or adjusted.",
         "The plan was made against a different state of the target than the one that exists now (DESIGN.md 10.3). Applying it could do something its reviewer never saw, so it is refused.");
     public static readonly DiagnosticDescriptor PlanAlreadyStarted = E("438", "Plan was already applied or partly applied",
         $"A plan that was never applied, or a partly applied one resumed with `--resume`.",
-        $"Use `{ProductInfo.Cli} apply --resume <plan>` for a plan that stopped part-way, or generate a new plan.",
+        $"Use `{ProductInfo.Cli} connection deploy --apply-plan <plan>` for a plan that stopped part-way, or generate a new plan.",
         "Plans are single-use. A plan that completed is never run again. One that stopped part-way continues only when the live objects are exactly in the recorded intermediate state (DESIGN.md 10.3).");
     public static readonly DiagnosticDescriptor ApplyLockHeld = E("439", "Another apply holds the application lock",
         "No other apply running against this target.",
@@ -368,11 +368,11 @@ public static class DiagnosticCatalog
         "Applies are mutually exclusive per target (`sp_getapplock` on SQL Server, an advisory lock on PostgreSQL). The tool does not wait or queue.");
     public static readonly DiagnosticDescriptor StepFailed = E("440", "A plan step failed",
         "Every step completing.",
-        $"Read the statement log named in the output, fix the cause, then `{ProductInfo.Cli} apply --resume <plan>` or generate a new plan.",
+        $"Read the statement log named in the output, fix the cause, then `{ProductInfo.Cli} connection deploy --apply-plan <plan>` or generate a new plan.",
         "Steps stopped at the failure; later steps did not run. The step's status and the objects' hashes are recorded.");
     public static readonly DiagnosticDescriptor ApplyStopped = E("445", "Apply was stopped by the operator",
         "an apply that runs every step, or is stopped between two of them",
-        $"`{ProductInfo.Cli} apply --resume <plan>` continues from the next step if the objects are still in the state the finished steps left them in.",
+        $"`{ProductInfo.Cli} connection deploy --apply-plan <plan>` continues from the next step if the objects are still in the state the finished steps left them in.",
         "The operator asked to stop (from the terminal interface). A step that had started finished; the next one never started, so nothing is half done, and the migration is recorded as failed so that --resume can pick it up.");
     public static readonly DiagnosticDescriptor StepResultDiffers = E("441", "A step's result differs from the plan",
         "A shape hash after each DDL step equal to the one the plan promised.",
@@ -385,18 +385,18 @@ public static class DiagnosticCatalog
 
     public static readonly DiagnosticDescriptor HistoryInconsistent = W("443", "A column's recorded history contradicts what was decided",
         "A recorded backfill after a `backfill_later` decision, or an operator's acknowledgement that none is wanted.",
-        $"Run the backfill (`{ProductInfo.Cli} plan --backfill <model>=<operation>`), or accept the situation with `{ProductInfo.Cli} ack history <model>.<column> --reason ...`.",
+        $"Run the backfill (`{ProductInfo.Cli} connection deploy --backfill <model>=<operation>`), or accept the situation with `{ProductInfo.Cli} connection deploy --ack history:<model>.<column> --reason <why>`.",
         "The warning is information, not a block: the operator decides what is a continuing concern. An acknowledgement is recorded with who made it and why, changes no data, and is tied to the one plan whose decision it is about.");
 
-    // 6xx: project tests (`test`)
+    // 6xx: project tests (`project tests run`)
     public static readonly DiagnosticDescriptor TestFailed = E("601", "A project test failed",
         "a test that returns no violations: a metadata rule (`tests/metadata/<name>.sql`) whose SELECT returns no rows",
-        $"Read the violating rows (shown with the finding and in `{ProductInfo.Cli} test --format json`) and fix the models, or change the rule. A rule that should only advise says `-- severity: warning` at the top of the file.",
+        $"Read the violating rows (shown with the finding and in `{ProductInfo.Cli} project tests run --format json`) and fix the models, or change the rule. A rule that should only advise says `-- severity: warning` at the top of the file.",
         "A metadata rule is a DuckDB SELECT over the metadata views (`metadata_columns`, `metadata_models`, `metadata_sources`, `metadata_lineage`, `metadata_indexes`, `metadata_loads`, `metadata_hooks`, `metadata_native_types`, `metadata_index_advice`, `metadata_upstream`, `metadata_current`) that returns the violations. Each returned row is one violation. An `error` rule makes `test` exit non-zero; a `warning` rule is reported with this code at warning severity and does not, unless `--strict` is given.");
     public static readonly DiagnosticDescriptor TestCouldNotRun = E("602", "A project test could not run",
         "a rule whose SQL DuckDB can run over the metadata views",
-        "Fix the SQL (the message is DuckDB's). Run `dbdatabuild test --format json` to see it, and query the views by hand with `dbdatabuild metadata --format json` for the documents they are built from.",
-        "A rule that fails to run is an error whatever its severity: a rule nobody can run protects nothing. The metadata views are built from the same documents `metadata` prints, in an in-memory DuckDB with file and network access off.");
+        "Fix the SQL (the message is DuckDB's). Run `dbdatabuild project tests run --format json` to see it, and query the views by hand with `dbdatabuild project show metadata --format json` for the documents they are built from.",
+        "A rule that fails to run is an error whatever its severity: a rule nobody can run protects nothing. The metadata views are built from the same documents `project show metadata` prints, in an in-memory DuckDB with file and network access off.");
     public static readonly DiagnosticDescriptor TestNotASelect = E("603", "A project test is not a single SELECT",
         "one SELECT (or WITH ... SELECT) statement",
         "Make the file one query that returns the violating rows.",
@@ -420,8 +420,8 @@ public static class DiagnosticCatalog
         "This is a bug in the tool. Report it with the command line used.",
         "Read-only commands run catalog and tracking-table queries through a guard that refuses anything that could change data. The read login's permissions are the real enforcement; the guard is a second layer. Nothing was executed.");
     public static readonly DiagnosticDescriptor TrackingNotInitialized = E("505", "Tracking tables are missing or have an unknown layout",
-        $"The tracking tables created by `{ProductInfo.Cli} init` (in the tracking schema name), at a layout version this tool knows.",
-        $"Run `{ProductInfo.Cli} init` (review its script first), or use a newer tool if the layout is newer. If they exist, the read login cannot see them: it needs SELECT on the tracking schema name, and on SQL Server an explicit DENY VIEW DEFINITION hides them from the catalog.",
+        $"The tracking tables created by `{ProductInfo.Cli} connection init` (in the tracking schema name), at a layout version this tool knows.",
+        $"Run `{ProductInfo.Cli} connection init` (review its script first), or use a newer tool if the layout is newer. If they exist, the read login cannot see them: it needs SELECT on the tracking schema name, and on SQL Server an explicit DENY VIEW DEFINITION hides them from the catalog.",
         "Planning and applying need the tracking tables to compare hashes and to record what was done. The tool finds them in the engine's catalog with the read login, so a login that is denied the metadata of those tables sees none (checked on SQL Server 2022: with `DENY VIEW DEFINITION` the tables are reported as missing; with SELECT on the schema and no VIEW DEFINITION they are found, and only routine definitions are unreadable, DDB-235).");
 
     // 9xx: internal

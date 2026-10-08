@@ -232,7 +232,7 @@ public class SourceImportTests
     {
         var dir = Project(withSource: true);
         var before = Snapshot(dir);
-        var (exit, _, err) = Run("import", "--project", dir, "--write");
+        var (exit, _, err) = Run("project", "import", "--project", dir, "--write");
         Assert.Equal(1, exit);
         Assert.Contains("DDB-501", err);
         Assert.Equal(before, Snapshot(dir));
@@ -241,7 +241,7 @@ public class SourceImportTests
     [Fact]
     public void Import_without_patterns_and_without_descriptors_asks_for_a_pattern()
     {
-        var (exit, _, err) = Run("import", "--project", Project(withSource: false));
+        var (exit, _, err) = Run("project", "import", "--project", Project(withSource: false));
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("no mapped models yet", err);
     }
@@ -250,8 +250,8 @@ public class SourceImportTests
     public void Import_refuses_check_with_write_and_a_pattern_without_a_schema()
     {
         var dir = Project(withSource: true);
-        Assert.Equal(CliApp.ExitUsage, Run("import", "--project", dir, "--check", "--write").Exit);
-        var (exit, _, err) = Run("import", "--project", dir, "orders");
+        Assert.Equal(CliApp.ExitUsage, Run("project", "import", "--project", dir, "--check", "--write").Exit);
+        var (exit, _, err) = Run("project", "import", "--project", dir, "orders");
         Assert.Equal(CliApp.ExitUsage, exit);
         Assert.Contains("not `schema_name.table_name`", err);
     }
@@ -263,7 +263,7 @@ public class SourceImportTests
     {
         var dir = Project(withSource: true);
         var o = new StringWriter();
-        Assert.Equal(0, CliApp.Run(["metadata", "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
+        Assert.Equal(0, CliApp.Run(["project", "show", "metadata", "--project", dir, "--format", "json"], o, new StringWriter(), environment: _ => null));
         var doc = JsonNode.Parse(o.ToString())!;
         var metadata = SchemaConformanceTests.LoadSchema("metadata");
         bool Valid(JsonNode? n) => metadata.Evaluate(JsonSerializer.SerializeToNode(n), new EvaluationOptions { OutputFormat = OutputFormat.List }).IsValid;

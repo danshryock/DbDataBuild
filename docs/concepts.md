@@ -1,6 +1,6 @@
 # Concepts: project and connection, deploy and refresh
 
-> **Status, 2026-10-07.** This page describes the model the tool is being moved to (`docs/research/lifecycle-model.md`). The command names below are the destination; `docs/research/lifecycle-implementation.md` says which are built. `docs/commands.md` is generated from the program and is always what exists now.
+> **Status, 2026-10-07.** The command names below are built (entry 135), except the ones the implementation plan lists as *later* (`connection inspect`, `project model create`, `project tests list`, `connection tests run`), the positional connection name (today `--connection <c>`), and the plan policy, events and refresh checks (`docs/research/lifecycle-implementation.md`, phases 4 to 6). `docs/commands.md` is generated from the program and is always what exists now.
 
 ## The two things you work on
 

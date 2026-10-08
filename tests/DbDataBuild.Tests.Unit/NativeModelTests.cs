@@ -84,12 +84,12 @@ public class NativeModelTests
         Write(dir, "models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2', ',') WHERE 1 < ${project.top}\n" + Cols);
         Write(dir, "models/marts/m.yml", "name: marts.m\nkind: {type: full}\n" + Cols);
         Write(dir, "models/marts/m.sql", "SELECT x.n FROM src.nums AS x WHERE x.n > 0\n");
-        var (exit, _, err) = Cli("render", "--write", "--project", dir);
+        var (exit, _, err) = Cli("project", "compile", "--project", dir);
         Assert.True(exit == 0, err);
         var script = File.ReadAllText(Path.Combine(dir, "rendered/sqlserver/marts.m/load.default.sql"));
         Assert.Contains("FROM (SELECT CAST(value AS int) AS n FROM STRING_SPLIT('1,2', ',') WHERE 1 < @p_native_src_nums__project_top) AS x", script);   // the author's alias, the text is the engine's own
         Assert.Contains("@p_native_src_nums__project_top (INTEGER, parameter)", script);
-        Assert.Equal(0, Cli("render", "--check", "--project", dir).Exit);
+        Assert.Equal(0, Cli("project", "compile", "--check", "--project", dir).Exit);
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class NativeModelTests
         Write(dir, "models/src/nums.yml", "name: src.nums\nkind:\n  type: native\n  query: SELECT 1 AS n\nconnections=: [pg]\n" + Cols);
         Write(dir, "models/marts/m.yml", "name: marts.m\nkind: {type: full}\n" + Cols);
         Write(dir, "models/marts/m.sql", "SELECT n FROM src.nums\n");
-        var (exit, _, err) = Cli("validate", "--project", dir);
+        var (exit, _, err) = Cli("project", "compile", "--project", dir);
         Assert.NotEqual(0, exit);
         Assert.Contains("DDB-231", err);
     }
@@ -127,7 +127,7 @@ public class NativeModelTests
         Write(dir, "models/marts/v1.sql", "SELECT n FROM src.plain\n");
         Write(dir, "models/marts/v2.yml", "name: marts.v2\nkind: {type: view}\n" + Cols);
         Write(dir, "models/marts/v2.sql", "SELECT n FROM src.bound\n");
-        Assert.Equal(0, Cli("render", "--write", "--project", dir).Exit);                   // rendering views has no load script; the plan is where the refusal is (conformance tests plan and apply)
+        Assert.Equal(0, Cli("project", "compile", "--project", dir).Exit);                   // rendering views has no load script; the plan is where the refusal is (conformance tests plan and apply)
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class NativeModelTests
         Write(dir, "models/src/a.yml", "name: src.a\nreads: [marts.stock]\nkind:\n  type: native\n  query: SELECT n FROM marts.stock\n" + Cols);
         Write(dir, "models/marts/top.yml", "name: marts.top\nkind: {type: full}\n" + Cols);
         Write(dir, "models/marts/top.sql", "SELECT n FROM src.a\n");
-        var metadata = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json").Out)!["data"]!;
+        var metadata = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "metadata", "--project", dir, "--format", "json").Out)!["data"]!;
         var source = metadata["sources"]!.AsArray().Single()!;
         Assert.Equal("src.a", (string?)source["name"]);
         Assert.Equal("models/src/a.yml", (string?)source["file"]);
@@ -169,10 +169,10 @@ public class NativeModelTests
 
         var hash = (string?)source["definition_hash"];
         Write(dir, "models/src/a.yml", "name: src.a\nreads: [marts.stock]\nkind:\n  type: native\n  query: SELECT n FROM marts.stock WHERE n > 0\n" + Cols);
-        var changed = System.Text.Json.Nodes.JsonNode.Parse(Cli("metadata", "--project", dir, "--format", "json").Out)!["data"]!["sources"]!.AsArray().Single()!;
+        var changed = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "metadata", "--project", dir, "--format", "json").Out)!["data"]!["sources"]!.AsArray().Single()!;
         Assert.NotEqual(hash, (string?)changed["definition_hash"]);                                    // the text is part of what the model is
 
-        var graph = System.Text.Json.Nodes.JsonNode.Parse(Cli("graph", "--project", dir, "--format", "json", "marts.top").Out)!["data"]!;
+        var graph = System.Text.Json.Nodes.JsonNode.Parse(Cli("project", "show", "graph", "--project", dir, "--format", "json", "marts.top").Out)!["data"]!;
         Assert.Equal(["marts.stock:model", "marts.top:model", "src.a:native"], graph["nodes"]!.AsArray().Select(n => $"{(string?)n!["name"]}:{(string?)n["kind"]}").Order(StringComparer.Ordinal));
         Assert.Contains(graph["edges"]!.AsArray(), e => (string?)e!["from"] == "marts.stock" && (string?)e["to"] == "src.a");
     }

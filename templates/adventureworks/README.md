@@ -5,12 +5,11 @@ people), with every row made up by SQL in `seeds/`: nothing is copied from the o
 (`production`, `sales`, `purchasing`, `humanresources`), a staging layer of views, and a warehouse of dimensions, facts, aggregates and reports.
 
 ```
-dbdatabuild validate                       # config, models, sources and how each query lowers
-dbdatabuild graph --columns                # what reads what, and where each column comes from
-dbdatabuild seed --scale 800               # generate the source data (the scale is the number of customers; four orders each)
-dbdatabuild sample marts.fct_bom_explosion # run a model on that data and look at the rows
-dbdatabuild test                           # metadata rules and model tests
-dbdatabuild render --write                 # the load scripts for SQL Server (rendered/)
+dbdatabuild project compile                         # check config, models and sources, see how each query lowers, and write the load scripts (rendered/) to read and commit
+dbdatabuild project show graph --columns                # what reads what, and where each column comes from
+dbdatabuild project seed --scale 800               # generate the source data (the scale is the number of customers; four orders each)
+dbdatabuild project sample marts.fct_bom_explosion # run a model on that data and look at the rows
+dbdatabuild project tests run                           # metadata rules and model tests
 ```
 
 ## The transforms worth reading
@@ -50,11 +49,11 @@ quintiles, the year-on-year comparison, the on-time flags.
 (`DBDATABUILD_SQLSERVER_WRITE` for what writes, `DBDATABUILD_SQLSERVER_READ` for what reads; see the main documentation):
 
 ```
-dbdatabuild load-seeds --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
-dbdatabuild init --apply               # the tracking tables
-dbdatabuild render --write             # the rendered files are checked in against the models
-dbdatabuild plan --accept-inferred     # reads the database, writes a plan you can read
-dbdatabuild apply plans/sqlserver/<the plan>.plan.yml
+dbdatabuild connection seed --apply         # creates the source tables and loads them (--replace drops and recreates tables that exist)
+dbdatabuild connection init --apply               # the tracking tables
+dbdatabuild project compile --check     # the rendered files are checked in against the models
+dbdatabuild connection deploy --write-plan --accept-inferred   # reads the database, writes a plan you can read
+dbdatabuild connection deploy --apply-plan plans/sqlserver/<the plan>.plan.yml
 ```
 
 ## Notes
