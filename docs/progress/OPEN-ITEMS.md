@@ -164,3 +164,17 @@ Limits, written down:
 - **Fabric** has none of the work done in this stretch checked: the `N'...'` literals (entry 120), the `now()` rule (126) and the cross-connection digests (92, which also need `HASHBYTES` and a UTF-8 collation there) are applied to SQL Server only or unverified.
 - **Cross-connection `diff`**: floating-point columns and a PostgreSQL `numeric` without precision are not compared; a comparison that differs in most rows stops at the buckets (114); about 25 s a million rows.
 - **Probed and found sound** (no entry needed beyond the log): names with keywords, spaces, accents and quotes (110), text edge values in copies (123), CRLF and paths with spaces and accents (124), a case-sensitive SQL Server database (124), a 1,500-view chain, a 600-column model, 300 models (107, 109), a server at -07:00 and one at +05:30, a German SQL Server session (127).
+
+## S. Samples and templates: what the 2026-10-08 lifecycle work did not reach (added 2026-10-08)
+
+Checked: the four templates (`starter`, `retail`, `chinook`, `adventureworks`) have **no `macros/` folder and no copy** (their `seeds/macros.sql` are DuckDB helpers for generating seed data, not project macros), and each has one connection set. Only `starter` was walked through the new cycle and only `starter` has the commented `plans:`/`refresh:`/`retention:` block.
+
+- **Lifecycle settings in the templates**: show non-default, illustrative `plans:` (keep/audit), `refresh.check`/`on_fail` and `retention` in `retail`, `chinook` and `adventureworks` (commented, as in `starter`, or live where harmless).
+- **Walk-throughs in the template READMEs**: the cycle `connection inspect`, `init`, `deploy`, `refresh`, `status`, `monitor` (with `--event`, `--attention`), what each `refresh.check` level asks the database.
+- **Walk `retail`, `chinook` and `adventureworks` through the new flow by hand** on SQL Server and PostgreSQL, as entry 142 did for `starter`; fix what it finds.
+- **Multi-connection samples** (a new template, or additions to `retail`):
+  - a **fan-in** copy from two origins into one table (with a slice per origin);
+  - a **fan-out** of one model to two engines (SQL Server and PostgreSQL), with per-connection string semantics shown (parked, section P: show it, add nothing);
+  - a **refresh plan** for that project showing what is and is not routine: copies appear under `excluded` in `refresh.plan.yml` ("a copy moves rows between connections; a deploy plans it"). Copies in a refresh are not built (section E item 0).
+- **Dynamic macros** (`macros/*.sql`, DESIGN.md 6.5): a sample with a scalar macro, a table macro (`AS TABLE`) and a `CREATE TYPE`; one macro used by several tables of the same shape (the `snapshot_at` pattern); a macro given a `NAME` parameter; a README note that a macro is never run by an engine and the rendered files show only its expansion; a test that renders the sample and checks the expansion on both engines against DuckDB.
+- **Template tests**: the `Group=templates` conformance group should cover each new sample.

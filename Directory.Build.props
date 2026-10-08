@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <!-- the release version of a development build; scripts/publish.sh stamps the real one (VERSION=...), and a release bumps this -->
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Dan Shryock</Authors>
     <Copyright>Copyright (c) 2026 Dan Shryock</Copyright>

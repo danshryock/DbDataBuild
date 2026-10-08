@@ -1055,3 +1055,8 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Found and fixed**: `connection deploy` and `connection refresh` printed the command header twice (the plan's and the apply's) and the interactive deploy named the plan twice; `connection seed` suggested `init --apply` after init was done; `inspect` columns did not line up; the closing line of a refresh said "Applied plan ref-…".
 - **Added**: `connection monitor --lane deploy|refresh` (the events and their DDL and loads of one lane), `--event <id>` (every state of one event, its DDL and its loads; `data.event` in the document), `--attention` (only what needs attention in the text).
 - **Verified**: unit suite and the conformance test of the refresh (which now also exercises the three options) on both engines.
+
+## 143. Sample and template work written down; release 0.4.0
+
+- **Checked**: no template has project macros or a copy; only `starter` was walked through the new cycle. The remaining work is OPEN-ITEMS section S (settings, walk-throughs, fan-in and fan-out samples, a refresh plan with `excluded` copies, dynamic-macro examples).
+- **Release 0.4.0**: `<Version>` and the Scoop manifest moved to 0.4.0; the release workflow's smoke test uses `help matrix` (the old `matrix` verb is gone). The Scoop hash is filled in by the `scoop` job of the release workflow once the artifact exists, not by hand.

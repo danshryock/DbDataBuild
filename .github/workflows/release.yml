@@ -44,7 +44,7 @@ jobs:
         run: |
           exe=out/dbdatabuild; [ -f out/dbdatabuild.exe ] && exe=out/dbdatabuild.exe
           "$exe" --help > /dev/null
-          "$exe" matrix --format json | grep -q '"ok": true'
+          "$exe" help matrix --format json | grep -q '"ok": true'
       - name: Package
         shell: bash
         run: |
