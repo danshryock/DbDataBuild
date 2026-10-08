@@ -342,7 +342,10 @@ Effect: Target read-only. Reads and writes: `C→`. Lane: inspect.
 
 | Option | Meaning |
 |---|---|
+| `--attention` | Only what needs attention (the other tables are left out of the text; the document still has them) |
 | `--connection` `<text>` | Connection (default: the project's only default connection) |
+| `--event` `<text>` | One event in detail, by its id (as the first table shows it): its states, its DDL and its loads |
+| `--lane` `<text>` | Only the events of this lane (and their DDL and loads): deploy or refresh |
 | `--last` `<number>` | How many recent rows of each history to show |
 | `--project` `<path>` | Project root |
 

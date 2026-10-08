@@ -2305,6 +2305,116 @@
               "latest_attempt"
             ]
           }
+        },
+        "event": {
+          "description": "With --event: one event in detail.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "lane": {
+              "enum": [
+                "deploy",
+                "refresh"
+              ]
+            },
+            "states": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "when_utc": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": "string"
+                  },
+                  "commit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "when_utc",
+                  "status"
+                ]
+              }
+            },
+            "ddl": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "when_utc": {
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "statement": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "when_utc",
+                  "object",
+                  "status"
+                ]
+              }
+            },
+            "loads": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "started_utc": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "operation": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "rows": {
+                    "type": "string"
+                  },
+                  "ended_utc": {
+                    "type": "string"
+                  },
+                  "watermark": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "started_utc",
+                  "model",
+                  "operation",
+                  "status"
+                ]
+              }
+            }
+          },
+          "required": [
+            "id",
+            "lane",
+            "states",
+            "ddl",
+            "loads"
+          ]
         }
       }
     },

@@ -15,13 +15,15 @@ namespace DbDataBuild.Cli;
 /// </summary>
 internal static class ReportCommand
 {
-    public static int Run(CommandSpec spec, string root, string? targetArg, int last, TextWriter output, TextWriter error, Func<string, string?> env)
+    public static int Run(CommandSpec spec, string root, string? targetArg, int last, string? lane, string? eventId, bool attentionOnly, TextWriter output, TextWriter error, Func<string, string?> env)
     {
         var config = ProjectConfigLoader.LoadFromProject(root, new List<Diagnostic>());
         var connection = CommandTargets.Resolve(config, targetArg, error);
         if (connection == null) return CliApp.ExitUsage;
         var target = connection.Name; var engine = connection.Engine;
         if (last < 1) { error.WriteLine("--last must be at least 1."); return CliApp.ExitUsage; }
+        if (eventId != null && (lane != null || attentionOnly)) { error.WriteLine("--event shows one event in detail; it does not go with --lane or --attention."); return CliApp.ExitUsage; }
+        bool InLane(string planId) => lane == null || planId.StartsWith("ref-", StringComparison.Ordinal) == (lane == "refresh");
         var (login, missing) = LoginSettings.FromEnvironment(connection.Name, connection.Engine, Login.Read, env);
         var tracking = CommandTracking.Require(config, connection, env, needWrite: false, error, spec.Name);
         output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}  |  connection: {target}  |  login: {login?.Describe() ?? "none"}; records on {tracking?.Target.Connection ?? "none"}");
@@ -44,12 +46,49 @@ internal static class ReportCommand
             var status = await TrackingStore.StatusAsync(trackRead, scope.Engine, schema);
             if (status.AsDiagnostic(schema) is { } notReady) { error.Diag(notReady); return CliApp.ExitFindings; }
 
+            // one event in detail: every state it went through, the DDL it ran, the loads it did
+            async Task<int> EventDetailAsync()
+            {
+                string C(string n) => ddl.Quote(n);
+                string T(string t) => $"{C(schema)}.{C(t)}";
+                var id = new[] { new GateParameter("connection", System.Data.DbType.String, scope.Connection), new GateParameter("plan_id", System.Data.DbType.AnsiString, eventId) };
+                var states = await trackRead.QueryAsync($"SELECT {C("applied_utc")}, {C("status")}, {C("applied_by")}, {C("git_commit")} FROM {T("migration_log")} WHERE {C("connection")} = @connection AND {C("plan_id")} = @plan_id ORDER BY {C("applied_utc")}", id);
+                if (states.Count == 0)
+                {
+                    error.WriteLine($"No event `{eventId}` is recorded for `{target}`. The first table of `{ProductInfo.Cli} connection monitor` lists them.");
+                    return CliApp.ExitFindings;
+                }
+                var steps = await trackRead.QueryAsync($"SELECT {C("executed_utc")}, {C("object_name")}, {C("status")}, {C("statement_hash")} FROM {T("ddl_log")} WHERE {C("connection")} = @connection AND {C("plan_id")} = @plan_id ORDER BY {C("executed_utc")}", id);
+                var loads = await trackRead.QueryAsync($"SELECT {C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("ended_utc")}, {C("watermark_used")} FROM {T("run_log")} WHERE {C("connection")} = @connection AND {C("plan_id")} = @plan_id ORDER BY {C("started_utc")}", id);
+                string Cell(object? v) => v switch { null => "", DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), string s => s.Trim(), _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" };
+                var laneOf = eventId!.StartsWith("ref-", StringComparison.Ordinal) ? "refresh" : "deploy";
+                output.Payload("connection", target);
+                output.Payload("event", new
+                {
+                    id = eventId, lane = laneOf,
+                    states = states.Select(r => new { when_utc = Cell(r[0]), status = Cell(r[1]), by = Cell(r[2]), commit = Cell(r[3]) }).ToList(),
+                    ddl = steps.Select(r => new { when_utc = Cell(r[0]), @object = Cell(r[1]), status = Cell(r[2]), statement = Cell(r[3]) }).ToList(),
+                    loads = loads.Select(r => new { started_utc = Cell(r[0]), model = Cell(r[1]), operation = Cell(r[2]), status = Cell(r[3]), rows = Cell(r[4]), ended_utc = Cell(r[5]), watermark = Cell(r[6]) }).ToList(),
+                });
+                output.WriteLine();
+                output.WriteLine($"Event {eventId} ({laneOf} lane) on {target}");
+                output.WriteLine("States");
+                foreach (var r in states) output.WriteLine($"  {Cell(r[0])}  {Cell(r[1]),-10} by {(Cell(r[2]).Length > 0 ? Cell(r[2]) : "-")}, commit {(Cell(r[3]).Length > 0 ? Cell(r[3])[..Math.Min(12, Cell(r[3]).Length)] : "-")}");
+                output.WriteLine($"DDL ({steps.Count})");
+                foreach (var r in steps) output.WriteLine($"  {Cell(r[0])}  {Cell(r[1]),-24} {Cell(r[2]),-8} {Cell(r[3])[..Math.Min(12, Cell(r[3]).Length)]}");
+                output.WriteLine($"Loads ({loads.Count})");
+                foreach (var r in loads) output.WriteLine($"  {Cell(r[0])}  {Cell(r[1]),-24} {Cell(r[2]),-10} {Cell(r[3]),-8} rows {Cell(r[4])}{(Cell(r[6]).Length > 0 ? $", watermark {Cell(r[6])}" : "")}");
+                output.Next("connection monitor");
+                return CliApp.ExitOk;
+            }
+
             string Cell(object? v) => v switch { null => "", DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), string s => s.Trim(), _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" };
             string Short(object? v) => Cell(v) is { Length: > 12 } s ? s[..12] : Cell(v);
             void Table(string key, string title, string[] header, IEnumerable<string[]> rows)
             {
                 var list = rows.ToList();
                 output.Payload(key, list.Select(r => header.Zip(r).ToDictionary(p => System.Text.RegularExpressions.Regex.Replace(p.First.ToLowerInvariant(), "[^a-z0-9]+", "_").Trim('_'), p => p.Second)).ToList());
+                if (attentionOnly) return;
                 output.WriteLine();
                 output.WriteLine($"{title} ({list.Count})");
                 if (list.Count == 0) { output.WriteLine("  none"); return; }
@@ -59,14 +98,15 @@ internal static class ReportCommand
             }
 
             // one row per event (a deploy or a refresh run), whatever states it went through
-            var events = await AuditLog.EventsAsync(trackRead, scope, last);
-            Table("events", "Events (newest first)", ["when (UTC)", "event", "lane", "status", "by", "commit"], events.Select(e => new[] { Cell(e.StartedUtc), e.Id, e.Lane, e.Status, e.By, Short(e.Commit) }));
+            if (eventId != null) return await EventDetailAsync();
+            var events = (await AuditLog.EventsAsync(trackRead, scope, lane == null ? last : last * 6)).Where(e => lane == null || e.Lane == lane).Take(last).ToList();
+            Table("events", lane == null ? "Events (newest first)" : $"Events of the {lane} lane (newest first)", ["when (UTC)", "event", "lane", "status", "by", "commit"], events.Select(e => new[] { Cell(e.StartedUtc), e.Id, e.Lane, e.Status, e.By, Short(e.Commit) }));
 
             var ddlRows = await trackRead.QueryAsync(Top($"{C("executed_utc")}, {C("object_name")}, {C("status")}, {C("plan_id")}, {C("statement_hash")}", T("ddl_log"), $"{C("executed_utc")} DESC"), byConnection);
-            Table("ddl", "DDL (newest first)", ["when (UTC)", "object", "status", "plan", "statement"], ddlRows.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
+            Table("ddl", "DDL (newest first)", ["when (UTC)", "object", "status", "plan", "statement"], ddlRows.Where(r => InLane(Cell(r[3]))).Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Short(r[4]) }));
 
             var runs = await trackRead.QueryAsync(Top($"{C("started_utc")}, {C("model")}, {C("operation")}, {C("status")}, {C("rows_affected")}, {C("plan_id")}", T("run_log"), $"{C("started_utc")} DESC"), byConnection);
-            Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
+            Table("loads", "Loads (newest first)", ["started (UTC)", "model", "operation", "status", "rows", "plan"], runs.Where(r => InLane(Cell(r[5]))).Select(r => new[] { Cell(r[0]), Cell(r[1]), Cell(r[2]), Cell(r[3]), Cell(r[4]), Cell(r[5]) }));
 
             // each origin of each copy: when it last copied well, and how the latest attempt ended (a run is recorded as `from <origin>`; older records have no origin)
             var transfers = await trackRead.QueryAsync($"SELECT {C("model")}, {C("load_name")}, {C("status")}, {C("started_utc")}, {C("rows_affected")} FROM {T("run_log")} WHERE {C("connection")} = @connection AND {C("operation")} = 'transfer' ORDER BY {C("started_utc")} DESC", byConnection);

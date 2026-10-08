@@ -47,6 +47,6 @@ internal static class DeployCommand
                 return CliApp.ExitOk;
             }
         }
-        return ApplyCommand.Run(spec, written, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env, target);
+        return ApplyCommand.Run(spec, written, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env, target, afterPlan: true);
     }
 }

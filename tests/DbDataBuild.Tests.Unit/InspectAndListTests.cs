@@ -29,7 +29,7 @@ public class InspectAndListTests
         Assert.Equal(CliApp.ExitFindings, r.Exit);
         Assert.Contains("reads/writes: C→  |  lane: inspect", r.Out);
         Assert.Contains("read login    DBDATABUILD_SQLSERVER_READ: not set", r.Out);
-        Assert.Contains("write login    DBDATABUILD_SQLSERVER_WRITE: not set", r.Out);
+        Assert.Contains("write login   DBDATABUILD_SQLSERVER_WRITE: not set", r.Out);
         Assert.Contains("thing(s) in the way", r.Out);
     }
 

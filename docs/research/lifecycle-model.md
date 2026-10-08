@@ -10,7 +10,7 @@ Status: **design, 2026-10-07.** Written from the owner's conceptual table and th
 > * `plans.deploy.require_clean_tree` is true by default (a deploy or a refresh from a tree with changes is refused unless `--allow-dirty`).
 > * `audit` below `full` stores no text; below `standard` also no person and no commit. The column-history report reads decisions from stored plan text, so it needs `full`.
 > * A refresh does not run the test gate, record native definitions or store metadata; those belong to deploy.
-> * Not built: `connection tests run`, `connection monitor --lane|--event|--plan|--attention`, the drill-down into one event, the decision to check a refresh with `--check project` against a deploy of part of the project (the project hash is that of the whole connection).
+> * Not built: `connection tests run`, `connection monitor --plan`, the decision to check a refresh with `--check project` against a deploy of part of the project (the project hash is that of the whole connection).
 > * `ui` has `terminal`, `web` and `mcp`.
 
 ## 1. The model in one page

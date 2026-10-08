@@ -102,7 +102,7 @@ internal static class LoadSeedsCommand
                 output.WriteLine($"Statement log: {Path.GetRelativePath(root, log.Path)}");
                 var loaded = Task.Run(() => LoadAsync(write!, spec.Name, ddl, data, tables, replace, log, runId)).GetAwaiter().GetResult();
                 output.WriteLine($"Loaded {loaded.Count} table(s), {loaded.Sum(t => t.Rows)} row(s).");
-                output.Next("connection init --apply", "connection deploy");
+                output.Next("connection deploy");
             }
             catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
             catch (LoadFailedException ex)

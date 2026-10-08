@@ -82,7 +82,7 @@ internal static class ApplyCommand
     }
 
     public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty,
-        TextWriter output, TextWriter error, Func<string, string?> env, string? connectionArg = null)
+        TextWriter output, TextWriter error, Func<string, string?> env, string? connectionArg = null, bool afterPlan = false)
     {
         string planText, label;
         var fromDatabase = !File.Exists(planPath) && StoredPlanId.IsMatch(Path.GetFileName(planPath));
@@ -104,7 +104,7 @@ internal static class ApplyCommand
             foreach (var d in diags) error.Diag(d);
             return CliApp.ExitFindings;
         }
-        var exit = RunPlan(spec, plan, planText, label, root, dryRun, allowRisky, allowDestructive, allowDirty, new ApplyMode(), output, error, env);
+        var exit = RunPlan(spec, plan, planText, label, root, dryRun, allowRisky, allowDestructive, allowDirty, new ApplyMode(Header: !afterPlan, Summary: !afterPlan), output, error, env);
         // a plan kept only for the moment (`plans.deploy.keep: ephemeral` puts it under .dbdatabuild/plans/) goes when it has been applied
         if (exit == CliApp.ExitOk && !dryRun && !fromDatabase && Path.GetFullPath(planPath).StartsWith(Path.GetFullPath(Path.Combine(root, PlanCommand.EphemeralPlansDir)) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
@@ -121,7 +121,9 @@ internal static class ApplyCommand
     /// </summary>
     /// <param name="PlanHash">What to record as the plan's hash instead of the hash of the plan as built (a refresh records the compiled plan's).</param>
     /// <param name="RecordShapes">Whether each load records the shape of its object before and after.</param>
-    internal sealed record ApplyMode(bool Refresh = false, string? PlanHash = null, bool RecordShapes = true);
+    /// <param name="Header">Whether to print the command header (not when the command printed one a moment ago).</param>
+    /// <param name="Summary">Whether to print the line that names the plan and the objects it may touch (not after the command printed its own summary).</param>
+    internal sealed record ApplyMode(bool Refresh = false, string? PlanHash = null, bool RecordShapes = true, bool Header = true, bool Summary = true);
 
     internal static int RunPlan(CommandSpec spec, Plan plan, string planText, string planLabel, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty, ApplyMode mode,
         TextWriter output, TextWriter error, Func<string, string?> env)
@@ -170,12 +172,12 @@ internal static class ApplyCommand
             if (config.Connections.TryGetValue(step.Transfer!.Origin, out var host) && !host.AllowNativeCommands)
                 originMissing.Add(new Diagnostic(DiagnosticCatalog.InvalidValue, new($"step:{step.Id}", 0, 0), $"Step {step.Id} runs a native command on `{step.Transfer.Origin}`, which does not allow native commands (`connections.{step.Transfer.Origin}.allow_native_commands`)."));
         var logins = dryRun ? $"read {read?.Describe() ?? "none"}; nothing is written" : $"read {read?.Describe() ?? "none"}, write {write?.Describe() ?? "none"}";
-        output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
+        if (mode.Header) output.WriteLine($"{ProductInfo.Cli} {spec.Name}  |  effect: {spec.Effect.Describe()}  |  {spec.Marks}{(dryRun ? " (DRY RUN: nothing will be executed)" : "")}  |  connection: {plan.Connection}  |  login: {logins}");
         output.Payload("effect", spec.Effect.Describe());
         output.Payload("connection", plan.Connection);
         output.Payload("dry_run", dryRun);
         output.Payload("plan_id", plan.Id);
-        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
+        if (mode.Summary) output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s); objects that may be touched: {string.Join(", ", plan.Steps.Select(s => s.Object).Distinct(StringComparer.Ordinal))}");
 
         var (commit, dirty) = GitInfo.Read(root);
         // run on its own (not inside the terminal interface, which has its own stop), the first Ctrl-C asks the apply to stop after the step that is running, and the second ends the process: a statement that has started is
@@ -259,13 +261,13 @@ internal static class ApplyCommand
         var planRelative = planLabel;
         if (result.Success)
         {
-            output.WriteLine(dryRun ? "Dry run complete: every check passed and nothing was executed." : $"Applied plan {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) executed.");
+            output.WriteLine(dryRun ? "Dry run complete: every check passed and nothing was executed." : mode.Refresh ? $"Refresh {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran." : $"Applied plan {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) executed.");
             if (dryRun) output.Next(mode.Refresh ? "connection refresh" : $"connection deploy --apply-plan {planRelative}");
             else output.Next("connection monitor");
         }
         else
         {
-            output.WriteLine($"Plan {plan.Id} did not complete. {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran before the stop; see the statement log {logPath}.");
+            output.WriteLine($"{(mode.Refresh ? "Refresh" : "Plan")} {plan.Id} did not complete. {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran before the stop; see the statement log {logPath}.");
             // a plan that stopped part-way continues when it is applied again; a refused one has to be planned again
             if (result.Outcomes.Count > 0) output.Next(mode.Refresh ? "connection monitor" : $"connection deploy --apply-plan {planRelative}", mode.Refresh ? "connection refresh" : "connection monitor");
         }

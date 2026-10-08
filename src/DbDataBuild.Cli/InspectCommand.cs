@@ -45,10 +45,10 @@ internal static class InspectCommand
         }
         foreach (var p in probes)
         {
-            if (!p.Set) output.WriteLine($"  {p.Kind} login    {p.Variable}: not set{(p.Kind == "write" ? " (only a deploy, a refresh and the commands that record need it)" : "")}");
+            if (!p.Set) output.WriteLine($"  {p.Kind + " login",-13} {p.Variable}: not set{(p.Kind == "write" ? " (only a deploy, a refresh and the commands that record need it)" : "")}");
             else if (p.Connects == true)
-                output.WriteLine($"  {p.Kind} login    {p.Variable}: {p.User ?? "default user"} connects; {p.Server}{(p.CanCreateInDatabase is { } c ? (c ? "; may create tables in the database" : "; may NOT create tables in the database") : "")}");
-            else output.WriteLine($"  {p.Kind} login    {p.Variable}: {p.User ?? "default user"} does not connect ({p.Problem})");
+                output.WriteLine($"  {p.Kind + " login",-13} {p.Variable}: {p.User ?? "default user"} connects; {p.Server}{(p.CanCreateInDatabase is { } c ? (c ? "; may create tables in the database" : "; may NOT create tables in the database") : "")}");
+            else output.WriteLine($"  {p.Kind + " login",-13} {p.Variable}: {p.User ?? "default user"} does not connect ({p.Problem})");
         }
         if (probes[0].Set == false) problems++;                                               // the read login is what everything else needs
         problems += probes.Count(p => p.Set && p.Connects != true);
@@ -81,7 +81,7 @@ internal static class InspectCommand
                 }
             }
         }
-        output.WriteLine($"  tracking       {trackingText}");
+        output.WriteLine($"  {"tracking",-13} {trackingText}");
 
         var schemas = new List<(string Name, bool? Exists)>();
         if (readProbe is { Connects: true })
@@ -98,9 +98,9 @@ internal static class InspectCommand
                     return rows.Select(r => (string)r[0]!).ToHashSet(StringComparer.Ordinal);
                 }).GetAwaiter().GetResult();
                 schemas.AddRange(names.Select(n => (n, (bool?)existing.Contains(n))));
-                output.WriteLine($"  schema names   {(schemas.Count == 0 ? "no model declares this connection" : string.Join(", ", schemas.Select(s => $"{s.Name} ({(s.Exists == true ? "exists" : "missing: a deploy creates it")})")))}");
+                output.WriteLine($"  {"schema names",-13} {(schemas.Count == 0 ? "no model declares this connection" : string.Join(", ", schemas.Select(s => $"{s.Name} ({(s.Exists == true ? "exists" : "missing: a deploy creates it")})")))}");
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { output.WriteLine($"  schema names   not read ({ex.GetType().Name}{CliApp.DriverNumber(ex)})"); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { output.WriteLine($"  {"schema names",-13} not read ({ex.GetType().Name}{CliApp.DriverNumber(ex)})"); }
         }
 
         output.Payload("connection", connection.Name);

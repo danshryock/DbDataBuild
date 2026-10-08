@@ -127,7 +127,7 @@ internal static class RefreshCommand
         var plan = new Plan(id, connection.Name, commit, dirty, ProductInfo.Version, [], [], steps.Select((s, i) => s with { Id = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) }).ToList(), []);
         var audit = settings.Refresh.Audit;
         return ApplyCommand.RunPlan(spec, plan, audit == AuditLevel.Full ? planText : "", relative, root, dryRun, allowRisky: false, allowDestructive: [], allowDirty,
-            new ApplyCommand.ApplyMode(Refresh: true, PlanHash: RefreshPlanDocument.ContentHash(compiled), RecordShapes: check == RefreshCheck.Live), output, error, env);
+            new ApplyCommand.ApplyMode(Refresh: true, PlanHash: RefreshPlanDocument.ContentHash(compiled), RecordShapes: check == RefreshCheck.Live, Header: false), output, error, env);
     }
 
     /// <summary>The steps of one load: the hooks before it, the load with the values found now, the hooks after it. A resolver that finds nothing falls back to the initial value the model declared, or stops the load.</summary>

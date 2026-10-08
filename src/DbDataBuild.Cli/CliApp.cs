@@ -245,8 +245,12 @@ public static class CliApp
                     var reportProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var reportTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
                     var reportLast = new Option<int>("--last") { Description = "How many recent rows of each history to show", DefaultValueFactory = _ => 10 };
-                    cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    var reportLane = new Option<string?>("--lane") { Description = "Only the events of this lane (and their DDL and loads): deploy or refresh" };
+                    reportLane.AcceptOnlyFromAmong("deploy", "refresh");
+                    var reportEvent = new Option<string?>("--event") { Description = "One event in detail, by its id (as the first table shows it): its states, its DDL and its loads" };
+                    var reportAttention = new Option<bool>("--attention") { Description = "Only what needs attention (the other tables are left out of the text; the document still has them)" };
+                    cmd.Options.Add(reportProject); cmd.Options.Add(reportTarget); cmd.Options.Add(reportLast); cmd.Options.Add(reportLane); cmd.Options.Add(reportEvent); cmd.Options.Add(reportAttention);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ReportCommand.Run(spec, pr.GetValue(reportProject)!.FullName, pr.GetValue(reportTarget), pr.GetValue(reportLast), pr.GetValue(reportLane), pr.GetValue(reportEvent), pr.GetValue(reportAttention), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "connection compare":
                     var diffTable = new Argument<string>("table") { Description = "The table or view to compare, as schema_name.table_name (a model's table, for example)" };

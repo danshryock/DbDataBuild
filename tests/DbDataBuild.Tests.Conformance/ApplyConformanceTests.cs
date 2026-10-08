@@ -690,6 +690,28 @@ public partial class ApplyConformanceTests
             Assert.Matches(@"\bdeploy\b", report.Out);                                                       // the events say which lane they were
             Assert.Matches(@"\brefresh\b", report.Out);
 
+            // the report can be narrowed: to one lane, to one event in detail, or to what needs attention
+            var deployId = Path.GetFileName(run.PlanFile(plan.Out)).Replace(".plan.yml", "");
+            var refreshId = Regex.Match(report.Out, @"ref-\S+").Value;
+            var refreshOnly = run.Cli("connection", "monitor", "--lane", "refresh");
+            Ok(refreshOnly, "monitor --lane refresh");
+            Assert.Contains("Events of the refresh lane", refreshOnly.Out);
+            Assert.DoesNotContain(deployId, refreshOnly.Out.Split("Events of the refresh lane")[1].Split("Objects the tool has recorded")[0]);      // no deploy event, no deploy DDL
+            var detail = run.Cli("connection", "monitor", "--event", refreshId, "--format", "json");
+            Ok(detail, "monitor --event");
+            var shown = System.Text.Json.Nodes.JsonNode.Parse(detail.Out)!["data"]!["event"]!;
+            Assert.Equal("refresh", (string)shown["lane"]!);
+            Assert.Contains(shown["loads"]!.AsArray(), l => (string)l!["model"]! == "marts.fct_orders" && (string)l["status"]! == "ok");
+            Assert.Contains("completed", string.Join(" ", shown["states"]!.AsArray().Select(x => (string)x!["status"]!)));
+            Assert.Contains("Event " + deployId, run.Cli("connection", "monitor", "--event", deployId).Out);
+            var missing = run.Cli("connection", "monitor", "--event", "ref-nothing");
+            Assert.Equal(1, missing.Exit);
+            Assert.Contains("No event", missing.Err);
+            var attentionOnly = run.Cli("connection", "monitor", "--attention");
+            Ok(attentionOnly, "monitor --attention");
+            Assert.Contains("Needs attention (0)", attentionOnly.Out);
+            Assert.DoesNotContain("Events (newest first)", attentionOnly.Out);
+
             // the landing view: structure, the newest deploy and refresh, and the policy
             var status = run.Cli("connection", "status");
             Ok(status, "status");
