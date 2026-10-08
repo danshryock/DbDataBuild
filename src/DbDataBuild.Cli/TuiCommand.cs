@@ -56,7 +56,7 @@ internal static class TuiCommand
                 : type == typeof(DirectoryInfo) || type == typeof(FileInfo) ? OptionKind.Path : type == typeof(string[]) ? OptionKind.List : OptionKind.Text;
             string? def = o.HasDefaultValue ? o.GetDefaultValue() switch { null => null, string[] a => string.Join(",", a), var v => v.ToString() } : null;
             // the connections are the project's own, so a form takes the name as text (the target chooser lists them); the options with a closed set of values say them
-            IReadOnlyList<string> choices = o.Name switch { "--check" => ["none", "project", "objects", "live"], "--on-fail" => ["block", "warn"], _ => [] };
+            IReadOnlyList<string> choices = o.GetCompletions(System.CommandLine.Completions.CompletionContext.Empty).Select(c => c.Label).ToList();      // what `AcceptOnlyFromAmong` says
             if (choices.Count > 0 && kind == OptionKind.Text) kind = OptionKind.Choice;
             return new OptionInfo(o.Name, o.Description ?? "", kind, def, choices);
         }

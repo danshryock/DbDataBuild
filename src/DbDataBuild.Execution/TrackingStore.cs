@@ -132,6 +132,25 @@ public static class AuditLog
         ]), ct);
     }
 
+    /// <summary>Keeps a deploy plan in the tracking tables (`plans.deploy.keep: database`). The plan's own hash covers its text, so a plan edited in the table is refused when it is read back.</summary>
+    public static Task StorePlanAsync(MutationGate gate, TrackingScope scope, string stepId, string planId, string planHash, string planText, string storedBy, CancellationToken ct = default)
+    {
+        string c(string n) => C(scope.Engine, n);
+        var text = $"INSERT INTO {T(scope, "plan_store")} ({c("connection")}, {c("plan_id")}, {c("plan_hash")}, {c("plan_text")}, {c("stored_by")}, {c("stored_utc")}) VALUES (@connection, @plan_id, @plan_hash, @plan_text, @stored_by, @stored_utc)";
+        return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
+        [
+            Connection(scope), A("plan_id", planId), Fixed("plan_hash", planHash), S("plan_text", planText), S("stored_by", storedBy), new("stored_utc", DbType.DateTime2, TrackingClock.NextUtc()),
+        ]), ct);
+    }
+
+    /// <summary>The text of a plan kept in the database, or null when there is none of that id for the connection.</summary>
+    public static async Task<string?> ReadStoredPlanAsync(ReadSession read, TrackingScope scope, string planId, CancellationToken ct = default)
+    {
+        string c(string n) => C(scope.Engine, n);
+        var rows = await read.QueryAsync($"SELECT p.{c("plan_text")} FROM {T(scope, "plan_store")} p WHERE p.{c("connection")} = @connection AND p.{c("plan_id")} = @plan_id", [Connection(scope), new GateParameter("plan_id", DbType.AnsiString, planId)], ct);
+        return rows.Count == 0 ? null : (string?)rows[0][0];
+    }
+
     /// <summary>One run of a plan: a deploy or a refresh. The rows of `migration_log` that share an id are its states (started, failed, completed); this is the last of them, with when the first was written.</summary>
     public sealed record EventRow(string Id, string Lane, string Status, DateTime StartedUtc, DateTime LastUtc, string By, string? Commit, string? ProjectHash);
 

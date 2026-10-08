@@ -75,6 +75,15 @@ public static class CliApp
             var cmd = new Command(spec.Path[^1], $"[{spec.Effect.Describe()}] {spec.Purpose}");
             switch (spec.Name)
             {
+                case "project model create":
+                    var mcName = new Argument<string>("model") { Description = "The model's name, schema_name.object_name (marts.fct_orders)" };
+                    var mcProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var mcKind = new Option<string>("--kind") { Description = "view (the default), full, incremental_by_unique_key or incremental_by_time_range", DefaultValueFactory = _ => ModelKinds.View };
+                    mcKind.AcceptOnlyFromAmong(ModelCreateCommand.Kinds.ToArray());
+                    var mcConnection = new Option<string[]>("--connection") { Description = "The connections it is built on (default: the project's default connections); repeat for several", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
+                    cmd.Arguments.Add(mcName); cmd.Options.Add(mcProject); cmd.Options.Add(mcKind); cmd.Options.Add(mcConnection);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => ModelCreateCommand.Run(spec, pr.GetValue(mcProject)!.FullName, pr.GetValue(mcName)!, pr.GetValue(mcKind)!, pr.GetValue(mcConnection) ?? [], o, e)));
+                    break;
                 case "project model update":
                     var paths = new Argument<string[]>("paths") { Description = "Model .sql or .yml files, or directories under models/ (default: every model)", Arity = ArgumentArity.ZeroOrMore };
                     var defineProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains models/)", DefaultValueFactory = _ => new DirectoryInfo(".") };

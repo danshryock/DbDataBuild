@@ -5,6 +5,7 @@ Generated from the command tree of `dbdatabuild` (`UPDATE_GOLDEN=1 dotnet test t
 | Command | Reads and writes | Effect | Purpose |
 |---|---|---|---|
 | [`project create`](#project-create) | `P⇒P` | Repo files only (no target connection) | List the project templates built in, or create a ready-to-run project from one |
+| [`project model create`](#project-model-create) | `P⇒P` | Repo files only (no target connection) | Create a model to start from: a definition and a placeholder query that runs, in the project's layout (a view, a full table, or an incremental one) |
 | [`project model update`](#project-model-update) | `P⇒P` | Repo files only (no target connection) | Generate or update model definition files |
 | [`project compile`](#project-compile) | `P⇒P` | Repo files only (no target connection) | Validate the project and write what is compiled from it (rendered/): the lowered queries and the load scripts per connection |
 | [`project tests run`](#project-tests-run) | `P→` | Offline only | Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/ |
@@ -42,6 +43,22 @@ Effect: Repo files only (no target connection). Reads and writes: `P⇒P`.
 |---|---|
 | `template` | The template to create (omit to list them) |
 | `directory` | Where to write it (default: a directory named after the template) |
+
+## project model create
+
+Create a model to start from: a definition and a placeholder query that runs, in the project's layout (a view, a full table, or an incremental one).
+
+Effect: Repo files only (no target connection). Reads and writes: `P⇒P`.
+
+| Argument | Meaning |
+|---|---|
+| `model` | The model's name, schema_name.object_name (marts.fct_orders) |
+
+| Option | Meaning |
+|---|---|
+| `--connection` `<text ...>` | The connections it is built on (default: the project's default connections); repeat for several |
+| `--kind` `<text>` | view (the default), full, incremental_by_unique_key or incremental_by_time_range |
+| `--project` `<path>` | Project root (contains models/) |
 
 ## project model update
 

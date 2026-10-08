@@ -2,6 +2,17 @@
 
 Status: **design, 2026-10-07.** Written from the owner's conceptual table and the review in progress-log entry 130. Where a choice was the owner's it says *owner*; where I filled a gap it says *proposed* and is open to change. The plan to build it is `docs/research/lifecycle-implementation.md`; the version for people who use the tool is `docs/concepts.md`. Nothing here describes the tool as it is today unless it says *today*.
 
+> **As built, 2026-10-08.** Most of this is built (`docs/research/lifecycle-implementation.md` has the status per phase). Where the build differs from the text below:
+>
+> * The connection is chosen with `--connection <c>`, not as a positional argument.
+> * `connection refresh` takes `models` (names or patterns), `--check`, `--on-fail`, `--allow-dirty` and `--dry-run`. It has no `--backfill`, `--allow-risky` or `--param`: a refresh runs routine loads only, and a backfill is a deploy (`connection deploy --backfill model=operation`).
+> * The event is the row of `migration_log` (section 6): tracking layout 5 added `lane` and `project_hash` to it and the `plan_store` table. There is no `event_log` table. `plans.deploy.keep: database` is built for deploy (a refresh plan is compiled and committed; its `keep` is not acted on). A refresh's id is `ref-<utc>-<4 hex>`; a deploy keeps the content id of its plan.
+> * `plans.deploy.require_clean_tree` is true by default (a deploy or a refresh from a tree with changes is refused unless `--allow-dirty`).
+> * `audit` below `full` stores no text; below `standard` also no person and no commit. The column-history report reads decisions from stored plan text, so it needs `full`.
+> * A refresh does not run the test gate, record native definitions or store metadata; those belong to deploy.
+> * Not built: `connection tests run`, `connection monitor --lane|--event|--plan|--attention`, the drill-down into one event, the decision to check a refresh with `--check project` against a deploy of part of the project (the project hash is that of the whole connection).
+> * `ui` has `terminal`, `web` and `mcp`.
+
 ## 1. The model in one page
 
 Everything the tool does is an **action** on one of two **targets**:

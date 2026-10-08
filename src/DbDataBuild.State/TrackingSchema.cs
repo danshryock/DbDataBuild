@@ -68,6 +68,11 @@ public static class TrackingSchema
             C("applied_by", TrackingType.Name), C("applied_utc", TrackingType.TimestampUtc), C("hash_before", TrackingType.Hash, true), C("hash_after", TrackingType.Hash, true),
             C("status", TrackingType.Short), C("lane", TrackingType.Short, true), C("project_hash", TrackingType.Hash, true),
         ], ["connection", "plan_id", "applied_utc"]),
+        new("plan_store", "Plans kept in the database (`plans.deploy.keep: database`): the text of a deploy plan, once per plan, for a plan made by one person or job and applied by another.",
+        [
+            C("connection", TrackingType.Name),
+            C("plan_id", TrackingType.Short), C("plan_hash", TrackingType.Hash), C("plan_text", TrackingType.Long), C("stored_by", TrackingType.Name), C("stored_utc", TrackingType.TimestampUtc),
+        ], ["connection", "plan_id"]),
         new("metadata_document", "Project, source, model and plan metadata as JSON documents, for introspection with SQL. Append-only; the views metadata_current and metadata_columns show the latest.",
         [
             C("connection", TrackingType.Name),

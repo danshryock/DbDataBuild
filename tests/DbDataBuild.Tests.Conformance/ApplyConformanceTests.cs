@@ -800,11 +800,33 @@ public partial class ApplyConformanceTests
             Assert.Equal(0, await CountAsync(run, ddl, run.Q("statement_hash") + " = ''"));
             Ok(run.Cli("connection", "monitor"), "the report reads such events");
 
-            // keeping plans only in the tracking tables is not built: said plainly, nothing is planned
+            // database: the plan is kept in the tracking tables only, applied by its id, and refused when the stored text was edited
             run.Write("dbdatabuild.yml", File.ReadAllText(Path.Combine(run.Dir, "dbdatabuild.yml")).Replace("keep: ephemeral", "keep: database"));
-            var refused = run.Cli("connection", "deploy", "--write-plan");
-            Assert.Equal(2, refused.Exit);
-            Assert.Contains("not built yet", refused.Err);
+            await engine.ExecAsync(name == "postgres" ? "CREATE TABLE staging.extra (id BIGINT)" : "CREATE TABLE staging.extra (id BIGINT)");
+            run.Write("models/staging/extra.yml", "name: staging.extra\nkind:\n  type: mapped\ncolumns:\n  - {name: id, type: BIGINT}\n");
+            run.Write("models/marts/ex.yml", "name: marts.ex\nkind: {type: full}\ngrain: [id]\ncolumns:\n  - {name: id, type: BIGINT, nullable: false}\n");
+            run.Write("models/marts/ex.sql", "SELECT CAST(id AS BIGINT) AS id FROM staging.extra\n");
+            Ok(run.Cli("project", "compile"), "compile with another model");
+            var kept = run.Cli("connection", "deploy", "--write-plan");
+            Ok(kept, "plan kept in the database");
+            Assert.Contains("kept in the tracking tables", kept.Out);
+            Assert.False(Directory.Exists(Path.Combine(run.Dir, "plans")));
+            Assert.False(Directory.Exists(Path.Combine(run.Dir, ".dbdatabuild", "plans")) && Directory.EnumerateFiles(Path.Combine(run.Dir, ".dbdatabuild", "plans"), "*", SearchOption.AllDirectories).Any());
+            var id = System.Text.RegularExpressions.Regex.Match(kept.Out, @"Plan (\S+):").Groups[1].Value;
+            var store = run.Q("dbdatabuild") + "." + run.Q("plan_store");
+            Assert.Equal(1, await CountAsync(run, store, run.Q("plan_id") + $" = '{id}'"));
+            Assert.Contains($"connection deploy --apply-plan {id}", kept.Out);
+
+            // someone edits the stored text: the plan's own hash no longer matches and it is refused
+            await engine.ExecAsync($"UPDATE {store} SET {run.Q("plan_text")} = REPLACE({run.Q("plan_text")}, 'marts.ex', 'marts.exx') WHERE {run.Q("plan_id")} = '{id}'");
+            var tampered = run.Cli("connection", "deploy", "--apply-plan", id);
+            Refused(tampered, "DDB-435", "a stored plan that was edited");
+            await engine.ExecAsync($"UPDATE {store} SET {run.Q("plan_text")} = REPLACE({run.Q("plan_text")}, 'marts.exx', 'marts.ex') WHERE {run.Q("plan_id")} = '{id}'");
+
+            Ok(run.Cli("connection", "deploy", "--apply-plan", id), "apply the stored plan by its id");
+            Assert.Equal(1, await CountAsync(run, "information_schema.tables", "table_schema = 'marts' AND table_name = 'ex'"));
+            Refused(run.Cli("connection", "deploy", "--apply-plan", id), "DDB-438", "a stored plan is applied once too");
+            Refused(run.Cli("connection", "deploy", "--apply-plan", "2020-01-01-00000000"), "No plan", "an id nothing is kept under");
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }

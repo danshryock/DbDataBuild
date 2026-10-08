@@ -54,21 +54,59 @@ internal static class ApplyCommand
         }
     }
 
-    public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty,
-        TextWriter output, TextWriter error, Func<string, string?> env)
+    private static readonly System.Text.RegularExpressions.Regex StoredPlanId = new(@"^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}$");
+
+    /// <summary>A plan given by id rather than by file: the text kept in the tracking tables (`plans.deploy.keep: database`), or null after saying why there is none.</summary>
+    private static string? ReadStored(CommandSpec spec, string root, string? connectionArg, string id, TextWriter error, Func<string, string?> env)
     {
-        if (!File.Exists(planPath)) { error.WriteLine($"Plan file `{planPath}` does not exist."); return CliApp.ExitUsage; }
-        var planText = File.ReadAllText(planPath);
         var diags = new List<Diagnostic>();
-        var plan = PlanDocument.Parse(planText, Path.GetFileName(planPath), diags);
+        var config = ProjectConfigLoader.LoadFromProject(root, diags);
+        foreach (var d in diags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
+        if (diags.Any(d => d.Severity == Severity.Error)) return null;
+        var connection = CommandTargets.Resolve(config, connectionArg, error);
+        if (connection == null) return null;
+        var tracking = CommandTracking.Require(config, connection, env, needWrite: false, error, spec.Name);
+        if (tracking == null) return null;
+        try
+        {
+            var text = Task.Run(async () =>
+            {
+                await using var read = await ReadSession.OpenAsync(tracking.Read);
+                if ((await TrackingStore.StatusAsync(read, tracking.Scope.Engine, tracking.Scope.SchemaName)).AsDiagnostic(tracking.Scope.SchemaName) is { } notReady) throw new GateRefusedException(notReady);
+                return await AuditLog.ReadStoredPlanAsync(read, tracking.Scope, id);
+            }).GetAwaiter().GetResult();
+            if (text == null) error.WriteLine($"No plan `{id}` is kept in the tracking tables for the connection `{connection.Name}`, and there is no file of that name.");
+            return text;
+        }
+        catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return null; }
+    }
+
+    public static int Run(CommandSpec spec, string planPath, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty,
+        TextWriter output, TextWriter error, Func<string, string?> env, string? connectionArg = null)
+    {
+        string planText, label;
+        var fromDatabase = !File.Exists(planPath) && StoredPlanId.IsMatch(Path.GetFileName(planPath));
+        if (fromDatabase)
+        {
+            var stored = ReadStored(spec, root, connectionArg, Path.GetFileName(planPath), error, env);
+            if (stored == null) return CliApp.ExitFindings;
+            (planText, label) = (stored, Path.GetFileName(planPath));
+        }
+        else
+        {
+            if (!File.Exists(planPath)) { error.WriteLine($"Plan file `{planPath}` does not exist."); return CliApp.ExitUsage; }
+            (planText, label) = (File.ReadAllText(planPath), Path.GetRelativePath(root, planPath).Replace('\\', '/'));
+        }
+        var diags = new List<Diagnostic>();
+        var plan = PlanDocument.Parse(planText, label, diags);
         if (plan == null)
         {
             foreach (var d in diags) error.Diag(d);
             return CliApp.ExitFindings;
         }
-        var exit = RunPlan(spec, plan, planText, Path.GetRelativePath(root, planPath).Replace('\\', '/'), root, dryRun, allowRisky, allowDestructive, allowDirty, new ApplyMode(), output, error, env);
+        var exit = RunPlan(spec, plan, planText, label, root, dryRun, allowRisky, allowDestructive, allowDirty, new ApplyMode(), output, error, env);
         // a plan kept only for the moment (`plans.deploy.keep: ephemeral` puts it under .dbdatabuild/plans/) goes when it has been applied
-        if (exit == CliApp.ExitOk && !dryRun && Path.GetFullPath(planPath).StartsWith(Path.GetFullPath(Path.Combine(root, PlanCommand.EphemeralPlansDir)) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        if (exit == CliApp.ExitOk && !dryRun && !fromDatabase && Path.GetFullPath(planPath).StartsWith(Path.GetFullPath(Path.Combine(root, PlanCommand.EphemeralPlansDir)) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
             foreach (var file in new[] { planPath, planPath.Replace(".plan.yml", ".plan.md", StringComparison.Ordinal) })
                 try { File.Delete(file); } catch (IOException) { /* left; it is under .dbdatabuild */ }

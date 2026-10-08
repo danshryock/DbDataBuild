@@ -1,6 +1,6 @@
 # Concepts: project and connection, deploy and refresh
 
-> **Status, 2026-10-08.** Built: the commands below (entry 135) except the ones the implementation plan lists as *later* (`connection inspect`, `project model create`, `project tests list`, `connection tests run`) and the positional connection name (today `--connection <c>`); the compiled refresh plan and its checks (`none`, `project`, `objects`, `live`); tracking layout 5 (each event records its lane, and a deploy the structure it was made from); the `plans:`, `refresh:` and `retention:` settings are read and act (`keep: committed|ephemeral`, `audit` for both lanes, the statement-log retention). Not yet: `keep: database` (the plan store), the deploy event as an id of its own, and the drill-down of `connection monitor` (`docs/research/lifecycle-implementation.md`, phases 5 and 6). `docs/commands.md` is generated from the program and is always what exists now.
+> **Status, 2026-10-08.** Built: the commands below (entry 135) except the ones the implementation plan lists as *later* (`connection inspect`, `project model create`, `project tests list`, `connection tests run`) and the positional connection name (today `--connection <c>`); the compiled refresh plan and its checks (`none`, `project`, `objects`, `live`); tracking layout 5 (each event records its lane, and a deploy the structure it was made from); the `plans:`, `refresh:` and `retention:` settings are read and act (`keep: committed|database|ephemeral`, `audit` for both lanes, the statement-log retention). Not yet: the deploy event as an id of its own and the drill-down of `connection monitor` (`docs/research/lifecycle-implementation.md`, phases 5 and 6). `docs/commands.md` is generated from the program and is always what exists now.
 
 ## The two things you work on
 
@@ -103,7 +103,7 @@ connections:
 | `keep` | In the project | In the database |
 |---|---|---|
 | `committed` | a file | yes |
-| `database` | no | yes (made by one person or job, applied by another) |
+| `database` | no | yes, in `plan_store`: `connection deploy --write-plan` keeps the plan there (it needs the tracking connection's write login) and prints its id; `connection deploy --apply-plan <id>` applies it |
 | `ephemeral` | no | the hash only |
 
 | `audit` | Recorded |

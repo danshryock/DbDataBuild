@@ -23,7 +23,7 @@ internal static class DeployCommand
         if (applyPlan != null)
         {
             if (writePlan) { error.WriteLine("--apply-plan applies a plan that was written; --write-plan writes one. Give one of them."); return CliApp.ExitUsage; }
-            return ApplyCommand.Run(spec, applyPlan.FullName, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env);
+            return ApplyCommand.Run(spec, applyPlan.FullName, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env, target);
         }
 
         string? written = null;
@@ -31,7 +31,7 @@ internal static class DeployCommand
             output, error, input, interactive, env, path => written = path, hintApply: writePlan);
         if (writePlan || written == null || exit != CliApp.ExitOk) return exit;
 
-        var relative = Path.GetRelativePath(root, written).Replace('\\', '/');
+        var relative = File.Exists(written) ? Path.GetRelativePath(root, written).Replace('\\', '/') : Path.GetFileName(written);       // a plan kept in the database is named by its id
         if (!yes)
         {
             if (!interactive)
@@ -47,6 +47,6 @@ internal static class DeployCommand
                 return CliApp.ExitOk;
             }
         }
-        return ApplyCommand.Run(spec, written, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env);
+        return ApplyCommand.Run(spec, written, root, dryRun, allowRisky, allowDestructive, allowDirty, output, error, env, target);
     }
 }

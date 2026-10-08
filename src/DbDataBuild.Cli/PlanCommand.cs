@@ -47,12 +47,6 @@ internal static class PlanCommand
 
         var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env, operations, backfillOps.Keys.ToHashSet(StringComparer.Ordinal), fullRefreshArgs.ToHashSet(StringComparer.Ordinal));
         if (session == null) return exit;
-        if (session.Context.Config.LifecycleOf(session.Target).Deploy.Keep == PlanKeep.Database)
-        {
-            error.WriteLine($"`plans.deploy.keep` is `database` for `{session.Target}`: keeping a deploy plan only in the tracking tables is not built yet. Use `committed` or `ephemeral`.");
-            return CliApp.ExitUsage;
-        }
-
         // ---- ask, plan again, until nothing is open ----
         IPrompter? prompter = interactive ? new ConsolePrompter(input, output) : null;
         var answers = new List<ResolvedAnswer>();
@@ -106,6 +100,7 @@ internal static class PlanCommand
             RefreshPlanBuilder.ProjectHash(session.Context, session.Target, RefreshPlanBuilder.ModelsOf(session.Context, session.Target)));
         var plan = draft with { Id = PlanDocument.CreateId(DateOnly.FromDateTime(DateTime.UtcNow), draft) };
         var keep = session.Context.Config.LifecycleOf(session.Target).Deploy.Keep;
+        if (keep == PlanKeep.Database && outDir == null) return StoreInDatabase(spec, root, session, plan, result, written, hintApply, output, error, env);
         var dir = outDir?.FullName ?? Path.Combine(root, keep == PlanKeep.Ephemeral ? EphemeralPlansDir : PlansDir, session.Target);
         var yamlPath = Path.Combine(dir, plan.Id + ".plan.yml");
         var mdPath = Path.Combine(dir, plan.Id + ".plan.md");
@@ -128,6 +123,38 @@ internal static class PlanCommand
             output.WriteLine("Read the report before applying the plan.");
             output.Next($"connection deploy --apply-plan {Path.GetRelativePath(root, yamlPath).Replace('\\', '/')}");
         }
+        return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
+    }
+
+    /// <summary>
+    /// `plans.deploy.keep: database`: the plan is kept in the tracking tables and nowhere else, to be applied by id (by another person or a job that has the write login). No file is written. Needs the tracking
+    /// connection's write login: that is where the plan goes.
+    /// </summary>
+    private static int StoreInDatabase(CommandSpec spec, string root, PlanningSession session, DbDataBuild.Planning.Plan plan, PlanResult result, Action<string>? written, bool hintApply, TextWriter output, TextWriter error, Func<string, string?> env)
+    {
+        var config = session.Context.Config;
+        var tracking = CommandTracking.Require(config, config.Connections[session.Target], env, needWrite: true, error, spec.Name);
+        if (tracking?.Write == null) { output.WriteLine("Nothing was planned into the database: `plans.deploy.keep` is `database`, and the tracking connection's write login is needed to keep the plan there."); return CliApp.ExitFindings; }
+        var text = PlanDocument.Serialize(plan);
+        try
+        {
+            Task.Run(async () =>
+            {
+                await using var read = await ReadSession.OpenAsync(tracking.Read);
+                if ((await TrackingStore.StatusAsync(read, tracking.Scope.Engine, tracking.Scope.SchemaName)).AsDiagnostic(tracking.Scope.SchemaName) is { } notReady) throw new GateRefusedException(notReady);
+                var runId = Guid.NewGuid();
+                using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), "store-plan", runId);
+                await using var gate = await MutationGate.OpenAsync(tracking.Write, spec.Name, StatementKind.Tracking, log, runId);
+                await AuditLog.StorePlanAsync(gate, tracking.Scope, "plan:store", plan.Id, PlanDocument.ContentHash(plan), text, tracking.Write.User ?? Environment.UserName);
+            }).GetAwaiter().GetResult();
+        }
+        catch (GateRefusedException ex) { error.Diag(ex.Diagnostic); return CliApp.ExitFindings; }
+        output.Payload("plan", plan);
+        output.Payload("stored_plan", plan.Id);
+        output.WriteLine($"Plan {plan.Id}: {plan.Steps.Count} step(s) ({plan.Steps.Count(s => s.Type == StepType.Ddl)} ddl, {plan.Steps.Count(s => s.Type == StepType.Load)} load, {plan.Steps.Count(s => s.Type == StepType.Backfill)} backfill, {plan.Steps.Count(s => s.Type == StepType.Hook)} hook), kept in the tracking tables of `{tracking.Target.Connection}` (`plans.deploy.keep: database`); no file was written.");
+        if (result.Blocks.Count + result.Skipped.Count > 0) output.WriteLine($"  NOT planned: {result.Blocks.Count} blocked, {result.Skipped.Count} skipped (see above).");
+        written?.Invoke(plan.Id);
+        if (hintApply) output.Next($"connection deploy --apply-plan {plan.Id}");
         return result.Blocks.Count > 0 ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 

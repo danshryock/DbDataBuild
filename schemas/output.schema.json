@@ -580,6 +580,25 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "project model create"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_project_model_create"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -3790,6 +3809,24 @@
             "required": [
               "name"
             ]
+          }
+        }
+      }
+    },
+    "data_project_model_create": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }
