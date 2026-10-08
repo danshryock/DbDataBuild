@@ -6,9 +6,9 @@ namespace DbDataBuild.Models;
 /// <summary>Loads <c>dbdatabuild.yml</c> with the strict YAML rules. Keys that are absent take the built-in default; nothing is inferred.</summary>
 public static class ProjectConfigLoader
 {
-    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites", "model_layout", "tests"];
+    private static readonly string[] TopKeys = ["defaults", "parameters", "connections", "tracking", "string_semantics", "policy", "hook_groups", "metadata", "lowering", "lint", "rewrites", "model_layout", "tests", "plans", "refresh", "retention"];
     private static readonly string[] SemanticsKeys = ["case", "accent", "trailing_space", "collations"];
-    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands", "string_semantics"];
+    private static readonly string[] ConnectionKeys = ["engine", "version", "parameters", "tracking", "allow_native_commands", "string_semantics", "plans", "refresh"];
     private static readonly string[] CollationEngines = ["duckdb", "sqlserver", "fabric", "postgres"];
 
     /// <summary>Loads the project's config. A missing file yields the defaults and a DDB-109 warning; a bad file yields errors and the defaults.</summary>
@@ -53,7 +53,92 @@ public static class ProjectConfigLoader
             var tracking = ReadTracking(top, connections.Keys.ToHashSet(StringComparer.Ordinal)) ?? d.Tracking;
             var semantics = ReadSemantics(top, d.StringSemantics);
             var policy = ReadPolicy(top, d.Policy);
-            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>(), Layout = ReadLayout(top), TestGateTags = ReadTestGate(top) };
+            return new ProjectConfig(targets, connections, tracking, semantics, policy, lines, ReadHookGroups(top, connections.Keys.ToHashSet(StringComparer.Ordinal)), ReadMetadata(top), ReadLowering(top), ReadLint(top, "indexes"), ReadLint(top, "slices"), ReadRewrites(top)) { Defaults = defaults, Parameters = ReadParameters(top, "`parameters`") ?? new Dictionary<string, ParameterValue>(), Layout = ReadLayout(top), TestGateTags = ReadTestGate(top), Lifecycle = ReadLifecycle(top) };
+        }
+
+        // ---- plans, refresh, retention ----
+
+        private TEnum? ReadChoice<TEnum>(YamlMapping m, string key, string where) where TEnum : struct, Enum
+        {
+            if (m.Get(key) is not { } node) return null;
+            if (node is YamlScalar s && s.Value == s.Value.ToLowerInvariant() && System.Enum.TryParse<TEnum>(s.Value, ignoreCase: true, out var value) && System.Enum.IsDefined(value)) return value;
+            Add(DiagnosticCatalog.InvalidValue, node, $"`{where}.{key}` is {(node is YamlScalar sc ? $"`{sc.Value}`" : "not a string")}.", $"One of: {string.Join(", ", System.Enum.GetNames<TEnum>().Select(n => n.ToLowerInvariant()))}.");
+            return null;
+        }
+
+        private bool? ReadFlag(YamlMapping m, string key, string where)
+        {
+            if (m.Get(key) is not { } node) return null;
+            if (node is YamlScalar { Value: "true" or "false" } s) return s.Value == "true";
+            Add(DiagnosticCatalog.InvalidValue, node, $"`{where}.{key}` must be true or false (lowercase).");
+            return null;
+        }
+
+        /// <summary>
+        /// `plans: { deploy: { keep, audit, require_clean_tree }, refresh: { keep, audit } }` and `refresh: { check, on_fail }`, at the project or inside a connection. <paramref name="scope"/> is the path to the
+        /// mapping for messages: empty at the top, `connections.dev` inside a connection.
+        /// </summary>
+        private LifecycleOverride? ReadLifecycleOverride(YamlMapping m, string scope)
+        {
+            string W(string name) => scope.Length == 0 ? name : scope + "." + name;
+            PlanKeep? deployKeep = null, refreshKeep = null; AuditLevel? deployAudit = null, refreshAudit = null; bool? clean = null; RefreshCheck? check = null; OnFail? onFail = null;
+            if (m.Get("plans") is { } plansNode)
+            {
+                if (plansNode is not YamlMapping plans) Add(DiagnosticCatalog.InvalidValue, plansNode, $"`{W("plans")}` must be a mapping with `deploy` and `refresh`.");
+                else
+                {
+                    CheckKeys(plans, ["deploy", "refresh"], $"`{W("plans")}`");
+                    if (plans.Get("deploy") is { } d)
+                    {
+                        if (d is not YamlMapping dm) Add(DiagnosticCatalog.InvalidValue, d, $"`{W("plans.deploy")}` must be a mapping (`keep`, `audit`, `require_clean_tree`).");
+                        else
+                        {
+                            CheckKeys(dm, ["keep", "audit", "require_clean_tree"], $"`{W("plans.deploy")}`");
+                            deployKeep = ReadChoice<PlanKeep>(dm, "keep", W("plans.deploy")); deployAudit = ReadChoice<AuditLevel>(dm, "audit", W("plans.deploy"));
+                            clean = ReadFlag(dm, "require_clean_tree", W("plans.deploy"));
+                        }
+                    }
+                    if (plans.Get("refresh") is { } r)
+                    {
+                        if (r is not YamlMapping rm) Add(DiagnosticCatalog.InvalidValue, r, $"`{W("plans.refresh")}` must be a mapping (`keep`, `audit`).");
+                        else
+                        {
+                            CheckKeys(rm, ["keep", "audit"], $"`{W("plans.refresh")}`");
+                            refreshKeep = ReadChoice<PlanKeep>(rm, "keep", W("plans.refresh")); refreshAudit = ReadChoice<AuditLevel>(rm, "audit", W("plans.refresh"));
+                        }
+                    }
+                }
+            }
+            if (m.Get("refresh") is { } refreshNode)
+            {
+                if (refreshNode is not YamlMapping rf) Add(DiagnosticCatalog.InvalidValue, refreshNode, $"`{W("refresh")}` must be a mapping (`check`, `on_fail`).");
+                else
+                {
+                    CheckKeys(rf, ["check", "on_fail"], $"`{W("refresh")}`");
+                    check = ReadChoice<RefreshCheck>(rf, "check", W("refresh")); onFail = ReadChoice<OnFail>(rf, "on_fail", W("refresh"));
+                }
+            }
+            var result = new LifecycleOverride(deployKeep, deployAudit, refreshKeep, refreshAudit, clean, check, onFail);
+            return result == new LifecycleOverride() ? null : result;
+        }
+
+        private LifecycleSettings ReadLifecycle(YamlMapping top)
+        {
+            var settings = ReadLifecycleOverride(top, "")?.Apply(LifecycleSettings.Default) ?? LifecycleSettings.Default;
+            if (top.Get("retention") is { } node)
+            {
+                if (node is not YamlMapping r) Add(DiagnosticCatalog.InvalidValue, node, "`retention` must be a mapping (`statement_logs_days`).");
+                else
+                {
+                    CheckKeys(r, ["statement_logs_days"], "`retention`");
+                    if (r.Get("statement_logs_days") is { } days)
+                    {
+                        if (days is YamlScalar s && int.TryParse(s.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)) settings = settings with { StatementLogDays = n };
+                        else Add(DiagnosticCatalog.InvalidValue, days, "`retention.statement_logs_days` must be a whole number of days (0 keeps them all).");
+                    }
+                }
+            }
+            return settings;
         }
 
         private bool ReadLint(YamlMapping top, string key)
@@ -205,7 +290,7 @@ public static class ProjectConfigLoader
                     if (ac is YamlScalar { Value: "true" or "false" } acs) allowCommands = acs.Value == "true";
                     else Add(DiagnosticCatalog.InvalidValue, ac, "`allow_native_commands` is `true` or `false` (lowercase).");
                 }
-                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking, allowCommands, ReadSemanticsOverride(settings, name));
+                if (engine != null) result[name] = new ConnectionConfig(name, engine, version, e.Key.Line, parameters, ownTracking, allowCommands, ReadSemanticsOverride(settings, name), ReadLifecycleOverride(settings, $"connections.{name}"));
             }
             return result;
         }

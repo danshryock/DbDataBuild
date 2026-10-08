@@ -74,6 +74,16 @@ public class ProjectConfigTests
         new("hook groups do not nest", "hook_groups:\n  standard:\n    - {use: other}\n", false, "DDB-106"),
         new("hook group name with a space", "hook_groups:\n  \"my group\":\n    - {name: x, event: post_load, script: hooks/x.sql}\n", false, "DDB-106"),
         new("hook group duplicate hook name", "hook_groups:\n  g:\n    - {name: x, event: post_load, script: hooks/x.sql}\n    - {name: x, event: pre_load, script: hooks/y.sql}\n", true, "DDB-102"),
+        new("the lifecycle settings", "plans:\n  deploy: { keep: committed, audit: full, require_clean_tree: true }\n  refresh: { keep: database, audit: minimal }\nrefresh: { check: live, on_fail: warn }\nretention: { statement_logs_days: 7 }\n", true),
+        new("a connection's own lifecycle", "connections:\n  dev: { engine: postgres, plans: { deploy: { keep: ephemeral, audit: minimal } }, refresh: { check: none } }\n", true),
+        new("an unknown plan keep", "plans:\n  deploy: { keep: forever }\n", false, "DDB-106"),
+        new("an unknown audit level", "plans:\n  refresh: { audit: everything }\n", false, "DDB-106"),
+        new("an unknown refresh check", "refresh: { check: always }\n", false, "DDB-106"),
+        new("an unknown on_fail", "refresh: { on_fail: ignore }\n", false, "DDB-106"),
+        new("require_clean_tree is for deploy only", "plans:\n  refresh: { require_clean_tree: true }\n", false, "DDB-104"),
+        new("an unknown lane", "plans:\n  repair: { keep: committed }\n", false, "DDB-104"),
+        new("the retention is a whole number", "retention: { statement_logs_days: soon }\n", false, "DDB-106"),
+        new("the retention is not negative", "retention: { statement_logs_days: -1 }\n", false, "DDB-106"),
     ];
 
     public static TheoryData<Case> Data
@@ -97,6 +107,18 @@ public class ProjectConfigTests
             foreach (var code in c.Codes) Assert.Contains(diags, d => d.Code == code);
             Assert.Null(cfg);
         }
+    }
+
+    [Fact]
+    public void The_lifecycle_defaults_are_the_documented_ones_and_a_connection_lays_its_own_over_the_project()
+    {
+        var none = ProjectConfigLoader.Load("{}", "dbdatabuild.yml", [])!;
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Full), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Objects, OnFail.Block, 30), none.Lifecycle);
+        var cfg = ProjectConfigLoader.Load("plans:\n  deploy: { audit: standard }\nrefresh: { check: live }\nretention: { statement_logs_days: 0 }\nconnections:\n  dev: { engine: postgres, plans: { deploy: { keep: ephemeral } }, refresh: { on_fail: warn } }\n", "dbdatabuild.yml", [])!;
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Live, OnFail.Block, 0), cfg.LifecycleOf("sqlserver"));
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Ephemeral, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Live, OnFail.Warn, 0), cfg.LifecycleOf("dev"));
+        Assert.Contains("refresh check: live", cfg.Describe());
+        Assert.DoesNotContain("refresh check", none.Describe());          // the defaults are not repeated in every header
     }
 
     [Fact]

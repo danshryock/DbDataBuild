@@ -44,7 +44,7 @@ public static class PolicyKeys
 /// never from the configuration. A connection named after an engine (`sqlserver`) exists without being declared; declaring it sets its version.
 /// </summary>
 /// <param name="Version">The T-SQL level (or major version) the tool generates for: SQL Server 2022 and 2025 at compatibility level 160 are 16, 2025 at 170 is 17.</param>
-public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null, ConnectionTracking? Tracking = null, bool AllowNativeCommands = false, StringSemanticsOverride? Semantics = null)
+public sealed record ConnectionConfig(string Name, string Engine, int? Version = null, int Line = 0, IReadOnlyDictionary<string, ParameterValue>? DeclaredParameters = null, ConnectionTracking? Tracking = null, bool AllowNativeCommands = false, StringSemanticsOverride? Semantics = null, LifecycleOverride? Lifecycle = null)
 {
     /// <summary>The values this connection carries (`parameters:`): what differs between connections of one application, such as a store id. Referenced as `${connection.name}`, or `${origin.name}` by a copy that reads from it.</summary>
     public IReadOnlyDictionary<string, ParameterValue> Parameters => DeclaredParameters ?? new Dictionary<string, ParameterValue>();
@@ -126,6 +126,12 @@ public sealed record ProjectConfig(
     /// <summary>This configuration as one connection sees it: the same, with that connection's string semantics (what DDL and the collation checks read).</summary>
     public ProjectConfig ForConnection(string connection) => Connections.TryGetValue(connection, out var c) && c.Semantics != null ? this with { StringSemantics = SemanticsOf(connection) } : this;
 
+    /// <summary>The lifecycle settings of the project (`plans:`, `refresh:`, `retention:`): the built-in defaults when the file says nothing.</summary>
+    public LifecycleSettings Lifecycle { get; init; } = LifecycleSettings.Default;
+
+    /// <summary>The lifecycle settings in force on one connection: the project's with what the connection says laid over them.</summary>
+    public LifecycleSettings LifecycleOf(string connection) => Connections.TryGetValue(connection, out var c) && c.Lifecycle is { } own ? own.Apply(Lifecycle) : Lifecycle;
+
     /// <summary>How the files of a model must be named (`model_layout`; the default checks that the path is the name, as before).</summary>
     public ModelLayout Layout { get; init; } = ModelLayout.Folder;
 
@@ -199,6 +205,7 @@ public sealed record ProjectConfig(
         $"default connections: {string.Join(", ", DefaultConnections)}; string semantics: {StringSemantics.Describe()}" +
         string.Concat(Connections.Where(c => c.Value.Semantics != null).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $" (on {c.Key}: {SemanticsOf(c.Key).Describe()})")) + "; " +
         $"target versions: {(TargetVersions.Count == 0 ? "not set" : string.Join(", ", TargetVersions.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => $"{v.Key} {v.Value}")))}" +
+        (Lifecycle == LifecycleSettings.Default ? "" : $"; {Lifecycle.Describe()}") +
         (Connections.Any(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key)
             ? $"; connections: {string.Join(", ", Connections.Where(c => !ConnectionConfig.Implicit.ContainsKey(c.Key) || c.Value.Engine != c.Key).OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} ({c.Value.Engine})"))}" : "");
 }

@@ -1007,3 +1007,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Tests**: `A_command_says_what_comes_next…` and `Every_header_says_what_the_command_reads_and_writes_and_its_lane` (JsonOutputTests).
 - **Not done**: the hints in the terminal menu and the web tabs (phase 8), one error per cause outside `plan`, the traffic-light lines of `connection status` (phase 6).
 - **Verified**: unit suite. The conformance groups were not re-run for this change (only text was added to the end of outputs).
+
+## 137. The lifecycle settings are read (phase 5, first part: settings only)
+
+- **Added**: `plans:` (`deploy`/`refresh`: `keep` committed|database|ephemeral, `audit` minimal|standard|full; `deploy.require_clean_tree`), `refresh:` (`check` none|project|objects|live, `on_fail` block|warn) and `retention.statement_logs_days`, at the project and (`plans`, `refresh`) per connection. `ProjectConfig.Lifecycle` / `LifecycleOf(connection)` give what is in force; the header's `Effective:` line names it when it is not the default. `schemas/config.schema.json` has them; `ProjectConfigTests` checks the schema and the loader agree on each case.
+- **Not acting yet**: nothing reads the settings. They are acted on by the compiled refresh plan, the refresh checks and the plan policy (phases 4 and 5 of `docs/research/lifecycle-implementation.md`).
+- **Verified**: unit suite.

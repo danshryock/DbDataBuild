@@ -114,6 +114,14 @@
             },
             "string_semantics": {
               "$ref": "#/$defs/stringSemantics"
+            },
+            "plans": {
+              "description": "This connection's own plan policy; what it leaves out is the project's.",
+              "$ref": "#/$defs/planSettings"
+            },
+            "refresh": {
+              "description": "This connection's own refresh check; what it leaves out is the project's.",
+              "$ref": "#/$defs/refreshSettings"
             }
           }
         },
@@ -177,6 +185,14 @@
             },
             "string_semantics": {
               "$ref": "#/$defs/stringSemantics"
+            },
+            "plans": {
+              "description": "This connection's own plan policy; what it leaves out is the project's.",
+              "$ref": "#/$defs/planSettings"
+            },
+            "refresh": {
+              "description": "This connection's own refresh check; what it leaves out is the project's.",
+              "$ref": "#/$defs/refreshSettings"
             }
           }
         },
@@ -240,6 +256,14 @@
             },
             "string_semantics": {
               "$ref": "#/$defs/stringSemantics"
+            },
+            "plans": {
+              "description": "This connection's own plan policy; what it leaves out is the project's.",
+              "$ref": "#/$defs/planSettings"
+            },
+            "refresh": {
+              "description": "This connection's own refresh check; what it leaves out is the project's.",
+              "$ref": "#/$defs/refreshSettings"
             }
           }
         }
@@ -540,6 +564,26 @@
         "object",
         "none"
       ]
+    },
+    "plans": {
+      "description": "How the project is meant to operate: what is kept of a plan and what is recorded of each event, per lane. Defaults: deploy `committed`/`full`, refresh `committed`/`standard`.",
+      "$ref": "#/$defs/planSettings"
+    },
+    "refresh": {
+      "description": "The safety check before a refresh and what a failed check does. A refresh can run without querying the connection's metadata (`check: none`).",
+      "$ref": "#/$defs/refreshSettings"
+    },
+    "retention": {
+      "description": "How long local files are kept.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "statement_logs_days": {
+          "description": "Statement logs (.dbdatabuild/statement-log/) older than this many days are removed by the next deploy or refresh; 0 keeps them all. Default 30.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "$defs": {
@@ -705,6 +749,14 @@
         },
         "string_semantics": {
           "$ref": "#/$defs/stringSemantics"
+        },
+        "plans": {
+          "description": "This connection's own plan policy; what it leaves out is the project's.",
+          "$ref": "#/$defs/planSettings"
+        },
+        "refresh": {
+          "description": "This connection's own refresh check; what it leaves out is the project's.",
+          "$ref": "#/$defs/refreshSettings"
         }
       }
     },
@@ -791,6 +843,80 @@
               }
             }
           }
+        }
+      }
+    },
+    "planKeep": {
+      "description": "Where a plan lives: `committed` (a file in the project, and in the tracking tables), `database` (only in the tracking tables), `ephemeral` (made and applied in one step, nothing kept).",
+      "enum": [
+        "committed",
+        "database",
+        "ephemeral"
+      ]
+    },
+    "auditLevel": {
+      "description": "How much an event records: `minimal` (the event and its steps), `standard` (adds the plan's hash, who and the commit), `full` (adds the plan text).",
+      "enum": [
+        "minimal",
+        "standard",
+        "full"
+      ]
+    },
+    "planSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deploy": {
+          "description": "Deploy plans (a change of structure).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "keep": {
+              "$ref": "#/$defs/planKeep"
+            },
+            "audit": {
+              "$ref": "#/$defs/auditLevel"
+            },
+            "require_clean_tree": {
+              "description": "Refuse a deploy from a working tree with uncommitted changes (`--allow-dirty` lifts it for one run). Default false.",
+              "type": "boolean"
+            }
+          }
+        },
+        "refresh": {
+          "description": "Refresh plans (the routine loads), compiled by `project compile`.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "keep": {
+              "$ref": "#/$defs/planKeep"
+            },
+            "audit": {
+              "$ref": "#/$defs/auditLevel"
+            }
+          }
+        }
+      }
+    },
+    "refreshSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "description": "The safety check before a refresh: `none` (nothing; the engine's errors are the check), `project` (the project's structure was deployed to this connection), `objects` (each object the refresh uses against what was last deployed, from the tracking tables; the default), `live` (each object against the catalog as it is now).",
+          "enum": [
+            "none",
+            "project",
+            "objects",
+            "live"
+          ]
+        },
+        "on_fail": {
+          "description": "What a failed check does: `block` (the default) stops the refresh, `warn` reports and runs.",
+          "enum": [
+            "block",
+            "warn"
+          ]
         }
       }
     }
