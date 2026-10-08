@@ -53,7 +53,7 @@ Written 2026-10-02, brought up to date 2026-10-07. Unit tests 1817, real-engine 
 
 ## E. Suggested order (for you to change; refreshed 2026-10-07)
 
-0. **Deploy and refresh as two lanes, one event record, consistent verbs and hints** (draft: `docs/research/deploy-and-refresh.md`, entry 130). Two bugs it explains are worth fixing whatever is decided: a scheduled `run` with unchanged content fails from its second run of the day (DDB-438), and `report` shows the sum of every statement's row count as the rows loaded.
+0. **Deploy and refresh as two lanes, one event record, consistent verbs and hints** (design: `docs/research/lifecycle-model.md`; plan and status: `docs/research/lifecycle-implementation.md`; for users: `docs/concepts.md`; entries 130 and 131). Two bugs it explains are worth fixing whatever is decided: a scheduled `run` with unchanged content fails from its second run of the day (DDB-438), and `report` shows the sum of every statement's row count as the rows loaded.
 1. **Decisions only the owner can make** (section R): `copy_to` and offline tracking (section M), retention of files from `run`, the test gate's recording in the plan, MCP `outputSchema`.
 2. **Real-host checks** (sections F and K): the skill and the MCP server have been tried from Windows and work at some level; they have not been exercised thoroughly. The MCP app has not been seen in a real host (see section F: the host has to advertise MCP Apps), and the page's apply and the elicitation have not been checked against one.
 3. Lowering gaps as real models need them (section A), probing with scale and edge data (it found most of the defects of 2026-10-07), and the documentation debt (section D).
