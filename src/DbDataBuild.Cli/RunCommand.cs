@@ -39,7 +39,7 @@ internal static class RunCommand
 
         var (commit, dirty) = GitInfo.Read(root);
         var draft = new Plan("", session.Target, commit, dirty, ProductInfo.Version, result.Bases, result.UsedAnswers, result.Steps, result.Noticed);
-        var plan = draft with { Id = PlanDocument.CreateId(DateOnly.FromDateTime(DateTime.UtcNow), draft) };
+        var plan = draft with { Id = PlanDocument.CreateRunId(DateTime.UtcNow) };
         var dir = Path.Combine(root, PlanCommand.PlansDir, session.Target);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, plan.Id + ".plan.yml");

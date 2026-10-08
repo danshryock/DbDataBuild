@@ -29,6 +29,10 @@ public static class PlanDocument
         return $"{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}-{Hashing.Sha256Hex(body)[..8]}";
     }
 
+    /// <summary>The id of one routine run: the time to the second and four random hex digits. A run repeats the same statements every time, so its id cannot come from its content (a plan is applied once, a run is not).</summary>
+    public static string CreateRunId(DateTime utc) =>
+        $"ref-{utc.ToString("yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture)}-{Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(2))}";
+
     public static string Serialize(Plan plan)
     {
         var body = Body(plan);

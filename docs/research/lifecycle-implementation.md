@@ -15,7 +15,7 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | # | Phase | Delivers | Depends on | Breaking | Status |
 |---|---|---|---|---|---|
 | 0 | Docs | this plan, the design, `docs/concepts.md` | | no | **done** |
-| 1.1 | Event ids; the "applied once" rule per event | scheduled `refresh`/`run` with unchanged content works every time; ids `dep-…`/`ref-…` in `plan_id` columns, plan hash in `plan_hash` | | report shows ids | planned |
+| 1.1 | Event ids; the "applied once" rule per event | scheduled `refresh`/`run` with unchanged content works every time; ids `dep-…`/`ref-…` in `plan_id` columns, plan hash in `plan_hash` | | report shows ids | **run lane done** (entry 132); deploy lane keeps its content id until phase 3 |
 | 1.2 | `rows_loaded` | the rows inserted by a load, not the sum of every statement's count | | report numbers change | planned |
 | 1.3 | Plan noise | one DDB-424 per cause; each note once; no "not interactive" note without a question | | text only | planned |
 | 2 | The command tree | `project`, `connection`, `ui`, `help` nouns; old verbs removed; JSON `command`, schemas, TUI catalog, MCP tool names, generated docs | 1 | **yes** | planned |
@@ -95,3 +95,4 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | Date | Phase | Note |
 |---|---|---|
 | 2026-10-07 | 0 | design, plan and concepts written |
+| 2026-10-07 | 1.1 | `run` gives each run an id `ref-<utc>-<4 hex>`: repeated runs of unchanged content no longer fail with DDB-438; verified on SQL Server 2022 and PostgreSQL 17 |

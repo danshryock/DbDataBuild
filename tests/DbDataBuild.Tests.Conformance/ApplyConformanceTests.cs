@@ -646,6 +646,12 @@ public partial class ApplyConformanceTests
             Assert.Equal(4, await CountAsync(run, "marts.fct_orders"));
             Assert.Equal(2, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
 
+            // a schedule runs the same content again and again: each run is its own event, so none is refused as "already applied"
+            Ok(run.Cli("run"), "run again with nothing new");
+            Ok(run.Cli("run"), "and once more");
+            Assert.Equal(4, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
+            Assert.Equal(3, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("migration_log"), run.Q("plan_id") + " LIKE 'ref-%' AND status = 'completed'"));
+
             // the report shows the history and is clean
             var report = run.Cli("report");
             Ok(report, "report");

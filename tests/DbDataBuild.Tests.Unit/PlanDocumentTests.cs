@@ -126,6 +126,15 @@ public class PlanDocumentTests
     }
 
     [Fact]
+    public void A_run_id_is_the_time_and_a_random_suffix_so_two_runs_of_the_same_content_differ()
+    {
+        var t = new DateTime(2026, 10, 12, 8, 5, 3, DateTimeKind.Utc);
+        var ids = Enumerable.Range(0, 20).Select(_ => PlanDocument.CreateRunId(t)).ToList();
+        Assert.All(ids, id => Assert.Matches(@"^ref-20261012T080503-[0-9a-f]{4}$", id));
+        Assert.True(ids.Distinct().Count() > 1);
+    }
+
+    [Fact]
     public void The_markdown_report_shows_what_runs_why_what_was_decided_and_what_was_not_done()
     {
         var plan = Sample() with { Steps = [Sample().Steps[0] with { Risk = RiskClass.Destructive }, Sample().Steps[1]] };
