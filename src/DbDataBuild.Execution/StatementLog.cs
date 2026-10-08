@@ -17,7 +17,7 @@ public sealed class FileStatementLog : IStatementLog, IDisposable
     public FileStatementLog(string directory, string command, Guid runId)
     {
         Directory.CreateDirectory(directory);
-        Path = System.IO.Path.Combine(directory, $"{DateTime.UtcNow.ToString("yyyyMMddTHHmmss", CultureInfo.InvariantCulture)}-{command}-{runId:N}.jsonl");
+        Path = System.IO.Path.Combine(directory, $"{DateTime.UtcNow.ToString("yyyyMMddTHHmmss", CultureInfo.InvariantCulture)}-{command.Replace(' ', '-')}-{runId:N}.jsonl");
         stream = new FileStream(Path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
     }
 

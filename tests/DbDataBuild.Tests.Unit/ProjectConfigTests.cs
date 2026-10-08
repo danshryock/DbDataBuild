@@ -113,10 +113,10 @@ public class ProjectConfigTests
     public void The_lifecycle_defaults_are_the_documented_ones_and_a_connection_lays_its_own_over_the_project()
     {
         var none = ProjectConfigLoader.Load("{}", "dbdatabuild.yml", [])!;
-        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Full), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Objects, OnFail.Block, 30), none.Lifecycle);
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Full), new(PlanKeep.Committed, AuditLevel.Standard), true, RefreshCheck.Objects, OnFail.Block, 30), none.Lifecycle);
         var cfg = ProjectConfigLoader.Load("plans:\n  deploy: { audit: standard }\nrefresh: { check: live }\nretention: { statement_logs_days: 0 }\nconnections:\n  dev: { engine: postgres, plans: { deploy: { keep: ephemeral } }, refresh: { on_fail: warn } }\n", "dbdatabuild.yml", [])!;
-        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Live, OnFail.Block, 0), cfg.LifecycleOf("sqlserver"));
-        Assert.Equal(new LifecycleSettings(new(PlanKeep.Ephemeral, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Live, OnFail.Warn, 0), cfg.LifecycleOf("dev"));
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Committed, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), true, RefreshCheck.Live, OnFail.Block, 0), cfg.LifecycleOf("sqlserver"));
+        Assert.Equal(new LifecycleSettings(new(PlanKeep.Ephemeral, AuditLevel.Standard), new(PlanKeep.Committed, AuditLevel.Standard), true, RefreshCheck.Live, OnFail.Warn, 0), cfg.LifecycleOf("dev"));
         Assert.Contains("refresh check: live", cfg.Describe());
         Assert.DoesNotContain("refresh check", none.Describe());          // the defaults are not repeated in every header
     }

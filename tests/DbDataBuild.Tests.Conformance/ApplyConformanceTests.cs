@@ -621,69 +621,190 @@ public partial class ApplyConformanceTests
     }
 
     [SkippableTheory, MemberData(nameof(Engines))]
-    public async Task Run_only_runs_routine_loads_and_report_shows_what_happened(string name)
+    public async Task Refresh_runs_the_compiled_routine_loads_under_the_check_chosen_and_each_run_is_an_event(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        var queries = new List<string>();
+        try
+        {
+            Ok(run.Cli("connection", "init", "--apply"), "init");
+            Ok(run.Cli("project", "compile"), "compile");
+            var log = run.Q("dbdatabuild") + "." + run.Q("run_log");
+            var events = run.Q("dbdatabuild") + "." + run.Q("migration_log");
+
+            // nothing is deployed yet: the check (objects, the default) finds no recorded shape and stops before anything runs; nothing is written
+            var refused = run.Cli("connection", "refresh");
+            Refused(refused, "DDB-447", "a refresh before the first deploy");
+            Assert.Contains("never been deployed", refused.Err);
+            Assert.Contains("Next: dbdatabuild connection deploy", refused.Out);
+            Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
+            Assert.Equal(0, await CountAsync(run, events, run.Q("lane") + " = 'refresh'"));
+
+            // without the check the engine's own error is the check: the load fails on the missing table, and the event says so
+            var unchecked1 = run.Cli("connection", "refresh", "--check", "none");
+            Assert.NotEqual(0, unchecked1.Exit);
+            Assert.Equal(1, await CountAsync(run, events, run.Q("lane") + " = 'refresh' AND status = 'failed'"));
+
+            var plan = run.Cli("connection", "deploy", "--write-plan");
+            Ok(plan, "plan");
+            Ok(run.Cli("connection", "deploy", "--apply-plan", run.PlanFile(plan.Out)), "apply");
+            Assert.Equal(1, await CountAsync(run, events, run.Q("lane") + " = 'deploy' AND status = 'completed' AND " + run.Q("project_hash") + " IS NOT NULL"));    // the deploy recorded the structure it was made from
+
+            // from here on a routine load is a one-liner
+            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00)");
+            var routine = run.Cli("connection", "refresh");
+            Ok(routine, "refresh");
+            Assert.Contains("1 routine load(s)", routine.Out);
+            Assert.Contains("Next: dbdatabuild connection monitor", routine.Out);
+            Assert.Equal(4, await CountAsync(run, "marts.fct_orders"));
+            Assert.Equal(2, await CountAsync(run, log, "status = 'ok'"));
+
+            // a schedule runs the same content again and again: each run is its own event, none is refused as "already applied", and the rows of a load are the rows inserted
+            Ok(run.Cli("connection", "refresh"), "again with nothing new");
+            Ok(run.Cli("connection", "refresh"), "and once more");
+            Assert.Equal(4, await CountAsync(run, log, "status = 'ok'"));
+            Assert.Equal(3, await CountAsync(run, events, run.Q("plan_id") + " LIKE 'ref-%' AND status = 'completed' AND " + run.Q("lane") + " = 'refresh'"));
+            Assert.Equal(1, await CountAsync(run, log, "status = 'ok' AND rows_affected = 3"));
+            Assert.Equal(3, await CountAsync(run, log, "status = 'ok' AND rows_affected = 4"));
+            Assert.Empty(Directory.EnumerateFiles(Path.Combine(run.Dir, "plans", name), "ref-*"));       // a refresh leaves no plan file: the compiled plan is the plan
+
+            // the other checks pass on a deployed project too
+            Ok(run.Cli("connection", "refresh", "--check", "project"), "check project");
+            Ok(run.Cli("connection", "refresh", "--check", "live"), "check live");
+
+            // a refresh with no check asks the connection nothing about its structure: no catalog query, only the loads, the tracking tables and the watermarks
+            ReadSession.Observer = q => queries.Add(q);
+            try { Ok(run.Cli("connection", "refresh", "--check", "none"), "check none"); }
+            finally { ReadSession.Observer = null; }
+            Assert.DoesNotContain(queries, q => q.Contains("information_schema", StringComparison.OrdinalIgnoreCase) || q.Contains("sys.", StringComparison.OrdinalIgnoreCase) || q.Contains("pg_catalog", StringComparison.OrdinalIgnoreCase));
+
+            // the report shows the history and is clean
+            var report = run.Cli("connection", "monitor");
+            Ok(report, "report");
+            Assert.Contains("Events", report.Out);
+            Assert.Contains("completed", report.Out);
+            Assert.Contains("marts.fct_orders", report.Out);
+            Assert.Contains("in sync", report.Out);
+            Assert.Contains("nothing", report.Out.Split("Needs attention")[1]);
+            Assert.Matches(@"\bdeploy\b", report.Out);                                                       // the events say which lane they were
+            Assert.Matches(@"\brefresh\b", report.Out);
+
+            // the landing view: structure, the newest deploy and refresh, and the policy
+            var status = run.Cli("connection", "status");
+            Ok(status, "status");
+            Assert.True(status.Out.Contains("Structure  in sync: a deploy would change no structure"), status.Out);
+            Assert.Matches(@"Deploy     \S+  COMPLETED  \d{4}-\d\d-\d\d \d\d:\d\d UTC", status.Out);
+            Assert.Matches(@"Refresh    ref-\S+  COMPLETED", status.Out);
+            Assert.Contains("refresh check: objects", status.Out);
+
+            // the project changes: the compiled plan is out of date with what was deployed, and the checks that read what was deployed say so; none runs anything
+            run.Write("models/marts/fct_orders.yml", FctYaml2);
+            run.Write("models/marts/fct_orders.sql", FctSql2);
+            Ok(run.Cli("project", "compile"), "compile after the change");
+            Refused(run.Cli("connection", "refresh"), "DDB-447", "objects: the table was deployed with the old shape");
+            Refused(run.Cli("connection", "refresh", "--check", "project"), "DDB-447", "project: another structure than the one last deployed");
+            Refused(run.Cli("connection", "refresh", "--check", "live"), "DDB-447", "live: the table on the connection has the old shape");
+            var before = await CountAsync(run, log, "status = 'ok'");
+            Assert.Equal(before, await CountAsync(run, log, "status = 'ok'"));                      // nothing was executed by any of them
+            var warned = run.Cli("connection", "refresh", "--on-fail", "warn");                     // reports, and runs: the load names a column the table does not have, so the engine refuses it
+            Assert.NotEqual(0, warned.Exit);
+            Assert.Contains("DDB-447", warned.Err);
+
+            // back to the deployed model: a change made outside the tool is not in what was deployed, so only the live check sees it
+            run.Write("models/marts/fct_orders.yml", FctYaml);
+            run.Write("models/marts/fct_orders.sql", FctSql);
+            Ok(run.Cli("project", "compile"), "compile back");
+            await engine.ExecAsync($"ALTER TABLE marts.fct_orders ADD {run.Q("sneaky")} {engine.ColumnType("VARCHAR(5)")} NULL");
+            var drift = run.Cli("connection", "monitor");
+            Refused(drift, "CHANGED OUTSIDE THE TOOL", "report after drift");
+            Assert.Contains("--ack drift:marts.fct_orders", drift.Out);
+            Ok(run.Cli("connection", "refresh"), "objects does not see a change outside the tool: it reads what was deployed");
+            var live = run.Cli("connection", "refresh", "--check", "live");
+            Refused(live, "DDB-447", "live sees it");
+            Assert.Contains("outside the tool", live.Err + live.Out);
+        }
+        finally { ReadSession.Observer = null; if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
+
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task Inspect_says_what_is_in_the_way_and_what_each_login_may_do(string name)
     {
         var run = await SetUp(name);
         await using var engine = run.Engine;
         try
         {
-            Ok(run.Cli("connection", "init", "--apply"), "init");
-            Ok(run.Cli("project", "compile"), "render");
-
-            // nothing exists yet: run would have to create structure, so it refuses and points to plan; nothing is executed or written
-            var refused = run.Cli("connection", "refresh");
-            Refused(refused, "only runs routine loads", "run on a project that needs DDL");
-            Assert.Contains("connection deploy", refused.Out);
+            var before = run.Cli("connection", "inspect");
+            Refused(before, "thing(s) in the way", "inspect before the tracking tables exist");
+            Assert.Contains("connects", before.Out);
+            Assert.Contains("may create tables in the database", before.Out);                                // what the write login may do is asked with a SELECT, nothing is created
+            Assert.Contains("not there yet", before.Out);
+            Assert.Contains("marts (missing", before.Out);
+            Assert.Contains("Next: dbdatabuild connection init", before.Out);
             Assert.Equal(0, await CountAsync(run, "information_schema.tables", "table_schema = 'marts'"));
-            Assert.False(Directory.Exists(Path.Combine(run.Dir, "plans")));
 
+            Ok(run.Cli("connection", "init", "--apply"), "init");
+            Ok(run.Cli("project", "compile"), "compile");
             var plan = run.Cli("connection", "deploy", "--write-plan");
-            Ok(plan, "plan");
             Ok(run.Cli("connection", "deploy", "--apply-plan", run.PlanFile(plan.Out)), "apply");
+            var after = run.Cli("connection", "inspect", "--format", "json");
+            Ok(after, "inspect when everything is there");
+            var data = System.Text.Json.Nodes.JsonNode.Parse(after.Out)!["data"]!;
+            Assert.Equal("ready", (string)data["tracking"]!["state"]!);
+            Assert.All(data["logins"]!.AsArray(), l => Assert.True((bool)l!["connects"]!));
+            Assert.Contains(data["schema_names"]!.AsArray(), n => (string)n!["name"]! == "marts" && (bool)n["exists"]!);
+        }
+        finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
+    }
 
-            // from here on a routine load is a one-liner
-            await engine.ExecAsync("INSERT INTO staging.orders VALUES (4, 40.00)");
-            var routine = run.Cli("connection", "refresh");
-            Ok(routine, "run");
-            Assert.Contains("1 routine load(s)", routine.Out);
-            Assert.Equal(4, await CountAsync(run, "marts.fct_orders"));
-            Assert.Equal(2, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
+    [SkippableTheory, MemberData(nameof(Engines))]
+    public async Task The_project_settings_say_what_a_deploy_keeps_and_records_and_how_long_the_logs_stay(string name)
+    {
+        var run = await SetUp(name);
+        await using var engine = run.Engine;
+        try
+        {
+            File.AppendAllText(Path.Combine(run.Dir, "dbdatabuild.yml"), "plans:\n  deploy: { keep: ephemeral, audit: minimal }\nretention: { statement_logs_days: 1 }\n");
+            Ok(run.Cli("connection", "init", "--apply"), "init");
+            Ok(run.Cli("project", "compile"), "compile");
 
-            // a schedule runs the same content again and again: each run is its own event, so none is refused as "already applied"
-            Ok(run.Cli("connection", "refresh"), "run again with nothing new");
-            Ok(run.Cli("connection", "refresh"), "and once more");
-            Assert.Equal(4, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
-            Assert.Equal(3, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("migration_log"), run.Q("plan_id") + " LIKE 'ref-%' AND status = 'completed'"));
+            // statement logs: one that is days old goes at the next deploy, a recent one stays
+            var logs = Path.Combine(run.Dir, ".dbdatabuild", "statement-log");
+            Directory.CreateDirectory(logs);
+            var old = Path.Combine(logs, "20200101T000000-apply-old.jsonl"); File.WriteAllText(old, "{}"); File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-3));
+            var recent = Path.Combine(logs, "20990101T000000-apply-recent.jsonl"); File.WriteAllText(recent, "{}");
 
-            // the rows of a load are the rows inserted, not the counts of its stage, delete and insert added up: the first load put in 3 rows, each run 4
-            var runLog = run.Q("dbdatabuild") + "." + run.Q("run_log");
-            Assert.Equal(1, await CountAsync(run, runLog, "status = 'ok' AND rows_affected = 3"));
-            Assert.Equal(3, await CountAsync(run, runLog, "status = 'ok' AND rows_affected = 4"));
+            // ephemeral: the plan is written under .dbdatabuild/plans (git ignores it), never under plans/, and goes when it has been applied
+            var written = run.Cli("connection", "deploy", "--write-plan");
+            Ok(written, "plan");
+            Assert.Contains(".dbdatabuild/plans/", written.Out.Replace('\\', '/'));
+            Assert.False(Directory.Exists(Path.Combine(run.Dir, "plans")));
+            var file = run.PlanFile(written.Out);
+            Assert.True(File.Exists(file));
+            var applied = run.Cli("connection", "deploy", "--apply-plan", file);
+            Ok(applied, "apply");
+            Assert.Contains("ephemeral", applied.Out);
+            Assert.False(File.Exists(file));
+            Assert.Contains("older than 1 day(s)", applied.Out);
+            Assert.False(File.Exists(old));
+            Assert.True(File.Exists(recent));
 
-            // the report shows the history and is clean
-            var report = run.Cli("connection", "monitor");
-            Ok(report, "report");
-            Assert.Contains("Applied plans", report.Out);
-            Assert.Contains("completed", report.Out);
-            Assert.Contains("marts.fct_orders", report.Out);
-            Assert.Contains("in sync", report.Out);
-            Assert.Contains("nothing", report.Out.Split("Needs attention")[1]);
+            // audit minimal: the event and its steps are there, without the plan text, the commit or who; the DDL keeps its hash and no text
+            var events = run.Q("dbdatabuild") + "." + run.Q("migration_log");
+            Assert.Equal(0, await CountAsync(run, events, run.Q("plan_text") + " <> ''"));
+            Assert.Equal(0, await CountAsync(run, events, run.Q("applied_by") + " <> ''"));
+            Assert.Equal(0, await CountAsync(run, events, run.Q("git_commit") + " IS NOT NULL"));
+            var ddl = run.Q("dbdatabuild") + "." + run.Q("ddl_log");
+            Assert.True(await CountAsync(run, ddl, "status = 'ok'") > 0);
+            Assert.Equal(0, await CountAsync(run, ddl, run.Q("statement_text") + " <> ''"));
+            Assert.Equal(0, await CountAsync(run, ddl, run.Q("statement_hash") + " = ''"));
+            Ok(run.Cli("connection", "monitor"), "the report reads such events");
 
-            // a change that needs DDL is refused by run, even though loads are also due
-            run.Write("models/marts/fct_orders.yml", FctYaml2);
-            run.Write("models/marts/fct_orders.sql", FctSql2);
-            Ok(run.Cli("project", "compile"), "render after the change");
-            Refused(run.Cli("connection", "refresh"), "DDB-431", "run after an incremental model changed");           // blocked, so not routine
-
-            // the report notices an out-of-band change and says what to do
-            run.Write("models/marts/fct_orders.yml", FctYaml);
-            run.Write("models/marts/fct_orders.sql", FctSql);
-            Ok(run.Cli("project", "compile"), "render back");
-            await engine.ExecAsync($"ALTER TABLE marts.fct_orders ADD {run.Q("sneaky")} {engine.ColumnType("VARCHAR(5)")} NULL");
-            var drift = run.Cli("connection", "monitor");
-            Refused(drift, "CHANGED OUTSIDE THE TOOL", "report after drift");
-            Assert.Contains("--ack drift:marts.fct_orders", drift.Out);
-            Refused(run.Cli("connection", "refresh"), "DDB-430", "run on a drifted object");
+            // keeping plans only in the tracking tables is not built: said plainly, nothing is planned
+            run.Write("dbdatabuild.yml", File.ReadAllText(Path.Combine(run.Dir, "dbdatabuild.yml")).Replace("keep: ephemeral", "keep: database"));
+            var refused = run.Cli("connection", "deploy", "--write-plan");
+            Assert.Equal(2, refused.Exit);
+            Assert.Contains("not built yet", refused.Err);
         }
         finally { if (Directory.Exists(run.Dir)) Directory.Delete(run.Dir, true); }
     }
@@ -874,17 +995,20 @@ public partial class ApplyConformanceTests
             Assert.Equal(["created", name == "postgres" ? "native_postgres" : "native_sqlserver", "group_pre_load", "group_post_load"], await Log());     // the order the plan gave
             Assert.Equal(4, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "operation IN ('post_create', 'pre_load', 'post_load') AND status = 'ok'"));
 
-            // a routine load with only data hooks is still routine for `run`; create hooks do not fire for an existing table
+            // a routine load with only data hooks is still routine; create hooks do not fire for an existing table
             await engine.ExecAsync("DELETE FROM staging.hook_log");
             var routine = run.Cli("connection", "refresh");
             Ok(routine, "run with data hooks");
             Assert.Equal(["group_pre_load", "group_post_load"], await Log());
 
-            // a hook that is not a data hook (the default effect is ddl) makes the load not routine: run refuses, plan and apply do it
+            // a hook that is not a data hook (the default effect is ddl) makes the load not routine: compiling leaves the model out of the refresh plan, and says why; a deploy does it
             run.Write("models/marts/fct_orders.yml", FctYaml + hooks + "  - {name: ddl_hook, event: post_load, script: hooks/created.sql}\n");
+            Ok(run.Cli("project", "compile"), "compile with a ddl hook");
             var refused = run.Cli("connection", "refresh");
-            Refused(refused, "only runs routine loads", "run with a ddl hook around the load");
-            Assert.Contains("hook: hook ddl_hook (post_load)", refused.Out);
+            Ok(refused, "a refresh with nothing routine in it");
+            Assert.Contains("not routine", refused.Out);
+            Assert.Contains("Nothing to do", refused.Out);
+            Assert.Contains("marts.fct_orders", refused.Out);
 
             // checked before anything is planned: a missing script, a script that does not parse, an unknown group
             run.Write("models/marts/fct_orders.yml", FctYaml + "hooks:\n  - {name: gone, event: post_create, script: hooks/nowhere.sql}\n");
@@ -1037,7 +1161,7 @@ public partial class ApplyConformanceTests
             Assert.Contains(asked["diagnostics"]!.AsArray(), d => (string?)d!["code"] == "DDB-414");
 
             var report = Json(run.Cli("connection", "monitor", "--format", "json"));
-            Assert.Equal("completed", (string?)report["data"]!["applied_plans"]![0]!["status"]);
+            Assert.Equal("completed", (string?)report["data"]!["events"]![0]!["status"]);
             Assert.Contains(report["data"]!["objects"]!.AsArray(), o => (string?)o!["object"] == "marts.fct_orders" && (string?)o["now"] == "in sync");
             Assert.Empty(report["data"]!["needs_attention"]!.AsArray());
         }
@@ -1361,7 +1485,7 @@ public partial class ApplyConformanceTests
             Refused(old, "DDB-505", "planning against an older layout");
             Assert.Contains("layout version 1", old.Err);
             Ok(run.Cli("connection", "init", "--apply"), "init upgrades");
-            Assert.Equal(["1", "4"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
+            Assert.Equal(["1", "5"], await engine.RowsAsync($"SELECT {run.Q("version")} FROM {T("tracking_version")}"));
             Ok(run.Cli("connection", "deploy", "--write-plan"), "plan after the upgrade");
 
             // metadata.store_on_apply: a successful apply also stores the project, the models it touched and the plan
@@ -1723,7 +1847,7 @@ public partial class ApplyConformanceTests
             // drift: someone adds a column outside the tool
             await engine.ExecAsync("ALTER TABLE marts.fct_orders ADD scratch INT NULL");
             json(["connection", "status"], 1);
-            json(["connection", "refresh"], 1);
+            json(["connection", "refresh", "--check", "live"], 1);                                         // the live check sees what the recorded one cannot
             json(["connection", "deploy", "--ack", "drift:marts.fct_orders", "--reason", "scratch column from the DBA"], 0);
             var after = json(["connection", "monitor"], 0);
             Assert.DoesNotContain("changed outside the tool (`", after.Out);              // an accepted drift is shown as accepted, not as something that needs attention

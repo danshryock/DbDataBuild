@@ -1,6 +1,6 @@
 # Concepts: project and connection, deploy and refresh
 
-> **Status, 2026-10-07.** The command names below are built (entry 135), except the ones the implementation plan lists as *later* (`connection inspect`, `project model create`, `project tests list`, `connection tests run`), the positional connection name (today `--connection <c>`), and the plan policy, events and refresh checks (`docs/research/lifecycle-implementation.md`, phases 4 to 6). `docs/commands.md` is generated from the program and is always what exists now.
+> **Status, 2026-10-08.** Built: the commands below (entry 135) except the ones the implementation plan lists as *later* (`connection inspect`, `project model create`, `project tests list`, `connection tests run`) and the positional connection name (today `--connection <c>`); the compiled refresh plan and its checks (`none`, `project`, `objects`, `live`); tracking layout 5 (each event records its lane, and a deploy the structure it was made from); the `plans:`, `refresh:` and `retention:` settings are read and act (`keep: committed|ephemeral`, `audit` for both lanes, the statement-log retention). Not yet: `keep: database` (the plan store), the deploy event as an id of its own, and the drill-down of `connection monitor` (`docs/research/lifecycle-implementation.md`, phases 5 and 6). `docs/commands.md` is generated from the program and is always what exists now.
 
 ## The two things you work on
 
@@ -88,7 +88,7 @@ Every command says, in its header and in `--help`, what it touches:
 A **plan** is a list of steps (statements, their risk and why). An **event** is one run of a plan. Ten refreshes a day are ten events that point at one plan.
 
 * A **deploy plan** is made from the database's live state, so it can go stale. It is shown to you, you give the allowances for risky steps, and it is applied. A completed deploy plan cannot be applied twice. If a deploy stops part-way, running the same plan again continues it.
-* A **refresh plan** is made when you compile, from the project alone, and is committed like code: it documents how the project operates every day. Values only known at run time (watermarks) are recorded in the event, not in the plan.
+* A **refresh plan** is made when you compile (`rendered/<connection>/refresh.plan.yml`), from the project alone, and is committed like code: it documents how the project operates every day. Values only known at run time (watermarks) are found when the refresh runs and recorded in the event, not in the plan. `connection refresh` reads this plan and the committed scripts it names; it does not load the models.
 
 Where plans are kept, and how much is recorded, is the project's choice:
 

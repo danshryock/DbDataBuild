@@ -542,6 +542,44 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "project tests list"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_project_tests_list"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "connection inspect"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/data_connection_inspect"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -836,6 +874,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "project_hash": {
+          "type": "string"
         }
       },
       "required": [
@@ -1601,6 +1642,77 @@
           "items": {
             "type": "string"
           }
+        },
+        "summary": {
+          "description": "The landing view: structure (in_sync, pending or attention), the newest deploy and refresh event, and the policy in force.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "structure": {
+              "enum": [
+                "in_sync",
+                "pending",
+                "attention"
+              ]
+            },
+            "steps": {
+              "type": "integer"
+            },
+            "risky": {
+              "type": "integer"
+            },
+            "destructive": {
+              "type": "integer"
+            },
+            "blocked": {
+              "type": "integer"
+            },
+            "changed_outside_the_tool": {
+              "type": "integer"
+            },
+            "last_deploy": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "utc": {
+                  "type": "string"
+                }
+              }
+            },
+            "last_refresh": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "utc": {
+                  "type": "string"
+                }
+              }
+            },
+            "policy": {
+              "type": "string"
+            },
+            "loads": {
+              "type": "integer"
+            }
+          }
         }
       }
     },
@@ -1826,66 +1938,8 @@
         "effect": {
           "type": "string"
         },
-        "login": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "open_questions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/question"
-          }
-        },
         "connection": {
           "type": "string"
-        },
-        "questions_asked": {
-          "type": "integer"
-        },
-        "answers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/answer"
-          }
-        },
-        "noticed": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "blocked": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "skipped": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "plan": {
-          "$ref": "#/$defs/plan"
-        },
-        "files": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "plan": {
-              "type": "string"
-            },
-            "report": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "plan",
-            "report"
-          ]
         },
         "dry_run": {
           "type": "boolean"
@@ -1972,10 +2026,47 @@
             ]
           }
         },
-        "metadata_stored": {
+        "check": {
+          "description": "The safety check that ran before the loads.",
+          "enum": [
+            "none",
+            "project",
+            "objects",
+            "live"
+          ]
+        },
+        "on_fail": {
+          "description": "What a failed check does.",
+          "enum": [
+            "block",
+            "warn"
+          ]
+        },
+        "loads": {
+          "description": "The routine loads the refresh plan holds for the selected models.",
           "type": "array",
           "items": {
-            "$ref": "#/$defs/docRow"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "model",
+              "operation"
+            ]
+          }
+        },
+        "findings": {
+          "description": "The codes of what the check found.",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }
@@ -1987,7 +2078,7 @@
         "connection": {
           "type": "string"
         },
-        "applied_plans": {
+        "events": {
           "type": "array",
           "items": {
             "type": "object",
@@ -1996,7 +2087,10 @@
               "when_utc": {
                 "type": "string"
               },
-              "plan": {
+              "event": {
+                "type": "string"
+              },
+              "lane": {
                 "type": "string"
               },
               "status": {
@@ -2011,7 +2105,8 @@
             },
             "required": [
               "when_utc",
-              "plan",
+              "event",
+              "lane",
               "status"
             ]
           }
@@ -3543,6 +3638,159 @@
             "allow_risky",
             "allow_destructive"
           ]
+        }
+      }
+    },
+    "data_project_tests_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "metadata",
+                  "model"
+                ]
+              },
+              "file": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "cases": {
+                "type": "integer"
+              },
+              "description": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "file",
+              "cases",
+              "severity",
+              "tags"
+            ]
+          }
+        },
+        "damaged": {
+          "type": "integer"
+        }
+      }
+    },
+    "data_connection_inspect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "logins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "variable": {
+                "type": "string"
+              },
+              "set": {
+                "type": "boolean"
+              },
+              "user": {
+                "type": "string"
+              },
+              "connects": {
+                "type": "boolean"
+              },
+              "server": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string"
+              },
+              "can_create_tables": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "variable",
+              "set"
+            ]
+          }
+        },
+        "tracking": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "ready",
+                "missing",
+                "other_layout",
+                "unreachable",
+                "none",
+                "not_configured"
+              ]
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "detail"
+          ]
+        },
+        "schema_names": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "exists": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
         }
       }
     }

@@ -44,7 +44,7 @@ internal static class TuiCommand
                 var cmd = CliApp.Find(root, spec.Name)!;
                 var args = cmd.Arguments.Select(a => new ArgumentInfo(a.Name, a.Description ?? "", a.Arity.MaximumNumberOfValues > 1, a.Arity.MinimumNumberOfValues > 0, ArgumentChoices(spec.Name, a.Name))).ToList();
                 var options = cmd.Options.Where(o => !Hidden.Contains(o.Name)).Select(o => Describe(o)).ToList();
-                result.Add(new CommandInfo(spec.Name, spec.Purpose, spec.Effect.Describe(), ImpactOf(spec.Effect), args, options, WriteFlagOf(spec.Name)));
+                result.Add(new CommandInfo(spec.Name, spec.Purpose, spec.Effect.Describe(), ImpactOf(spec.Effect), args, options, WriteFlagOf(spec.Name), spec.Lane, spec.Disposition));
             }
             return result;
         }
@@ -55,7 +55,8 @@ internal static class TuiCommand
             var kind = type == typeof(bool) ? OptionKind.Flag : type == typeof(int) || type == typeof(int?) ? OptionKind.Integer
                 : type == typeof(DirectoryInfo) || type == typeof(FileInfo) ? OptionKind.Path : type == typeof(string[]) ? OptionKind.List : OptionKind.Text;
             string? def = o.HasDefaultValue ? o.GetDefaultValue() switch { null => null, string[] a => string.Join(",", a), var v => v.ToString() } : null;
-            IReadOnlyList<string> choices = [];   // the connections are the project's own, so a form takes the name as text (the target chooser lists them)
+            // the connections are the project's own, so a form takes the name as text (the target chooser lists them); the options with a closed set of values say them
+            IReadOnlyList<string> choices = o.Name switch { "--check" => ["none", "project", "objects", "live"], "--on-fail" => ["block", "warn"], _ => [] };
             if (choices.Count > 0 && kind == OptionKind.Text) kind = OptionKind.Choice;
             return new OptionInfo(o.Name, o.Description ?? "", kind, def, choices);
         }
@@ -72,6 +73,7 @@ internal static class TuiCommand
             "project model update" => "--write",
             "connection init" or "connection seed" => "--apply",
             "connection deploy" => "--apply-plan|--yes|--ack",
+            "connection refresh" => "!--dry-run",
             _ => null,
         };
 

@@ -14,7 +14,14 @@ public sealed record ApplyTracking(LoginSettings Read, LoginSettings? Write, str
 
 /// <param name="OpenOrigin">Opens the read session of the connection a `transfer` step reads from (by name). A plan with a transfer step cannot be applied for real without it.</param>
 /// <param name="AllowDestructive">Object names (`marts.fct`) whose destructive steps are allowed. Never "all".</param>
-public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null, Func<string, CancellationToken, Task<ReadSession>>? OpenOrigin = null);
+/// <param name="Lane">`deploy` or `refresh`: recorded on the event.</param>
+/// <param name="ProjectHash">The structure the compiled project expected of the connection, recorded on a deploy event (so a refresh can ask whether this project was deployed).</param>
+/// <param name="PlanHash">The hash to record for the plan, when it is not the hash of the plan as the engine sees it (a refresh records the compiled plan's).</param>
+/// <param name="Refresh">A refresh runs routine loads only and asks the connection nothing about its structure: no plan is verified against the live objects, there is nothing to continue, and the id of every run is its own.</param>
+/// <param name="RecordText">Whether the text of each DDL statement is kept in `ddl_log` (audit `full`); the hash always is.</param>
+/// <param name="RecordShapes">Whether each load records the shape of its object before and after (a catalog read per load). A deploy does; a refresh does only when it checks against the live catalog.</param>
+public sealed record ApplyOptions(bool DryRun, bool AllowRisky, IReadOnlySet<string> AllowDestructive, string? GitCommit, bool GitDirty, string Invoker, Func<bool>? StopRequested = null, Func<string, CancellationToken, Task<ReadSession>>? OpenOrigin = null,
+    string Lane = "deploy", string? ProjectHash = null, string? PlanHash = null, bool Refresh = false, bool RecordShapes = true, bool RecordText = true);
 
 /// <param name="Status">ok, dry-run, skipped (done in an earlier attempt), stopped (the operator stopped before it) or failed.</param>
 public sealed record StepOutcome(string StepId, string Description, string Status, string? Detail = null);
@@ -51,7 +58,7 @@ public static class ApplyEngine
         var refusals = new List<Diagnostic>(CheckAllowances(plan, o));
         if (refusals.Count > 0) return new ApplyResult([], refusals);
         if (!o.DryRun && write == null) throw new ArgumentException("A real apply needs the write login.", nameof(write));
-        var planHash = PlanDocument.ContentHash(plan);
+        var planHash = o.PlanHash ?? PlanDocument.ContentHash(plan);
 
 
         await using var reader = await ReadSession.OpenAsync(read, ct);
@@ -107,7 +114,7 @@ public static class ApplyEngine
         var schemas = objects.Select(x => DdlGenerator.Split(x).SchemaName).Distinct(StringComparer.Ordinal).ToList();
 
         // ---- what this plan already did (resume) ----
-        var progressInfo = scope == null ? new PlanProgress([], new HashSet<string>(), new HashSet<string>(), []) : await AuditLog.ProgressAsync(trackReader!, scope, plan.Id, ct);
+        var progressInfo = scope == null || o.Refresh ? new PlanProgress([], new HashSet<string>(), new HashSet<string>(), []) : await AuditLog.ProgressAsync(trackReader!, scope, plan.Id, ct);
         var refusals = new List<Diagnostic>();
         var done = new HashSet<string>(StringComparer.Ordinal);
         if (progressInfo.MigrationStatuses.Contains("completed"))
@@ -121,9 +128,10 @@ public static class ApplyEngine
             return new ApplyResult([], [new Diagnostic(DiagnosticCatalog.PlanAlreadyStarted, new($"plan:{plan.Id}", 0, 0), "The steps that finished are not a prefix of the plan, so it cannot be resumed. Generate a new plan.")]);
 
         // ---- verify the plan against the live target (a mismatch is a stale plan, never guessed around) ----
-        var snapshot = await TargetSnapshotReader.ReadAsync(reader, trackReader, scope, engine, schemas, ct);
+        // a refresh asks the connection nothing about its structure: what it needs was checked (or deliberately not) before it started
+        var snapshot = o.Refresh ? null! : await TargetSnapshotReader.ReadAsync(reader, trackReader, scope, engine, schemas, ct);
         var lastDone = plan.Steps.Where(s => done.Contains(s.Id) && s.Type == StepType.Ddl && s.HashAfter != null).GroupBy(s => s.Object).ToDictionary(g => g.Key, g => g.Last());
-        foreach (var b in plan.Bases)
+        foreach (var b in o.Refresh ? [] : plan.Bases)
         {
             var live = snapshot.Live.GetValueOrDefault(b.Object);
             if (lastDone.TryGetValue(b.Object, out var step))
@@ -138,7 +146,7 @@ public static class ApplyEngine
             if (state != b.State || live?.ShapeHash != b.LiveShapeHash || recorded != b.RecordedShapeHash)
                 refusals.Add(Stale($"{b.Object} changed since the plan was made (planned: {b.State} {b.LiveShapeHash?[..12] ?? "-"}, now: {state} {live?.ShapeHash[..12] ?? "-"})."));
         }
-        foreach (var s in plan.Steps.Where(s => s.HasResolver && !done.Contains(s.Id)))
+        foreach (var s in plan.Steps.Where(s => !o.Refresh && s.HasResolver && !done.Contains(s.Id)))
         {
             if (!snapshot.Live.ContainsKey(s.Object)) { if (s.ResolverResult != null) refusals.Add(Stale($"the resolver of step {s.Id} was planned against a table that no longer exists.")); continue; }
             var type = s.Parameters.FirstOrDefault(p => p.Source == "resolver")?.Type ?? "TEXT";
@@ -151,7 +159,7 @@ public static class ApplyEngine
         // ---- execute ----
         var outcomes = new List<StepOutcome>();
         var before = string.Join(",", plan.Bases.Select(b => b.LiveShapeHash ?? "-"));
-        if (!gate.DryRun) await tracker.MigrationAsync("migration:start", plan.Id, planHash, planText, o.GitCommit, o.Invoker, "started", Hashing.Sha256Hex(before), null, ct);
+        if (!gate.DryRun) await tracker.MigrationAsync("migration:start", plan.Id, planHash, planText, o.GitCommit, o.Invoker, "started", Hashing.Sha256Hex(before), null, o.Lane, o.ProjectHash, ct);
 
         foreach (var step in plan.Steps)
         {
@@ -209,7 +217,7 @@ public static class ApplyEngine
     private static async Task FinishMigration(Tracker tracker, MutationGate gate, Plan plan, string planHash, string planText, ApplyOptions o, string status, CancellationToken ct)
     {
         if (gate.DryRun) return;
-        try { await tracker.MigrationAsync("migration:" + status, plan.Id, planHash, planText, o.GitCommit, o.Invoker, status, null, null, ct); }
+        try { await tracker.MigrationAsync("migration:" + status, plan.Id, planHash, planText, o.GitCommit, o.Invoker, status, null, null, o.Lane, o.ProjectHash, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* the failure that got us here matters more; the statement log has what ran */ }
     }
 
@@ -230,7 +238,7 @@ public static class ApplyEngine
                 var beforeShape = gate.DryRun ? null : await LiveAsync(reader, engine, step.Object, ct);
                 var ddlId = Guid.NewGuid();
                 var hash = Hashing.ScriptHash(step.Text);
-                if (!gate.DryRun) await tracker.BeginDdlAsync(step.Id + ":log", ddlId, step.Object, step.Text, hash, beforeShape?.ShapeHash, o.Invoker, plan.Id, o.GitCommit, ct);
+                if (!gate.DryRun) await tracker.BeginDdlAsync(step.Id + ":log", ddlId, step.Object, o.RecordText ? step.Text : "", hash, beforeShape?.ShapeHash, o.Invoker, plan.Id, o.GitCommit, ct);
                 try { await gate.ExecuteAsync(GateStatement.FromPlanStep(step.Id, StatementKind.Ddl, step.Text), ct); }
                 catch (Exception) when (!gate.DryRun)
                 {
@@ -271,7 +279,7 @@ public static class ApplyEngine
             case StepType.Backfill:
             {
                 var parameters = step.Parameters.Select(ToGate).ToList();
-                var shapeStart = gate.DryRun ? null : (await LiveAsync(reader, engine, step.Object, ct))?.ShapeHash;
+                var shapeStart = gate.DryRun || !o.RecordShapes ? null : (await LiveAsync(reader, engine, step.Object, ct))?.ShapeHash;
                 var json = JsonSerializer.Serialize(step.Parameters.Select(p => new { p.Name, p.Type, p.Source, p.Value }), new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 var watermark = step.Parameters.FirstOrDefault(p => p.Name == "watermark")?.Value;
                 if (!gate.DryRun)
@@ -285,7 +293,7 @@ public static class ApplyEngine
                     throw;
                 }
                 if (gate.DryRun) return null;
-                var shapeEnd = (await LiveAsync(reader, engine, step.Object, ct))?.ShapeHash;
+                var shapeEnd = o.RecordShapes ? (await LiveAsync(reader, engine, step.Object, ct))?.ShapeHash : null;
                 await tracker.FinishRunAsync(step.Id, runId, "ok", rows, shapeEnd, ct);
                 // the range of data this operation produced, under the shape it produced it in (DESIGN.md 12.3 reads these)
                 var start = step.Parameters.FirstOrDefault(p => p.Name is "start" or "watermark")?.Value;
@@ -299,7 +307,7 @@ public static class ApplyEngine
             {
                 // a hook is native SQL run exactly as committed; it is logged like a load (operation = its event, load_name = its name)
                 var kind = step.Effect == "data" ? StatementKind.Data : StatementKind.Ddl;
-                var before = gate.DryRun ? null : await LiveAsync(reader, engine, step.Object, ct);
+                var before = gate.DryRun || !o.RecordShapes ? null : await LiveAsync(reader, engine, step.Object, ct);
                 if (!gate.DryRun)
                     await tracker.BeginRunAsync(step.Id, runId, step.Object, step.Operation ?? "hook", plan.Id, o.GitCommit, null, before?.ShapeHash, step.Hook, step.FileHash, null, null, null, ct);
                 long rows;
@@ -310,7 +318,7 @@ public static class ApplyEngine
                     throw;
                 }
                 if (gate.DryRun) return null;
-                var after = await LiveAsync(reader, engine, step.Object, ct);
+                var after = o.RecordShapes ? await LiveAsync(reader, engine, step.Object, ct) : null;
                 await tracker.FinishRunAsync(step.Id, runId, "ok", rows, after?.ShapeHash, ct);
                 // a script that changed the object's shape was the operator's own decision: record the new shape so it is not mistaken for an outside change
                 if (kind == StatementKind.Ddl && after != null && before != null && after.ShapeHash != before.ShapeHash)

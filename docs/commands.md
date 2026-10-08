@@ -8,6 +8,7 @@ Generated from the command tree of `dbdatabuild` (`UPDATE_GOLDEN=1 dotnet test t
 | [`project model update`](#project-model-update) | `P⇒P` | Repo files only (no target connection) | Generate or update model definition files |
 | [`project compile`](#project-compile) | `P⇒P` | Repo files only (no target connection) | Validate the project and write what is compiled from it (rendered/): the lowered queries and the load scripts per connection |
 | [`project tests run`](#project-tests-run) | `P→` | Offline only | Run the project's tests: metadata rules (DuckDB SQL over the metadata views) in tests/metadata/ and model tests (given rows, expected rows) in tests/models/ |
+| [`project tests list`](#project-tests-list) | `P→` | Offline only | List the project's tests with their kind, severity and tags (nothing is run) |
 | [`project sample`](#project-sample) | `P→` | Offline only | Run models on generated or supplied sample data, offline |
 | [`project seed`](#project-seed) | `P⇒P` | Repo files only (no target connection) | Run the seeds (DuckDB queries that generate the source data) into a DuckDB file |
 | [`project import`](#project-import) | `C→P` | Target read-only | Export tables and views from a connection as mapped models (models/), so models over them bind offline (writes files only with --write) |
@@ -16,11 +17,12 @@ Generated from the command tree of `dbdatabuild` (`UPDATE_GOLDEN=1 dotnet test t
 | [`project show metadata`](#project-show-metadata) | `P→` | Offline only | Print everything the tool knows about the project and its models (use --format json) |
 | [`project show plan`](#project-show-plan) | `P→` | Offline only | Read plan files (offline, nothing applied): list a project's plans, or show one with its steps, risk, exact statements, report and what applying it would need to be allowed |
 | [`project agent-kit`](#project-agent-kit) | `P⇒P` | Repo files only (no target connection) | Install the skill and JSON Schemas an AI coding agent needs to work in a project (lists them unless --write) |
+| [`connection inspect`](#connection-inspect) | `C→` | Target read-only | Can the tool use this connection, and if not, why: whether each login is set, connects and as whom, what it may do, whether the tracking tables are ready, which schema names the models use exist |
 | [`connection init`](#connection-init) | `P⇒T` | Tracking tables only | Create the tracking tables and their schema name (prints the script; --apply runs it) |
 | [`connection status`](#connection-status) | `C→` | Target read-only | Where a connection stands: drift, blocks, what a deploy would do |
 | [`connection deploy`](#connection-deploy) | `P⇒S` | Target writes (DDL and/or data, as the plan states) | Change a connection's structure to match the models: plan with questions, show the plan, apply it (--write-plan stops after writing the plan; --apply-plan applies a written one; --ack records a decision) |
-| [`connection refresh`](#connection-refresh) | `P⇒D` | Target writes (data only) | Run the routine loads (refuses anything that is not one) |
-| [`connection monitor`](#connection-monitor) | `C→` | Target read-only | Applied plans, DDL and load history, recorded shapes, and what needs attention |
+| [`connection refresh`](#connection-refresh) | `P⇒D` | Target writes (data only) | Run the routine loads of the refresh plan that project compile wrote, as an event of its own: it checks what refresh.check says first, never changes structure, and leaves what is not routine to a deploy |
+| [`connection monitor`](#connection-monitor) | `C→` | Target read-only | The events (deploys and refreshes), DDL and load history, recorded shapes, and what needs attention |
 | [`connection compare`](#connection-compare) | `C→` | Target read-only | Compare the data of two tables, of one connection or across connections and engines (by digests): schemas, row counts and a key-based row diff (values are read only with --show-values) |
 | [`connection seed`](#connection-seed) | `P⇒S` | Target writes (DDL and/or data, as the plan states) | Create the seeded source tables on a connection and fill them from the seeds (prints what it would do unless --apply) |
 | [`connection publish`](#connection-publish) | `P⇒T` | Tracking tables only | Store the project and model metadata as JSON in the connection for introspection |
@@ -93,6 +95,18 @@ Effect: Offline only. Reads and writes: `P→`.
 | `--project` `<path>` | Project root |
 | `--strict` | Fail on warning-severity tests too |
 | `--tag` `<text ...>` | Run only tests with this tag (repeat for several: any of them) |
+
+## project tests list
+
+List the project's tests with their kind, severity and tags (nothing is run).
+
+Effect: Offline only. Reads and writes: `P→`.
+
+| Option | Meaning |
+|---|---|
+| `--kind` `<text>` | List only tests of this kind: metadata (tests/metadata) or model (tests/models) |
+| `--project` `<path>` | Project root |
+| `--tag` `<text ...>` | List only tests with this tag (repeat for several: any of them) |
 
 ## project sample
 
@@ -214,6 +228,17 @@ Effect: Repo files only (no target connection). Reads and writes: `P⇒P`.
 | `--project` `<path>` | Project root |
 | `--write` | Install the files (default: list them and write nothing) |
 
+## connection inspect
+
+Can the tool use this connection, and if not, why: whether each login is set, connects and as whom, what it may do, whether the tracking tables are ready, which schema names the models use exist.
+
+Effect: Target read-only. Reads and writes: `C→`. Lane: inspect.
+
+| Option | Meaning |
+|---|---|
+| `--connection` `<text>` | Connection to inspect (default: the project's only default connection) |
+| `--project` `<path>` | Project root |
+
 ## connection init
 
 Create the tracking tables and their schema name (prints the script; --apply runs it).
@@ -275,23 +300,26 @@ Effect: Target writes (DDL and/or data, as the plan states). Reads and writes: `
 
 ## connection refresh
 
-Run the routine loads (refuses anything that is not one).
+Run the routine loads of the refresh plan that project compile wrote, as an event of its own: it checks what refresh.check says first, never changes structure, and leaves what is not routine to a deploy.
 
 Effect: Target writes (data only). Reads and writes: `P⇒D`. Lane: refresh.
 
 | Argument | Meaning |
 |---|---|
-| `models` (several) | Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection) |
+| `models` (several) | Models whose loads to run: names, or patterns with * and ? (default: every routine load of the refresh plan) |
 
 | Option | Meaning |
 |---|---|
 | `--allow-dirty` | Run from a working tree with uncommitted changes (recorded) |
+| `--check` `<text>` | The safety check before the loads, instead of the project's `refresh.check`: none (nothing; the engine's errors are the check), project (this project was deployed here), objects (each object against what was last deployed), live (each object against the catalog now) |
 | `--connection` `<text>` | Connection (default: the project's only default connection) |
+| `--dry-run` | Run every check and print every statement; execute nothing |
+| `--on-fail` `<text>` | What a failed check does, instead of the project's `refresh.on_fail`: block (stop before anything runs) or warn (report and run) |
 | `--project` `<path>` | Project root |
 
 ## connection monitor
 
-Applied plans, DDL and load history, recorded shapes, and what needs attention.
+The events (deploys and refreshes), DDL and load history, recorded shapes, and what needs attention.
 
 Effect: Target read-only. Reads and writes: `C→`. Lane: inspect.
 

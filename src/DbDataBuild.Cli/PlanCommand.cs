@@ -16,6 +16,9 @@ namespace DbDataBuild.Cli;
 internal static class PlanCommand
 {
     public const string PlansDir = "plans";
+
+    /// <summary>Where a plan goes when the project keeps deploy plans only for the moment (`plans.deploy.keep: ephemeral`): inside the folder git ignores, and removed once the plan has been applied.</summary>
+    public const string EphemeralPlansDir = ".dbdatabuild/plans";
     private const int MaxRounds = 12;
 
     public static int Plan(CommandSpec spec, string root, string? targetArg, string[] models, FileInfo? answersFile, bool acceptInferred, DirectoryInfo? outDir, string[] ops, string[] backfillArgs, string[] fullRefreshArgs, string[] paramArgs,
@@ -44,6 +47,11 @@ internal static class PlanCommand
 
         var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env, operations, backfillOps.Keys.ToHashSet(StringComparer.Ordinal), fullRefreshArgs.ToHashSet(StringComparer.Ordinal));
         if (session == null) return exit;
+        if (session.Context.Config.LifecycleOf(session.Target).Deploy.Keep == PlanKeep.Database)
+        {
+            error.WriteLine($"`plans.deploy.keep` is `database` for `{session.Target}`: keeping a deploy plan only in the tracking tables is not built yet. Use `committed` or `ephemeral`.");
+            return CliApp.ExitUsage;
+        }
 
         // ---- ask, plan again, until nothing is open ----
         IPrompter? prompter = interactive ? new ConsolePrompter(input, output) : null;
@@ -94,9 +102,11 @@ internal static class PlanCommand
 
         // ---- build, write ----
         var (commit, dirty) = GitInfo.Read(root);
-        var draft = new DbDataBuild.Planning.Plan("", session.Target, commit, dirty, ProductInfo.Version, result.Bases, result.UsedAnswers, result.Steps, result.Noticed);
+        var draft = new DbDataBuild.Planning.Plan("", session.Target, commit, dirty, ProductInfo.Version, result.Bases, result.UsedAnswers, result.Steps, result.Noticed,
+            RefreshPlanBuilder.ProjectHash(session.Context, session.Target, RefreshPlanBuilder.ModelsOf(session.Context, session.Target)));
         var plan = draft with { Id = PlanDocument.CreateId(DateOnly.FromDateTime(DateTime.UtcNow), draft) };
-        var dir = outDir?.FullName ?? Path.Combine(root, PlansDir, session.Target);
+        var keep = session.Context.Config.LifecycleOf(session.Target).Deploy.Keep;
+        var dir = outDir?.FullName ?? Path.Combine(root, keep == PlanKeep.Ephemeral ? EphemeralPlansDir : PlansDir, session.Target);
         var yamlPath = Path.Combine(dir, plan.Id + ".plan.yml");
         var mdPath = Path.Combine(dir, plan.Id + ".plan.md");
         Directory.CreateDirectory(dir);
@@ -159,6 +169,30 @@ internal static class PlanCommand
     }
 
     /// <summary>`check`: the findings a plan would act on, without asking anything or writing anything.</summary>
+    /// <summary>The newest deploy and the newest refresh of a connection, from the tracking tables; or why they are not known.</summary>
+    private static (AuditLog.EventRow? Deploy, AuditLog.EventRow? Refresh, string? Why) LastEvents(ProjectConfig config, string connection, Func<string, string?> env)
+    {
+        if (config.TrackingOf(connection).Target is not { } t) return (null, null, "unknown: nothing is tracked");
+        var (login, _) = LoginSettings.FromEnvironment(t.Connection, t.Engine, DbDataBuild.Execution.Login.Read, env);
+        if (login == null) return (null, null, "unknown: the tracking connection's read login is not set");
+        try
+        {
+            return Task.Run(async () =>
+            {
+                await using var read = await ReadSession.OpenAsync(login);
+                var events = await AuditLog.EventsAsync(read, new TrackingScope(t.Engine, t.SchemaName, connection), 20);
+                return (events.FirstOrDefault(e => e.Lane == "deploy"), events.FirstOrDefault(e => e.Lane == "refresh"), (string?)null);
+            }).GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return (null, null, $"unknown: the events could not be read ({ex.GetType().Name}{CliApp.DriverNumber(ex)})"); }
+    }
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalMinutes < 1 ? "just now" : span.TotalHours < 1 ? $"{(int)span.TotalMinutes} min ago" : span.TotalDays < 1 ? $"{(int)span.TotalHours} h ago" : $"{(int)span.TotalDays} d ago";
+    }
+
     public static int Check(CommandSpec spec, string root, string? targetArg, string[] models, TextWriter output, TextWriter error, Func<string, string?> env)
     {
         var (session, exit) = PlanningSession.Prepare(spec, root, targetArg, models, output, error, env);
@@ -190,6 +224,31 @@ internal static class PlanCommand
         });
         output.Payload("noticed", result.Noticed);
 
+        // ---- the landing view: structure, the last deploy and refresh, and the policy in force ----
+        var drifted = result.Bases.Count(b => b.State == ObjectState.OutOfBand);
+        // a plan always carries the routine loads too; what is pending in the structure is the rest
+        var structureSteps = stepsNow.Where(s => s.Type is not (StepType.Load or StepType.Backfill)).ToList();
+        var loadSteps = stepsNow.Count - structureSteps.Count;
+        var risky = structureSteps.Count(s => s.Risk == RiskClass.Risky);
+        var destructive = structureSteps.Count(s => s.Risk == RiskClass.Destructive);
+        var structure = result.Blocks.Count > 0 || drifted > 0 ? "attention" : structureSteps.Count > 0 ? "pending" : "in_sync";
+        var structureText = structure switch
+        {
+            "attention" => $"needs attention: {result.Blocks.Count} blocked model(s), {drifted} object(s) changed outside the tool",
+            "pending" => $"pending: a deploy would run {structureSteps.Count} step(s) ({risky} risky, {destructive} destructive) and {loadSteps} load(s)",
+            _ => $"in sync: a deploy would change no structure{(loadSteps > 0 ? $" (it would run {loadSteps} routine load(s))" : "")}",
+        };
+        var (lastDeploy, lastRefresh, noEvents) = LastEvents(session.Context.Config, session.Target, env);
+        string EventText(AuditLog.EventRow? e, string none) => e == null ? none : $"{e.Id}  {e.Status.ToUpperInvariant()}  {e.LastUtc:yyyy-MM-dd HH:mm} UTC ({Ago(e.LastUtc)})";
+        var policy = session.Context.Config.LifecycleOf(session.Target);
+        output.WriteLine($"Structure  {structureText}");
+        output.WriteLine($"Deploy     {EventText(lastDeploy, noEvents ?? "none recorded")}");
+        output.WriteLine($"Refresh    {EventText(lastRefresh, noEvents ?? "none recorded")}{(lastRefresh is { Status: "failed" } ? "  (the next refresh starts over)" : "")}");
+        output.WriteLine($"Policy     {policy.Describe()}");
+        output.WriteLine();
+        object? Event(AuditLog.EventRow? e) => e == null ? null : new { id = e.Id, status = e.Status, utc = e.LastUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) };
+        output.Payload("summary", new { structure, steps = structureSteps.Count, loads = loadSteps, risky, destructive, blocked = result.Blocks.Count, changed_outside_the_tool = drifted, last_deploy = Event(lastDeploy), last_refresh = Event(lastRefresh), policy = policy.Describe() });
+
         var width = Math.Max(6, result.Bases.Count == 0 ? 0 : result.Bases.Max(b => b.Object.Length));
         output.WriteLine($"{"object".PadRight(width)}  state");
         foreach (var b in result.Bases.OrderBy(b => b.Object, StringComparer.Ordinal))
@@ -198,7 +257,7 @@ internal static class PlanCommand
         var steps = result.Steps;
         output.WriteLine($"A plan now would have {steps.Count} step(s) ({steps.Count(s => s.Risk == RiskClass.Risky)} risky, {steps.Count(s => s.Risk == RiskClass.Destructive)} destructive) and ask {result.Questions.Count} question(s) first; {result.Blocks.Count} blocked, {result.Skipped.Count} skipped.");
         var attention = result.Blocks.Count > 0 || result.Bases.Any(b => b.State == ObjectState.OutOfBand) || liveCollation.Any(d => d.Severity == Severity.Error) || trimmedFindings.Count > 0;
-        output.Next(attention || steps.Count > 0 ? "connection deploy" : "connection refresh", "connection monitor");
+        output.Next(attention || structureSteps.Count > 0 ? "connection deploy" : "connection refresh", "connection monitor");
         return attention ? CliApp.ExitFindings : CliApp.ExitOk;
     }
 

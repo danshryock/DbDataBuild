@@ -20,13 +20,13 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 1.3 | Plan noise | one DDB-424 per cause; each note once; no "not interactive" note without a question | | text only | **done** (entry 134) |
 | 2 | The command tree | `project`, `connection`, `ui`, `help` nouns; old verbs removed; JSON `command`, schemas, TUI catalog, MCP tool names, generated docs | 1 | **yes** | **done** (entry 135), except the positional `<c>` (the option `--connection` stays for now) and the commands marked *later* |
 | 3 | `deploy` as one flow | `status` read-only; `deploy` interactive; `--write-plan`, `--apply-plan`, `--ack`, `--reason`; continuing an incomplete event; no `--resume` | 2 | yes | **done** (entry 135); the deploy lane still keys a plan by its content id (event ids for deploy come with layout 5) |
-| 4 | Refresh from a compiled plan | `project compile` writes `refresh.plan.yml` with `requires`; `connection refresh` runs it; check levels `none`, `project`, `objects`, `live`; `--on-fail` | 2, 5 for `project` | yes | planned |
-| 5 | Plan policy, events, layout 5 | `plans.*.keep/audit`, `event_log`, `plan_store`, statement log without tracking writes, `retention.statement_logs_days`; `init --upgrade` from 4 | 1 | tracking layout | planned |
-| 6 | `status` and `monitor` views | structure/data/attention; the event timeline and drill-down | 5 | | planned |
+| 4 | Refresh from a compiled plan | `project compile` writes `refresh.plan.yml` with `requires`; `connection refresh` runs it; check levels `none`, `project`, `objects`, `live`; `--on-fail` | 2, 5 for `project` | yes | **done** (entry 138) |
+| 5 | Plan policy, events, layout 5 | `plans.*.keep/audit`, `event_log`, `plan_store`, statement log without tracking writes, `retention.statement_logs_days`; `init --upgrade` from 4 | 1 | tracking layout | **mostly done**: settings read (entry 137) and acted on (entry 140: `keep: ephemeral`, `audit` minimal|standard|full for both lanes, statement-log retention); layout 5 is `lane` and `project_hash` on `migration_log` (entry 138; no `event_log`/`plan_store` table: the event stays the `migration_log` row). Not built: `keep: database` (refused with a message) |
+| 6 | `status` and `monitor` views | structure/data/attention; the event timeline and drill-down | 5 | | **partly done** (entry 139): the landing lines of `status` and the events table of `monitor`; no drill-down into one event, no `--lane`/`--event` filters |
 | 7 | Hints | lane and disposition in every header, `Next:` blocks, `next` in JSON, one error per cause | 2 | | **partly done** (entry 136): headers, `Next:`, `next`; status lines and one-error-per-cause remain |
 | 8 | Interfaces | terminal menu groups, web tabs, MCP tool names and `next`, lane chips | 2, 6, 7 | | planned |
 | 9 | Close | templates' READMEs, skill, getting-started, operations guide, `docs/commands.md` regenerated, open items | all | | planned |
-| later | `connection inspect`, `project model create`, `project tests list`, `connection tests run` | the new commands that are not renames | 2 | | planned |
+| later | `connection inspect`, `project model create`, `project tests list`, `connection tests run` | the new commands that are not renames | 2 | | `connection inspect` and `project tests list` **done** (entry 139); `project model create` and `connection tests run` not built |
 
 ## 3. Work items in detail
 
@@ -100,3 +100,6 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 | 2026-10-07 | 1.3 | `plan` reports stale rendered files as one DDB-424 naming the first three and the fix; the not-interactive note appears only when a question is open |
 | 2026-10-07 | 2, 3 | the command tree, `connection deploy` as one flow, `--resume` gone (a stopped plan continues); unit suite and all conformance groups pass on SQL Server 2022 and PostgreSQL 17 |
 | 2026-10-07 | 7 | headers carry reads/writes and lane; `Next:` blocks and a `next` array in the JSON |
+| 2026-10-08 | 4, 5 | the compiled refresh plan, `connection refresh` from it with the four checks, layout 5; verified on SQL Server 2022 and PostgreSQL 17 |
+| 2026-10-08 | 6, later | `connection inspect`, `project tests list`, the events table of `monitor`, the landing lines of `status` |
+| 2026-10-08 | 5, 7, 8 | `keep: ephemeral`, audit levels, statement-log retention; lane and disposition on the MCP tools and the terminal catalog; lane chips on the web page's screens |

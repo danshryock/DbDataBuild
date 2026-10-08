@@ -57,18 +57,22 @@ public static class TrackingStore
 
     public static async Task<TrackingStatus> StatusAsync(ReadSession read, string target, string schema, CancellationToken ct = default)
     {
-        var exists = target == "postgres"
-            ? "SELECT 1 FROM information_schema.tables WHERE table_schema = @schema AND table_name = 'tracking_version'"
-            : "SELECT 1 FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id WHERE s.name = @schema AND t.name = 'tracking_version'";
-        var p = new[] { new GateParameter("schema", DbType.String, schema) };
-        if ((await read.QueryAsync(exists, p, ct)).Count == 0) return new(TrackingState.Missing, null);
-
+        // the version table is read as it is: asking the catalog whether it exists would be a metadata query, and a refresh asks the connection none
         var q = Quote(target, schema);
-        var rows = await read.QueryAsync($"SELECT {Quote(target, "version")} FROM {q}.{Quote(target, "tracking_version")}", null, ct);
+        IReadOnlyList<IReadOnlyList<object?>> rows;
+        try { rows = await read.QueryAsync($"SELECT {Quote(target, "version")} FROM {q}.{Quote(target, "tracking_version")}", null, ct); }
+        catch (Exception ex) when (IsMissingObject(ex)) { return new(TrackingState.Missing, null); }
         var versions = rows.Select(r => Convert.ToInt32(r[0])).ToList();
         if (versions.Count == 0) return new(TrackingState.UnknownLayout, null);
         var newest = versions.Max();
         return new(newest == TrackingSchema.Version ? TrackingState.Ready : TrackingState.UnknownLayout, newest);
+    }
+
+    /// <summary>The error a table or schema that is not there gives: SQL Server 208 (invalid object name), PostgreSQL 42P01 (undefined table) or 3F000 (invalid schema name). Read by name, as the driver's error is.</summary>
+    private static bool IsMissingObject(Exception ex)
+    {
+        if (ex is not System.Data.Common.DbException) return false;
+        return (ex.GetType().GetProperty("Number")?.GetValue(ex)?.ToString() == "208") || (ex.GetType().GetProperty("SqlState")?.GetValue(ex)?.ToString() is "42P01" or "3F000");
     }
 
     /// <summary>The shape hash of the newest `schema_version` row for each object, or no entry when the tool has never recorded it.</summary>
@@ -116,16 +120,51 @@ public static class AuditLog
     private static GateParameter Fixed(string name, string? v) => new(name, DbType.AnsiStringFixedLength, v);
 
     public static Task MigrationAsync(MutationGate gate, TrackingScope scope, string stepId, string planId, string planHash, string planText, string? gitCommit, string appliedBy,
-        string status, string? hashBefore, string? hashAfter, CancellationToken ct = default)
+        string status, string? hashBefore, string? hashAfter, string? lane = null, string? projectHash = null, CancellationToken ct = default)
     {
         string c(string n) => C(scope.Engine, n);
-        var text = $"INSERT INTO {T(scope, "migration_log")} ({c("connection")}, {c("plan_id")}, {c("plan_hash")}, {c("plan_text")}, {c("git_commit")}, {c("applied_by")}, {c("applied_utc")}, {c("hash_before")}, {c("hash_after")}, {c("status")}) " +
-                   "VALUES (@connection, @plan_id, @plan_hash, @plan_text, @git_commit, @applied_by, @applied_utc, @hash_before, @hash_after, @status)";
+        var text = $"INSERT INTO {T(scope, "migration_log")} ({c("connection")}, {c("plan_id")}, {c("plan_hash")}, {c("plan_text")}, {c("git_commit")}, {c("applied_by")}, {c("applied_utc")}, {c("hash_before")}, {c("hash_after")}, {c("status")}, {c("lane")}, {c("project_hash")}) " +
+                   "VALUES (@connection, @plan_id, @plan_hash, @plan_text, @git_commit, @applied_by, @applied_utc, @hash_before, @hash_after, @status, @lane, @project_hash)";
         return gate.ExecuteAsync(GateStatement.Tracking(stepId, text,
         [
             Connection(scope), A("plan_id", planId), Fixed("plan_hash", planHash), S("plan_text", planText), A("git_commit", gitCommit), S("applied_by", appliedBy),
-            new("applied_utc", DbType.DateTime2, TrackingClock.NextUtc()), Fixed("hash_before", hashBefore), Fixed("hash_after", hashAfter), A("status", status),
+            new("applied_utc", DbType.DateTime2, TrackingClock.NextUtc()), Fixed("hash_before", hashBefore), Fixed("hash_after", hashAfter), A("status", status), A("lane", lane), Fixed("project_hash", projectHash),
         ]), ct);
+    }
+
+    /// <summary>One run of a plan: a deploy or a refresh. The rows of `migration_log` that share an id are its states (started, failed, completed); this is the last of them, with when the first was written.</summary>
+    public sealed record EventRow(string Id, string Lane, string Status, DateTime StartedUtc, DateTime LastUtc, string By, string? Commit, string? ProjectHash);
+
+    /// <summary>The newest <paramref name="count"/> events of a connection, newest first. A row written before layout 5 has no lane: an id that starts with `ref-` is a refresh, anything else a deploy.</summary>
+    public static async Task<IReadOnlyList<EventRow>> EventsAsync(ReadSession read, TrackingScope scope, int count, CancellationToken ct = default)
+    {
+        string c(string n) => C(scope.Engine, n);
+        var cols = $"{c("plan_id")}, {c("lane")}, {c("status")}, {c("applied_by")}, {c("git_commit")}, {c("applied_utc")}, {c("project_hash")}";
+        // a plan that stopped and continued has several rows; take enough rows to hold `count` events
+        var limit = Math.Max(count * 6, 30);
+        var sql = scope.Engine == "postgres"
+            ? $"SELECT {cols} FROM {T(scope, "migration_log")} WHERE {c("connection")} = @connection ORDER BY {c("applied_utc")} DESC LIMIT {limit}"
+            : $"SELECT TOP ({limit}) {cols} FROM {T(scope, "migration_log")} WHERE {c("connection")} = @connection ORDER BY {c("applied_utc")} DESC";
+        var rows = await read.QueryAsync(sql, [Connection(scope)], ct);
+        string Text(object? v) => (v as string)?.Trim() ?? "";
+        DateTime When(object? v) => v is DateTime d ? d : DateTime.MinValue;
+        return rows.GroupBy(r => Text(r[0])).Select(g =>
+        {
+            var newest = g.First();                                                   // the rows come newest first
+            var lane = g.Select(r => Text(r[1])).FirstOrDefault(x => x.Length > 0) ?? (g.Key.StartsWith("ref-", StringComparison.Ordinal) ? "refresh" : "deploy");
+            return new EventRow(g.Key, lane, Text(newest[2]), g.Min(r => When(r[5])), When(newest[5]), Text(newest[3]), Text(newest[4]) is { Length: > 0 } cm ? cm : null, g.Select(r => Text(r[6])).FirstOrDefault(x => x.Length > 0));
+        }).OrderByDescending(e => e.LastUtc).Take(count).ToList();
+    }
+
+    /// <summary>The structure the compiled project expected when the connection was last deployed completely: the project hash and the id of that deploy event, or nulls when no completed deploy recorded one.</summary>
+    public static async Task<(string? ProjectHash, string? EventId)> LastDeployedProjectAsync(ReadSession read, TrackingScope scope, CancellationToken ct = default)
+    {
+        string c(string n) => C(scope.Engine, n);
+        var filter = $"m.{c("connection")} = @connection AND m.{c("lane")} = 'deploy' AND m.{c("status")} = 'completed' AND m.{c("project_hash")} IS NOT NULL";
+        var rows = await read.QueryAsync(
+            $"SELECT m.{c("project_hash")}, m.{c("plan_id")} FROM {T(scope, "migration_log")} m WHERE {filter} AND m.{c("applied_utc")} = (SELECT MAX(m.{c("applied_utc")}) FROM {T(scope, "migration_log")} m WHERE {filter})",
+            [Connection(scope)], ct);
+        return rows.Count == 0 ? (null, null) : (((string)rows[0][0]!).Trim(), (string?)rows[0][1]);
     }
 
     public static Task BeginDdlAsync(MutationGate gate, TrackingScope scope, string stepId, Guid ddlId, string objectName, string statementText, string statementHash,

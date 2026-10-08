@@ -317,7 +317,7 @@ internal sealed class PlanningSession
         return type.Trim().Equals("DATE", StringComparison.OrdinalIgnoreCase) ? at.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : at.ToString("yyyy-MM-dd HH:mm:ss.FFFFFF", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static IReadOnlyDictionary<string, ParameterValue> Merge(IReadOnlyDictionary<string, ParameterValue> a, IReadOnlyDictionary<string, ParameterValue> b) =>
+    internal static IReadOnlyDictionary<string, ParameterValue> Merge(IReadOnlyDictionary<string, ParameterValue> a, IReadOnlyDictionary<string, ParameterValue> b) =>
         b.Count == 0 ? a : new Dictionary<string, ParameterValue>(a, StringComparer.Ordinal).Concat(b).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
 
     private static string SchemaNameOf(string model) => DbDataBuild.Targets.Ddl.DdlGenerator.Split(model).SchemaName;

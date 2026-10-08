@@ -878,7 +878,7 @@
               "$ref": "#/$defs/auditLevel"
             },
             "require_clean_tree": {
-              "description": "Refuse a deploy from a working tree with uncommitted changes (`--allow-dirty` lifts it for one run). Default false.",
+              "description": "Refuse a deploy or a refresh from a working tree with uncommitted changes (`--allow-dirty` lifts it for one run). Default true: a deploy or refresh from a tree with changes is refused unless you say so.",
               "type": "boolean"
             }
           }

@@ -46,4 +46,4 @@ public sealed record ObjectBase(string Object, ObjectState State, string? LiveSh
 
 public sealed record Plan(
     string Id, string Connection, string? GitCommit, bool GitDirty, string ToolVersion,
-    IReadOnlyList<ObjectBase> Bases, IReadOnlyList<ResolvedAnswer> Answers, IReadOnlyList<PlanStep> Steps, IReadOnlyList<string> Noticed);
+    IReadOnlyList<ObjectBase> Bases, IReadOnlyList<ResolvedAnswer> Answers, IReadOnlyList<PlanStep> Steps, IReadOnlyList<string> Noticed, string? ProjectHash = null);

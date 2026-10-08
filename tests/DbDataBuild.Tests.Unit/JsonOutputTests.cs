@@ -138,7 +138,7 @@ public class JsonOutputTests
 
         var render = Run("project", "compile", "--project", dir, "--content");
         Assert.Equal(0, render.Exit);
-        Assert.Equal(["rendered/lowered/marts.fct_orders/lowered.sql", "rendered/sqlserver/marts.fct_orders/load.default.sql", "rendered/sqlserver/marts.fct_orders/manifest.yml"], render.Doc["data"]!["files"]!.AsArray().Select(f => f!["path"]!.GetValue<string>()));
+        Assert.Equal(["rendered/lowered/marts.fct_orders/lowered.sql", "rendered/sqlserver/marts.fct_orders/load.default.sql", "rendered/sqlserver/marts.fct_orders/manifest.yml", "rendered/sqlserver/refresh.plan.yml"], render.Doc["data"]!["files"]!.AsArray().Select(f => f!["path"]!.GetValue<string>()));
         var write = Run("project", "compile", "--project", dir);
         Assert.Equal(0, write.Exit);
         Assert.NotEmpty(write.Doc["data"]!["wrote"]!.AsArray());

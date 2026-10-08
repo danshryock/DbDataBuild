@@ -66,7 +66,28 @@ internal static class ApplyCommand
             foreach (var d in diags) error.Diag(d);
             return CliApp.ExitFindings;
         }
+        var exit = RunPlan(spec, plan, planText, Path.GetRelativePath(root, planPath).Replace('\\', '/'), root, dryRun, allowRisky, allowDestructive, allowDirty, new ApplyMode(), output, error, env);
+        // a plan kept only for the moment (`plans.deploy.keep: ephemeral` puts it under .dbdatabuild/plans/) goes when it has been applied
+        if (exit == CliApp.ExitOk && !dryRun && Path.GetFullPath(planPath).StartsWith(Path.GetFullPath(Path.Combine(root, PlanCommand.EphemeralPlansDir)) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            foreach (var file in new[] { planPath, planPath.Replace(".plan.yml", ".plan.md", StringComparison.Ordinal) })
+                try { File.Delete(file); } catch (IOException) { /* left; it is under .dbdatabuild */ }
+            output.WriteLine("The plan was ephemeral and has been removed; it stays in the tracking tables as far as the audit level keeps it.");
+        }
+        return exit;
+    }
 
+    /// <summary>
+    /// How a plan is run: a deploy (the default) verifies the plan against the live objects, records shapes, and continues what it started; a refresh is a plan built in memory from the compiled refresh plan,
+    /// which is run as it is, under its own id, and records the hash of the compiled plan.
+    /// </summary>
+    /// <param name="PlanHash">What to record as the plan's hash instead of the hash of the plan as built (a refresh records the compiled plan's).</param>
+    /// <param name="RecordShapes">Whether each load records the shape of its object before and after.</param>
+    internal sealed record ApplyMode(bool Refresh = false, string? PlanHash = null, bool RecordShapes = true);
+
+    internal static int RunPlan(CommandSpec spec, Plan plan, string planText, string planLabel, string root, bool dryRun, bool allowRisky, string[] allowDestructive, bool allowDirty, ApplyMode mode,
+        TextWriter output, TextWriter error, Func<string, string?> env)
+    {
         var configDiags = new List<Diagnostic>();
         var config = ProjectConfigLoader.LoadFromProject(root, configDiags);
         foreach (var d in configDiags.Where(d => d.Severity == Severity.Error)) error.Diag(d);
@@ -135,12 +156,17 @@ internal static class ApplyCommand
             Console.CancelKeyPress += onInterrupt;
             stopRequested = () => asked;
         }
-        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), commit, dirty, write?.User ?? Environment.UserName, stopRequested,
-            (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"));
+        // what an event records follows the project's audit level for its lane: the event and its steps (minimal); who and the commit (standard); the text of the plan and of each statement (full)
+        var lifecycle = config.LifecycleOf(plan.Connection);
+        var audit = (mode.Refresh ? lifecycle.Refresh : lifecycle.Deploy).Audit;
+        if (audit != AuditLevel.Full) planText = "";
+        var options = new ApplyOptions(dryRun, allowRisky, allowDestructive.ToHashSet(StringComparer.Ordinal), audit == AuditLevel.Minimal ? null : commit, dirty, audit == AuditLevel.Minimal ? "" : write?.User ?? Environment.UserName, stopRequested,
+            (name, token) => originLogins.TryGetValue(name, out var login) ? ReadSession.OpenAsync(login, token) : throw new InvalidOperationException($"no read login for connection {name}"),
+            Lane: mode.Refresh ? "refresh" : "deploy", ProjectHash: mode.Refresh ? null : plan.ProjectHash, PlanHash: mode.PlanHash, Refresh: mode.Refresh, RecordShapes: mode.RecordShapes, RecordText: audit == AuditLevel.Full);
 
         // refusals that need no connection come first
         var offline = new List<Diagnostic>(ApplyEngine.CheckAllowances(plan, options));
-        if (dirty && !allowDirty)
+        if (dirty && !allowDirty && config.LifecycleOf(plan.Connection).RequireCleanTree)
         {
             var dirtyDiag = new Diagnostic(DiagnosticCatalog.DirtyWorkingTree, new("git", 0, 0), $"The working tree at `{root}` has uncommitted changes (commit {commit?[..Math.Min(12, commit.Length)]}).");
             if (dryRun) error.Diag(dirtyDiag with { SeverityOverride = Severity.Warning }); else offline.Add(dirtyDiag);
@@ -162,6 +188,8 @@ internal static class ApplyCommand
         string? logPath = null;
         try
         {
+            if (!dryRun && StatementLogRetention.Prune(Path.Combine(root, InitCommand.StatementLogDir), lifecycle.StatementLogDays, DateTime.UtcNow) is > 0 and var pruned)
+                output.WriteLine($"Removed {pruned} statement log(s) older than {lifecycle.StatementLogDays} day(s) (retention.statement_logs_days).");
             using var log = new FileStatementLog(Path.Combine(root, InitCommand.StatementLogDir), dryRun ? "apply-dry-run" : "apply", runId);
             logPath = Path.GetRelativePath(root, log.Path);
             output.WriteLine($"Statement log: {logPath}");
@@ -177,8 +205,8 @@ internal static class ApplyCommand
                 if (step.Type != StepType.Track) output.WriteLine(step.Text.TrimEnd());
                 foreach (var p in step.Parameters) output.WriteLine($"-- @{p.Name} ({p.Type}) = {p.Value ?? "NULL"}");
             }
-        if (result.Success && !dryRun && tracking.Target is { } definitionTarget) RecordDefinitions(plan, root, new TrackingScope(definitionTarget.Engine, definitionTarget.SchemaName, plan.Connection), trackRead!, trackWrite!, env, commit, output);
-        if (result.Success && !dryRun && config.StoreMetadataOnApply)
+        if (!mode.Refresh && result.Success && !dryRun && tracking.Target is { } definitionTarget) RecordDefinitions(plan, root, new TrackingScope(definitionTarget.Engine, definitionTarget.SchemaName, plan.Connection), trackRead!, trackWrite!, env, commit, output);
+        if (!mode.Refresh && result.Success && !dryRun && config.StoreMetadataOnApply)
         {
             if (tracking.Target is { } storeTarget) StoreMetadata(plan, root, new TrackingScope(storeTarget.Engine, storeTarget.SchemaName, plan.Connection), trackRead!, trackWrite!, commit, output, error);
             else output.WriteLine("note: metadata was not stored: nothing is tracked for this connection.");
@@ -190,18 +218,18 @@ internal static class ApplyCommand
         foreach (var d in result.Refusals) error.Diag(d);
         output.WriteLine();
         foreach (var o in result.Outcomes) output.WriteLine($"  step {o.StepId}: {o.Status}{(o.Detail != null && o.Status != "ok" ? " (" + o.Detail + ")" : "")}  {o.Description}");
-        var planRelative = Path.GetRelativePath(root, planPath).Replace('\\', '/');
+        var planRelative = planLabel;
         if (result.Success)
         {
             output.WriteLine(dryRun ? "Dry run complete: every check passed and nothing was executed." : $"Applied plan {plan.Id}: {result.Outcomes.Count(o => o.Status == "ok")} step(s) executed.");
-            if (dryRun) output.Next($"connection deploy --apply-plan {planRelative}");
+            if (dryRun) output.Next(mode.Refresh ? "connection refresh" : $"connection deploy --apply-plan {planRelative}");
             else output.Next("connection monitor");
         }
         else
         {
             output.WriteLine($"Plan {plan.Id} did not complete. {result.Outcomes.Count(o => o.Status == "ok")} step(s) ran before the stop; see the statement log {logPath}.");
             // a plan that stopped part-way continues when it is applied again; a refused one has to be planned again
-            if (result.Outcomes.Count > 0) output.Next($"connection deploy --apply-plan {planRelative}", "connection monitor");
+            if (result.Outcomes.Count > 0) output.Next(mode.Refresh ? "connection monitor" : $"connection deploy --apply-plan {planRelative}", mode.Refresh ? "connection refresh" : "connection monitor");
         }
         return result.Success ? CliApp.ExitOk : CliApp.ExitFindings;
     }

@@ -15,8 +15,10 @@ public sealed record OptionInfo(string Name, string Description, OptionKind Kind
 public sealed record ArgumentInfo(string Name, string Description, bool Repeatable, bool Required, IReadOnlyList<string> Choices);
 
 /// <param name="Effect">The effect class as the command prints it ("Target read-only").</param>
+/// <param name="Lane">Where the command belongs in the life of a deployment: `inspect`, `deploy`, `refresh`, or empty.</param>
+/// <param name="Disposition">What it reads and writes in one code (`P⇒S`: reads the project, writes structure).</param>
 /// <param name="WriteFlag">When the command only changes something with a flag: `--write` (render, define), `--apply` (init), or `!--dry-run` (apply, which changes things unless the flag is given). Null: always, if <paramref name="Impact"/> is not None.</param>
-public sealed record CommandInfo(string Name, string Purpose, string Effect, Impact Impact, IReadOnlyList<ArgumentInfo> Arguments, IReadOnlyList<OptionInfo> Options, string? WriteFlag = null);
+public sealed record CommandInfo(string Name, string Purpose, string Effect, Impact Impact, IReadOnlyList<ArgumentInfo> Arguments, IReadOnlyList<OptionInfo> Options, string? WriteFlag = null, string Lane = "", string Disposition = "");
 
 /// <summary>Whether a call changes something, from the command's write flag(s): `--write` changes only with it; `!--dry-run` changes unless it is given; `--a|--b` changes with either.</summary>
 public static class WriteRules

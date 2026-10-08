@@ -770,35 +770,34 @@ public interface ITarget
 
 ## 9. Commands and effect classes
 
-### 9.1 Command surface
+### 9.1 Command surface (as built; the model behind it: `docs/research/lifecycle-model.md`, for readers `docs/concepts.md`)
 
-Every command declares one **effect class**, printed in `--help` and in a header at the start of each run (command, effect class, target, login in use, objects that may be touched).
+The commands are grouped by what they work on. `project` works on the project's files and never opens a database; `connection` works on a database the project is built on (`--connection <name>`, default the project's only default connection); `ui` starts an interface; `help` is reference. A connection has two lanes: **deploy** changes structure (rare, a person decides, recorded as an event) and **refresh** moves data through what exists (frequent, usually scheduled, never changes structure). `docs/commands.md` is generated from the program and lists every option.
 
-| Command | Effect class | Purpose |
-|---|---|---|
-| `dbdatabuild project compile` | Offline only | Validate config, models, matrix lint, ScriptDOM parse. No target connection |
-| `dbdatabuild project compile [<model>]` | Repo files only (no target connection) | Render load operations and resolvers per target. Prints by default; `--write` writes the committed `rendered/` files; `--check` fails if committed files differ from a fresh render and writes nothing |
-| `dbdatabuild project show loads` | Offline only | Print the model x target x operation pairing table with matrix status |
-| `dbdatabuild project sample [<model>...]` | Offline only | Run models on generated or supplied sample data in an in-memory DuckDB and show the rows (section 15.2). Connects to nothing, writes nothing |
-| `dbdatabuild project agent-kit` | Repo files only (lists unless `--write`) | Install the agent skill and JSON Schemas (section 9.7) |
-| `dbdatabuild ui terminal` | Offline only itself; each action it runs declares its own effect | Interactive terminal interface (section 9.6) |
-| `dbdatabuild help matrix` | Offline only | Print matrix and portability report |
-| `dbdatabuild help code <code>` | Offline only | Long-form diagnostic explanation |
-| `dbdatabuild project model update <path>` | Repo files only (no target connection) | Generate or update model definition files (YAML) from the query plus a guided walkthrough (section 6.5). `--check` writes nothing |
-| `dbdatabuild project import [<schema_name.table_name>...]` | Target read-only (writes mapped models under `models/` only with `--write`) | Export tables and views from the target as source descriptors; refresh the project's descriptors; `--check` for CI (section 6.5.1) |
-| `dbdatabuild connection compare <table> --against <table>` | Target read-only | Compare the data of two tables of one target: columns and types, row counts and a key-based row diff done in the engine; values only with `--show-values` (section 9.10) |
-| `dbdatabuild project show graph [<selector>...]` | Offline only | The dependency graph, column lineage and diagrams; selectors (section 9.9) |
-| `dbdatabuild project tests run [<test>...]` | Offline only | Run the project's tests: metadata rules in `tests/metadata/` and model tests in `tests/models/` (section 9.8). In-memory DuckDB; no target, nothing written |
-| `dbdatabuild connection status` | Target read-only | Preflight findings: drift, blocks, history report inputs |
-| `dbdatabuild connection deploy` | Target read-only (writes plan files locally) | Guided planning: discover, ask, generate plan |
-| `dbdatabuild project show plan [<plan>]` | Offline only | List the project's plan files, or show one (steps, risk, exact statements, report, intact or edited, what `apply` would need); applies nothing (section 9.7) |
-| `dbdatabuild connection monitor` | Target read-only | History consistency, drift, run and DDL history |
-| `dbdatabuild connection deploy --apply-plan <plan>` | **Target writes** (DDL and/or data, as the plan states) | Execute exactly the plan's recorded statements |
-| `dbdatabuild connection refresh <selector>` | **Target writes (data only)** | Shorthand: plan + apply, allowed only when the plan contains routine load steps and no questions or DDL. Otherwise refuses and points to `plan` |
-| `dbdatabuild ack ...` | Tracking tables only | Records a human decision (drift, history). Changes no user data |
-| `dbdatabuild connection init` | Tracking tables only | Creates tracking schema/tables. Prints the reviewable, idempotent script by default and connects to nothing; `--apply` runs it on the write login through the mutation gate |
+Every command declares an **effect class** and a **reads-and-writes code** (`P` the project, `C` a connection, `T` its tracking tables, `S` its structure, `D` its data; `→` reads, `⇒` writes), printed in `--help` and in the header of each run with the connection, the login in use and the lane.
 
-No flag changes a command's effect class. Backfills are requested through `plan` (scope option), not a separate mutating command.
+| Command | Reads and writes | Effect class | Purpose |
+|---|---|---|---|
+| `project create` | `P⇒P` | Repo files only | List the templates, or create a project from one |
+| `project model update` | `P⇒P` | Repo files only | Generate or update definition files from the queries (section 6.5); `--check` writes nothing |
+| `project compile` | `P⇒P` | Repo files only | Validate, then write `rendered/`: lowered queries, load scripts per connection and the refresh plan of each connection (section 10.6); `--check` compares and writes nothing; `--content` shows the files |
+| `project tests run`, `project tests list` | `P→` | Offline only | Run the project's tests (section 9.8) / list them |
+| `project sample`, `project seed` | `P→` / `P⇒P` | Offline only / Repo files only | Run models on sample data (section 15.2) / run the seeds into a DuckDB file |
+| `project import` | `C→P` | Target read-only (files with `--write`) | Export tables and views as mapped models (section 6.5.1); `--check` for CI |
+| `project show loads\|graph\|metadata\|plan` | `P→` | Offline only | The model x connection x operation table / the dependency graph (section 9.9) / everything the tool knows / a plan file |
+| `project agent-kit` | `P⇒P` | Repo files only | Install the skill and schemas (section 9.7) |
+| `connection inspect` | `C→` | Target read-only | Can the tool use the connection: logins, what they may do, tracking, schema names |
+| `connection init` | `P⇒T` | Tracking tables only | Create the tracking tables (prints the script; `--apply` runs it; `--upgrade` brings an older layout to this one) |
+| `connection status` | `C→` | Target read-only | Where it stands: drift, blocks, what a deploy would do |
+| `connection deploy` | `P⇒S` (`C→P` with `--write-plan`, `P⇒T` with `--ack`) | Target writes | Plan (asking what a plan must), show, and apply (section 10.1); `--write-plan` stops after the plan; `--apply-plan <file>` applies one; `--ack kind:name --reason` records a decision |
+| `connection refresh` | `P⇒D` | Target writes (data only) | Run the routine loads of the compiled refresh plan under a check (section 10.6) |
+| `connection monitor` | `C→` | Target read-only | History of events, DDL and loads, recorded shapes, what needs attention |
+| `connection compare` | `C→` | Target read-only | Compare the data of two tables (section 9.10) |
+| `connection seed`, `connection publish` | `P⇒S` / `P⇒T` | Target writes / Tracking tables only | Create and fill the seeded source tables / store the project's metadata |
+| `ui terminal\|web\|mcp` | none | Offline only; each action declares its own | The terminal interface (section 9.6), the web page, the MCP server (section 9.7) |
+| `help code <code>`, `help matrix` | none | Offline only | Explain a diagnostic / the support matrix |
+
+No flag changes a command's effect class except where the table says (the three modes of `connection deploy` have their own header). Backfills are requested through `connection deploy` (scope option), not a separate mutating command. There are no aliases for the commands of earlier versions.
 
 ### 9.2 Logins
 
@@ -1052,7 +1051,7 @@ Noticed but NOT done:
 - Refuses from a dirty working tree unless explicitly allowed. Records git commit and plan hash.
 - Acquires the application lock. Applies steps in order, recording per-step status.
 - After DDL steps, recomputes the shape hash and compares to the plan's expected result. Mismatch is logged and blocks dependents.
-- **Partial failure**: per-step status is recorded. `dbdatabuild connection deploy --apply-plan --resume` continues only if the live hashes match the recorded intermediate state. Otherwise stop and require a new plan. Nothing resumes automatically.
+- **Partial failure**: per-step status is recorded. Applying the same plan again continues it, and only if the live hashes match the recorded intermediate state (the finished steps are skipped); otherwise it stops and requires a new plan. A plan that completed is refused (DDB-438).
 - `--dry-run` prints every statement and runs all preflight checks using the same code path as a real apply.
 
 ### 10.4 Risk classes
@@ -1067,15 +1066,15 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 
 ### 10.4.1 Planning and applying as built
 
-`plan`, `check`, `apply` and `ack` exist (see `docs/progress/state-and-apply.md` entries 5 to 8 for the decisions and the evidence). Points where the build settles or differs from the text above:
+`connection deploy` (`--write-plan`, `--apply-plan`, `--ack`), `connection status` and `connection monitor` exist (see `docs/progress/state-and-apply.md` entries 5 to 8 for the decisions and the evidence). Points where the build settles or differs from the text above:
 
 - The decision table is `matrix/decision-table.yml`: 32 rows, each with an owner (`planner`, `command` or `apply`), and a test for every planner row. Planner steps name their row id first in their reason chain.
 - A plan with blocks is still written for the models that are not blocked; blocks and skips are listed in the report and the command exits non-zero.
 - Plan files are YAML with a SHA-256 over their content. `apply` refuses any plan that is not byte-for-byte what `plan` wrote (DDB-435), including cosmetic edits.
-- `apply` takes `--allow-risky`, `--allow-destructive <object>` (repeatable, naming each object), `--resume`, `--dry-run` and `--allow-dirty`. A plan is applied once (DDB-438); a plan that stopped part-way is resumed only from the exact intermediate state it recorded.
+- Applying a plan takes `--allow-risky`, `--allow-destructive <object>` (repeatable, naming each object), `--dry-run` and `--allow-dirty` (a tree with changes is refused by default; `plans.deploy.require_clean_tree: false` lifts that). A plan is applied once (DDB-438); a plan that stopped part-way continues, from the exact intermediate state it recorded, when it is applied again.
 - `ack drift` and `ack definition` record a person's acknowledgement of one specific hash in `block_log`; they never change user data.
 - Views are tracked by the hash of the applied `CREATE OR ALTER VIEW` text (in `ddl_log`); their column types are derived by the engine, so a view step has no predicted shape hash.
-- `run` plans and applies only routine loads and refuses anything else, pointing to `plan`. `report` lists applied plans, DDL and load history, recorded objects and what needs attention.
+- `connection refresh` runs the routine loads of the compiled refresh plan (section 10.6). `connection monitor` lists applied plans, DDL and load history, recorded objects and what needs attention.
 - `plan --op model=operation` and `plan --backfill model=operation` choose operations; a backfill is a risky step recorded in `operation_interval`.
 - `report` includes the per-column history report (12.3) built from the answers in applied plans; its warning-or-block policy for downstream models is built (12.3, entry 100).
 - Indexes are declared in the model (`indexes:`), never implied by `unique_key`; the planner creates missing ones, rebuilds changed ones (risky), and never drops undeclared ones. Hooks (`hooks:` in a model, `hook_groups:` in `dbdatabuild.yml`) are ordered, named, native-SQL scripts attached to events (`pre_`/`post_` create, alter, load, backfill; drop is reserved) per engine, and run as `hook` steps in plans.
@@ -1084,6 +1083,19 @@ Renames are never inferred. An undeclared rename plans as a destructive drop plu
 ### 10.5 Plans live in the repo
 
 Plans for shared targets are committed under `plans/<connection>/` with their answers and intents. Dev and ephemeral plans are not committed, and neither are plans containing load steps with resolved parameter values (section 6.6). `migration_log` in the target records plan hash, plan text, git commit, and before/after hashes, so the target's audit trail is self-contained.
+
+### 10.6 Refresh from a compiled plan (as built; model: `docs/research/lifecycle-model.md`, sections 5 and 8)
+
+A refresh is the frequent lane: it moves data through objects that exist and never changes structure. It does not plan. `project compile` writes, for each connection, `rendered/<connection>/refresh.plan.yml` (`RefreshPlanBuilder`, `RefreshPlanDocument`), a deterministic file with a hash of its own content that is committed with the project and documents how the project operates every day:
+
+- `loads`: the routine loads in dependency order. Each is a model's default operation: the committed load script (and resolver) by path and hash, the model's definition hash, the values the project's files give its parameters, the watermark's `on_null`/`initial`, and the safe data hooks (`pre_load`, `post_load`) around it, by path and hash. A value only the connection knows (a watermark) is not in the plan; the resolver finds it when the refresh runs.
+- `requires`: each loaded table and the shape hash the declared columns give it on that engine.
+- `project_hash`: a hash over the expected structure of the whole connection (each table model's shape, each view's definition). A deploy records the same hash on its event (`migration_log.project_hash`, tracking layout 5).
+- `excluded`: models with loads that are not routine, with the reason (a copy; a load that needs a value from a person; a hook that is not a safe data hook). A deploy handles those.
+
+`connection refresh` reads that file and the scripts it names (a script whose hash differs is DDB-448; a missing plan is DDB-446), applies the check, finds the watermarks, and runs the loads through the same apply engine in refresh mode: no verification against the live objects, nothing to continue, and an id of its own per run (`ref-<utc>-<4 hex>`) in `migration_log` with `lane = 'refresh'` and the compiled plan's hash. It writes no plan file; the plan text is kept in the event only when `plans.refresh.audit` is `full`.
+
+The check (`refresh.check`, or `--check`) chooses what to compare before anything runs. **none**: nothing; the engine's own errors are the check, and the connection is asked nothing about its structure (a test proves no catalog query is made). **project**: the plan's `project_hash` against the last completed deploy's; tracking tables only. **objects** (the default): each loaded object's expected shape against the latest recorded one; tracking tables only. **live**: each against the catalog as it is now, which also names a change made outside the tool. A failed check stops the refresh before it runs (DDB-447) unless `refresh.on_fail: warn` or `--on-fail warn` says to report and run. The test gate, native definition recording and metadata storing belong to deploy.
 
 ## 11. Planning decision table
 
@@ -1162,9 +1174,12 @@ CREATE TABLE dbdatabuild.block_log (
 );
 CREATE TABLE dbdatabuild.migration_log (
   plan_id varchar(128), plan_hash char(64), plan_text nvarchar(max), git_commit varchar(64),
-  applied_by nvarchar(256), applied_utc datetime2(3), hash_before char(64), hash_after char(64), status varchar(16)
+  applied_by nvarchar(256), applied_utc datetime2(3), hash_before char(64), hash_after char(64), status varchar(16),
+  lane varchar(128) NULL, project_hash char(64) NULL   -- layout 5: deploy or refresh; the structure the compiled project expected (a deploy)
 );
 ```
+
+**Layout 5** (`migration_log.lane`, `migration_log.project_hash`): a row of `migration_log` is an event (a deploy or a refresh run, with its own id; a refresh is `ref-<utc>-<4 hex>`). `init` never alters a table, so on a store of layout 4 it does not record version 5 until `init --upgrade --apply` has added the two columns; commands refuse the store (DDB-505) until then.
 
 ### 12.1 Hashes
 

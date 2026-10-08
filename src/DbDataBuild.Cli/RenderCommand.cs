@@ -1,6 +1,7 @@
 using System.Text;
 using DbDataBuild.Core;
 using DbDataBuild.Models;
+using DbDataBuild.Planning;
 using DbDataBuild.Targets.Rendering;
 
 namespace DbDataBuild.Cli;
@@ -40,13 +41,23 @@ internal static class RenderCommand
 
         var files = new List<RenderedFile>();
         var diags = new List<Diagnostic>(ctx.Diagnostics.Where(d => d.Severity == Severity.Error && d.Code != DiagnosticCatalog.OrphanFile.Code || d.Severity != Severity.Error));
+        var rendered = new List<(LoadedModel Model, RenderResult Render, IReadOnlyList<string> Targets)>();
         foreach (var m in selected)
         {
             var modelTargets = ctx.TargetsOf(m.Source.Definition).Where(t => targets.Length == 0 || targets.Contains(t)).ToList();
             var (result, _) = ctx.RenderModel(m.Source, m.Sql, modelTargets);
             files.AddRange(result.Files);
             diags.AddRange(result.Diagnostics);
+            rendered.Add((m, result, modelTargets));
         }
+        // the refresh plan of each connection is compiled from the whole project: a selection of models would leave loads out of it
+        var planned = models.Length == 0 && !diags.Any(d => d.Severity == Severity.Error);
+        if (planned)
+            foreach (var connection in rendered.SelectMany(r => r.Targets).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            {
+                var mine = rendered.Where(r => r.Targets.Contains(connection)).Select(r => (r.Model, r.Render)).ToList();
+                files.Add(new RenderedFile($"{connection}/{RefreshPlanDocument.FileName}", RefreshPlanDocument.Serialize(RefreshPlanBuilder.Build(ctx, connection, mine, diags))));
+            }
         foreach (var d in diags.DistinctBy(d => (d.Code, d.Location, d.Found))) error.Diag(d);
         var errors = diags.Count(d => d.Severity == Severity.Error);
 
@@ -87,7 +98,7 @@ internal static class RenderCommand
     private static HashSet<string> Scope(IReadOnlyList<RenderedFile> files, IReadOnlyList<LoadedModel> selected, string[] targets, bool whole, string renderedRoot, IEnumerable<string> connections)
     {
         var scope = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var f in files) scope.Add(string.Join('/', f.Path.Split('/').Take(2)));
+        foreach (var f in files) { var parts = f.Path.Split('/'); scope.Add(parts.Length == 2 ? parts[0] : string.Join('/', parts.Take(2))); }       // a file straight under a connection (its refresh plan) puts the connection's own folder in scope
         // directories of selected models that rendered nothing this time (an operation was removed) are in scope too
         foreach (var m in selected)
         {
@@ -102,7 +113,7 @@ internal static class RenderCommand
         return scope;
     }
 
-    private static bool IsGenerated(string fileName) => fileName is "manifest.yml" or "lowered.sql" || (fileName.StartsWith("load.", StringComparison.Ordinal) && fileName.EndsWith(".sql", StringComparison.Ordinal));
+    private static bool IsGenerated(string fileName) => fileName is "manifest.yml" or "lowered.sql" or RefreshPlanDocument.FileName || (fileName.StartsWith("load.", StringComparison.Ordinal) && fileName.EndsWith(".sql", StringComparison.Ordinal));
 
     private static (List<string> Wrote, List<string> Removed) Write(string root, IReadOnlyList<RenderedFile> files, HashSet<string> scopeDirs)
     {

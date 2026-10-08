@@ -160,12 +160,18 @@ public class ParametersTests
     }
 
     [Fact]
-    public void A_value_change_changes_no_rendered_file_and_a_reference_change_does()
+    public void A_value_change_changes_no_load_script_and_a_reference_change_does()
     {
         var dir = QueryProject();
         Assert.Equal(0, RenderFiles("--write", "--project", dir).Exit);
         File.WriteAllText(Path.Combine(dir, "dbdatabuild.yml"), Typed.Replace("region: eu", "region: us").Replace("value: 5", "value: 50"));
-        Assert.Equal(0, RenderFiles("--check", "--project", dir).Exit);                                    // the values are bound at run time, not rendered
+        var changed = RenderFiles("--check", "--project", dir);
+        Assert.Equal(1, changed.Exit);                                                                      // the values are bound at run time, not rendered: only the refresh plan, which records them, differs
+        Assert.Contains("refresh.plan.yml", changed.Err);
+        Assert.DoesNotContain("load.", changed.Err);
+        Assert.DoesNotContain("lowered.sql", changed.Err);
+        Assert.Equal(0, RenderFiles("--write", "--project", dir).Exit);
+        Assert.Equal(0, RenderFiles("--check", "--project", dir).Exit);
         File.WriteAllText(Path.Combine(dir, "models/marts/m.sql"), Query.Replace("${project.region}", "${project.limit}").Replace("region = ", "id = "));
         Assert.NotEqual(0, RenderFiles("--check", "--project", dir).Exit);
     }

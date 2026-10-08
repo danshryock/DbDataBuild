@@ -24,6 +24,7 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 |---|---|---|
 | `project compile [--check]` | project files | check config, models and sources (lowers every query with DuckDB, lints it per target; `data.models` has full metadata), then write `rendered/`; `--check` writes nothing and fails if `rendered/` is out of date |
 | `project sample [models]` | project (offline) | run models on generated or supplied rows and see the result (`--rows --seed --limit --data <dir> --sources`) |
+| `project tests list [--tag t] [--kind k]` | project (offline) | list the tests with their kind, severity and tags; nothing runs |
 | `project tests run [names] [--tag t] [--strict]` | project (offline) | run the project's tests: metadata rules in `tests/metadata/*.sql` (DuckDB SELECTs over the `metadata_*` views that return violations); exit 1 if an error-severity rule returns rows |
 | `project show graph [selectors] [--columns \| --column m.c \| --diagram dot\|mermaid]` | project (offline) | the dependency graph and column lineage; what a change to a model or a column reaches |
 | `project create [template] [dir]` | project files | list the built-in project templates, or create a ready-to-run example project (sources, seeds, staging, marts, tests) |
@@ -34,9 +35,10 @@ Always add `--format json`. Standard output is exactly one document (`schemas/ou
 | `project import [schema_name.table_name ...] [--write \| --check]` | connection (read-only); files only with `--write` | export tables and views from the connection as mapped models under `models/`; with no arguments refresh the existing ones; the default shows a diff and writes nothing |
 | `connection compare <schema_name.table_name> --against <schema_name.table_name> \| --against-schema <schema name> \| --against-connection <connection> [--key a,b] [--show-values]` | connection (read-only) | compare the data of two tables (of one connection, or the same table on another connection or engine, by digests): columns and types, row counts and a key-based row diff done in the engine; counts only unless `--show-values` (ask the person before using it: it prints real data) |
 | `project show plan [plan file] [--connection t]` | project (offline) | list the project's plans, or show one: steps with risk, reasons, parameters and exact statements, the report, whether it is intact, and what applying it would need to be allowed. Use it to summarize a plan; it applies nothing |
-| `connection status`, `connection monitor` | connection (read-only) | drift and blocks; history and what needs attention |
+| `connection inspect` | connection (read-only) | can the tool use the connection: are the logins set, do they connect and as whom, what may they do, are the tracking tables ready (nothing is created to find out) |
+| `connection status`, `connection monitor` | connection (read-only) | structure (in sync, pending, needs attention), the newest deploy and refresh, the policy; the timeline of events and what needs attention |
 | `connection deploy --write-plan` | connection (read-only), plan files | plan a change of structure: write a plan file for a person to read |
-| `connection deploy --apply-plan <plan>` (also `--yes`, `--ack kind:name --reason`), `connection refresh`, `connection init --apply`, `connection publish` | **changes the connection** | only with the person's go-ahead; `connection deploy --apply-plan <plan> --dry-run` changes nothing. A plan that stopped part-way continues when the same plan is applied again |
+| `connection deploy --apply-plan <plan>` (also `--yes`, `--ack kind:name --reason`), `connection refresh` (the routine loads of the compiled refresh plan; `--check none|project|objects|live`, `--on-fail warn`), `connection init --apply`, `connection publish` | **changes the connection** | only with the person's go-ahead; `connection deploy --apply-plan <plan> --dry-run` changes nothing. A plan that stopped part-way continues when the same plan is applied again |
 
 ## If the dbdatabuild tools are available (an MCP server)
 
@@ -123,7 +125,7 @@ cases:
 ## Facts to keep straight
 
 - DuckDB SQL is what you write; the target SQL is generated. Never write T-SQL or PostgreSQL syntax in a model.
-- A change to an incremental model's query blocks `connection refresh` (DDB-431) until a person plans again or accepts it with `connection deploy --ack definition:<model> --reason ...`. A change someone made in the database blocks that object (DDB-430) until `ack drift` or a restore.
+- A change to an incremental model's query blocks the next plan (DDB-431) until a person plans again or accepts it with `connection deploy --ack definition:<model> --reason ...`. A refresh runs what `project compile` wrote into `rendered/<connection>/refresh.plan.yml`; it never plans, and with the default check (`objects`) it stops when a table is behind the model (DDB-447). A change someone made in the database blocks that object (DDB-430) until `ack drift` or a restore.
 - `lowering: { enabled: false }`, `lint: { indexes: false }` and `rewrites: { fidelity: native }` in `dbdatabuild.yml` switch features off for the whole project (the last one gives each engine's own behavior where it differs from DuckDB, for shorter queries: `dbdatabuild help matrix --rewrites` says what changes): ask before changing config.
 - The human interfaces are `dbdatabuild ui terminal` (terminal) and `dbdatabuild ui web` (a page: health, lineage, models with their lowered and rendered scripts, plans and their questions, sample data, table diff, tests, the matrix; it applies a plan only if started with `--allow-apply`, on the person's confirmation); they run the same commands. You do not need them, but you may tell the person about them.
 - Anything not covered here: the `schemas/` folder next to this file has the exact shape of every file and every command's output, and `dbdatabuild help code <code>` explains every diagnostic.

@@ -22,8 +22,8 @@ public sealed class Tracker
     public bool Enabled => gate != null;
     public TrackingScope? Scope => scope;
 
-    public Task MigrationAsync(string stepId, string planId, string planHash, string planText, string? gitCommit, string appliedBy, string status, string? hashBefore, string? hashAfter, CancellationToken ct = default) =>
-        gate == null ? Task.CompletedTask : AuditLog.MigrationAsync(gate, scope!, stepId, planId, planHash, planText, gitCommit, appliedBy, status, hashBefore, hashAfter, ct);
+    public Task MigrationAsync(string stepId, string planId, string planHash, string planText, string? gitCommit, string appliedBy, string status, string? hashBefore, string? hashAfter, string? lane = null, string? projectHash = null, CancellationToken ct = default) =>
+        gate == null ? Task.CompletedTask : AuditLog.MigrationAsync(gate, scope!, stepId, planId, planHash, planText, gitCommit, appliedBy, status, hashBefore, hashAfter, lane, projectHash, ct);
 
     public Task BeginDdlAsync(string stepId, Guid ddlId, string objectName, string statementText, string statementHash, string? hashBefore, string invoker, string planId, string? gitCommit, CancellationToken ct = default) =>
         gate == null ? Task.CompletedTask : AuditLog.BeginDdlAsync(gate, scope!, stepId, ddlId, objectName, statementText, statementHash, hashBefore, invoker, planId, gitCommit, ct);

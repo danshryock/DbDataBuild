@@ -22,7 +22,7 @@ public sealed record LanePolicy(PlanKeep Keep, AuditLevel Audit);
 /// </summary>
 public sealed record LifecycleSettings(LanePolicy Deploy, LanePolicy Refresh, bool RequireCleanTree, RefreshCheck Check, OnFail OnFail, int StatementLogDays)
 {
-    public static LifecycleSettings Default { get; } = new(new(PlanKeep.Committed, AuditLevel.Full), new(PlanKeep.Committed, AuditLevel.Standard), false, RefreshCheck.Objects, OnFail.Block, 30);
+    public static LifecycleSettings Default { get; } = new(new(PlanKeep.Committed, AuditLevel.Full), new(PlanKeep.Committed, AuditLevel.Standard), true, RefreshCheck.Objects, OnFail.Block, 30);
 
     public static string Name(Enum value) => value.ToString().ToLowerInvariant();
 

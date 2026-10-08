@@ -79,7 +79,7 @@ internal sealed class ToolSurface
         {
             ["name"] = ToolName(c),
             ["title"] = c.Name,
-            ["description"] = $"{c.Purpose}. Effect: {c.Effect}.",
+            ["description"] = $"[{(c.Lane.Length > 0 ? c.Lane + " · " : "")}{c.Disposition}] {c.Purpose}. Effect: {c.Effect}.",
             ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = properties, ["required"] = required, ["additionalProperties"] = false },
             ["annotations"] = new JsonObject
             {

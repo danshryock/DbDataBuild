@@ -20,7 +20,7 @@ public static class CliApp
     /// The error number of a database exception (SQL Server's `Number`, PostgreSQL's `SqlState`), which says what went wrong (18456 is a failed login, 28P01 a wrong password) without the driver's message, which
     /// can quote a server name or a value. Read by name so the CLI does not depend on a driver.
     /// </summary>
-    private static string DriverNumber(Exception ex)
+    internal static string DriverNumber(Exception ex)
     {
         if (ex is not System.Data.Common.DbException) return "";
         foreach (var name in new[] { "Number", "SqlState" })
@@ -168,6 +168,12 @@ public static class CliApp
                     cmd.Options.Add(lsProject); cmd.Options.Add(lsTarget); cmd.Options.Add(lsSeed); cmd.Options.Add(lsScale); cmd.Options.Add(lsReplace); cmd.Options.Add(lsApply);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => LoadSeedsCommand.Run(spec, pr.GetValue(lsProject)!.FullName, pr.GetValue(lsTarget), pr.GetValue(lsSeed), pr.GetValue(lsScale), pr.GetValue(lsReplace), pr.GetValue(lsApply), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
+                case "connection inspect":
+                    var inspectProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var inspectTarget = new Option<string?>("--connection") { Description = "Connection to inspect (default: the project's only default connection)" };
+                    cmd.Options.Add(inspectProject); cmd.Options.Add(inspectTarget);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => InspectCommand.Run(spec, pr.GetValue(inspectProject)!.FullName, pr.GetValue(inspectTarget), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
                 case "connection init":
                     var initProject = new Option<DirectoryInfo>("--project") { Description = "Project root (contains dbdatabuild.yml)", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var initTarget = new Option<string?>("--connection") { Description = "Connection to initialize (default: the project's only default connection)" };
@@ -213,13 +219,18 @@ public static class CliApp
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => PlanCommand.Check(spec, pr.GetValue(checkProject)!.FullName, pr.GetValue(checkTarget), pr.GetValue(checkModels) ?? [], o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "connection refresh":
-                    var runModels = new Argument<string[]>("models") { Description = "Model selectors: names, files, directories, `+model`, `model+`, `@model`, `kind:`, `tag:`, `changed:<git ref>`, `exclude:...` (default: every model that declares the connection)", Arity = ArgumentArity.ZeroOrMore };
+                    var runModels = new Argument<string[]>("models") { Description = "Models whose loads to run: names, or patterns with * and ? (default: every routine load of the refresh plan)", Arity = ArgumentArity.ZeroOrMore };
                     var runProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
                     var runTarget = new Option<string?>("--connection") { Description = "Connection (default: the project's only default connection)" };
+                    var runCheck = new Option<string?>("--check") { Description = "The safety check before the loads, instead of the project's `refresh.check`: none (nothing; the engine's errors are the check), project (this project was deployed here), objects (each object against what was last deployed), live (each object against the catalog now)" };
+                    runCheck.AcceptOnlyFromAmong("none", "project", "objects", "live");
+                    var runOnFail = new Option<string?>("--on-fail") { Description = "What a failed check does, instead of the project's `refresh.on_fail`: block (stop before anything runs) or warn (report and run)" };
+                    runOnFail.AcceptOnlyFromAmong("block", "warn");
                     var runDirty = new Option<bool>("--allow-dirty") { Description = "Run from a working tree with uncommitted changes (recorded)" };
+                    var runDry = new Option<bool>("--dry-run") { Description = "Run every check and print every statement; execute nothing" };
                     cmd.Arguments.Add(runModels);
-                    cmd.Options.Add(runProject); cmd.Options.Add(runTarget); cmd.Options.Add(runDirty);
-                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RunCommand.Run(spec, pr.GetValue(runProject)!.FullName, pr.GetValue(runTarget), pr.GetValue(runModels) ?? [], pr.GetValue(runDirty), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    cmd.Options.Add(runProject); cmd.Options.Add(runTarget); cmd.Options.Add(runCheck); cmd.Options.Add(runOnFail); cmd.Options.Add(runDirty); cmd.Options.Add(runDry);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => RefreshCommand.Run(spec, pr.GetValue(runProject)!.FullName, pr.GetValue(runTarget), pr.GetValue(runModels) ?? [], pr.GetValue(runCheck), pr.GetValue(runOnFail), pr.GetValue(runDirty), pr.GetValue(runDry), o, e, environment ?? Environment.GetEnvironmentVariable)));
                     break;
                 case "connection monitor":
                     var reportProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
@@ -262,6 +273,13 @@ public static class CliApp
                     var impCheck = new Option<bool>("--check") { Description = "CI: fail if a descriptor differs from the table it describes; writes nothing" };
                     cmd.Arguments.Add(impTables); cmd.Options.Add(impProject); cmd.Options.Add(impTarget); cmd.Options.Add(impWrite); cmd.Options.Add(impCheck);
                     cmd.SetAction(pr => Reported(pr, spec, (o, e) => ImportSourcesCommand.Run(spec, pr.GetValue(impProject)!.FullName, pr.GetValue(impTarget), pr.GetValue(impTables) ?? [], pr.GetValue(impWrite), pr.GetValue(impCheck), o, e, environment ?? Environment.GetEnvironmentVariable)));
+                    break;
+                case "project tests list":
+                    var tlistProject = new Option<DirectoryInfo>("--project") { Description = "Project root", DefaultValueFactory = _ => new DirectoryInfo(".") };
+                    var tlistTag = new Option<string[]>("--tag") { Description = "List only tests with this tag (repeat for several: any of them)", AllowMultipleArgumentsPerToken = false, DefaultValueFactory = _ => [] };
+                    var tlistKind = new Option<string?>("--kind") { Description = "List only tests of this kind: metadata (tests/metadata) or model (tests/models)" };
+                    cmd.Options.Add(tlistProject); cmd.Options.Add(tlistTag); cmd.Options.Add(tlistKind);
+                    cmd.SetAction(pr => Reported(pr, spec, (o, e) => TestListCommand.Run(spec, pr.GetValue(tlistProject)!.FullName, pr.GetValue(tlistKind), pr.GetValue(tlistTag) ?? [], o, e)));
                     break;
                 case "project tests run":
                     var testNames = new Argument<string[]>("tests") { Description = "Test names (tests/metadata/naming/x.sql is naming.x) or files (default: every test)", Arity = ArgumentArity.ZeroOrMore };
@@ -384,6 +402,7 @@ public static class CliApp
         diagnostics.AddRange(ProjectChecks.Run(result.Sources, config, null, projectRoot, new ModelLowering(result.Models, result.AllDescriptors, config, result.Macros)));
         if (!diagnostics.Any(d => d.Severity == Severity.Error)) diagnostics.AddRange(ProjectChecks.Reachability(ProjectContext.Load(projectRoot), null));
 
+        diagnostics = diagnostics.DistinctBy(d => (d.Code, d.Location, d.Found)).ToList();      // one line per finding, however many checks reached it
         foreach (var d in diagnostics) error.Diag(d);
         var errors = diagnostics.Count(d => d.Severity == Severity.Error);
         var warnings = diagnostics.Count(d => d.Severity == Severity.Warning);

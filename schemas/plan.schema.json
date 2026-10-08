@@ -45,6 +45,11 @@
         },
         "git_dirty": {
           "type": "boolean"
+        },
+        "project_hash": {
+          "description": "The structure the compiled project expected of the connection when the plan was made (a hash over each table model's declared shape and each view's definition). A deploy records it on its event, so a refresh can ask whether this project was deployed.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },

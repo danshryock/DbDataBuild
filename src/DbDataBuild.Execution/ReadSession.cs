@@ -21,6 +21,12 @@ public sealed class ReadSession : IAsyncDisposable
         return new ReadSession(await read.OpenAsync(ct), read.Engine);
     }
 
+    /// <summary>Opens a session on a login of either kind, to ask what that login may do (`connection inspect`). Every statement is still guarded as a read: only SELECTs go through it, whichever login it is.</summary>
+    public static async Task<ReadSession> OpenForInspectionAsync(LoginSettings login, CancellationToken ct = default) => new(await login.OpenAsync(ct), login.Engine);
+
+    /// <summary>For tests only: told the text of every query this process reads (a test proves that a command asked the connection nothing about its structure).</summary>
+    internal static Action<string>? Observer { get; set; }
+
     internal static ReadSession ForTesting(DbConnection connection, string engine = "sqlserver") => new(connection, engine);
 
     /// <summary>Seconds a query of <see cref="QueryAsync"/> may run before the driver gives up (the driver's own default, 30, when null; 0 is no limit). A comparison of two large tables is one query that scans each.</summary>
@@ -30,6 +36,7 @@ public sealed class ReadSession : IAsyncDisposable
     public async Task<IReadOnlyList<IReadOnlyList<object?>>> QueryAsync(string sql, IReadOnlyList<GateParameter>? parameters = null, CancellationToken ct = default, int? timeoutSeconds = null)
     {
         if (ReadGuard.Check(sql) is { } refused) throw new GateRefusedException(refused);
+        Observer?.Invoke(sql);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
         if ((timeoutSeconds ?? CommandTimeoutSeconds) is { } seconds) cmd.CommandTimeout = seconds;

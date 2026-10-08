@@ -388,6 +388,21 @@ public static class DiagnosticCatalog
         $"Run the backfill (`{ProductInfo.Cli} connection deploy --backfill <model>=<operation>`), or accept the situation with `{ProductInfo.Cli} connection deploy --ack history:<model>.<column> --reason <why>`.",
         "The warning is information, not a block: the operator decides what is a continuing concern. An acknowledgement is recorded with who made it and why, changes no data, and is tied to the one plan whose decision it is about.");
 
+    public static readonly DiagnosticDescriptor RefreshPlanMissing = E("446", "There is no compiled refresh plan for the connection",
+        "A `rendered/<connection>/refresh.plan.yml` that `project compile` wrote, committed with the project.",
+        $"Run `{ProductInfo.Cli} project compile` and commit `rendered/`.",
+        "A refresh runs the routine loads the project compiled for the connection. It reads that plan, not the models, so it can run on a machine that only has the committed files and a login. The plan is written by `project compile`; a project that was never compiled, or a connection no model declares, has none.");
+
+    public static readonly DiagnosticDescriptor RefreshCheckFailed = E("447", "An object a refresh uses is not in the structure the project expects",
+        "Every object the refresh uses has the shape the compiled project expects, as the check chosen for the refresh finds it (`refresh.check`).",
+        $"Deploy the project (`{ProductInfo.Cli} connection deploy`), or compile again if the plan is out of date; `--check none` skips the check, `--on-fail warn` reports and runs.",
+        "A refresh never changes structure. When an object is behind (a column was added to the model and not yet deployed, a table was never created, or something changed it outside the tool), the loads would fail or load the wrong thing, so the refresh stops before it runs anything and says which objects, with the shape expected and the shape found.");
+
+    public static readonly DiagnosticDescriptor RefreshFileChanged = E("448", "A file a refresh plan names is not the one it was compiled from",
+        "Load scripts, resolvers and hook scripts with the hashes the refresh plan recorded.",
+        $"Run `{ProductInfo.Cli} project compile` and commit the result.",
+        "The refresh plan names each script it runs by path and hash. A script that is missing or has another content than when the project was compiled means the committed files disagree with each other; the refresh runs nothing rather than guess which one is right.");
+
     // 6xx: project tests (`project tests run`)
     public static readonly DiagnosticDescriptor TestFailed = E("601", "A project test failed",
         "a test that returns no violations: a metadata rule (`tests/metadata/<name>.sql`) whose SELECT returns no rows",
@@ -438,7 +453,7 @@ public static class DiagnosticCatalog
         SqlParseFailure, NotASingleSelect, ConstructNeedsVersion, PairUnsupported, RenderedScriptInvalid, PlaceholderUndeclared, KeyColumnNullable, TypeNotMappable, IndexNotSupported, HookScriptInvalid, QueryNotLowerable,
         CollationCannotSatisfyProfile, CollationNotVerifiable, CollationNotConfigured,
         AnswerForUnknownQuestion, AnswerChoiceInvalid, AnswerValueMismatch, NoProposalToAccept, QuestionUnanswered,
-        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, StepResultDiffers, DirtyWorkingTree, HistoryInconsistent, DefinitionFileChanged, DefinitionNotEditable,
+        DefinitionOutOfSync, RenderedFileOutOfDate, ObjectChangedOutsideTool, LoadDefinitionChanged, AdoptionDeclined, UpstreamBlocked, ModelUnplannable, PlanFileInvalid, StepNeedsAllowance, PlanIsStale, PlanAlreadyStarted, ApplyLockHeld, StepFailed, RefreshPlanMissing, RefreshCheckFailed, RefreshFileChanged, StepResultDiffers, DirtyWorkingTree, HistoryInconsistent, DefinitionFileChanged, DefinitionNotEditable,
         TestFailed, TestCouldNotRun, TestNotASelect,
         LoginNotConfigured, GateRefused, StatementLogUnavailable, ReadStatementRefused, TrackingNotInitialized,
         InternalError,

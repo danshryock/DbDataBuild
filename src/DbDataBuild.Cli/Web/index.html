@@ -54,6 +54,7 @@ pre { background: var(--code-bg); border-radius: 6px; padding: 10px 12px; overfl
 pre .ln { color: var(--muted); user-select: none; display: inline-block; width: 4ch; text-align: right; margin-right: 1.5ch; }
 pre .hit { background: var(--hi); display: block; }
 .badge { display: inline-block; padding: 0 7px; border-radius: 10px; font-size: 12px; border: 1px solid currentColor; }
+nav a .lane { margin-left: 6px; padding: 0 5px; font-size: 10px; border: 1px solid currentColor; border-radius: 8px; opacity: .7; }
 .tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; background: var(--code-bg); margin: 0 4px 2px 0; }
 a.link, .link { color: var(--accent); cursor: pointer; text-decoration: none; }
 a.link:hover, .link:hover { text-decoration: underline; }
@@ -750,12 +751,19 @@ function sampleResult(d) {
 // ---- routing --------------------------------------------------------------------------------------------------------------------------------------------
 
 const views = { health: "Health", lineage: "Lineage", models: "Models", plans: "Plans", sample: "Sample data", diff: "Table diff", tests: "Tests", matrix: "Support matrix" };
+// the lane of each screen and what it touches, said in words next to its name (the same words as the command headers: project, inspect, deploy, help)
+const lanes = {
+  health: ["project", "Reads the project's files and runs its checks. Opens no database."], lineage: ["project", "Reads the project's files. Opens no database."], models: ["project", "Reads the project's files. Opens no database."],
+  plans: ["deploy", "Plans are made from the project and a connection (read login); applying one changes the connection's structure and needs the page started with --allow-apply."],
+  sample: ["project", "Runs models on generated data in memory. Opens no database."], diff: ["inspect", "Reads two tables on a connection with the read login; counts only unless values are asked for."],
+  tests: ["project", "Runs the project's tests in memory. Opens no database."], matrix: ["help", "Reference: what each engine supports."],
+};
 function go(view, a, b) { location.hash = "#/" + [view, a && encodeURIComponent(a), b].filter(Boolean).join("/"); }
 
 async function render() {
   const [, view = "health", a, b] = location.hash.split("/");
   const current = views[view] ? view : "health";
-  $("nav").replaceChildren(...Object.entries(views).map(([id, label]) => h("a", { href: "#/" + id, class: id === current ? "on" : null, "aria-current": id === current ? "page" : null }, label)));
+  $("nav").replaceChildren(...Object.entries(views).map(([id, label]) => h("a", { href: "#/" + id, class: id === current ? "on" : null, "aria-current": id === current ? "page" : null, title: lanes[id][1] }, label, h("span", { class: "lane" }, lanes[id][0]))));
   const main = $("view");
   main.replaceChildren(loading());
   const name = a ? decodeURIComponent(a) : null;

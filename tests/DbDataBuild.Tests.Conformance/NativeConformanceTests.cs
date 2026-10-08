@@ -68,7 +68,12 @@ public partial class NativeConformanceTests
 
             // a different value is a new plan, the same rendered files
             Write("dbdatabuild.yml", Config(name).Replace("1,2,3,4", "5,6"));
-            Ok(Cli("project", "compile", "--check"), "render --check");
+            var changed = Cli("project", "compile", "--check");
+            Assert.NotEqual(0, changed.Exit);                                                         // only the refresh plan, which records the values, differs: the values are bound at run time, not rendered into a script
+            var stale = System.Text.RegularExpressions.Regex.Matches(changed.Err, @"error DDB-424\s+(\S+)").Select(m => m.Groups[1].Value).ToList();
+            Assert.Single(stale);
+            Assert.EndsWith("refresh.plan.yml", stale[0]);
+            Ok(Cli("project", "compile"), "compile after the value changed");
             var again = Cli("connection", "deploy", "--write-plan", "--connection", name);
             Ok(again, "second plan");
             Ok(Cli("connection", "deploy", "--apply-plan", PlanOf(again.Out)), "second apply");

@@ -15,8 +15,8 @@ public sealed record TrackingTable(string Name, string Purpose, IReadOnlyList<Tr
 /// </summary>
 public static class TrackingSchema
 {
-    /// <summary>Layout version. 2 added `metadata_document` and its views; 3 made `metadata_columns` cover source descriptors too (a `kind` column); 4 keyed every record by the `connection` it describes, so one tracking store can hold any number of connections' records; `init` upgrades an older layout by creating what is missing.</summary>
-    public const int Version = 4;
+    /// <summary>Layout version. 2 added `metadata_document` and its views; 3 made `metadata_columns` cover source descriptors too (a `kind` column); 4 keyed every record by the `connection` it describes, so one tracking store can hold any number of connections' records; `init` upgrades an older layout by creating what is missing; 5 told a deploy from a refresh and recorded the project's structure on each event (`lane`, `project_hash`).</summary>
+    public const int Version = 5;
 
     private static TrackingColumn C(string n, TrackingType t, bool nullable = false) => new(n, t, nullable);
 
@@ -66,7 +66,7 @@ public static class TrackingSchema
             C("connection", TrackingType.Name),
             C("plan_id", TrackingType.Short), C("plan_hash", TrackingType.Hash), C("plan_text", TrackingType.Long), C("git_commit", TrackingType.Short, true),
             C("applied_by", TrackingType.Name), C("applied_utc", TrackingType.TimestampUtc), C("hash_before", TrackingType.Hash, true), C("hash_after", TrackingType.Hash, true),
-            C("status", TrackingType.Short),
+            C("status", TrackingType.Short), C("lane", TrackingType.Short, true), C("project_hash", TrackingType.Hash, true),
         ], ["connection", "plan_id", "applied_utc"]),
         new("metadata_document", "Project, source, model and plan metadata as JSON documents, for introspection with SQL. Append-only; the views metadata_current and metadata_columns show the latest.",
         [
@@ -75,6 +75,12 @@ public static class TrackingSchema
             C("recorded_utc", TrackingType.TimestampUtc), C("tool_version", TrackingType.Short), C("plan_id", TrackingType.Short, true), C("git_commit", TrackingType.Short, true),
         ], ["connection", "kind", "subject", "recorded_utc"]),
     ];
+
+    /// <summary>
+    /// Columns that layout 5 added to tables that layout 4 has: `lane` (deploy or refresh) and `project_hash` (the structure the compiled project expected when a deploy ran) on each event. The init script adds them to a table that lacks them,
+    /// so initializing a layout 4 store brings it to this one.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> AddedInLayout5 = [("migration_log", "lane"), ("migration_log", "project_hash")];
 
     public static TrackingTable Table(string name) => Tables.First(t => t.Name == name);
 }
