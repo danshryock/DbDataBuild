@@ -984,3 +984,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Changed**: the executor (`MutationGate`) reports the count of the last statement that reports one instead of the driver's total over the script, so a load of 251 rows records 251, not 502. No rendered file changes. A hook script's count is likewise its last counting statement's.
 - **Tests**: `Run_only_runs_routine_loads_and_report_shows_what_happened` asserts the recorded counts (one load of 3 rows, three of 4). It fails with the change reverted.
 - **Verified**: unit suite and that test on SQL Server 2022 and PostgreSQL 17. Fabric not run.
+
+## 134. Less noise from `plan` (phase 1.3)
+
+- **Changed**: when more than one rendered file is missing or differs, `plan` gives one DDB-424 (the count, the first three files, `render --write`) instead of one per file (`render --check` still lists every file). The "not interactive and no --answers file" note is no longer printed up front; it is added to the "N question(s) are open" refusal, where it explains something.
+- **Tests**: the conformance test `The_whole_loop_works_and_every_refusal_holds` asserts one `error DDB-424`.
+- **Verified**: unit suite; the `Group=apply` conformance tests on SQL Server 2022 and PostgreSQL 17 (the one test that needed the new assertion fixed was re-run). Fabric not run.

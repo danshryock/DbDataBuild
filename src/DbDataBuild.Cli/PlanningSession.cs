@@ -155,6 +155,13 @@ internal sealed class PlanningSession
                 else if (File.ReadAllText(path) != file.Content) findings.Add(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, new($"{RenderCommand.RenderedDir}/{file.Path}", 0, 0), $"`{RenderCommand.RenderedDir}/{file.Path}` differs from a fresh render."));
             }
         }
+        // one finding for all the rendered files that are missing or differ (the cause is one: `render --write` was not run), with the first few named
+        var stale = findings.Where(d => d.Code == DiagnosticCatalog.RenderedFileOutOfDate.Code).DistinctBy(d => d.Location).ToList();
+        if (stale.Count > 1)
+        {
+            findings.RemoveAll(d => d.Code == DiagnosticCatalog.RenderedFileOutOfDate.Code);
+            findings.Add(new Diagnostic(DiagnosticCatalog.RenderedFileOutOfDate, stale[0].Location, $"{stale.Count} rendered files are missing or differ from a fresh render (for example {string.Join(", ", stale.Take(3).Select(d => $"`{d.Location.File}`"))}); run `{ProductInfo.Cli} render --write`."));
+        }
         var distinct = findings.DistinctBy(d => (d.Code, d.Location, d.Found)).ToList();
         foreach (var d in distinct.Where(d => d.Severity != Severity.Error)) error.Diag(d);
         var errors = distinct.Where(d => d.Severity == Severity.Error).ToList();

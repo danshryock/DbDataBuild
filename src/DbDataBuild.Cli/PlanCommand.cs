@@ -37,8 +37,6 @@ internal static class PlanCommand
         // --param model.operation.parameter=value is the answer to that parameter's question, so a scheduled backfill needs no file
         if (!ParseParams(paramArgs, file, error, out var paramAnswers)) return CliApp.ExitUsage;
         if (paramAnswers.Count > 0) { file = new AnswerFile([.. file?.Answers ?? [], .. paramAnswers]); if (answersFile == null) answersPath = "--param"; }
-        if (answersFile == null && paramAnswers.Count == 0 && !interactive && !acceptInferred)
-            output.WriteLine("note: not interactive and no --answers file: any open question will be listed and nothing will be planned.");
 
         if (!ParseOps(ops, "--op", error, out var operations) || !ParseOps(backfillArgs, "--backfill", error, out var backfillOps)) return CliApp.ExitUsage;
         foreach (var (model, op) in backfillOps)
@@ -65,6 +63,8 @@ internal static class PlanCommand
             {
                 output.Payload("open_questions", resolution.Unanswered.Select(QuestionJson).ToList());
                 output.WriteLine($"Nothing was planned: {resolution.Unanswered.Count} question(s) are open.");
+                if (answersFile == null && paramAnswers.Count == 0 && !interactive && !acceptInferred)
+                    output.WriteLine("This run is not interactive and has no --answers file: answer in a terminal, or give the answers with --answers or --param.");
                 return CliApp.ExitFindings;
             }
             answers.AddRange(resolution.Answers);

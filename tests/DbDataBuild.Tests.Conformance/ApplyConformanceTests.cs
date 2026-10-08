@@ -152,7 +152,10 @@ public partial class ApplyConformanceTests
             // ---- a model change: stale rendered files, then the incremental definition block, then answers ----
             run.Write("models/marts/fct_orders.yml", FctYaml2);
             run.Write("models/marts/fct_orders.sql", FctSql2);
-            Refused(run.Cli("plan"), "DDB-424", "planning with stale rendered files");
+            var stale = run.Cli("plan");
+            Refused(stale, "DDB-424", "planning with stale rendered files");
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(stale.Err, "error DDB-424"));
+            Assert.Contains("render --write", stale.Err);
             Ok(run.Cli("render", "--write"), "render --write after the change");
             var blocked = run.Cli("plan");
             Refused(blocked, "DDB-431", "planning an incremental model whose query changed");
