@@ -156,7 +156,18 @@ internal sealed class AdoWriteExecutor(DbConnection connection, bool postgres) :
             dp.Value = p.Value ?? DBNull.Value;
             cmd.Parameters.Add(dp);
         }
-        return await cmd.ExecuteNonQueryAsync(ct);
+        // A load script is several statements (stage, delete, insert), and the driver's own total adds their counts: 251 rows loaded read as 502.
+        // The rows of a script are those of the last statement that reports a count, which is the INSERT or MERGE of a load.
+        long lastCounted = -1;
+        if (cmd is Microsoft.Data.SqlClient.SqlCommand sql) sql.StatementCompleted += (_, e) => lastCounted = e.RecordCount;
+        var total = await cmd.ExecuteNonQueryAsync(ct);
+#pragma warning disable CS0618 // the batch API would need the script split by us; the per-statement counts of a command are what this reads
+        if (cmd is Npgsql.NpgsqlCommand pg)
+            foreach (var st in pg.Statements)
+                if (st.StatementType is Npgsql.StatementType.Insert or Npgsql.StatementType.Update or Npgsql.StatementType.Delete or Npgsql.StatementType.Merge or Npgsql.StatementType.CreateTableAs or Npgsql.StatementType.Select)
+                    lastCounted = (long)st.Rows;
+#pragma warning restore CS0618
+        return lastCounted >= 0 ? lastCounted : total;
     }
 
     public ValueTask DisposeAsync() => connection.DisposeAsync();

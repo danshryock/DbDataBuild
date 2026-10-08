@@ -978,3 +978,9 @@ Operator decision: correlated subqueries are a hard requirement.
 - **Changed**: `run` names its plan `ref-<utc yyyyMMddTHHmmss>-<4 random hex>` (`PlanDocument.CreateRunId`) instead of date + content hash, so the "a plan is applied once" rule (DDB-438) no longer meets a repeated run. `plan` and `apply` keep the content id until the deploy flow is rebuilt (`docs/research/lifecycle-implementation.md`, phase 3).
 - **Tests**: a unit test of the id format; the conformance test `Run_only_runs_routine_loads_and_report_shows_what_happened` runs three times in a row and counts three completed `ref-` rows.
 - **Verified**: unit suite (1818) and that conformance test on SQL Server 2022 and PostgreSQL 17. Fabric not run.
+
+## 133. The rows of a load are the rows inserted (phase 1.2)
+
+- **Changed**: the executor (`MutationGate`) reports the count of the last statement that reports one instead of the driver's total over the script, so a load of 251 rows records 251, not 502. No rendered file changes. A hook script's count is likewise its last counting statement's.
+- **Tests**: `Run_only_runs_routine_loads_and_report_shows_what_happened` asserts the recorded counts (one load of 3 rows, three of 4). It fails with the change reverted.
+- **Verified**: unit suite and that test on SQL Server 2022 and PostgreSQL 17. Fabric not run.

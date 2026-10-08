@@ -652,6 +652,11 @@ public partial class ApplyConformanceTests
             Assert.Equal(4, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("run_log"), "status = 'ok'"));
             Assert.Equal(3, await CountAsync(run, run.Q("dbdatabuild") + "." + run.Q("migration_log"), run.Q("plan_id") + " LIKE 'ref-%' AND status = 'completed'"));
 
+            // the rows of a load are the rows inserted, not the counts of its stage, delete and insert added up: the first load put in 3 rows, each run 4
+            var runLog = run.Q("dbdatabuild") + "." + run.Q("run_log");
+            Assert.Equal(1, await CountAsync(run, runLog, "status = 'ok' AND rows_affected = 3"));
+            Assert.Equal(3, await CountAsync(run, runLog, "status = 'ok' AND rows_affected = 4"));
+
             // the report shows the history and is clean
             var report = run.Cli("report");
             Ok(report, "report");

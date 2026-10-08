@@ -16,7 +16,7 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 |---|---|---|---|---|---|
 | 0 | Docs | this plan, the design, `docs/concepts.md` | | no | **done** |
 | 1.1 | Event ids; the "applied once" rule per event | scheduled `refresh`/`run` with unchanged content works every time; ids `dep-…`/`ref-…` in `plan_id` columns, plan hash in `plan_hash` | | report shows ids | **run lane done** (entry 132); deploy lane keeps its content id until phase 3 |
-| 1.2 | `rows_loaded` | the rows inserted by a load, not the sum of every statement's count | | report numbers change | planned |
+| 1.2 | `rows_loaded` | the rows inserted by a load, not the sum of every statement's count | | report numbers change | **done** (entry 133) |
 | 1.3 | Plan noise | one DDB-424 per cause; each note once; no "not interactive" note without a question | | text only | planned |
 | 2 | The command tree | `project`, `connection`, `ui`, `help` nouns; old verbs removed; JSON `command`, schemas, TUI catalog, MCP tool names, generated docs | 1 | **yes** | planned |
 | 3 | `deploy` as one flow | `status` read-only; `deploy` interactive; `--write-plan`, `--apply-plan`, `--ack`, `--reason`; continuing an incomplete event; no `--resume` | 2 | yes | planned |
@@ -40,7 +40,7 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 ### Phase 1.2 `rows_loaded`
 
 * Today the executor records `ExecuteNonQuery`'s return, which is the sum of the counts of the DELETE, SELECT INTO and INSERT of a load.
-* Change: the rendered load scripts end by reporting the rows inserted (SQL Server: `@@ROWCOUNT` of the INSERT kept in a variable and returned; PostgreSQL: the same through a `GET DIAGNOSTICS` equivalent in a DO block, or a counting CTE). The executor reads that value. Goldens of the rendered scripts change.
+* Change as built: no change to the rendered scripts. The executor takes the count of the last statement that reports one (SQL Server: `StatementCompleted`; PostgreSQL: the per-statement counts of the command), which is the INSERT or MERGE of a load.
 * Tests: a load of N rows records N on both engines, first load and reload.
 
 ### Phase 1.3 Noise
@@ -96,3 +96,4 @@ Design: `docs/research/lifecycle-model.md`. For people who use the tool: `docs/c
 |---|---|---|
 | 2026-10-07 | 0 | design, plan and concepts written |
 | 2026-10-07 | 1.1 | `run` gives each run an id `ref-<utc>-<4 hex>`: repeated runs of unchanged content no longer fail with DDB-438; verified on SQL Server 2022 and PostgreSQL 17 |
+| 2026-10-07 | 1.2 | `rows_affected` of a load is the rows inserted; verified on both engines |
