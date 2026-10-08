@@ -316,6 +316,19 @@ public class McpServerTests : IDisposable
     }
 
     [Fact]
+    public void No_tool_carries_a_null_member_because_a_strict_client_rejects_the_whole_list_over_one()
+    {
+        foreach (var hostHasApp in new[] { false, true })
+        {
+            var s = Server();
+            var caps = hostHasApp ? new JsonObject { ["extensions"] = new JsonObject { [McpServer.UiExtension] = new JsonObject() } } : new JsonObject();
+            Result(s, "initialize", new JsonObject { ["protocolVersion"] = McpServer.LatestProtocol, ["capabilities"] = caps });
+            foreach (var tool in Result(s, "tools/list")["tools"]!.AsArray())
+                foreach (var member in (JsonObject)tool!) Assert.True(member.Value != null, $"{tool["name"]}.{member.Key} is null (host has app: {hostHasApp})");
+        }
+    }
+
+    [Fact]
     public void Show_in_a_host_without_the_app_gives_a_link_that_works_once()
     {
         var s = Server();

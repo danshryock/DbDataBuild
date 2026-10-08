@@ -156,15 +156,21 @@ internal sealed class McpServer
             if (clientHasUi && ToolsWithApp.Contains(ToolSurface.ToolName(t))) d["_meta"] = UiMeta(false);
             yield return d;
         }
-        if (!noShow) yield return new JsonObject
+        if (!noShow)
         {
-            ["name"] = "show", ["title"] = "Show the interface", ["_meta"] = clientHasUi ? UiMeta(false) : null,
+            var show = new JsonObject
+            {
+            ["name"] = "show", ["title"] = "Show the interface",
             ["description"] = clientHasUi
                 ? "Open the dbdatabuild interface for the person (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something."
                 : "Give the person a link to the dbdatabuild interface in a browser (health, lineage, models, plans, sample data, table diff, tests, the support matrix). Use it when they should look at something or decide something. Tell them the link, once; it works once, for ten minutes, on the machine this server runs on. Do not open it yourself.",
             ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject { ["screen"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(Screens), ["description"] = "Which screen to open (default: health)" } }, ["additionalProperties"] = false },
             ["annotations"] = new JsonObject { ["readOnlyHint"] = true, ["destructiveHint"] = false, ["idempotentHint"] = true, ["openWorldHint"] = false },
-        };
+            };
+            // absent, never null: a client that validates the list strictly (Claude Code) rejects the whole list over a null `_meta`, and then offers no tools at all
+            if (clientHasUi) show["_meta"] = UiMeta(false);
+            yield return show;
+        }
         if (!clientHasUi) yield break;
         // what the page calls: visible to the app, not to the model. Applying a plan is among them: the person presses the button in the app, the model cannot.
         foreach (var (name, what) in new[] { ("ui_run", "Run a command that does not change a database, for the page"), ("ui_file", "Read a file of the project, for the page"), ("ui_capabilities", "What the page may do"),
