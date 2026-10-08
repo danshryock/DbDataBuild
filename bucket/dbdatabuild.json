@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/danshryock/DbDataBuild/releases/download/v0.4.0/dbdatabuild-v0.4.0-win-x64.zip",
-            "hash": "90d44dd5e25dc409ebdf407c2d2e966edcb7518ca49c9636ffdc174c1ccb435a",
+            "hash": "93477462be9ef362eb92b654830fdbe40f68703409df9bfa4dae8e848daaf2ee",
             "extract_dir": "dbdatabuild-v0.4.0-win-x64"
         }
     },
